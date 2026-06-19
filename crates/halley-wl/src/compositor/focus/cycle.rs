@@ -68,7 +68,31 @@ fn restore_camera_snapshot(st: &mut Halley, monitor: &str, center: Vec2, view_si
 }
 
 pub(crate) fn focus_cycle_session_active(st: &Halley) -> bool {
-    st.input.interaction_state.focus_cycle_session.is_some()
+    st.input
+        .interaction_state
+        .focus_cycle_session
+        .as_ref()
+        .is_some_and(|session| session.closing_started_at.is_none())
+}
+
+pub(crate) fn tick_focus_cycle_session(st: &mut Halley, now: Instant) {
+    const FOCUS_CYCLE_CLOSE_MS: u64 = 120;
+
+    let Some(session) = st.input.interaction_state.focus_cycle_session.as_ref() else {
+        return;
+    };
+    let Some(closing_started_at) = session.closing_started_at else {
+        return;
+    };
+    if now
+        .saturating_duration_since(closing_started_at)
+        .as_millis() as u64
+        >= FOCUS_CYCLE_CLOSE_MS
+    {
+        st.input.interaction_state.focus_cycle_session = None;
+    } else {
+        st.request_maintenance();
+    }
 }
 
 #[cfg(test)]
@@ -131,7 +155,7 @@ impl<T: Deref<Target = Halley>> FocusCycleController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
-    fn refresh_session_candidates(&mut self) -> bool {
+    fn refresh_session_candidates(&mut self, now: Instant) -> bool {
         let Some(session) = self.input.interaction_state.focus_cycle_session.as_ref() else {
             return false;
         };
@@ -164,11 +188,14 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
         }
 
         session.preview_index = next_index;
+        session.step_from_visual_index = next_index as f32;
+        session.step_to_visual_index = next_index as f32;
+        session.step_started_at = now;
         true
     }
 
-    fn preview_step(&mut self, direction: FocusCycleBindingAction) -> bool {
-        if !self.refresh_session_candidates() {
+    fn preview_step(&mut self, direction: FocusCycleBindingAction, now: Instant) -> bool {
+        if !self.refresh_session_candidates(now) {
             return false;
         }
 
@@ -178,12 +205,27 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
         if session.candidates.len() < 2 {
             return false;
         }
+        if session.closing_started_at.is_some() {
+            return false;
+        }
 
         let len = session.candidates.len();
-        session.preview_index = match direction {
-            FocusCycleBindingAction::Forward => (session.preview_index + 1) % len,
-            FocusCycleBindingAction::Backward => (session.preview_index + len - 1) % len,
+        let from_index = session.preview_index;
+        let to_index = match direction {
+            FocusCycleBindingAction::Forward => (from_index + 1) % len,
+            FocusCycleBindingAction::Backward => (from_index + len - 1) % len,
         };
+        let to_visual = match direction {
+            FocusCycleBindingAction::Forward if from_index + 1 == len && to_index == 0 => {
+                len as f32
+            }
+            FocusCycleBindingAction::Backward if from_index == 0 && to_index + 1 == len => -1.0,
+            _ => to_index as f32,
+        };
+        session.preview_index = to_index;
+        session.step_from_visual_index = from_index as f32;
+        session.step_to_visual_index = to_visual;
+        session.step_started_at = now;
 
         let preview = session.candidates[session.preview_index];
         if session
@@ -201,7 +243,7 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
     pub(crate) fn start_or_step_focus_cycle(
         &mut self,
         direction: FocusCycleBindingAction,
-        _now: Instant,
+        now: Instant,
     ) -> bool {
         if self.input.interaction_state.focus_cycle_session.is_none() {
             let origin_focus = self.last_input_surface_node_for_monitor(self.focused_monitor());
@@ -229,13 +271,18 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             self.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
                 candidates,
                 preview_index: 0,
+                opened_at: now,
+                step_from_visual_index: 0.0,
+                step_to_visual_index: 0.0,
+                step_started_at: now,
+                closing_started_at: None,
                 origin_focus,
                 immersive_origin,
                 immersive_lock_released: false,
             });
         }
 
-        self.preview_step(direction)
+        self.preview_step(direction, now)
     }
 
     fn restore_origin_without_tracking(&mut self, session: &FocusCycleSession) {
@@ -257,17 +304,27 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
     }
 
     pub(crate) fn cancel_focus_cycle(&mut self) -> bool {
-        let Some(session) = self.input.interaction_state.focus_cycle_session.take() else {
+        let Some(session) = self.input.interaction_state.focus_cycle_session.clone() else {
             return false;
         };
+        if session.closing_started_at.is_some() {
+            return false;
+        }
         self.restore_origin_without_tracking(&session);
+        if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
+            session.closing_started_at = Some(Instant::now());
+        }
+        self.request_maintenance();
         true
     }
 
     pub(crate) fn commit_focus_cycle(&mut self, now: Instant) -> bool {
-        let Some(session) = self.input.interaction_state.focus_cycle_session.take() else {
+        let Some(session) = self.input.interaction_state.focus_cycle_session.clone() else {
             return false;
         };
+        if session.closing_started_at.is_some() {
+            return false;
+        }
 
         let target = session
             .candidates
@@ -280,8 +337,19 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
 
         let Some(target) = target else {
             self.apply_wayland_focus_state(None);
+            if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
+                session.closing_started_at = Some(now);
+            }
+            self.request_maintenance();
             return true;
         };
+        // The alt+tab prewarm captured `target` into the shared offscreen cache, and
+        // the live-window prewarm never refreshes a complete cache entry. Drop it so the
+        // live path rebuilds the picked window at its real geometry next frame instead of
+        // reusing the switcher snapshot.
+        self.ui
+            .render_state
+            .clear_window_offscreen_cache_for(target);
         if Some(target) == session.origin_focus {
             if let Some(immersive) = session.immersive_origin.as_ref()
                 && immersive.node_id == target
@@ -296,6 +364,10 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             self.apply_wayland_focus_state(Some(target));
             let _ = self.raise_overlap_policy_node(target);
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
+            if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
+                session.closing_started_at = Some(now);
+            }
+            self.request_maintenance();
             return true;
         }
 
@@ -357,6 +429,10 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
         if changed {
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
         }
+        if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
+            session.closing_started_at = Some(now);
+        }
+        self.request_maintenance();
         changed
     }
 }
@@ -457,6 +533,96 @@ mod tests {
             trail_before_len
         );
         assert_eq!(state.focus_cycle_preview_node(), Some(b));
+    }
+
+    #[test]
+    fn focus_cycle_steps_record_visual_animation_indices() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(a);
+        state.assign_node_to_current_monitor(b);
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(a), 30_000, now);
+        assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, now));
+        let session = state
+            .input
+            .interaction_state
+            .focus_cycle_session
+            .as_ref()
+            .expect("session");
+        assert_eq!(session.opened_at, now);
+        assert_eq!(session.step_started_at, now);
+        assert_eq!(session.step_from_visual_index, 0.0);
+        assert_eq!(session.step_to_visual_index, 1.0);
+        assert_eq!(session.preview_index, 1);
+
+        let later = now + std::time::Duration::from_millis(8);
+        assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, later));
+        let session = state
+            .input
+            .interaction_state
+            .focus_cycle_session
+            .as_ref()
+            .expect("session");
+        assert_eq!(session.step_started_at, later);
+        assert_eq!(session.step_from_visual_index, 1.0);
+        assert_eq!(session.step_to_visual_index, 2.0);
+        assert_eq!(session.preview_index, 0);
+    }
+
+    #[test]
+    fn commit_keeps_visual_session_until_close_animation_finishes() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(a);
+        state.assign_node_to_current_monitor(b);
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(a), 30_000, now);
+        assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, now));
+        assert!(state.focus_cycle_session_active());
+        assert!(state.commit_focus_cycle(now));
+
+        assert!(!state.focus_cycle_session_active());
+        assert!(
+            state
+                .input
+                .interaction_state
+                .focus_cycle_session
+                .as_ref()
+                .and_then(|session| session.closing_started_at)
+                .is_some()
+        );
+
+        tick_focus_cycle_session(&mut state, now + std::time::Duration::from_millis(60));
+        assert!(state.input.interaction_state.focus_cycle_session.is_some());
+        tick_focus_cycle_session(&mut state, now + std::time::Duration::from_millis(140));
+        assert!(state.input.interaction_state.focus_cycle_session.is_none());
     }
 
     #[test]
@@ -613,6 +779,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![origin, target],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(origin),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -666,6 +837,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![maximized, collapsed],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(maximized),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -732,6 +908,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![fullscreen, collapsed],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(fullscreen),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -780,6 +961,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![maximized, visible],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(maximized),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -835,6 +1021,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![other, maximized],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(other),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -885,6 +1076,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![maximized, offscreen],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(maximized),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -935,6 +1131,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![fullscreen, offscreen],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(fullscreen),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -979,6 +1180,11 @@ mod tests {
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![fullscreen, visible],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(fullscreen),
             immersive_origin: None,
             immersive_lock_released: false,
@@ -1158,9 +1364,15 @@ mod tests {
             .get(current_monitor.as_str())
             .expect("monitor")
             .clone();
+        let now = Instant::now();
         state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
             candidates: vec![fullscreen, other],
             preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
             origin_focus: Some(fullscreen),
             immersive_origin: Some(FocusCycleImmersiveOrigin {
                 node_id: fullscreen,
@@ -1171,7 +1383,6 @@ mod tests {
             immersive_lock_released: true,
         });
 
-        let now = Instant::now();
         assert!(state.commit_focus_cycle(now));
 
         assert_eq!(

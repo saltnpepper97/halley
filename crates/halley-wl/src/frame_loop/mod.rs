@@ -99,7 +99,12 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         );
     }
     if let Some(session) = st.input.interaction_state.apogee_session.as_ref() {
-        keep_warm.extend(session.tiles.iter().map(|tile| tile.node_id));
+        keep_warm.extend(
+            session
+                .monitors
+                .iter()
+                .flat_map(|monitor_session| monitor_session.tiles.iter().map(|tile| tile.node_id)),
+        );
     }
     st.ui
         .render_state
@@ -143,6 +148,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     st.tick_pending_spawn_pan(now, now_ms);
     crate::compositor::workspace::state::tick_maximize_animation(st, now);
     tick_active_drag(st, now);
+    crate::compositor::focus::cycle::tick_focus_cycle_session(st, now);
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     tick_pending_core_hover_bloom(st, now_ms);
@@ -919,6 +925,7 @@ mod tests {
                     .node(node_id)
                     .map(|node| node.pos)
                     .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
+                parallax_start_offset: Vec2 { x: 0.0, y: 0.0 },
                 allow_monitor_transfer: true,
                 edge_pan_eligible: false,
                 current_offset: Vec2 { x: 0.0, y: 0.0 },

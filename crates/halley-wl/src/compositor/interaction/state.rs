@@ -79,6 +79,7 @@ pub(crate) struct PendingMaximize {
 pub(crate) struct ActiveDragState {
     pub(crate) node_id: NodeId,
     pub(crate) parallax_origin: Vec2,
+    pub(crate) parallax_start_offset: Vec2,
     pub(crate) allow_monitor_transfer: bool,
     pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: Vec2,
@@ -217,6 +218,11 @@ pub(crate) struct FocusCycleImmersiveOrigin {
 pub(crate) struct FocusCycleSession {
     pub(crate) candidates: Vec<NodeId>,
     pub(crate) preview_index: usize,
+    pub(crate) opened_at: Instant,
+    pub(crate) step_from_visual_index: f32,
+    pub(crate) step_to_visual_index: f32,
+    pub(crate) step_started_at: Instant,
+    pub(crate) closing_started_at: Option<Instant>,
     pub(crate) origin_focus: Option<NodeId>,
     pub(crate) immersive_origin: Option<FocusCycleImmersiveOrigin>,
     pub(crate) immersive_lock_released: bool,
@@ -313,6 +319,8 @@ pub(crate) struct InteractionState {
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
     pub(crate) apogee_session: Option<crate::compositor::overview::ApogeeSession>,
+    pub(crate) apogee_live_preview_node: Option<NodeId>,
+    pub(crate) apogee_live_preview_last_at: Option<Instant>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,

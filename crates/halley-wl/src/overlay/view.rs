@@ -18,6 +18,7 @@ pub(crate) struct OverlayView<'a> {
     pub(crate) render_state: &'a RenderState,
     pub(crate) tuning: &'a RuntimeTuning,
     pub(crate) node_app_ids: &'a std::collections::HashMap<NodeId, String>,
+    pub(crate) last_active_size: &'a std::collections::HashMap<NodeId, Vec2>,
     pub(crate) viewport: Viewport,
     pub(crate) camera_view_size: Vec2,
 }
@@ -32,6 +33,7 @@ impl<'a> OverlayView<'a> {
             render_state: &st.ui.render_state,
             tuning: &st.runtime.tuning,
             node_app_ids: &st.model.node_app_ids,
+            last_active_size: &st.model.workspace_state.last_active_size,
             viewport: st.model.viewport,
             camera_view_size: camera_controller(st).view_size(),
         }

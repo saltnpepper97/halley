@@ -7,8 +7,8 @@ use crate::compositor::interaction::state::CursorParallaxState;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 
-const CURSOR_PARALLAX_DEAD_ZONE: f32 = 0.01;
-const CURSOR_PARALLAX_SETTLE_EPSILON: f32 = 0.01;
+const DRAG_PARALLAX_DEAD_ZONE: f32 = 0.01;
+const DRAG_PARALLAX_SETTLE_EPSILON: f32 = 0.01;
 
 pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
     let view = camera_controller(st).view_size();
@@ -24,6 +24,20 @@ pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i
 }
 
 pub(crate) fn cursor_parallax_position(st: &Halley, node_id: NodeId, pos: Vec2) -> Vec2 {
+    cursor_parallax_position_for_monitor(
+        st,
+        st.model.monitor_state.current_monitor.as_str(),
+        node_id,
+        pos,
+    )
+}
+
+pub(crate) fn cursor_parallax_position_for_monitor(
+    st: &Halley,
+    monitor: &str,
+    node_id: NodeId,
+    pos: Vec2,
+) -> Vec2 {
     if st
         .input
         .interaction_state
@@ -40,9 +54,8 @@ pub(crate) fn cursor_parallax_position(st: &Halley, node_id: NodeId, pos: Vec2) 
         return pos;
     }
 
-    let offset =
-        cursor_parallax_offset_for_monitor(st, st.model.monitor_state.current_monitor.as_str());
-    if vec2_len_sq(offset) <= CURSOR_PARALLAX_SETTLE_EPSILON * CURSOR_PARALLAX_SETTLE_EPSILON {
+    let offset = cursor_parallax_offset_for_monitor(st, monitor);
+    if vec2_len_sq(offset) <= DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON {
         return pos;
     }
     Vec2 {
@@ -66,14 +79,18 @@ pub(crate) fn cursor_parallax_active_for_monitor(st: &Halley, monitor: &str) -> 
         .cursor_parallax
         .get(monitor)
         .is_some_and(|state| {
-            vec2_len_sq(state.current)
-                > CURSOR_PARALLAX_SETTLE_EPSILON * CURSOR_PARALLAX_SETTLE_EPSILON
+            vec2_len_sq(state.current) > DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON
                 || vec2_len_sq(state.target)
-                    > CURSOR_PARALLAX_SETTLE_EPSILON * CURSOR_PARALLAX_SETTLE_EPSILON
+                    > DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON
         })
 }
 
 pub(crate) fn tick_cursor_parallax(st: &mut Halley, now: std::time::Instant) -> bool {
+    let active_drag = st.input.interaction_state.active_drag.clone();
+    if active_drag.is_none() && st.input.interaction_state.cursor_parallax.is_empty() {
+        return false;
+    }
+
     let elapsed = now
         .saturating_duration_since(st.input.interaction_state.cursor_parallax_last_tick)
         .as_secs_f32()
@@ -81,29 +98,55 @@ pub(crate) fn tick_cursor_parallax(st: &mut Halley, now: std::time::Instant) -> 
     st.input.interaction_state.cursor_parallax_last_tick = now;
     let tau_secs = (st.runtime.tuning.parallax.tau_ms as f32 / 1000.0).max(0.001);
     let alpha = 1.0 - (-elapsed / tau_secs).exp();
-    let pointer_monitor = st
-        .input
-        .interaction_state
-        .last_pointer_screen_global
-        .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy));
-    let monitors = st
-        .model
-        .monitor_state
-        .monitors
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
+    let monitors = if active_drag.is_some() {
+        st.model
+            .monitor_state
+            .monitors
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        st.input
+            .interaction_state
+            .cursor_parallax
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     let mut changed = false;
     let mut remove = Vec::new();
 
     for monitor in monitors {
-        let target = if st.runtime.tuning.parallax.enabled
-            && st.input.interaction_state.apogee_session.is_none()
-            && pointer_monitor.as_deref() == Some(monitor.as_str())
+        let existing = st
+            .input
+            .interaction_state
+            .cursor_parallax
+            .get(&monitor)
+            .copied();
+        let target = if let Some(active_drag) = active_drag.as_ref() {
+            if !st.runtime.tuning.parallax.enabled
+                || st.input.interaction_state.apogee_session.is_some()
+            {
+                Vec2 { x: 0.0, y: 0.0 }
+            } else if active_drag.pointer_monitor == monitor {
+                drag_parallax_target_for_monitor(st, monitor.as_str(), active_drag)
+            } else {
+                existing
+                    .map(|state| state.current)
+                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            }
+        } else if !st.runtime.tuning.parallax.enabled
+            || st.input.interaction_state.apogee_session.is_some()
+            || existing.is_some_and(|state| {
+                vec2_len_sq(state.target)
+                    <= DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON
+            })
         {
-            cursor_parallax_target_for_monitor(st, monitor.as_str())
-        } else {
             Vec2 { x: 0.0, y: 0.0 }
+        } else {
+            existing
+                .map(|state| state.current)
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
         };
         let entry = st
             .input
@@ -120,18 +163,17 @@ pub(crate) fn tick_cursor_parallax(st: &mut Halley, now: std::time::Instant) -> 
             x: entry.current.x + (target.x - entry.current.x) * alpha,
             y: entry.current.y + (target.y - entry.current.y) * alpha,
         };
-        if vec2_len_sq(entry.current)
-            <= CURSOR_PARALLAX_SETTLE_EPSILON * CURSOR_PARALLAX_SETTLE_EPSILON
+        if vec2_len_sq(entry.current) <= DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON
             && vec2_len_sq(entry.target)
-                <= CURSOR_PARALLAX_SETTLE_EPSILON * CURSOR_PARALLAX_SETTLE_EPSILON
+                <= DRAG_PARALLAX_SETTLE_EPSILON * DRAG_PARALLAX_SETTLE_EPSILON
         {
             entry.current = Vec2 { x: 0.0, y: 0.0 };
             remove.push(monitor.clone());
         }
         if (entry.current.x - before.x).abs() > 0.001
             || (entry.current.y - before.y).abs() > 0.001
-            || (entry.current.x - entry.target.x).abs() > CURSOR_PARALLAX_SETTLE_EPSILON
-            || (entry.current.y - entry.target.y).abs() > CURSOR_PARALLAX_SETTLE_EPSILON
+            || (entry.current.x - entry.target.x).abs() > DRAG_PARALLAX_SETTLE_EPSILON
+            || (entry.current.y - entry.target.y).abs() > DRAG_PARALLAX_SETTLE_EPSILON
         {
             st.request_tty_redraw_for_monitor(monitor.as_str());
             changed = true;
@@ -147,8 +189,15 @@ pub(crate) fn tick_cursor_parallax(st: &mut Halley, now: std::time::Instant) -> 
     changed
 }
 
-fn cursor_parallax_target_for_monitor(st: &Halley, monitor: &str) -> Vec2 {
+fn drag_parallax_target_for_monitor(
+    st: &Halley,
+    monitor: &str,
+    active_drag: &crate::compositor::interaction::state::ActiveDragState,
+) -> Vec2 {
     let Some(space) = st.model.monitor_state.monitors.get(monitor) else {
+        return Vec2 { x: 0.0, y: 0.0 };
+    };
+    let Some(node) = st.model.field.node(active_drag.node_id) else {
         return Vec2 { x: 0.0, y: 0.0 };
     };
     let (viewport_size, view_size) = if monitor == st.model.monitor_state.current_monitor {
@@ -158,22 +207,21 @@ fn cursor_parallax_target_for_monitor(st: &Halley, monitor: &str) -> Vec2 {
     };
     let scale = (viewport_size.x.max(1.0) / view_size.x.max(1.0)).max(0.01);
     let zoom_out = 1.0 - scale;
-    if zoom_out <= CURSOR_PARALLAX_DEAD_ZONE {
-        return Vec2 { x: 0.0, y: 0.0 };
+    let start_offset = active_drag.parallax_start_offset;
+    if zoom_out <= DRAG_PARALLAX_DEAD_ZONE {
+        return start_offset;
     }
-    let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global else {
-        return Vec2 { x: 0.0, y: 0.0 };
+    let delta = Vec2 {
+        x: node.pos.x - active_drag.parallax_origin.x,
+        y: node.pos.y - active_drag.parallax_origin.y,
     };
-    let (screen_w, screen_h, local_sx, local_sy) = st.local_screen_in_monitor(monitor, sx, sy);
-    let nx = (local_sx / screen_w.max(1) as f32 - 0.5).clamp(-0.5, 0.5) * 2.0;
-    let ny = (local_sy / screen_h.max(1) as f32 - 0.5).clamp(-0.5, 0.5) * 2.0;
-    if nx.abs() <= 0.01 && ny.abs() <= 0.01 {
-        return Vec2 { x: 0.0, y: 0.0 };
+    if delta.x.abs() <= 0.01 && delta.y.abs() <= 0.01 {
+        return start_offset;
     }
     let strength = st.runtime.tuning.parallax.strength * (zoom_out / 0.5).clamp(0.0, 1.0);
     Vec2 {
-        x: nx * view_size.x * strength,
-        y: ny * view_size.y * strength,
+        x: start_offset.x + delta.x * strength,
+        y: start_offset.y + delta.y * strength,
     }
 }
 
@@ -352,12 +400,12 @@ mod tests {
 
     use super::{cursor_parallax_position, themed_node_ring_color, tick_cursor_parallax};
     use crate::compositor::interaction::DragAxisMode;
-    use crate::compositor::interaction::state::ActiveDragState;
-    use crate::compositor::overview::{ApogeePhase, ApogeeSession};
+    use crate::compositor::interaction::state::{ActiveDragState, CursorParallaxState};
+    use crate::compositor::overview::{ApogeeMonitorSession, ApogeePhase, ApogeeSession};
     use crate::compositor::root::Halley;
 
     #[test]
-    fn cursor_parallax_is_zoom_out_gated_and_ignores_drag_delta() {
+    fn parallax_is_zoom_out_gated_and_drag_delta_driven() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, RuntimeTuning::default());
         let dragged = st.model.field.spawn_surface(
@@ -370,19 +418,6 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 400.0, y: 260.0 },
         );
-        st.input.interaction_state.active_drag = Some(ActiveDragState {
-            node_id: dragged,
-            parallax_origin: Vec2 { x: 0.0, y: 0.0 },
-            allow_monitor_transfer: true,
-            edge_pan_eligible: false,
-            current_offset: Vec2 { x: 0.0, y: 0.0 },
-            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
-            pointer_workspace_size: (1600, 1200),
-            pointer_screen_local: (200.0, 120.0),
-            edge_pan_x: DragAxisMode::Free,
-            edge_pan_y: DragAxisMode::Free,
-            last_edge_pan_at: Instant::now(),
-        });
         let monitor = st
             .model
             .monitor_state
@@ -407,6 +442,32 @@ mod tests {
             .cursor_parallax_last_tick
             .checked_add(Duration::from_millis(16))
             .unwrap();
+        let _ = tick_cursor_parallax(&mut st, tick_at);
+        assert_eq!(cursor_parallax_position(&st, background, pos), pos);
+
+        let drag_started_at = Instant::now();
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: dragged,
+            parallax_origin: Vec2 { x: 100.0, y: 0.0 },
+            parallax_start_offset: Vec2 { x: 0.0, y: 0.0 },
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: drag_started_at,
+        });
+        st.model.field.node_mut(dragged).unwrap().pos.x = 900.0;
+
+        let tick_at = st
+            .input
+            .interaction_state
+            .cursor_parallax_last_tick
+            .checked_add(Duration::from_millis(16))
+            .unwrap();
         assert!(tick_cursor_parallax(&mut st, tick_at));
         let shifted = cursor_parallax_position(&st, background, pos);
 
@@ -414,20 +475,110 @@ mod tests {
         assert_eq!(shifted.y, pos.y);
         assert_eq!(cursor_parallax_position(&st, dragged, pos), pos);
 
-        st.model.field.node_mut(dragged).unwrap().pos.x = 900.0;
-        assert_eq!(cursor_parallax_position(&st, background, pos), shifted);
+        st.input.interaction_state.active_drag = None;
+        let tick_at = st
+            .input
+            .interaction_state
+            .cursor_parallax_last_tick
+            .checked_add(Duration::from_millis(16))
+            .unwrap();
+        let _ = tick_cursor_parallax(&mut st, tick_at);
+        let held = cursor_parallax_position(&st, background, pos);
+        assert_eq!(held, shifted);
 
         st.input.interaction_state.apogee_session = Some(ApogeeSession {
-            monitor: st.model.monitor_state.current_monitor.clone(),
             phase: ApogeePhase::Open,
             started_at: Instant::now(),
             duration: Duration::from_millis(320),
-            core_scroll_offset: 0.0,
-            core_atlas_width: 0.0,
-            tiles: Vec::new(),
-            core_tiles: Vec::new(),
+            monitors: vec![ApogeeMonitorSession {
+                monitor: st.model.monitor_state.current_monitor.clone(),
+                core_scroll_offset: 0.0,
+                core_atlas_width: 0.0,
+                tiles: Vec::new(),
+                core_tiles: Vec::new(),
+            }],
         });
         assert_eq!(cursor_parallax_position(&st, background, pos), pos);
+    }
+
+    #[test]
+    fn active_drag_preserves_held_parallax_on_other_monitors() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let dragged = st.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 900.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.assign_node_to_monitor(dragged, "right");
+        st.input.interaction_state.cursor_parallax.insert(
+            "left".to_string(),
+            CursorParallaxState {
+                current: Vec2 { x: 24.0, y: -8.0 },
+                target: Vec2 { x: 24.0, y: -8.0 },
+            },
+        );
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: dragged,
+            parallax_origin: Vec2 { x: 900.0, y: 100.0 },
+            parallax_start_offset: Vec2 { x: 0.0, y: 0.0 },
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: "right".to_string(),
+            pointer_workspace_size: (800, 600),
+            pointer_screen_local: (400.0, 300.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        let tick_at = st
+            .input
+            .interaction_state
+            .cursor_parallax_last_tick
+            .checked_add(Duration::from_millis(16))
+            .unwrap();
+        let _ = tick_cursor_parallax(&mut st, tick_at);
+
+        let left_parallax = st
+            .input
+            .interaction_state
+            .cursor_parallax
+            .get("left")
+            .expect("left parallax");
+        assert_eq!(left_parallax.current.x, 24.0);
+        assert_eq!(left_parallax.current.y, -8.0);
+        assert_eq!(left_parallax.target.x, 24.0);
+        assert_eq!(left_parallax.target.y, -8.0);
     }
 
     #[test]

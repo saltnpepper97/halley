@@ -417,6 +417,8 @@ impl Halley {
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
                     apogee_session: None,
+                    apogee_live_preview_node: None,
+                    apogee_live_preview_last_at: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,

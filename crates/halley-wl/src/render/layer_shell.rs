@@ -22,6 +22,7 @@ pub(crate) struct LayerSurfaceRenderGroup {
     pub(crate) elements: LayerElements,
     pub(crate) dst: Rectangle<i32, Physical>,
     pub(crate) blur: bool,
+    pub(crate) is_aperture: bool,
 }
 
 pub(crate) type LayerGroups = Vec<LayerSurfaceRenderGroup>;
@@ -167,6 +168,8 @@ pub(crate) fn collect_layer_surfaces(
             ));
         }
 
+        let is_aperture =
+            crate::compositor::monitor::layer_shell::surface_is_aperture(st, &placement.wl_surface);
         let group = LayerSurfaceRenderGroup {
             dst: layer_group_dst(
                 &elements,
@@ -175,11 +178,8 @@ pub(crate) fn collect_layer_surfaces(
             ),
             blur: layer_shell_blur_enabled(st, placement.layer)
                 || surface_wants_background_blur(&placement.wl_surface)
-                || (st.aperture_config().peek.blur
-                    && crate::compositor::monitor::layer_shell::surface_is_aperture(
-                        st,
-                        &placement.wl_surface,
-                    )),
+                || (st.aperture_config().peek.blur && is_aperture),
+            is_aperture,
             elements,
         };
 
@@ -195,6 +195,7 @@ pub(crate) fn collect_layer_surfaces(
                 elements: layer_popups,
                 dst,
                 blur: layer_popups_blur,
+                is_aperture: false,
             });
         }
     }

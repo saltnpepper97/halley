@@ -398,6 +398,7 @@ pub struct IconCache {
     cache_fingerprint: String,
     /// Lazily rasterized search-bar glyphs, keyed by the size they were rendered at.
     search_icon: Option<(u32, IconRaster)>,
+    app_search_icon: Option<(u32, IconRaster)>,
     cluster_search_icon: Option<(u32, IconRaster)>,
     term_icon: Option<(u32, IconRaster)>,
 }
@@ -405,6 +406,7 @@ pub struct IconCache {
 /// Search-bar glyphs. Authored as square SVGs and rendered to alpha masks that are
 /// tinted at draw time.
 const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
+const APP_SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/apps.svg");
 const TERM_ICON_SVG: &[u8] = include_bytes!("../assets/term.svg");
 const CLUSTER_SEARCH_ICON_SVG: &[u8] =
     include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
@@ -470,6 +472,7 @@ impl IconCache {
             cache_path,
             cache_fingerprint,
             search_icon: None,
+            app_search_icon: None,
             cluster_search_icon: None,
             term_icon: None,
         }
@@ -480,6 +483,7 @@ impl IconCache {
     fn search_glyph(&mut self, size: u32, mode: LiftMode) -> Option<&IconRaster> {
         let size = size.max(1);
         let (slot, svg) = match mode {
+            LiftMode::Apps => (&mut self.app_search_icon, APP_SEARCH_ICON_SVG),
             LiftMode::Clusters => (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG),
             LiftMode::Term => (&mut self.term_icon, TERM_ICON_SVG),
             _ => (&mut self.search_icon, SEARCH_ICON_SVG),
@@ -935,9 +939,10 @@ fn draw_search_box(
     let _ = input.mode;
     let query_empty = input.query.is_empty();
     let caret_w = config.cursor.width.max(1);
-    let caret_gap = 4;
+    let placeholder_caret_gap = 4;
+    let text_caret_gap = 0;
     let display_x = if query_empty && config.cursor.enabled {
-        text_x + caret_w + caret_gap
+        text_x + caret_w + placeholder_caret_gap
     } else {
         text_x
     };
@@ -975,7 +980,7 @@ fn draw_search_box(
         let caret_x = if query_empty {
             text_x
         } else {
-            (text_x + text_w + caret_gap)
+            (text_x + text_w + text_caret_gap)
                 .min(text_right - caret_w)
                 .max(text_x)
         };
@@ -2031,6 +2036,26 @@ mod tests {
             .clone();
 
         assert_ne!(loupe, cluster);
+    }
+
+    #[test]
+    fn apps_mode_uses_apps_search_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let apps = cache
+            .search_glyph(24, LiftMode::Apps)
+            .expect("apps glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, apps);
     }
 
     #[test]

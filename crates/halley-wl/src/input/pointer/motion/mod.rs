@@ -72,29 +72,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             .interaction_state
             .last_pointer_screen_global
             .map(|(last_sx, last_sy)| st.monitor_for_screen_or_interaction(last_sx, last_sy));
-        let apogee_monitor = st
-            .input
-            .interaction_state
-            .apogee_session
-            .as_ref()
-            .map(|session| session.monitor.clone());
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
-        if apogee_monitor.as_deref() != Some(target_monitor.as_str()) {
-            let (local_w, local_h, _, _) =
-                st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
-            let mut ps = ctx.pointer_state.borrow_mut();
-            ps.screen = (sx, sy);
-            ps.workspace_size = (local_w, local_h);
-            ps.hover_node = None;
-            ps.hover_started_at = None;
-            drop(ps);
-            st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
-            st.input.interaction_state.overlay_hover_target = None;
-            st.input.interaction_state.pending_core_hover = None;
-            request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
-            return;
-        }
-
         let now = Instant::now();
         let (local_w, local_h, local_sx, local_sy) =
             st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
@@ -115,6 +93,19 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             local_sy,
             now,
         );
+        let live_preview = crate::compositor::overview::apogee_window_tile_at(
+            st,
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+            now,
+        );
+        let live_preview_changed =
+            st.input.interaction_state.apogee_live_preview_node != live_preview;
+        if live_preview_changed {
+            st.input.interaction_state.apogee_live_preview_node = live_preview;
+            st.input.interaction_state.apogee_live_preview_last_at = None;
+        }
         let icon = if hit.is_some() {
             Some(smithay::input::pointer::CursorIcon::Pointer)
         } else {
@@ -124,6 +115,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
         }
         request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
+        if live_preview_changed {
+            ctx.backend.request_output_redraw(target_monitor.as_str());
+        }
         return;
     }
 

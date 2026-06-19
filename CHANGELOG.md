@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
-- Add `field.parallax` config for zoomed-out cursor depth (`enabled`, `strength`, `tau-ms`),
-  with eased per-monitor parallax so crossing monitors ramps the effect in/out instead of snapping.
+- Add `field.parallax` config for zoomed-out window-drag depth (`enabled`, `strength`, `tau-ms`),
+  with eased parallax while moving windows and no background drift from ordinary cursor motion.
 - Add the Halley Discord community/support invite to the README.
 - Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
   fill) so markers recede into the field; the border ring and app icon stay fully opaque.
@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - Add a Halley Lift search-bar magnifier icon: a `search-icon:` block (`enabled`, `side`
   `left`/`right`, `size`) with a `colors.search-icon` tint (empty follows `hint`). The bundled
   square SVG is rendered to an alpha mask and tinted at draw time.
+- Add a dedicated Halley Lift Apps-mode search glyph, alongside refreshed bundled search and
+  terminal glyph strokes for clearer small-size rendering.
 - Add drawn fallback glyphs for Halley Lift result rows without a raster icon: a squircle for
   nodes and a ring for `term` entries.
 - Add libinput input-device customization to the `input:` config section: per-class
@@ -62,6 +64,15 @@ All notable changes to this project will be documented in this file.
   clients, and avoids full-session startup behavior such as session autostart.
 
 ### Changed
+- Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
+  card motion between selections, while keeping the existing bounded snapshot prewarm behavior.
+- Open Apogee on every active monitor at once, with each monitor showing only its own windows and
+  cluster cores, and close all monitor views together when selecting a target.
+- Rework Apogee preview capture so each active monitor fills missing snapshots in small batches,
+  prioritizes the hovered live preview, and rate-limits live refreshes to keep the overview
+  responsive with many windows.
+- Animate compositor fullscreen exits back to the restored window geometry, using the existing
+  fullscreen animation settings and skipping soft-suspend/fullscreen-preservation paths.
 - Make camera zoom inertial, like a powered lens. Instead of easing to a fresh target on every
   press, each zoom input injects velocity in log(view-size) space: repeating in the same
   direction stacks velocity into an accelerating ramp, the opposite direction bleeds it off, and
@@ -106,6 +117,22 @@ All notable changes to this project will be documented in this file.
   `"overlap"`.
 
 ### Fixed
+- Use an Apogee-specific render fast path while the overview is active: skip hidden field window
+  rendering, keep background/bottom layer surfaces visible behind the dim, and draw Aperture above
+  Apogee in minimal mode.
+- Keep Aperture promoted above Apogee regardless of which layer-shell layer it uses.
+- Crop cached Alt+Tab/Apogee/hover preview textures to the real window aspect before fitting them,
+  and remap rounded-texture shader coordinates for cropped sources, avoiding square Firefox/GTK
+  thumbnails or square preview corners when their surface-tree cache is padded.
+- Capture collapsed surface-node previews for Apogee instead of leaving their card bodies black.
+- Keep same-monitor drag parallax held after releasing a moved window; only disabled/Apogee/cross-monitor
+  cases return the temporary parallax offset home.
+- Preserve the released window's visual position when ending a drag under held parallax, avoiding a
+  small snap as the dragged window rejoins the parallaxed field.
+- Preserve resized windows' visual position when releasing under held parallax, and use the
+  parallax-adjusted position for close-animation captures and collapsed-node hit testing.
+- Keep a dropped window fixed at its exact release point while overlap resolution pushes neighboring
+  windows aside, avoiding a post-drop snap of the window being moved.
 - Render collapsed surface nodes in Apogee using the original window preview aspect/weight instead
   of the collapsed marker footprint, so they match the shape they had before collapsing.
 - Keep a window raised after you resize it instead of snapping it back behind whatever it was

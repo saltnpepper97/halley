@@ -129,7 +129,33 @@ fn commit_drag_parallax_release_positions(
     st: &mut Halley,
     released_node: halley_core::field::NodeId,
 ) {
-    let _ = (st, released_node);
+    if !st.runtime.tuning.parallax.enabled || st.input.interaction_state.apogee_session.is_some() {
+        return;
+    }
+    let Some(active_drag) = st
+        .input
+        .interaction_state
+        .active_drag
+        .as_ref()
+        .filter(|drag| drag.node_id == released_node)
+    else {
+        return;
+    };
+    let offset = crate::presentation::cursor_parallax_offset_for_monitor(
+        st,
+        active_drag.pointer_monitor.as_str(),
+    );
+    if offset.x.abs() <= 0.01 && offset.y.abs() <= 0.01 {
+        return;
+    }
+    let Some(node) = st.model.field.node_mut(released_node) else {
+        return;
+    };
+    if node.pinned || !matches!(node.kind, halley_core::field::NodeKind::Surface) {
+        return;
+    }
+    node.pos.x += offset.x;
+    node.pos.y += offset.y;
 }
 
 fn drag_edge_pan_eligible(
@@ -188,12 +214,22 @@ pub(crate) fn begin_drag(
         );
     }
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
-    let parallax_origin = st
+    let raw_origin = st
         .model
         .field
         .node(hit.node_id)
         .map(|node| node.pos)
         .unwrap_or(world_now);
+    let visual_origin = crate::presentation::cursor_parallax_position_for_monitor(
+        st,
+        drag_monitor.as_str(),
+        hit.node_id,
+        raw_origin,
+    );
+    let parallax_start_offset = halley_core::field::Vec2 {
+        x: raw_origin.x - visual_origin.x,
+        y: raw_origin.y - visual_origin.y,
+    };
     let edge_pan_eligible = drag_edge_pan_eligible(
         st,
         hit.node_id,
@@ -217,9 +253,15 @@ pub(crate) fn begin_drag(
     };
     if let Some(n) = st.model.field.node(hit.node_id) {
         drag_ctx.started_active = n.state == halley_core::field::NodeState::Active;
+        let visual_pos = crate::presentation::cursor_parallax_position_for_monitor(
+            st,
+            drag_monitor.as_str(),
+            hit.node_id,
+            n.pos,
+        );
         let off = halley_core::field::Vec2 {
-            x: world_now.x - n.pos.x,
-            y: world_now.y - n.pos.y,
+            x: world_now.x - visual_pos.x,
+            y: world_now.y - visual_pos.y,
         };
         if st.runtime.tuning.center_window_to_mouse {
             drag_ctx.current_offset = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
@@ -242,7 +284,8 @@ pub(crate) fn begin_drag(
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
-        parallax_origin,
+        parallax_origin: visual_origin,
+        parallax_start_offset,
         allow_monitor_transfer,
         edge_pan_eligible,
         current_offset: drag_ctx.current_offset,
@@ -339,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn release_does_not_commit_cursor_parallax_positions() {
+    fn release_commits_dragged_node_to_held_parallax_visual_position() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let monitor = st.model.monitor_state.current_monitor.clone();
@@ -360,6 +403,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: dragged,
             parallax_origin: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -370,6 +414,13 @@ mod tests {
             edge_pan_y: DragAxisMode::Free,
             last_edge_pan_at: Instant::now(),
         });
+        st.input.interaction_state.cursor_parallax.insert(
+            st.model.monitor_state.current_monitor.clone(),
+            crate::compositor::interaction::state::CursorParallaxState {
+                current: halley_core::field::Vec2 { x: 32.0, y: -12.0 },
+                target: halley_core::field::Vec2 { x: 32.0, y: -12.0 },
+            },
+        );
 
         commit_drag_parallax_release_positions(&mut st, dragged);
 
@@ -377,8 +428,8 @@ mod tests {
         let dragged_pos = st.model.field.node(dragged).expect("dragged").pos;
         assert_eq!(background_pos.x, 20.0);
         assert_eq!(background_pos.y, 10.0);
-        assert_eq!(dragged_pos.x, 100.0);
-        assert_eq!(dragged_pos.y, 0.0);
+        assert_eq!(dragged_pos.x, 132.0);
+        assert_eq!(dragged_pos.y, -12.0);
     }
 
     #[test]
@@ -421,6 +472,91 @@ mod tests {
 
         assert!(ps.drag.is_some_and(|drag| !drag.edge_pan_eligible));
         assert!(!st.input.interaction_state.grabbed_edge_pan_active);
+    }
+
+    #[test]
+    fn begin_drag_preserves_held_parallax_on_regrab() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        st.model.zoom_ref_size.x = st.model.viewport.size.x * 2.0;
+        st.model.zoom_ref_size.y = st.model.viewport.size.y * 2.0;
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 100.0, y: 50.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.assign_node_to_monitor(id, monitor.as_str());
+        let held_offset = halley_core::field::Vec2 { x: 18.0, y: -6.0 };
+        st.input.interaction_state.cursor_parallax.insert(
+            monitor.clone(),
+            crate::compositor::interaction::state::CursorParallaxState {
+                current: held_offset,
+                target: held_offset,
+            },
+        );
+        let visual_pos = halley_core::field::Vec2 { x: 82.0, y: 56.0 };
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now: visual_pos,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            visual_pos,
+            true,
+            false,
+        );
+
+        let dragged_pos = st.model.field.node(id).expect("dragged").pos;
+        assert_eq!(dragged_pos.x, visual_pos.x);
+        assert_eq!(dragged_pos.y, visual_pos.y);
+        let active_drag = st
+            .input
+            .interaction_state
+            .active_drag
+            .as_ref()
+            .expect("active drag");
+        assert_eq!(active_drag.parallax_origin.x, visual_pos.x);
+        assert_eq!(active_drag.parallax_origin.y, visual_pos.y);
+        assert_eq!(active_drag.parallax_start_offset.x, held_offset.x);
+        assert_eq!(active_drag.parallax_start_offset.y, held_offset.y);
+        let drag = ps.drag.expect("pointer drag");
+        assert_eq!(drag.current_offset.x, 0.0);
+        assert_eq!(drag.current_offset.y, 0.0);
+
+        let tick_at = st
+            .input
+            .interaction_state
+            .cursor_parallax_last_tick
+            .checked_add(Duration::from_millis(16))
+            .unwrap();
+        crate::presentation::tick_cursor_parallax(&mut st, tick_at);
+
+        let parallax = st
+            .input
+            .interaction_state
+            .cursor_parallax
+            .get(monitor.as_str())
+            .expect("parallax state");
+        assert_eq!(parallax.target.x, held_offset.x);
+        assert_eq!(parallax.target.y, held_offset.y);
     }
 
     #[test]
@@ -643,6 +779,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
             parallax_origin: original_pos,
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -686,6 +823,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
             parallax_origin: st.model.field.node(front).expect("front").pos,
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -729,6 +867,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
             parallax_origin: st.model.field.node(front).expect("front").pos,
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -780,6 +919,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: floating,
             parallax_origin: st.model.field.node(floating).expect("floating").pos,
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -835,6 +975,7 @@ mod tests {
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: dragged,
             parallax_origin: st.model.field.node(dragged).expect("dragged").pos,
+            parallax_start_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -932,6 +1073,16 @@ pub(crate) fn finish_pointer_drag(
         let _ = st.raise_overlap_policy_node(node_id);
         st.set_recent_top_node(node_id, now + Duration::from_millis(1200));
         st.set_interaction_focus(Some(node_id), 30_000, now);
+    }
+    // Hold the just-dropped window fixed at its release position so the overlap
+    // resolver pushes *neighbors* apart instead of snapping the dropped window.
+    // Reuses the resize static-lock that the solver already treats as immovable.
+    if st.input.interaction_state.resize_static_node.is_none()
+        && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
+    {
+        st.input.interaction_state.resize_static_node = Some(node_id);
+        st.input.interaction_state.resize_static_lock_pos = Some(pos);
+        st.input.interaction_state.resize_static_until_ms = now_ms + 350;
     }
     st.resolve_surface_overlap();
     ps.preview_block_until = Some(now + Duration::from_millis(360));
@@ -1031,6 +1182,13 @@ pub(super) fn handle_drag_motion(
             .as_ref()
             .map(|drag| drag.parallax_origin)
             .unwrap_or(desired_to),
+        parallax_start_offset: st
+            .input
+            .interaction_state
+            .active_drag
+            .as_ref()
+            .map(|drag| drag.parallax_start_offset)
+            .unwrap_or(halley_core::field::Vec2 { x: 0.0, y: 0.0 }),
         allow_monitor_transfer: drag_allow_monitor_transfer,
         edge_pan_eligible: next_drag.edge_pan_eligible,
         current_offset: next_drag.current_offset,

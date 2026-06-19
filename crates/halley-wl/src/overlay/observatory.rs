@@ -4,7 +4,7 @@ use std::error::Error;
 
 use smithay::{
     backend::renderer::{Color32F, gles::GlesFrame, gles::Uniform},
-    utils::{Buffer, Logical, Physical, Rectangle, Transform},
+    utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::overview::{ApogeePhase, ApogeeTile, ApogeeTileKind, TileRect};
@@ -14,7 +14,9 @@ use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
     OverlayView, OverlayVisuals, draw_overlay_chip, draw_overlay_chip_without_shadow,
-    overlay_text_color_for_fill, resolve_overlay_visuals, truncate_overlay_text_to_width,
+    overlay_text_color_for_fill,
+    preview_source::{preview_src_uv, window_preview_source_rect},
+    resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
 
 #[inline]
@@ -43,38 +45,6 @@ fn tile_screen_rect(rect: TileRect) -> Rectangle<i32, Physical> {
     )
 }
 
-fn preview_source_rect(
-    overlay: &OverlayView<'_>,
-    tile: &ApogeeTile,
-    bbox: Rectangle<i32, Logical>,
-) -> (f32, f32, f32, f32) {
-    let bbox_w = bbox.size.w.max(1) as f32;
-    let bbox_h = bbox.size.h.max(1) as f32;
-    let Some((geo_x, geo_y, geo_w, geo_h)) = overlay
-        .render_state
-        .cache
-        .window_geometry
-        .get(&tile.node_id)
-        .copied()
-    else {
-        return (0.0, 0.0, bbox_w, bbox_h);
-    };
-    if geo_w <= 0.0 || geo_h <= 0.0 {
-        return (0.0, 0.0, bbox_w, bbox_h);
-    }
-    let left = (geo_x - bbox.loc.x as f32).clamp(0.0, bbox_w);
-    let top = (geo_y - bbox.loc.y as f32).clamp(0.0, bbox_h);
-    let right = (geo_x + geo_w - bbox.loc.x as f32).clamp(0.0, bbox_w);
-    let bottom = (geo_y + geo_h - bbox.loc.y as f32).clamp(0.0, bbox_h);
-    let w = right - left;
-    let h = bottom - top;
-    if w < 1.0 || h < 1.0 {
-        (0.0, 0.0, bbox_w, bbox_h)
-    } else {
-        (left, top, w, h)
-    }
-}
-
 fn fit_rect(outer: Rectangle<i32, Physical>, src_w: i32, src_h: i32) -> Rectangle<i32, Physical> {
     let src_w = src_w.max(1) as f32;
     let src_h = src_h.max(1) as f32;
@@ -93,6 +63,45 @@ fn fit_rect(outer: Rectangle<i32, Physical>, src_w: i32, src_h: i32) -> Rectangl
     )
 }
 
+fn inset_rect(rect: Rectangle<i32, Physical>, pad: i32) -> Rectangle<i32, Physical> {
+    Rectangle::<i32, Physical>::new(
+        (rect.loc.x + pad, rect.loc.y + pad).into(),
+        (
+            (rect.size.w - pad * 2).max(1),
+            (rect.size.h - pad * 2).max(1),
+        )
+            .into(),
+    )
+}
+
+fn outset_rect(rect: Rectangle<i32, Physical>, pad: i32) -> Rectangle<i32, Physical> {
+    Rectangle::<i32, Physical>::new(
+        (rect.loc.x - pad, rect.loc.y - pad).into(),
+        (rect.size.w + pad * 2, rect.size.h + pad * 2).into(),
+    )
+}
+
+fn preview_body_rect(
+    overlay: &OverlayView<'_>,
+    tile: &ApogeeTile,
+    slot: Rectangle<i32, Physical>,
+    pad: i32,
+) -> Rectangle<i32, Physical> {
+    let available = inset_rect(slot, pad);
+    overlay
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&tile.node_id)
+        .filter(|cache| cache.has_content)
+        .and_then(|cache| cache.bbox)
+        .map(|bbox| {
+            let source = window_preview_source_rect(overlay, tile.node_id, bbox);
+            fit_rect(available, source.w.round() as i32, source.h.round() as i32)
+        })
+        .unwrap_or(available)
+}
+
 fn draw_window_preview(
     frame: &mut GlesFrame<'_, '_>,
     overlay: &OverlayView<'_>,
@@ -102,6 +111,9 @@ fn draw_window_preview(
     alpha: f32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
+    let pad = 4;
+    let body = preview_body_rect(overlay, tile, rect, pad);
+    let rect = outset_rect(body, pad);
     let radius = 16.0_f32
         .min(rect.size.w.min(rect.size.h) as f32 * 0.5)
         .max(0.0);
@@ -116,15 +128,6 @@ fn draw_window_preview(
         damage,
         alpha,
     )?;
-    let pad = 4;
-    let body = Rectangle::<i32, Physical>::new(
-        (rect.loc.x + pad, rect.loc.y + pad).into(),
-        (
-            (rect.size.w - pad * 2).max(1),
-            (rect.size.h - pad * 2).max(1),
-        )
-            .into(),
-    );
     draw_overlay_chip_without_shadow(
         frame,
         overlay.render_state,
@@ -145,12 +148,13 @@ fn draw_window_preview(
         .filter(|cache| cache.has_content)
         .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
     {
-        let (src_x, src_y, src_w, src_h) = preview_source_rect(overlay, tile, bbox);
-        let dst = fit_rect(body, src_w.round() as i32, src_h.round() as i32);
+        let source = window_preview_source_rect(overlay, tile.node_id, bbox);
+        let dst = fit_rect(body, source.w.round() as i32, source.h.round() as i32);
         let src = Rectangle::<f64, Buffer>::new(
-            (src_x as f64, src_y as f64).into(),
-            (src_w.max(1.0) as f64, src_h.max(1.0) as f64).into(),
+            (source.x as f64, source.y as f64).into(),
+            (source.w.max(1.0) as f64, source.h.max(1.0) as f64).into(),
         );
+        let (src_uv_offset, src_uv_scale) = preview_src_uv(texture, source);
         let corner = (radius - pad as f32)
             .max(0.0)
             .min(dst.size.w.min(dst.size.h) as f32 * 0.5);
@@ -164,6 +168,8 @@ fn draw_window_preview(
             Uniform::new("content_alpha_scale", 1.0f32),
             Uniform::new("geo_offset", (0.0f32, 0.0f32)),
             Uniform::new("geo_size", (dst.size.w as f32, dst.size.h as f32)),
+            Uniform::new("src_uv_offset", src_uv_offset),
+            Uniform::new("src_uv_scale", src_uv_scale),
         ];
         frame.render_texture_from_to(
             texture,
@@ -253,7 +259,7 @@ fn draw_tile_label(
     Ok(())
 }
 
-fn draw_badge(
+pub(super) fn draw_badge(
     frame: &mut GlesFrame<'_, '_>,
     overlay: &OverlayView<'_>,
     visuals: &OverlayVisuals,
@@ -371,7 +377,7 @@ fn draw_core_tile(
     Ok(())
 }
 
-pub(super) fn draw_observatory(
+pub(crate) fn draw_observatory(
     frame: &mut GlesFrame<'_, '_>,
     st: &mut Halley,
     screen_w: i32,
@@ -382,9 +388,10 @@ pub(super) fn draw_observatory(
     let Some(session) = st.input.interaction_state.apogee_session.as_ref() else {
         return Ok(false);
     };
-    if session.monitor != st.model.monitor_state.current_monitor {
+    let current_monitor = st.model.monitor_state.current_monitor.clone();
+    let Some(monitor_session) = session.monitor_session(current_monitor.as_str()) else {
         return Ok(false);
-    }
+    };
 
     let progress = ease_in_out_cubic(session.progress(now));
     let overlay_alpha = match session.phase {
@@ -395,11 +402,11 @@ pub(super) fn draw_observatory(
     let tile_alpha = match session.phase {
         ApogeePhase::Opening => (0.35 + 0.65 * progress).clamp(0.0, 1.0),
         ApogeePhase::Open => 1.0,
-        ApogeePhase::Closing => (1.0 - 0.65 * progress).clamp(0.0, 1.0),
+        ApogeePhase::Closing => 1.0,
     };
-    let tiles = session.tiles.clone();
-    let core_tiles = session.core_tiles.clone();
-    let core_offset = session.core_scroll_offset;
+    let tiles = monitor_session.tiles.clone();
+    let core_tiles = monitor_session.core_tiles.clone();
+    let core_offset = monitor_session.core_scroll_offset;
 
     let visuals = resolve_overlay_visuals(&st.runtime.tuning);
     let overlay = OverlayView::from_halley(st);
@@ -446,4 +453,22 @@ pub(super) fn draw_observatory(
     }
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apogee_chrome_can_match_fitted_texture_inside_wide_slot() {
+        let slot = Rectangle::<i32, Physical>::new((0, 0).into(), (600, 360).into());
+        let available = inset_rect(slot, 4);
+        let body = fit_rect(available, 320, 240);
+        let chrome = outset_rect(body, 4);
+
+        assert!(chrome.size.w < slot.size.w);
+        assert!((body.size.w * 3 - body.size.h * 4).abs() <= 1);
+        assert_eq!(chrome.size.w, body.size.w + 8);
+        assert_eq!(chrome.size.h, body.size.h + 8);
+    }
 }

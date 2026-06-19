@@ -26,7 +26,7 @@
      inkscape:zoom="0.41070417"
      inkscape:cx="135.13376"
      inkscape:cy="253.22363"
-     inkscape:window-width="1196"
+     inkscape:window-width="1406"
      inkscape:window-height="1198"
      inkscape:window-x="103"
      inkscape:window-y="103"
@@ -43,13 +43,13 @@
        id="g1"
        transform="translate(2.4221504,2.2776575)">
       <circle
-         style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+         style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:12;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
          id="path1"
          cx="70.753067"
          cy="101.86262"
          r="39.778915" />
       <path
-         style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+         style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:12;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
          d="m 102.54583,132.90412 56.77075,49.28933"
          id="path2"
          sodipodi:nodetypes="cc" />

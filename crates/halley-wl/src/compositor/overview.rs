@@ -64,15 +64,19 @@ pub(crate) enum ApogeePhase {
     Closing,
 }
 
-pub(crate) struct ApogeeSession {
+pub(crate) struct ApogeeMonitorSession {
     pub(crate) monitor: String,
-    pub(crate) phase: ApogeePhase,
-    pub(crate) started_at: Instant,
-    pub(crate) duration: Duration,
     pub(crate) core_scroll_offset: f32,
     pub(crate) core_atlas_width: f32,
     pub(crate) tiles: Vec<ApogeeTile>,
     pub(crate) core_tiles: Vec<ApogeeTile>,
+}
+
+pub(crate) struct ApogeeSession {
+    pub(crate) phase: ApogeePhase,
+    pub(crate) started_at: Instant,
+    pub(crate) duration: Duration,
+    pub(crate) monitors: Vec<ApogeeMonitorSession>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +91,21 @@ impl ApogeeSession {
         let elapsed = now.saturating_duration_since(self.started_at).as_secs_f32();
         let duration = self.duration.as_secs_f32().max(0.001);
         (elapsed / duration).clamp(0.0, 1.0)
+    }
+
+    pub(crate) fn monitor_session(&self, monitor: &str) -> Option<&ApogeeMonitorSession> {
+        self.monitors
+            .iter()
+            .find(|session| session.monitor == monitor)
+    }
+
+    pub(crate) fn monitor_session_mut(
+        &mut self,
+        monitor: &str,
+    ) -> Option<&mut ApogeeMonitorSession> {
+        self.monitors
+            .iter_mut()
+            .find(|session| session.monitor == monitor)
     }
 }
 
@@ -123,68 +142,87 @@ impl Halley {
         if !self.runtime.tuning.apogee.enabled {
             return;
         }
-        let monitor = self.model.monitor_state.current_monitor.clone();
-        let (screen_w, screen_h) = match self.model.monitor_state.monitors.get(&monitor) {
-            Some(space) => (space.width, space.height),
-            None => return,
-        };
-        if screen_w <= 0 || screen_h <= 0 {
-            return;
-        }
+        self.input.interaction_state.apogee_live_preview_node = None;
+        self.input.interaction_state.apogee_live_preview_last_at = None;
+        let monitor_names = apogee_monitor_names(self);
+        let mut monitors = Vec::new();
+        let mut has_content = false;
+        for monitor in monitor_names {
+            let (screen_w, screen_h) = match self.model.monitor_state.monitors.get(&monitor) {
+                Some(space) => (space.width, space.height),
+                None => continue,
+            };
+            if screen_w <= 0 || screen_h <= 0 {
+                continue;
+            }
 
-        let (tiles, core_tiles, core_atlas_width) =
-            build_apogee_tiles(self, monitor.as_str(), screen_w, screen_h);
-        if tiles.is_empty() && core_tiles.is_empty() {
+            let previous_monitor = self.begin_temporary_render_monitor(monitor.as_str());
+            let (tiles, core_tiles, core_atlas_width) =
+                build_apogee_tiles(self, monitor.as_str(), screen_w, screen_h);
+            self.end_temporary_render_monitor(previous_monitor);
+            has_content |= !tiles.is_empty() || !core_tiles.is_empty();
+            monitors.push(ApogeeMonitorSession {
+                monitor,
+                core_scroll_offset: 0.0,
+                core_atlas_width,
+                tiles,
+                core_tiles,
+            });
+        }
+        if !has_content || monitors.is_empty() {
             return;
         }
 
         let duration = Duration::from_millis(self.runtime.tuning.apogee.transition_ms.max(1));
         self.input.interaction_state.apogee_session = Some(ApogeeSession {
-            monitor,
             phase: ApogeePhase::Opening,
             started_at: now,
             duration,
-            core_scroll_offset: 0.0,
-            core_atlas_width,
-            tiles,
-            core_tiles,
+            monitors,
         });
     }
 
     pub(crate) fn close_apogee(&mut self, now: Instant) {
-        let screen_size = self
-            .input
-            .interaction_state
-            .apogee_session
-            .as_ref()
-            .and_then(|session| self.model.monitor_state.monitors.get(&session.monitor))
-            .map(|space| (space.width, space.height));
+        let screen_sizes = self
+            .model
+            .monitor_state
+            .monitors
+            .iter()
+            .map(|(monitor, space)| (monitor.clone(), (space.width, space.height)))
+            .collect::<std::collections::HashMap<_, _>>();
         if let Some(session) = self.input.interaction_state.apogee_session.as_mut() {
             if session.phase == ApogeePhase::Closing {
                 return;
             }
+            self.input.interaction_state.apogee_live_preview_node = None;
+            self.input.interaction_state.apogee_live_preview_last_at = None;
             let eased = ease_in_out_cubic(session.progress(now));
-            let (screen_w, screen_h) = screen_size.unwrap_or((1, 1));
-            // Fly back from the currently displayed ring/atlas rect, not from the
-            // raw atlas slot, so scroll/orbit position does not snap on close.
-            for tile in &mut session.tiles {
-                let projected = apogee_project_window_rect(tile.to).rect;
-                let desktop = tile.from;
-                tile.from = tile.from.lerp(projected, eased);
-                tile.to = desktop;
-            }
-            for tile in &mut session.core_tiles {
-                let projected = apogee_project_core_rect(
-                    tile.to,
-                    session.core_scroll_offset,
-                    session.core_atlas_width,
-                    screen_w,
-                    screen_h,
-                )
-                .rect;
-                let desktop = tile.from;
-                tile.from = tile.from.lerp(projected, eased);
-                tile.to = desktop;
+            for monitor_session in &mut session.monitors {
+                let (screen_w, screen_h) = screen_sizes
+                    .get(&monitor_session.monitor)
+                    .copied()
+                    .unwrap_or((1, 1));
+                // Fly back from the currently displayed atlas rect, not from the
+                // raw atlas slot, so scroll position does not snap on close.
+                for tile in &mut monitor_session.tiles {
+                    let projected = apogee_project_window_rect(tile.to).rect;
+                    let desktop = tile.from;
+                    tile.from = tile.from.lerp(projected, eased);
+                    tile.to = desktop;
+                }
+                for tile in &mut monitor_session.core_tiles {
+                    let projected = apogee_project_core_rect(
+                        tile.to,
+                        monitor_session.core_scroll_offset,
+                        monitor_session.core_atlas_width,
+                        screen_w,
+                        screen_h,
+                    )
+                    .rect;
+                    let desktop = tile.from;
+                    tile.from = tile.from.lerp(projected, eased);
+                    tile.to = desktop;
+                }
             }
             session.phase = ApogeePhase::Closing;
             session.started_at = now;
@@ -200,12 +238,15 @@ impl Halley {
         let Some(session) = self.input.interaction_state.apogee_session.as_mut() else {
             return false;
         };
-        if session.monitor != monitor || session.phase == ApogeePhase::Closing {
+        if session.phase == ApogeePhase::Closing {
             return false;
         }
+        let Some(monitor_session) = session.monitor_session_mut(monitor) else {
+            return false;
+        };
         match region {
             ApogeeInteractionRegion::CoreBar => {
-                if session.core_tiles.len() <= 1 {
+                if monitor_session.core_tiles.len() <= 1 {
                     return false;
                 }
                 let screen_w = self
@@ -215,15 +256,15 @@ impl Halley {
                     .get(monitor)
                     .map(|space| space.width.max(1) as f32)
                     .unwrap_or(1.0);
-                let max_offset = (session.core_atlas_width - screen_w).max(0.0);
+                let max_offset = (monitor_session.core_atlas_width - screen_w).max(0.0);
                 if max_offset <= 0.5 {
                     return false;
                 }
-                let next = (session.core_scroll_offset + delta_px).clamp(0.0, max_offset);
-                if (next - session.core_scroll_offset).abs() < 0.5 {
+                let next = (monitor_session.core_scroll_offset + delta_px).clamp(0.0, max_offset);
+                if (next - monitor_session.core_scroll_offset).abs() < 0.5 {
                     return false;
                 }
-                session.core_scroll_offset = next;
+                monitor_session.core_scroll_offset = next;
             }
             ApogeeInteractionRegion::WindowRing => {
                 return false;
@@ -247,6 +288,8 @@ impl Halley {
             ApogeePhase::Closing => {
                 if progress >= 1.0 {
                     self.input.interaction_state.apogee_session = None;
+                    self.input.interaction_state.apogee_live_preview_node = None;
+                    self.input.interaction_state.apogee_live_preview_last_at = None;
                 }
             }
             ApogeePhase::Open => {}
@@ -266,26 +309,35 @@ pub(crate) fn apogee_render_pending(st: &Halley) -> bool {
     if session.phase != ApogeePhase::Open {
         return true;
     }
-    if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
-        if st.monitor_for_screen_or_interaction(sx, sy) != session.monitor {
-            return false;
-        }
-    }
     // Still settling captures? Keep drawing until each window preview exists.
-    session
-        .tiles
+    session.monitors.iter().any(|monitor_session| {
+        monitor_session
+            .tiles
+            .iter()
+            .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+            .any(|tile| {
+                st.ui
+                    .render_state
+                    .cache
+                    .window_offscreen_cache
+                    .get(&tile.node_id)
+                    .is_none_or(|cache| {
+                        cache.texture.is_none() || cache.bbox.is_none() || !cache.has_content
+                    })
+            })
+    })
+}
+
+fn apogee_monitor_names(st: &Halley) -> Vec<String> {
+    let mut monitors = st
+        .model
+        .monitor_state
+        .monitors
         .iter()
-        .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
-        .any(|tile| {
-            st.ui
-                .render_state
-                .cache
-                .window_offscreen_cache
-                .get(&tile.node_id)
-                .is_none_or(|cache| {
-                    cache.texture.is_none() || cache.bbox.is_none() || !cache.has_content
-                })
-        })
+        .map(|(name, space)| (name.clone(), space.offset_x, space.offset_y))
+        .collect::<Vec<_>>();
+    monitors.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+    monitors.into_iter().map(|(name, _, _)| name).collect()
 }
 
 #[inline]
@@ -309,9 +361,7 @@ pub(crate) fn apogee_tile_at(
     now: Instant,
 ) -> Option<NodeId> {
     let session = st.input.interaction_state.apogee_session.as_ref()?;
-    if session.monitor != monitor {
-        return None;
-    }
+    let monitor_session = session.monitor_session(monitor)?;
     let (screen_w, screen_h) = st
         .model
         .monitor_state
@@ -321,15 +371,19 @@ pub(crate) fn apogee_tile_at(
         .unwrap_or((1, 1));
     let eased = ease_in_out_cubic(session.progress(now));
     let mut hits: Vec<(NodeId, f32)> = Vec::new();
-    for tile in session.core_tiles.iter().chain(session.tiles.iter()) {
+    for tile in monitor_session
+        .core_tiles
+        .iter()
+        .chain(monitor_session.tiles.iter())
+    {
         let is_core = matches!(tile.kind, ApogeeTileKind::Core);
         let projection = if session.phase == ApogeePhase::Closing {
             None
         } else if is_core {
             Some(apogee_project_core_rect(
                 tile.to,
-                session.core_scroll_offset,
-                session.core_atlas_width,
+                monitor_session.core_scroll_offset,
+                monitor_session.core_atlas_width,
                 screen_w,
                 screen_h,
             ))
@@ -350,6 +404,43 @@ pub(crate) fn apogee_tile_at(
         }
     }
     hits.into_iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+        .map(|(node_id, _)| node_id)
+}
+
+/// Hit-test only window tiles for bounded live previews. Core markers can still
+/// be clicked via `apogee_tile_at`, but they never need window texture refreshes.
+pub(crate) fn apogee_window_tile_at(
+    st: &Halley,
+    monitor: &str,
+    sx: f32,
+    sy: f32,
+    now: Instant,
+) -> Option<NodeId> {
+    let session = st.input.interaction_state.apogee_session.as_ref()?;
+    let monitor_session = session.monitor_session(monitor)?;
+    let eased = ease_in_out_cubic(session.progress(now));
+    monitor_session
+        .tiles
+        .iter()
+        .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+        .filter_map(|tile| {
+            let projection = if session.phase == ApogeePhase::Closing {
+                None
+            } else {
+                Some(apogee_project_window_rect(tile.to))
+            };
+            let target = projection.map(|p| p.rect).unwrap_or(tile.to);
+            let depth = projection.map(|p| p.depth).unwrap_or(1.0);
+            let rect = tile.from.lerp(target, eased);
+            let half_w = rect.w * 0.5;
+            let half_h = rect.h * 0.5;
+            (sx >= rect.cx - half_w
+                && sx <= rect.cx + half_w
+                && sy >= rect.cy - half_h
+                && sy <= rect.cy + half_h)
+                .then_some((tile.node_id, depth))
+        })
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
         .map(|(node_id, _)| node_id)
 }
@@ -1269,6 +1360,37 @@ mod tests {
         }
     }
 
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        tuning
+    }
+
     #[test]
     fn spatial_order_reads_top_left_to_bottom_right() {
         // Two rows of two, deliberately out of order in the input.
@@ -1289,6 +1411,44 @@ mod tests {
 
         assert_eq!(kind, ApogeeTileKind::Window);
         assert!(collapsed);
+    }
+
+    #[test]
+    fn opening_apogee_creates_monitor_local_sessions_for_all_monitors() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+        let left = state.model.field.spawn_surface(
+            "left",
+            Vec2 { x: 120.0, y: 120.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let right = state.model.field.spawn_surface(
+            "right",
+            Vec2 { x: 920.0, y: 120.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        state.assign_node_to_monitor(left, "left");
+        state.assign_node_to_monitor(right, "right");
+
+        state.open_apogee(Instant::now());
+        let session = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("apogee session");
+        assert!(session.monitor_session("left").is_some());
+        assert!(session.monitor_session("right").is_some());
+        assert!(session.monitor_session("left").is_some_and(|monitor| {
+            monitor.tiles.iter().any(|tile| tile.node_id == left)
+                && monitor.tiles.iter().all(|tile| tile.node_id != right)
+        }));
+        assert!(session.monitor_session("right").is_some_and(|monitor| {
+            monitor.tiles.iter().any(|tile| tile.node_id == right)
+                && monitor.tiles.iter().all(|tile| tile.node_id != left)
+        }));
     }
 
     #[test]

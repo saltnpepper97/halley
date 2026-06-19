@@ -24,10 +24,10 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      inkscape:zoom="0.21355655"
-     inkscape:cx="-110.04111"
+     inkscape:cx="-100.67591"
      inkscape:cy="-409.72754"
-     inkscape:window-width="1376"
-     inkscape:window-height="1051"
+     inkscape:window-width="2043"
+     inkscape:window-height="1198"
      inkscape:window-x="103"
      inkscape:window-y="103"
      inkscape:window-maximized="0"
@@ -44,12 +44,12 @@
        transform="translate(2.0371875,21.466728)"
        style="stroke-width:1;stroke-dasharray:none">
       <path
-         style="fill:none;stroke:#000000;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
+         style="fill:none;stroke:#000000;stroke-width:8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
          d="M 51.461967,44.581771 74.422291,67.001853 51.597026,90.367358"
          id="path1"
          sodipodi:nodetypes="ccc" />
       <path
-         style="fill:none;stroke:#000000;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
+         style="fill:none;stroke:#000000;stroke-width:8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none"
          d="M 79.911502,99.115043 H 134.42478"
          id="path2"
          sodipodi:nodetypes="cc" />
