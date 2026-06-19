@@ -48,7 +48,7 @@ fn unconstrain_geometry_for_target(
 fn window_popup_constraint_target(
     st: &Halley,
     popup: &PopupSurface,
-) -> Option<Rectangle<i32, Logical>> {
+) -> Option<(halley_core::field::NodeId, Rectangle<i32, Logical>)> {
     let kind = PopupKind::from(popup.clone());
     let root = find_popup_root_surface(&kind).ok()?;
     let node_id = *st.model.surface_to_node.get(&root.id())?;
@@ -63,26 +63,48 @@ fn window_popup_constraint_target(
     let origin_x = (parent_tl_x - vp_tl_x).round() as i32;
     let origin_y = (parent_tl_y - vp_tl_y).round() as i32;
 
-    Some(Rectangle::new(
+    let target = Rectangle::new(
         (-origin_x, -origin_y).into(),
         (
             (viewport.size.x.round() as i32).max(1),
             (viewport.size.y.round() as i32).max(1),
         )
             .into(),
-    ))
+    );
+    Some((node_id, target))
+}
+
+/// Whether a window-parented popup should render pinned to the screen (immune to
+/// camera zoom/pan) rather than tracking its parent window. Currently scoped to
+/// the Steam client's notifications (e.g. install-complete), whose root window
+/// app_id is `steam`. Deliberately excludes per-game `steam_app_*` windows and
+/// every other app, so ordinary interactive context menus keep tracking their
+/// parent.
+fn popup_should_pin_to_screen(st: &Halley, root_node: halley_core::field::NodeId) -> bool {
+    st.model
+        .node_app_ids
+        .get(&root_node)
+        .is_some_and(|app_id| app_id.eq_ignore_ascii_case("steam"))
 }
 
 fn configure_popup_position(st: &mut Halley, popup: &PopupSurface, positioner: PositionerState) {
     // Window-parented popups (incl. XWayland override-redirect overlays via
     // xwayland-satellite) are unconstrained within the parent's monitor so corner
     // overlays slide to the screen edge and off-screen ones are pulled on-screen.
-    if let Some(target) = window_popup_constraint_target(st, popup) {
+    if let Some((root_node, target)) = window_popup_constraint_target(st, popup) {
         let (adjusted, geometry) = unconstrain_geometry_for_target(positioner, target);
         popup.with_pending_state(|state| {
             state.positioner = adjusted;
             state.geometry = geometry;
         });
+        // Freeze the pan-free anchor (`target.loc`) so the render path can pin
+        // this popup to the monitor output instead of tracking the parent.
+        let key = popup.wl_surface().id();
+        if popup_should_pin_to_screen(st, root_node) {
+            st.model.pinned_popup_anchor.insert(key, target.loc);
+        } else {
+            st.model.pinned_popup_anchor.remove(&key);
+        }
         return;
     }
     popup.with_pending_state(|state| {
@@ -376,7 +398,10 @@ impl XdgShellHandler for Halley {
         self.request_maintenance();
     }
 
-    fn popup_destroyed(&mut self, _surface: PopupSurface) {
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        self.model
+            .pinned_popup_anchor
+            .remove(&surface.wl_surface().id());
         self.platform.popup_manager.cleanup();
     }
 

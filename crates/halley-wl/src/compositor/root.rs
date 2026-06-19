@@ -8,6 +8,7 @@ use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use smithay::utils::{Logical, Point};
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
@@ -65,6 +66,13 @@ pub(crate) struct ModelState {
     pub(crate) camera_target_view_size: Vec2,
     pub(crate) surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
+    /// For window-parented popups that should render pinned to the screen (e.g.
+    /// Steam's install-complete notification), the frozen configure-time anchor
+    /// `target.loc` (= `-(parent_tl - viewport_tl)` against the fixed monitor
+    /// frame), keyed by the popup surface. Lets the render path reproject the
+    /// popup onto the monitor output immune to camera zoom/pan. See
+    /// `configure_popup_position`.
+    pub(crate) pinned_popup_anchor: HashMap<ObjectId, Point<i32, Logical>>,
 }
 
 pub(crate) struct UiState {
@@ -341,6 +349,7 @@ impl Halley {
                 camera_target_view_size: primary_zoom_ref,
                 surface_to_node: HashMap::new(),
                 node_app_ids: HashMap::new(),
+                pinned_popup_anchor: HashMap::new(),
             },
             ui: UiState {
                 render_state: RenderState {

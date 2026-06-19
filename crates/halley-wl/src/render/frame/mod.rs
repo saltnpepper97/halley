@@ -36,8 +36,9 @@ use crate::window::{
     prewarm_visible_active_window_offscreen_caches,
 };
 use draw::{
-    FrameBlurContext, draw_apogee_background_layers, draw_cursor_layer, draw_debug_frame_scene,
-    draw_scene_below_windows, draw_scene_windows_and_hud,
+    FrameBlurContext, draw_apogee_aperture_layers, draw_apogee_background_layers,
+    draw_cursor_layer, draw_debug_frame_scene, draw_scene_below_windows,
+    draw_scene_windows_and_hud,
 };
 use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame_state};
 
@@ -324,11 +325,17 @@ pub(crate) fn draw_debug_frame_to_target(
         ensure_cluster_core_icon_resources(renderer, st)?;
         ensure_ui_text_resources(renderer, st)?;
         prewarm_apogee_previews(renderer, st, prepared.now);
-        let (layer_background, _, _, _) = collect_layer_surfaces(renderer, st, size, prepared.now);
+        let (layer_background, layer_bottom, layer_top, layer_overlay) =
+            collect_layer_surfaces(renderer, st, size, prepared.now);
         let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
         let mut frame = renderer.render(framebuffer, size, frame_transform)?;
         frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
-        draw_apogee_background_layers(&mut frame, prepared.damage, &layer_background)?;
+        draw_apogee_background_layers(
+            &mut frame,
+            prepared.damage,
+            &layer_background,
+            &layer_bottom,
+        )?;
         crate::overlay::draw_observatory(
             &mut frame,
             st,
@@ -337,6 +344,10 @@ pub(crate) fn draw_debug_frame_to_target(
             prepared.damage,
             prepared.now,
         )?;
+        draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_background)?;
+        draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_bottom)?;
+        draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_top)?;
+        draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_overlay)?;
         let cursor_config = st.runtime.tuning.cursor.clone();
         draw_cursor_layer(
             &mut frame,

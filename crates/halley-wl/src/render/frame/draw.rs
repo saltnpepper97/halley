@@ -573,8 +573,21 @@ pub(super) fn draw_apogee_background_layers(
     frame: &mut GlesFrame<'_, '_>,
     damage: Rectangle<i32, Physical>,
     background: &[LayerSurfaceRenderGroup],
+    bottom: &[LayerSurfaceRenderGroup],
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
-    draw_non_aperture_layer_groups(frame, damage, background)
+    draw_non_aperture_layer_groups(frame, damage, background)?;
+    draw_non_aperture_layer_groups(frame, damage, bottom)
+}
+
+pub(super) fn draw_apogee_aperture_layers(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    groups: &[LayerSurfaceRenderGroup],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for group in groups.iter().filter(|group| group.is_aperture) {
+        let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
+    }
+    Ok(())
 }
 
 fn draw_non_aperture_layer_groups(

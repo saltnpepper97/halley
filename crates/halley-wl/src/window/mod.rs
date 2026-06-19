@@ -1152,12 +1152,33 @@ pub(crate) fn collect_active_surfaces(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            let popup_sx = sx
-                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * element_scale)
-                    .round() as i32;
-            let popup_sy = sy
-                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale)
-                    .round() as i32;
+            let pinned_anchor = st
+                .model
+                .pinned_popup_anchor
+                .get(&popup.wl_surface().id())
+                .copied();
+            // A pinned popup (e.g. Steam's install-complete notification) renders
+            // at a fixed monitor-relative position projected onto the output rect,
+            // immune to camera zoom/pan. `target_loc` is the configure-time frozen
+            // anchor; within_vp is the popup's offset inside the usable viewport.
+            let (popup_sx, popup_sy, popup_scale) = if let Some(target_loc) = pinned_anchor {
+                let viewport = st.usable_viewport_for_monitor(current_monitor.as_str());
+                let out_scale_x = output_clip.size.w as f32 / viewport.size.x.max(1.0);
+                let out_scale_y = output_clip.size.h as f32 / viewport.size.y.max(1.0);
+                let within_vp_x = (-target_loc.x + popup_offset.x - popup_geo.loc.x) as f32;
+                let within_vp_y = (-target_loc.y + popup_offset.y - popup_geo.loc.y) as f32;
+                let psx = output_clip.loc.x + (within_vp_x * out_scale_x).round() as i32;
+                let psy = output_clip.loc.y + (within_vp_y * out_scale_y).round() as i32;
+                (psx, psy, out_scale_x)
+            } else {
+                let psx = sx
+                    + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * element_scale)
+                        .round() as i32;
+                let psy = sy
+                    + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale)
+                        .round() as i32;
+                (psx, psy, element_scale)
+            };
             if use_offscreen_zoom {
                 match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha, None) {
                     Ok(offscreen) => {
@@ -1166,13 +1187,13 @@ pub(crate) fn collect_active_surfaces(
                         let src_w = offscreen.bbox.size.w.max(1) as f64;
                         let src_h = offscreen.bbox.size.h.max(1) as f64;
                         let dst_x =
-                            popup_sx + (offscreen.bbox.loc.x as f32 * element_scale).round() as i32;
+                            popup_sx + (offscreen.bbox.loc.x as f32 * popup_scale).round() as i32;
                         let dst_y =
-                            popup_sy + (offscreen.bbox.loc.y as f32 * element_scale).round() as i32;
-                        let dst_w = (offscreen.bbox.size.w as f32 * element_scale)
+                            popup_sy + (offscreen.bbox.loc.y as f32 * popup_scale).round() as i32;
+                        let dst_w = (offscreen.bbox.size.w as f32 * popup_scale)
                             .round()
                             .max(1.0) as i32;
-                        let dst_h = (offscreen.bbox.size.h as f32 * element_scale)
+                        let dst_h = (offscreen.bbox.size.h as f32 * popup_scale)
                             .round()
                             .max(1.0) as i32;
                         let offscreen_texture = OffscreenNodeTexture {
@@ -1209,7 +1230,7 @@ pub(crate) fn collect_active_surfaces(
                             renderer,
                             popup.wl_surface(),
                             (popup_sx, popup_sy),
-                            element_scale as f64,
+                            popup_scale as f64,
                             alpha,
                             Kind::Unspecified,
                         );
@@ -1225,7 +1246,7 @@ pub(crate) fn collect_active_surfaces(
                     renderer,
                     popup.wl_surface(),
                     (popup_sx, popup_sy),
-                    element_scale as f64,
+                    popup_scale as f64,
                     alpha,
                     Kind::Unspecified,
                 );

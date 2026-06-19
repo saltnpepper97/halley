@@ -121,6 +121,12 @@ All notable changes to this project will be documented in this file.
   rendering, keep background/bottom layer surfaces visible behind the dim, and draw Aperture above
   Apogee in minimal mode.
 - Keep Aperture promoted above Apogee regardless of which layer-shell layer it uses.
+- Restore Aperture visibility in the Apogee fast path by drawing non-Aperture background/bottom
+  layers below Apogee, then promoting Aperture-only layer-shell surfaces above the overview so the
+  minimal tab remains visible.
+- Pin Steam client notification popups to the monitor output instead of letting them track spatial
+  camera pan/zoom, while leaving ordinary window-parented context menus attached to their parent
+  windows.
 - Crop cached Alt+Tab/Apogee/hover preview textures to the real window aspect before fitting them,
   and remap rounded-texture shader coordinates for cropped sources, avoiding square Firefox/GTK
   thumbnails or square preview corners when their surface-tree cache is padded.
