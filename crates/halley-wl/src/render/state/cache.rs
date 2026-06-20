@@ -114,6 +114,11 @@ pub(crate) struct RenderCacheState {
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
+    /// Frozen alt+tab neighbour previews. Separate from `window_offscreen_cache`
+    /// (which the main render pass keeps live for on-screen windows) so a
+    /// non-selected card shows a single still instead of animating. Only the
+    /// selected focus-cycle card reads the live `window_offscreen_cache`.
+    pub(crate) focus_cycle_still: HashMap<NodeId, WindowOffscreenCache>,
 }
 
 impl RenderState {
@@ -144,6 +149,51 @@ impl RenderState {
             .window_offscreen_cache
             .get_mut(&node_id)
             .expect("offscreen cache should exist after ensure")
+    }
+
+    /// Get-or-create the frozen focus-cycle still entry for `node_id`, resetting
+    /// it when the captured size no longer matches (so a resized neighbour
+    /// recaptures a fresh still).
+    pub(crate) fn ensure_focus_cycle_still(
+        &mut self,
+        node_id: NodeId,
+        width: i32,
+        height: i32,
+        now: Instant,
+    ) -> &mut WindowOffscreenCache {
+        let width = width.max(1);
+        let height = height.max(1);
+        let cache = self.cache.focus_cycle_still.entry(node_id).or_default();
+        if !cache.matches_size(width, height) {
+            cache.set_size(width, height);
+            cache.texture = None;
+            cache.bbox = None;
+            cache.has_content = false;
+            cache.mark_dirty();
+        }
+        cache.touch(now);
+        self.cache
+            .focus_cycle_still
+            .get_mut(&node_id)
+            .expect("focus-cycle still should exist after ensure")
+    }
+
+    /// Drop a single node's frozen still (e.g. when it becomes the selected card,
+    /// so a fresh still is taken once it is demoted to a neighbour again).
+    pub(crate) fn clear_focus_cycle_still_for(&mut self, node_id: NodeId) {
+        self.cache.focus_cycle_still.remove(&node_id);
+    }
+
+    /// Drop frozen stills for nodes no longer in the visible alt+tab slots.
+    pub(crate) fn prune_focus_cycle_still(&mut self, keep: &HashSet<NodeId>) {
+        self.cache
+            .focus_cycle_still
+            .retain(|id, _| keep.contains(id));
+    }
+
+    /// Drop every frozen still (focus-cycle session ended).
+    pub(crate) fn clear_focus_cycle_still(&mut self) {
+        self.cache.focus_cycle_still.clear();
     }
 
     pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {

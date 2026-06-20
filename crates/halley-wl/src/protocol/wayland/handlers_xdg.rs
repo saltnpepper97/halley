@@ -56,6 +56,21 @@ fn window_popup_constraint_target(
     let viewport = st.usable_viewport_for_monitor(monitor.as_str());
     let node = st.model.field.node(node_id)?;
 
+    // Fullscreen is presentation-only: the window keeps its logical `node.pos` but is
+    // drawn filling the output. So the popup's working area is the screen-filling
+    // window itself (origin at the output top-left), not the `node.pos`-relative
+    // viewport rect — using the latter offsets the constraint target by the window's
+    // logical distance from the camera center and mis-slides the popup off its anchor.
+    if st.fullscreen_monitor_for_node(node_id).is_some() {
+        let (_gx, _gy, gw, gh) = crate::compositor::surface::window_geometry_for_node(st, node_id)
+            .unwrap_or((0.0, 0.0, node.intrinsic_size.x, node.intrinsic_size.y));
+        let target = Rectangle::new(
+            (0, 0).into(),
+            ((gw.round() as i32).max(1), (gh.round() as i32).max(1)).into(),
+        );
+        return Some((node_id, target));
+    }
+
     let parent_tl_x = node.pos.x - node.intrinsic_size.x * 0.5;
     let parent_tl_y = node.pos.y - node.intrinsic_size.y * 0.5;
     let vp_tl_x = viewport.center.x - viewport.size.x * 0.5;

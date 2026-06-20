@@ -196,14 +196,6 @@ pub(crate) fn refresh_portal_services_nonblocking() {
             .arg("--no-block")
             .arg("xdg-desktop-portal.service"),
     );
-    run_portal_service_command(
-        "start xdg-desktop-portal-wlr.service",
-        Command::new("systemctl")
-            .arg("--user")
-            .arg("start")
-            .arg("--no-block")
-            .arg("xdg-desktop-portal-wlr.service"),
-    );
 }
 
 fn activation_environment_vars() -> Vec<String> {

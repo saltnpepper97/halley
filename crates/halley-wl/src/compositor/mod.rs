@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod overlap;
 pub mod overview;
 pub mod platform;
+pub mod portal_chooser;
 pub mod root;
 pub mod runtime;
 pub mod screenshot;

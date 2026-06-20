@@ -55,6 +55,23 @@ input:
     model ""
   end
 
+  # Pointer gesture and touchscreen protocol passthrough.
+  # Touchpad gestures are forwarded through wp_pointer_gestures_v1;
+  # touchscreen contacts are forwarded through wl_touch.
+  gestures:
+    enabled true
+    client-passthrough true
+    touch-passthrough true
+    pinch-to-zoom true
+    pinch-scope "empty-field"
+    compositor-scope "global"
+    modifier "$mod"
+    scroll-pan "empty-field"
+    swipe-threshold-px 120
+    swipe-up-3 "apogee-open"
+    apogee-swipe-up-3 "apogee-close"
+  end
+
   # libinput touchpad settings. Any key you omit keeps libinput's own default.
   #   accel-profile : "adaptive" | "flat"
   #   scroll-method : "two-finger" | "edge" | "on-button-down" | "no-scroll"

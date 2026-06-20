@@ -882,6 +882,81 @@ pub struct DeviceOverride {
     pub settings: DeviceSettings,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompositorGestureScope {
+    EmptyField,
+    Global,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GestureScrollPanMode {
+    Off,
+    EmptyField,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GestureSwipeDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GestureBindingAction {
+    ApogeeOpen,
+    ApogeeClose,
+    Compositor(crate::keybinds::CompositorBindingAction),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GestureBinding {
+    pub direction: GestureSwipeDirection,
+    pub fingers: u32,
+    pub action: GestureBindingAction,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GestureInputConfig {
+    pub enabled: bool,
+    pub client_passthrough: bool,
+    pub touch_passthrough: bool,
+    pub pinch_to_zoom: bool,
+    pub pinch_scope: CompositorGestureScope,
+    pub compositor_scope: CompositorGestureScope,
+    pub modifier: crate::keybinds::KeyModifiers,
+    pub scroll_pan: GestureScrollPanMode,
+    pub swipe_threshold_px: f32,
+    pub swipe_bindings: Vec<GestureBinding>,
+    pub apogee_swipe_bindings: Vec<GestureBinding>,
+}
+
+impl Default for GestureInputConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            client_passthrough: true,
+            touch_passthrough: true,
+            pinch_to_zoom: true,
+            pinch_scope: CompositorGestureScope::EmptyField,
+            compositor_scope: CompositorGestureScope::Global,
+            modifier: crate::keybinds::Keybinds::default().modifier,
+            scroll_pan: GestureScrollPanMode::EmptyField,
+            swipe_threshold_px: 120.0,
+            swipe_bindings: vec![GestureBinding {
+                direction: GestureSwipeDirection::Up,
+                fingers: 3,
+                action: GestureBindingAction::ApogeeOpen,
+            }],
+            apogee_swipe_bindings: vec![GestureBinding {
+                direction: GestureSwipeDirection::Up,
+                fingers: 3,
+                action: GestureBindingAction::ApogeeClose,
+            }],
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct InputConfig {
     pub repeat_rate: i32,
@@ -889,6 +964,7 @@ pub struct InputConfig {
     pub focus_mode: InputFocusMode,
     pub raise_on_click: bool,
     pub keyboard: KeyboardConfig,
+    pub gestures: GestureInputConfig,
     pub touchpad: DeviceSettings,
     pub mouse: DeviceSettings,
     pub devices: Vec<DeviceOverride>,
@@ -902,6 +978,7 @@ impl Default for InputConfig {
             focus_mode: InputFocusMode::Click,
             raise_on_click: true,
             keyboard: KeyboardConfig::default(),
+            gestures: GestureInputConfig::default(),
             touchpad: DeviceSettings::default(),
             mouse: DeviceSettings::default(),
             devices: Vec::new(),

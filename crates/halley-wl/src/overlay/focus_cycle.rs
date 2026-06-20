@@ -228,13 +228,24 @@ fn draw_focus_cycle_preview(
         alpha,
     )?;
 
-    let preview = overlay
-        .render_state
-        .cache
-        .window_offscreen_cache
-        .get(&node_id)
-        .filter(|cache| cache.has_content)
-        .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)));
+    // Fullscreen windows capture to a black texture, so force the app-icon
+    // fallback below instead of previewing them. The selected card previews live
+    // from the shared `window_offscreen_cache`; neighbours read their frozen
+    // `focus_cycle_still` so they don't animate (see `prewarm_focus_cycle_previews`).
+    let preview = (!overlay.node_is_fullscreen(node_id))
+        .then(|| {
+            let cache = &overlay.render_state.cache;
+            let source = if selected {
+                &cache.window_offscreen_cache
+            } else {
+                &cache.focus_cycle_still
+            };
+            source
+                .get(&node_id)
+                .filter(|cache| cache.has_content)
+                .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
+        })
+        .flatten();
 
     if let Some((texture, bbox)) = preview {
         let source = window_preview_source_rect(overlay, node_id, bbox);
@@ -411,6 +422,15 @@ fn draw_focus_cycle_card(
         overlay_text_color_for_fill(badge_fill, alpha),
         damage,
     )?;
+
+    // "NODE" pill, top-left, matching Apogee's badge for collapsed surface nodes.
+    if overlay
+        .field
+        .node(node_id)
+        .is_some_and(|n| matches!(n.state, halley_core::field::NodeState::Node))
+    {
+        super::observatory::draw_badge(frame, overlay, visuals, body, alpha, damage)?;
+    }
 
     // Overlaid caption band: a small app icon + title floating over the bottom of
     // the thumbnail, so the texture keeps the full card height.

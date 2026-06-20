@@ -19,8 +19,8 @@ use smithay::reexports::drm::control::{self as drm_control, Device as DrmControl
 use smithay::{
     backend::drm::DrmEvent,
     backend::input::{
-        AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-        PointerButtonEvent,
+        AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent,
+        PointerAxisEvent, PointerButtonEvent, TouchEvent,
     },
     backend::libinput::LibinputInputBackend,
     backend::libinput::LibinputSessionInterface,

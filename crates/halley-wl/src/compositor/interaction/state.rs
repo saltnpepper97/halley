@@ -140,6 +140,36 @@ pub(crate) struct OverlayHoverTarget {
     pub(crate) prefer_left: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum ActiveCompositorPinchMode {
+    Pending { delta: Vec2 },
+    Pan,
+    Zoom,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorPinch {
+    pub(crate) monitor: String,
+    pub(crate) start_view_size: Vec2,
+    pub(crate) mode: ActiveCompositorPinchMode,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorSwipe {
+    pub(crate) monitor: String,
+    pub(crate) fingers: u32,
+    pub(crate) delta: Vec2,
+    pub(crate) apogee_context: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ActiveGestureRoute {
+    Client,
+    CompositorPinch(ActiveCompositorPinch),
+    CompositorSwipe(ActiveCompositorSwipe),
+    Ignored,
+}
+
 #[derive(Clone)]
 pub(crate) struct PendingCoreHover {
     pub(crate) node_id: NodeId,
@@ -315,9 +345,12 @@ pub(crate) struct InteractionState {
     pub(crate) inflight_screenshot_capture: Option<InflightScreenshotCapture>,
     pub(crate) screenshot_next_serial: u64,
     pub(crate) last_screenshot_result: Option<ScreenshotCaptureResult>,
+    /// Active xdg-desktop-portal source chooser overlay (screen vs window pick).
+    pub(crate) portal_chooser: Option<crate::compositor::portal_chooser::PortalChooserState>,
     pub(crate) modal_release_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
+    pub(crate) active_gesture_route: Option<ActiveGestureRoute>,
     pub(crate) apogee_session: Option<crate::compositor::overview::ApogeeSession>,
     pub(crate) apogee_live_preview_node: Option<NodeId>,
     pub(crate) apogee_live_preview_last_at: Option<Instant>,

@@ -64,6 +64,7 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .cluster_name_prompt
             .contains_key(monitor)
         || screenshot_controller(st).screenshot_session_active()
+        || crate::compositor::portal_chooser::portal_chooser_active(st)
         || st
             .ui
             .render_state

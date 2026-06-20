@@ -4,6 +4,7 @@ pub(crate) mod cluster;
 pub(crate) mod gamescope;
 pub(crate) mod monitor;
 pub(crate) mod node;
+pub(crate) mod portal;
 pub(crate) mod stack;
 pub(crate) mod tile;
 pub(crate) mod trail;

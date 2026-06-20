@@ -290,6 +290,64 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
+    if crate::compositor::portal_chooser::portal_chooser_active(&*st) {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let escape = key_name_to_evdev("escape").map(|value| value + 8);
+            let enter = key_name_to_evdev("return").map(|value| value + 8);
+            let left = key_name_to_evdev("left").map(|value| value + 8);
+            let right = key_name_to_evdev("right").map(|value| value + 8);
+            let phase = st
+                .input
+                .interaction_state
+                .portal_chooser
+                .as_ref()
+                .map(|s| s.phase);
+            let in_menu =
+                phase == Some(crate::compositor::portal_chooser::PortalChooserPhase::Menu);
+            if Some(code) == escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                if in_menu {
+                    let _ = crate::compositor::portal_chooser::cancel_portal_chooser(st);
+                } else {
+                    let _ = crate::compositor::portal_chooser::return_portal_chooser_to_menu(st);
+                }
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter && in_menu {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let _ =
+                    crate::compositor::portal_chooser::activate_portal_chooser(st, Instant::now());
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter
+                && phase == Some(crate::compositor::portal_chooser::PortalChooserPhase::ScreenPick)
+            {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let _ =
+                    crate::compositor::portal_chooser::confirm_portal_screen(st, Instant::now());
+                ctx.backend.request_redraw();
+            } else if (Some(code) == left || Some(code) == right) && in_menu {
+                let delta = if Some(code) == left { -1 } else { 1 };
+                let _ = crate::compositor::portal_chooser::move_portal_chooser_selection(st, delta);
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
+    }
+
     let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
         .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
     if let Some(prompt_monitor) = prompt_monitor {

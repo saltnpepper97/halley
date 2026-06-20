@@ -1,0 +1,4 @@
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.halley
+Interfaces=org.freedesktop.impl.portal.ScreenCast;
+UseIn=Halley;

@@ -90,6 +90,7 @@ pub(crate) fn tick_focus_cycle_session(st: &mut Halley, now: Instant) {
         >= FOCUS_CYCLE_CLOSE_MS
     {
         st.input.interaction_state.focus_cycle_session = None;
+        st.ui.render_state.clear_focus_cycle_still();
     } else {
         st.request_maintenance();
     }
@@ -184,6 +185,7 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
 
         if session.candidates.is_empty() {
             self.input.interaction_state.focus_cycle_session = None;
+            self.ui.render_state.clear_focus_cycle_still();
             return false;
         }
 

@@ -1152,11 +1152,18 @@ pub(crate) fn collect_active_surfaces(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            let pinned_anchor = st
-                .model
-                .pinned_popup_anchor
-                .get(&popup.wl_surface().id())
-                .copied();
+            // Pinning anchors a popup to the monitor for the non-fullscreen
+            // panned/zoomed case. While fullscreen the frozen anchor is `node.pos`-based
+            // and uses the wrong scale, so fall through to the parent-tracking branch,
+            // which uses the window's real rendered `sx/sy` and `element_scale`.
+            let pinned_anchor = if fullscreen_on_current_monitor {
+                None
+            } else {
+                st.model
+                    .pinned_popup_anchor
+                    .get(&popup.wl_surface().id())
+                    .copied()
+            };
             // A pinned popup (e.g. Steam's install-complete notification) renders
             // at a fixed monitor-relative position projected onto the output rect,
             // immune to camera zoom/pan. `target_loc` is the configure-time frozen

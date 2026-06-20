@@ -51,8 +51,9 @@ use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-    PointerButtonEvent, PointerMotionEvent,
+    AbsolutePositionEvent, Axis, DeviceCapability, Event, GestureBeginEvent, GestureEndEvent,
+    GesturePinchUpdateEvent, GestureSwipeUpdateEvent, InputEvent, KeyState, KeyboardKeyEvent,
+    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -1200,6 +1201,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .borrow_mut()
                                 .remove(output_name.as_str());
                             redraw_ping_for_vblank.ping();
+                            crate::portal::capture_screencast_for_output(st, output_name.as_str());
                             matched_outputs.push(output_name.clone());
                             if first_vblank_logged_for_notifier
                                 .borrow_mut()
@@ -1609,7 +1611,249 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             },
                         );
                     }
+                    InputEvent::GestureSwipeBegin { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GestureSwipeBegin {
+                                fingers: event.fingers(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GestureSwipeUpdate { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GestureSwipeUpdate {
+                                delta_x: event.delta_x(),
+                                delta_y: event.delta_y(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GestureSwipeEnd { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GestureSwipeEnd {
+                                cancelled: event.cancelled(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GesturePinchBegin { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GesturePinchBegin {
+                                fingers: event.fingers(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GesturePinchUpdate { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GesturePinchUpdate {
+                                delta_x: event.delta_x(),
+                                delta_y: event.delta_y(),
+                                scale: event.scale(),
+                                rotation: event.rotation(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GesturePinchEnd { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GesturePinchEnd {
+                                cancelled: event.cancelled(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GestureHoldBegin { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GestureHoldBegin {
+                                fingers: event.fingers(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::GestureHoldEnd { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::GestureHoldEnd {
+                                cancelled: event.cancelled(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::TouchDown { event } => {
+                        let (mon_w, mon_h, mon_ox, mon_oy) = primary_tty_monitor_dims(
+                            st.model.monitor_state.current_monitor.as_str(),
+                            &st.runtime.tuning,
+                            outputs_for_input.borrow().as_slice(),
+                        );
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::TouchDown {
+                                ws_w: mon_w,
+                                ws_h: mon_h,
+                                slot: event.slot(),
+                                sx: mon_ox as f32 + event.x_transformed(mon_w) as f32,
+                                sy: mon_oy as f32 + event.y_transformed(mon_h) as f32,
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::TouchMotion { event } => {
+                        let (mon_w, mon_h, mon_ox, mon_oy) = primary_tty_monitor_dims(
+                            st.model.monitor_state.current_monitor.as_str(),
+                            &st.runtime.tuning,
+                            outputs_for_input.borrow().as_slice(),
+                        );
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::TouchMotion {
+                                ws_w: mon_w,
+                                ws_h: mon_h,
+                                slot: event.slot(),
+                                sx: mon_ox as f32 + event.x_transformed(mon_w) as f32,
+                                sy: mon_oy as f32 + event.y_transformed(mon_h) as f32,
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::TouchUp { event } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::TouchUp {
+                                slot: event.slot(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    InputEvent::TouchFrame { .. } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::TouchFrame,
+                        );
+                    }
+                    InputEvent::TouchCancel { .. } => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
+                        handle_backend_input_event(
+                            st,
+                            &input_ctx,
+                            BackendInputEventData::TouchCancel,
+                        );
+                    }
                     InputEvent::DeviceAdded { mut device } => {
+                        if device.has_capability(DeviceCapability::Touch.into())
+                            && st.platform.seat.get_touch().is_none()
+                        {
+                            st.platform.seat.add_touch();
+                        }
                         crate::input::device_config::apply_device_config(
                             &mut device,
                             &st.runtime.tuning.input,

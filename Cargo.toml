@@ -9,6 +9,7 @@ members = [
   "crates/halley-core",
   "crates/halley-ipc",
   "crates/halley-lift",
+  "crates/halley-portal",
   "crates/halley-wl",
 ]
 resolver = "2"

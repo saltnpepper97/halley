@@ -404,6 +404,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             state.runtime.wayland_display = Some(sock_name.clone());
             state.apply_aperture_config(aperture_config);
             state.platform.seat.add_pointer();
+            state.platform.seat.add_touch();
             super::initialize_seat_keyboard(&mut state);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
             state.configure_dmabuf_importer(dmabuf_importer, None);
@@ -515,6 +516,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
                             crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
+                            crate::portal::capture_screencast_for_output(st, "winit-0");
                         }
                     }
                     WinitEvent::Resized { size, .. } => {
@@ -559,6 +561,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
                             crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
+                            crate::portal::capture_screencast_for_output(st, "winit-0");
                         }
                     }
                     WinitEvent::Focus(false) => {
@@ -733,6 +736,77 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 relative_direction_vertical: event
                                     .relative_direction(Axis::Vertical),
                             },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::TouchDown { event }) => {
+                        let ws = backend_for_winit.borrow().window_size();
+                        handle_backend_input_event(
+                            st,
+                            &InputCtx {
+                                mod_state: &mod_state_for_winit,
+                                pointer_state: &pointer_state_for_winit,
+                                backend: &backend_handle_for_winit,
+                                config_path: config_path_for_winit.as_str(),
+                                wayland_display: wayland_display_for_winit.as_str(),
+                            },
+                            BackendInputEventData::TouchDown {
+                                ws_w: ws.w,
+                                ws_h: ws.h,
+                                slot: event.slot(),
+                                sx: event.x_transformed(ws.w) as f32,
+                                sy: event.y_transformed(ws.h) as f32,
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::TouchMotion { event }) => {
+                        let ws = backend_for_winit.borrow().window_size();
+                        handle_backend_input_event(
+                            st,
+                            &InputCtx {
+                                mod_state: &mod_state_for_winit,
+                                pointer_state: &pointer_state_for_winit,
+                                backend: &backend_handle_for_winit,
+                                config_path: config_path_for_winit.as_str(),
+                                wayland_display: wayland_display_for_winit.as_str(),
+                            },
+                            BackendInputEventData::TouchMotion {
+                                ws_w: ws.w,
+                                ws_h: ws.h,
+                                slot: event.slot(),
+                                sx: event.x_transformed(ws.w) as f32,
+                                sy: event.y_transformed(ws.h) as f32,
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::TouchUp { event }) => {
+                        handle_backend_input_event(
+                            st,
+                            &InputCtx {
+                                mod_state: &mod_state_for_winit,
+                                pointer_state: &pointer_state_for_winit,
+                                backend: &backend_handle_for_winit,
+                                config_path: config_path_for_winit.as_str(),
+                                wayland_display: wayland_display_for_winit.as_str(),
+                            },
+                            BackendInputEventData::TouchUp {
+                                slot: event.slot(),
+                                time_msec: event.time_msec(),
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::TouchCancel { .. }) => {
+                        handle_backend_input_event(
+                            st,
+                            &InputCtx {
+                                mod_state: &mod_state_for_winit,
+                                pointer_state: &pointer_state_for_winit,
+                                backend: &backend_handle_for_winit,
+                                config_path: config_path_for_winit.as_str(),
+                                wayland_display: wayland_display_for_winit.as_str(),
+                            },
+                            BackendInputEventData::TouchCancel,
                         );
                     }
                     _ => {}

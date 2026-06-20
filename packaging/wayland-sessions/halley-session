@@ -19,4 +19,31 @@ if [ -n "${HOME:-}" ]; then
 fi
 
 HALLEY_BIN=${HALLEY_BIN:-/usr/bin/halley}
+
+if command -v systemctl >/dev/null 2>&1 && [ -z "${HALLEY_SYSTEMD_SERVICE:-}" ]; then
+    if systemctl --user list-unit-files halley.service >/dev/null 2>&1; then
+        export HALLEY_SYSTEMD_SERVICE=1
+
+        cleanup() {
+            systemctl --user stop halley.service >/dev/null 2>&1 || true
+        }
+        trap cleanup INT TERM HUP EXIT
+
+        systemctl --user import-environment \
+            HALLEY_WL_BACKEND \
+            XDG_SESSION_TYPE \
+            XDG_CURRENT_DESKTOP \
+            XDG_SESSION_DESKTOP \
+            DESKTOP_SESSION \
+            PATH >/dev/null 2>&1 || true
+
+        if systemctl --user start halley.service; then
+            while systemctl --user is-active --quiet halley.service; do
+                sleep 1
+            done
+            exit 0
+        fi
+    fi
+fi
+
 exec "$HALLEY_BIN" --session "$@"

@@ -56,15 +56,15 @@ struct RectLocal {
 }
 
 #[derive(Clone, Copy)]
-struct ScreenshotMenuStyle {
-    rounded: bool,
-    outer_border_px: f32,
-    item_border_px: f32,
-    bar_corner_radius: f32,
-    item_corner_radius: f32,
+pub(super) struct ScreenshotMenuStyle {
+    pub(super) rounded: bool,
+    pub(super) outer_border_px: f32,
+    pub(super) item_border_px: f32,
+    pub(super) bar_corner_radius: f32,
+    pub(super) item_corner_radius: f32,
 }
 
-fn resolve_screenshot_menu_style(tuning: &RuntimeTuning) -> ScreenshotMenuStyle {
+pub(super) fn resolve_screenshot_menu_style(tuning: &RuntimeTuning) -> ScreenshotMenuStyle {
     let visuals = super::resolve_overlay_visuals(tuning);
     ScreenshotMenuStyle {
         rounded: visuals.rounded,
@@ -136,7 +136,7 @@ fn draw_rect_border(
     Ok(())
 }
 
-fn draw_screenshot_menu_chip(
+pub(super) fn draw_screenshot_menu_chip(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
     rect: Rectangle<i32, Physical>,
@@ -561,7 +561,7 @@ fn draw_screenshot_selection_overlay(
     Ok(())
 }
 
-fn draw_screenshot_window_overlay(
+pub(super) fn draw_screenshot_window_overlay(
     frame: &mut GlesFrame<'_, '_>,
     selection_rect: Option<CaptureCrop>,
     offset_x: i32,

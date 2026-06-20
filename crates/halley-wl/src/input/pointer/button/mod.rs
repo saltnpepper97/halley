@@ -20,6 +20,7 @@ use smithay::utils::SERIAL_COUNTER;
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
 };
+use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
@@ -180,6 +181,23 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
         .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
     if handle_screenshot_pointer_button(
+        st,
+        ctx,
+        &mut ps,
+        button_code,
+        button_state,
+        left,
+        frame,
+        target_monitor.as_str(),
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        world_now,
+    ) {
+        return;
+    }
+    if handle_portal_chooser_pointer_button(
         st,
         ctx,
         &mut ps,

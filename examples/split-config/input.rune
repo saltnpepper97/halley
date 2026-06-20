@@ -25,6 +25,21 @@ input:
     model ""
   end
 
+  # Forward touchpad gestures and touchscreen contacts to clients.
+  gestures:
+    enabled true
+    client-passthrough true
+    touch-passthrough true
+    pinch-to-zoom true
+    pinch-scope "empty-field"
+    compositor-scope "global"
+    modifier "$mod"
+    scroll-pan "empty-field"
+    swipe-threshold-px 120
+    swipe-up-3 "apogee-open"
+    apogee-swipe-up-3 "apogee-close"
+  end
+
   # libinput touchpad settings (omitted keys keep libinput defaults).
   touchpad:
     tap true

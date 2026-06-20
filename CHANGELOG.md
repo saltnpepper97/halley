@@ -59,6 +59,22 @@ All notable changes to this project will be documented in this file.
   re-apply live on config reload; unset keys keep libinput's own defaults. Also adds an
   `input.keyboard.model` xkb key. Wired into the internal template, bootstrap backfill, and
   example configs.
+- Add a native `xdg-desktop-portal-halley` ScreenCast backend with D-Bus activation,
+  portal session state, PipeWire stream creation, and monitor/window source metadata.
+  The compositor owns the actual source selection and frame capture through a narrow
+  Halley IPC surface.
+- Add compositor-paced portal screencast sessions backed by shared-memory frame files.
+  Monitor streams receive full output frames, while window streams crop the selected
+  live window from its host output before the portal backend publishes the PipeWire
+  `Video/Source` stream.
+- Add a Halley-native ScreenCast source chooser overlay for portal clients, including
+  monitor picking, window picking, direct single-source selection for apps that already
+  chose a type, and screenshot-style hovered-window highlighting.
+- Add `halleyctl portal status` and `halleyctl portal version` diagnostics for checking
+  backend discovery, compositor IPC, advertised sources, cursor modes, and versions.
+- Add gesture/touch input configuration under `input.gestures`, including touchpad
+  gesture passthrough, touchscreen passthrough, compositor pinch-to-zoom, configurable
+  swipe bindings, Apogee swipe handling, and gesture scope/modifier controls.
 - Add `halley --nested` as an explicit nested compositor launcher. It forces the winit
   backend, creates a visible host window titled `Halley`, opens a nested Wayland socket for
   clients, and avoids full-session startup behavior such as session autostart.
@@ -71,6 +87,9 @@ All notable changes to this project will be documented in this file.
 - Rework Apogee preview capture so each active monitor fills missing snapshots in small batches,
   prioritizes the hovered live preview, and rate-limits live refreshes to keep the overview
   responsive with many windows.
+- Treat touchpad finger scrolling as high-resolution input: compositor wheel bindings now use an
+  accumulated threshold instead of firing on every tiny delta, while two-finger scroll over empty
+  field space pans smoothly on both axes without adding gesture handling yet.
 - Animate compositor fullscreen exits back to the restored window geometry, using the existing
   fullscreen animation settings and skipping soft-suspend/fullscreen-preservation paths.
 - Make camera zoom inertial, like a powered lens. Instead of easing to a fresh target on every
@@ -115,6 +134,12 @@ All notable changes to this project will be documented in this file.
   and client-requested fullscreen surfaces remain excluded.
 - Add configurable raise animation triggering via `animations.raise.trigger "always"` or
   `"overlap"`.
+- Prefer Halley's native ScreenCast portal backend in packaged portal configuration instead
+  of `xdg-desktop-portal-wlr`, while leaving GTK as the default fallback backend for other
+  portal interfaces.
+- Make `halley-session` start and wait on the systemd user `halley.service` when available,
+  so `graphical-session.target`, desktop autostart, and portal services come up correctly
+  under display managers.
 
 ### Fixed
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window
@@ -173,6 +198,12 @@ All notable changes to this project will be documented in this file.
   the shared overlay chip renderer.
 - Fix Halley Lift caret placement so trailing spaces advance the caret immediately and empty input
   still shows the caret.
+- Fix native ScreenCast startup by creating screencast SHM files with read/write mappings,
+  retaining PipeWire stream listeners for the session lifetime, activating streams after
+  connect, and writing buffers through PipeWire's chunk/data APIs so portal consumers receive
+  live frames instead of black previews.
+- Tighten the portal source chooser visuals by removing excess mode-bar padding and matching
+  the screenshot overlay's single hovered-window highlight behavior during window selection.
 
 ## [v0.4.0] - 2026-06-12
 

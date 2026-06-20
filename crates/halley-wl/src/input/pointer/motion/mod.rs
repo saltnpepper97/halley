@@ -24,6 +24,7 @@ pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable
 
 use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
 use super::focus::pointer_focus_for_screen;
+use super::portal_chooser::handle_portal_chooser_pointer_motion;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
 use crate::input::keyboard::modkeys::modifier_active;
@@ -270,6 +271,17 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         routing.global_sx,
         routing.global_sy,
         now,
+    ) {
+        return;
+    }
+    if handle_portal_chooser_pointer_motion(
+        st,
+        ctx,
+        routing.monitor.as_str(),
+        routing.ws_w,
+        routing.ws_h,
+        routing.local_sx,
+        routing.local_sy,
     ) {
         return;
     }

@@ -37,6 +37,7 @@ pub(crate) enum HelpTopic {
     Tile,
     TileFocus,
     TileSwap,
+    Portal,
     Gamescope,
 }
 
@@ -68,6 +69,7 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 ("cluster", "Cluster workspace actions"),
                 ("stack", "Stack layout actions"),
                 ("tile", "Tile layout actions"),
+                ("portal", "Portal backend diagnostics"),
                 ("gamescope", "Wrap a game launch in gamescope"),
             ],
         ),
@@ -347,6 +349,23 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 "left|right|up|down",
                 "Direction of the adjacent visible tile",
             )],
+        ),
+        HelpTopic::Portal => print_help_page(
+            "halleyctl portal",
+            &[
+                "halleyctl portal status [--json]",
+                "halleyctl portal version [--json]",
+            ],
+            &[
+                (
+                    "status",
+                    "Check portal binary, compositor IPC, and capture support",
+                ),
+                (
+                    "version",
+                    "Print xdg-desktop-portal-halley and compositor versions",
+                ),
+            ],
         ),
         HelpTopic::Gamescope => print_help_page(
             "halleyctl gamescope",

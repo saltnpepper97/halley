@@ -122,6 +122,7 @@ pub(crate) mod input;
 pub(crate) mod ipc;
 pub(crate) mod overlay;
 pub(crate) mod perf;
+pub(crate) mod portal;
 pub(crate) mod presentation;
 pub(crate) mod protocol;
 pub mod render;

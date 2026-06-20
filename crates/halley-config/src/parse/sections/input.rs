@@ -1,10 +1,18 @@
 use rune_cfg::RuneConfig;
 
-use crate::layout::{DeviceOverride, DeviceSettings, RuntimeTuning};
+use crate::keybinds::{
+    BearingsBindingAction, CompositorBindingAction, DirectionalAction, FocusCycleBindingAction,
+    KeyModifiers, NodeBindingAction, StackBindingAction, StackCycleDirection, TileBindingAction,
+    TrailBindingAction, parse_modifiers,
+};
+use crate::layout::{
+    CompositorGestureScope, DeviceOverride, DeviceSettings, GestureBinding, GestureBindingAction,
+    GestureScrollPanMode, GestureSwipeDirection, RuntimeTuning,
+};
 
 use super::super::primitives::{
     opt_accel_profile, opt_bool, opt_click_method, opt_f64, opt_scroll_method, opt_tap_button_map,
-    opt_u32, pick_bool, pick_i32, pick_input_focus_mode, pick_string,
+    opt_u32, pick_bool, pick_f32, pick_i32, pick_input_focus_mode, pick_string,
 };
 
 pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -42,9 +50,232 @@ pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.input.keyboard.model = model;
     }
 
+    out.input.gestures.enabled =
+        pick_bool(cfg, &["input.gestures.enabled"], out.input.gestures.enabled);
+    out.input.gestures.client_passthrough = pick_bool(
+        cfg,
+        &[
+            "input.gestures.client-passthrough",
+            "input.gestures.client_passthrough",
+        ],
+        out.input.gestures.client_passthrough,
+    );
+    out.input.gestures.touch_passthrough = pick_bool(
+        cfg,
+        &[
+            "input.gestures.touch-passthrough",
+            "input.gestures.touch_passthrough",
+        ],
+        out.input.gestures.touch_passthrough,
+    );
+    out.input.gestures.pinch_to_zoom = pick_bool(
+        cfg,
+        &[
+            "input.gestures.pinch-to-zoom",
+            "input.gestures.pinch_to_zoom",
+        ],
+        out.input.gestures.pinch_to_zoom,
+    );
+    if let Some(scope) = pick_string(
+        cfg,
+        &[
+            "input.gestures.compositor-scope",
+            "input.gestures.compositor_scope",
+        ],
+    ) {
+        out.input.gestures.compositor_scope = match scope.trim().trim_matches('"') {
+            "empty-field" | "empty_field" => CompositorGestureScope::EmptyField,
+            "global" => CompositorGestureScope::Global,
+            _ => out.input.gestures.compositor_scope,
+        };
+    }
+    if let Some(scope) = pick_string(
+        cfg,
+        &["input.gestures.pinch-scope", "input.gestures.pinch_scope"],
+    ) {
+        out.input.gestures.pinch_scope = match scope.trim().trim_matches('"') {
+            "empty-field" | "empty_field" => CompositorGestureScope::EmptyField,
+            "global" => CompositorGestureScope::Global,
+            _ => out.input.gestures.pinch_scope,
+        };
+    }
+    out.input.gestures.modifier = load_gesture_modifier(cfg, out);
+    if let Some(mode) = pick_string(
+        cfg,
+        &["input.gestures.scroll-pan", "input.gestures.scroll_pan"],
+    ) {
+        out.input.gestures.scroll_pan = match mode.trim().trim_matches('"') {
+            "off" | "false" | "none" => GestureScrollPanMode::Off,
+            "empty-field" | "empty_field" => GestureScrollPanMode::EmptyField,
+            _ => out.input.gestures.scroll_pan,
+        };
+    }
+    out.input.gestures.swipe_threshold_px = pick_f32(
+        cfg,
+        &[
+            "input.gestures.swipe-threshold-px",
+            "input.gestures.swipe_threshold_px",
+        ],
+        out.input.gestures.swipe_threshold_px,
+    )
+    .max(1.0);
+    out.input.gestures.swipe_bindings = load_gesture_swipe_bindings(cfg, false);
+    out.input.gestures.apogee_swipe_bindings = load_gesture_swipe_bindings(cfg, true);
+
     out.input.touchpad = load_device_settings(cfg, "input.touchpad");
     out.input.mouse = load_device_settings(cfg, "input.mouse");
     out.input.devices = load_device_overrides(cfg);
+}
+
+fn load_gesture_modifier(cfg: &RuneConfig, out: &RuntimeTuning) -> KeyModifiers {
+    let Some(raw) = pick_string(
+        cfg,
+        &[
+            "input.gestures.modifier",
+            "input.gestures.global-modifier",
+            "input.gestures.global_modifier",
+            "input.gestures.scroll-pan-modifier",
+            "input.gestures.scroll_pan_modifier",
+        ],
+    ) else {
+        return out.keybinds.modifier;
+    };
+    let raw = raw.trim().trim_matches('"');
+    if matches!(raw, "$mod" | "mod" | "$var.mod") {
+        return out.keybinds.modifier;
+    }
+    if matches!(raw, "off" | "false") {
+        return KeyModifiers::default();
+    }
+    parse_modifiers(raw).unwrap_or(out.input.gestures.modifier)
+}
+
+fn load_gesture_swipe_bindings(cfg: &RuneConfig, apogee_context: bool) -> Vec<GestureBinding> {
+    let mut bindings = Vec::new();
+    let Ok(keys) = cfg.get_keys("input.gestures") else {
+        let defaults = crate::layout::GestureInputConfig::default();
+        return if apogee_context {
+            defaults.apogee_swipe_bindings
+        } else {
+            defaults.swipe_bindings
+        };
+    };
+
+    for key in keys {
+        let Some((direction, fingers)) = parse_swipe_key(key.as_str(), apogee_context) else {
+            continue;
+        };
+        let path = format!("input.gestures.{key}");
+        let Some(action_text) = pick_string(cfg, &[path.as_str()]) else {
+            continue;
+        };
+        let Some(action) = parse_gesture_binding_action(action_text.as_str()) else {
+            continue;
+        };
+        bindings.push(GestureBinding {
+            direction,
+            fingers,
+            action,
+        });
+    }
+
+    if bindings.is_empty() {
+        let defaults = crate::layout::GestureInputConfig::default();
+        if apogee_context {
+            defaults.apogee_swipe_bindings
+        } else {
+            defaults.swipe_bindings
+        }
+    } else {
+        bindings
+    }
+}
+
+fn parse_swipe_key(key: &str, apogee_context: bool) -> Option<(GestureSwipeDirection, u32)> {
+    let prefix = if apogee_context {
+        "apogee-swipe-"
+    } else {
+        "swipe-"
+    };
+    let key = key.strip_prefix(prefix)?;
+    let mut parts = key.split('-');
+    let direction = match parts.next()? {
+        "up" => GestureSwipeDirection::Up,
+        "down" => GestureSwipeDirection::Down,
+        "left" => GestureSwipeDirection::Left,
+        "right" => GestureSwipeDirection::Right,
+        _ => return None,
+    };
+    let fingers = parts.next()?.parse::<u32>().ok()?;
+    (parts.next().is_none() && fingers > 0).then_some((direction, fingers))
+}
+
+fn parse_gesture_binding_action(action: &str) -> Option<GestureBindingAction> {
+    let key = action.trim().trim_matches('"').to_ascii_lowercase();
+    let compositor = match key.as_str() {
+        "apogee-open" | "overview-open" => return Some(GestureBindingAction::ApogeeOpen),
+        "apogee-close" | "overview-close" => return Some(GestureBindingAction::ApogeeClose),
+        "apogee" | "overview" => CompositorBindingAction::Apogee,
+        "toggle-state" | "toggle_state" => CompositorBindingAction::ToggleState,
+        "maximize-focused" | "maximize_focused" => CompositorBindingAction::MaximizeFocusedWindow,
+        "toggle-fullscreen" | "toggle_fullscreen" | "fullscreen" => {
+            CompositorBindingAction::ToggleFullscreen
+        }
+        "toggle-focused-pin" | "toggle_focused_pin" | "toggle-pin" | "toggle_pin" => {
+            CompositorBindingAction::ToggleFocusedPin
+        }
+        "close-focused" | "close_focused" => CompositorBindingAction::CloseFocusedWindow,
+        "cluster-mode" | "cluster_mode" => CompositorBindingAction::ClusterMode,
+        "cycle-focus" | "cycle_focus" => {
+            CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Forward)
+        }
+        "cycle-focus-backward" | "cycle_focus_backward" => {
+            CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Backward)
+        }
+        "bearings-show" | "bearings_show" => {
+            CompositorBindingAction::Bearings(BearingsBindingAction::Show)
+        }
+        "bearings-toggle" | "bearings_toggle" => {
+            CompositorBindingAction::Bearings(BearingsBindingAction::Toggle)
+        }
+        "trail-prev" | "trail_prev" => CompositorBindingAction::Trail(TrailBindingAction::Prev),
+        "trail-next" | "trail_next" => CompositorBindingAction::Trail(TrailBindingAction::Next),
+        "zoom-in" | "zoom_in" => CompositorBindingAction::ZoomIn,
+        "zoom-out" | "zoom_out" => CompositorBindingAction::ZoomOut,
+        "zoom-reset" | "zoom_reset" => CompositorBindingAction::ZoomReset,
+        "move-left" | "move_left" => {
+            CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left))
+        }
+        "move-right" | "move_right" => {
+            CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Right))
+        }
+        "move-up" | "move_up" => {
+            CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up))
+        }
+        "move-down" | "move_down" => {
+            CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down))
+        }
+        "stack-cycle-forward" | "stack_cycle_forward" => {
+            CompositorBindingAction::Stack(StackBindingAction::Cycle(StackCycleDirection::Forward))
+        }
+        "stack-cycle-backward" | "stack_cycle_backward" => {
+            CompositorBindingAction::Stack(StackBindingAction::Cycle(StackCycleDirection::Backward))
+        }
+        "tile-focus-left" | "tile_focus_left" => {
+            CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Left))
+        }
+        "tile-focus-right" | "tile_focus_right" => {
+            CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Right))
+        }
+        "tile-focus-up" | "tile_focus_up" => {
+            CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Up))
+        }
+        "tile-focus-down" | "tile_focus_down" => {
+            CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Down))
+        }
+        _ => return None,
+    };
+    Some(GestureBindingAction::Compositor(compositor))
 }
 
 fn load_device_overrides(cfg: &RuneConfig) -> Vec<DeviceOverride> {
@@ -163,7 +394,11 @@ fn load_device_settings(cfg: &RuneConfig, root: &str) -> DeviceSettings {
 mod tests {
     use rune_cfg::RuneConfig;
 
-    use crate::layout::{InputFocusMode, RuntimeTuning};
+    use crate::keybinds::KeyModifiers;
+    use crate::layout::{
+        CompositorGestureScope, GestureBindingAction, GestureScrollPanMode, GestureSwipeDirection,
+        InputFocusMode, RuntimeTuning,
+    };
 
     use super::load_input_section;
 
@@ -181,6 +416,20 @@ input:
     variant "nodeadkeys"
     options "compose:ralt"
   end
+    gestures:
+      enabled true
+      client-passthrough false
+      touch-passthrough true
+      pinch-to-zoom false
+      pinch-scope "empty-field"
+      compositor-scope "global"
+      modifier "ctrl+shift"
+      scroll-pan "empty-field"
+      swipe-threshold-px 96
+    swipe-up-3 "apogee-open"
+    apogee-swipe-up-3 "apogee-close"
+    swipe-left-4 "trail-prev"
+  end
 end
 "#,
         )
@@ -196,6 +445,48 @@ end
         assert_eq!(out.input.keyboard.layout, "de");
         assert_eq!(out.input.keyboard.variant, "nodeadkeys");
         assert_eq!(out.input.keyboard.options, "compose:ralt");
+        assert!(out.input.gestures.enabled);
+        assert!(!out.input.gestures.client_passthrough);
+        assert!(out.input.gestures.touch_passthrough);
+        assert!(!out.input.gestures.pinch_to_zoom);
+        assert_eq!(
+            out.input.gestures.pinch_scope,
+            CompositorGestureScope::EmptyField
+        );
+        assert_eq!(
+            out.input.gestures.compositor_scope,
+            CompositorGestureScope::Global
+        );
+        assert_eq!(
+            out.input.gestures.scroll_pan,
+            GestureScrollPanMode::EmptyField
+        );
+        assert_eq!(
+            out.input.gestures.modifier,
+            KeyModifiers {
+                ctrl: true,
+                shift: true,
+                ..KeyModifiers::default()
+            }
+        );
+        assert_eq!(out.input.gestures.swipe_threshold_px, 96.0);
+        assert_eq!(out.input.gestures.swipe_bindings.len(), 2);
+        assert!(out.input.gestures.swipe_bindings.iter().any(|binding| {
+            binding.direction == GestureSwipeDirection::Up
+                && binding.fingers == 3
+                && binding.action == GestureBindingAction::ApogeeOpen
+        }));
+        assert!(
+            out.input
+                .gestures
+                .apogee_swipe_bindings
+                .iter()
+                .any(|binding| {
+                    binding.direction == GestureSwipeDirection::Up
+                        && binding.fingers == 3
+                        && binding.action == GestureBindingAction::ApogeeClose
+                })
+        );
     }
 
     #[test]
@@ -209,6 +500,47 @@ end
         assert_eq!(tuning.input.keyboard.layout, "us");
         assert_eq!(tuning.input.keyboard.variant, "");
         assert_eq!(tuning.input.keyboard.options, "");
+        assert!(tuning.input.gestures.enabled);
+        assert!(tuning.input.gestures.client_passthrough);
+        assert!(tuning.input.gestures.touch_passthrough);
+        assert!(tuning.input.gestures.pinch_to_zoom);
+        assert_eq!(
+            tuning.input.gestures.pinch_scope,
+            CompositorGestureScope::EmptyField
+        );
+        assert_eq!(
+            tuning.input.gestures.compositor_scope,
+            CompositorGestureScope::Global
+        );
+        assert_eq!(
+            tuning.input.gestures.scroll_pan,
+            GestureScrollPanMode::EmptyField
+        );
+        assert_eq!(
+            tuning.input.gestures.modifier,
+            KeyModifiers {
+                left_alt: true,
+                ..KeyModifiers::default()
+            }
+        );
+        assert_eq!(tuning.input.gestures.swipe_threshold_px, 120.0);
+        assert!(tuning.input.gestures.swipe_bindings.iter().any(|binding| {
+            binding.direction == GestureSwipeDirection::Up
+                && binding.fingers == 3
+                && binding.action == GestureBindingAction::ApogeeOpen
+        }));
+        assert!(
+            tuning
+                .input
+                .gestures
+                .apogee_swipe_bindings
+                .iter()
+                .any(|binding| {
+                    binding.direction == GestureSwipeDirection::Up
+                        && binding.fingers == 3
+                        && binding.action == GestureBindingAction::ApogeeClose
+                })
+        );
     }
 
     #[test]

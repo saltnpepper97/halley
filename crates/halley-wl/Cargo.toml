@@ -64,6 +64,7 @@ image.workspace = true
 resvg = "0.47.0"
 regex = "1.12.3"
 cosmic-text = { version = "0.19.0", features = ["swash"] }
+memmap2 = "0.9"
 
 [features]
 default = ["aperture"]

@@ -511,6 +511,13 @@ end
                 "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
             )
         );
+        assert!(updated.contains("  gestures:\n    enabled true"));
+        assert!(updated.contains("    pinch-to-zoom true"));
+        assert!(updated.contains("    pinch-scope \"empty-field\""));
+        assert!(updated.contains("    modifier \"$mod\""));
+        assert!(updated.contains("    scroll-pan \"empty-field\""));
+        assert!(updated.contains("    swipe-up-3 \"apogee-open\""));
+        assert!(updated.contains("    apogee-swipe-up-3 \"apogee-close\""));
     }
 
     #[test]
@@ -534,6 +541,9 @@ end
 
         // Existing keyboard values are preserved; new sub-sections are appended.
         assert!(updated.contains("  keyboard:\n    layout \"us\""));
+        assert!(updated.contains("  gestures:\n    enabled true"));
+        assert!(updated.contains("    compositor-scope \"global\""));
+        assert!(updated.contains("    swipe-threshold-px 120"));
         assert!(updated.contains("  touchpad:\n    tap true"));
         assert!(updated.contains("  mouse:\n    natural-scroll false"));
         assert!(updated.contains("    model \"\""));

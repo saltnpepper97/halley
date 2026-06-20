@@ -23,6 +23,7 @@ use smithay::{
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
+        pointer_gestures::PointerGesturesState,
         relative_pointer::RelativePointerManagerState,
         selection::{
             data_device::DataDeviceState, primary_selection::PrimarySelectionState,
@@ -93,6 +94,7 @@ pub struct Halley {
     pub(crate) aperture: crate::aperture::ApertureState,
     pub(crate) input: InputState,
     pub(crate) portal: crate::protocol::wayland::portal::PortalState,
+    pub(crate) screencast: crate::portal::ScreencastState,
     pub(crate) runtime: RuntimeState,
 }
 
@@ -214,6 +216,7 @@ impl Halley {
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
                 pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),
+                pointer_gestures_state: PointerGesturesState::new::<Halley>(dh),
                 presentation_state: smithay::wayland::presentation::PresentationState::new::<Halley>(
                     dh,
                     <smithay::utils::Monotonic as smithay::utils::ClockSource>::ID as u32,
@@ -422,9 +425,11 @@ impl Halley {
                     inflight_screenshot_capture: None,
                     screenshot_next_serial: 1,
                     last_screenshot_result: None,
+                    portal_chooser: None,
                     modal_release_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
+                    active_gesture_route: None,
                     apogee_session: None,
                     apogee_live_preview_node: None,
                     apogee_live_preview_last_at: None,
@@ -447,6 +452,7 @@ impl Halley {
                 devices: Vec::new(),
             },
             portal: crate::protocol::wayland::portal::PortalState::default(),
+            screencast: crate::portal::ScreencastState::default(),
             runtime: RuntimeState {
                 tuning,
                 surface_activity: HashMap::new(),

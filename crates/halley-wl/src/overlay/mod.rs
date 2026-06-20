@@ -9,6 +9,7 @@ mod focus_cycle;
 mod fps;
 mod hover_label;
 mod observatory;
+mod portal_chooser;
 mod preview_source;
 mod screenshot;
 mod selection_marker;
@@ -39,6 +40,7 @@ pub(crate) use cluster_overflow::{
     draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
 };
 pub(crate) use hover_label::{draw_overlay_hover_label, draw_overlay_hover_preview_card};
+pub(crate) use portal_chooser::{draw_portal_chooser_overlay, portal_chooser_menu_hit_test};
 pub(crate) use screenshot::{ScreenshotMenuHit, draw_screenshot_overlay, screenshot_menu_hit_test};
 pub(crate) use selection_marker::draw_cluster_selection_markers;
 pub(crate) use state::{
@@ -179,6 +181,7 @@ pub(crate) fn draw_monitor_hud(
     }
     draw_cluster_naming_dialog(frame, st, screen_w, screen_h, damage)?;
     draw_screenshot_overlay(frame, st, screen_w, screen_h, damage)?;
+    draw_portal_chooser_overlay(frame, st, screen_w, screen_h, damage)?;
     draw_debug_fps_overlay(frame, st, damage, now)?;
     Ok(())
 }

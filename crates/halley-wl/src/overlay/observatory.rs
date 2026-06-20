@@ -13,8 +13,8 @@ use crate::render::draw_primitives::draw_rect;
 use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
-    OverlayView, OverlayVisuals, draw_overlay_chip, draw_overlay_chip_without_shadow,
-    overlay_text_color_for_fill,
+    OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_chip,
+    draw_overlay_chip_without_shadow, overlay_text_color_for_fill,
     preview_source::{preview_src_uv, window_preview_source_rect},
     resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
@@ -140,14 +140,22 @@ fn draw_window_preview(
         alpha,
     )?;
 
-    if let Some((texture, bbox)) = overlay
-        .render_state
-        .cache
-        .window_offscreen_cache
-        .get(&tile.node_id)
-        .filter(|cache| cache.has_content)
-        .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
-    {
+    // Fullscreen windows capture to a black/unusable texture (video, keybind
+    // fullscreen), so skip the preview and show the app icon instead. Non-fullscreen
+    // windows with no captured texture yet also fall back to the icon.
+    let preview = (!overlay.node_is_fullscreen(tile.node_id))
+        .then(|| {
+            overlay
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get(&tile.node_id)
+                .filter(|cache| cache.has_content)
+                .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
+        })
+        .flatten();
+
+    if let Some((texture, bbox)) = preview {
         let source = window_preview_source_rect(overlay, tile.node_id, bbox);
         let dst = fit_rect(body, source.w.round() as i32, source.h.round() as i32);
         let src = Rectangle::<f64, Buffer>::new(
@@ -181,6 +189,28 @@ fn draw_window_preview(
             alpha,
             program,
             if program.is_some() { &uniforms } else { &[] },
+        )?;
+    } else {
+        // Centred app-icon chip when there is no usable preview texture.
+        let icon_size = body.size.w.min(body.size.h).clamp(40, 96);
+        let icon_rect = Rectangle::<i32, Physical>::new(
+            (
+                body.loc.x + (body.size.w - icon_size) / 2,
+                body.loc.y + (body.size.h - icon_size) / 2,
+            )
+                .into(),
+            (icon_size, icon_size).into(),
+        );
+        let icon_fill = visuals.palette.key_fill.alpha(0.84 * alpha);
+        draw_overflow_member_chip(
+            frame,
+            overlay,
+            visuals,
+            tile.node_id,
+            icon_rect,
+            icon_fill,
+            alpha,
+            damage,
         )?;
     }
 

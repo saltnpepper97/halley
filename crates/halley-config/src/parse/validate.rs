@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::keybinds::parse_modifiers;
+
 use super::ConfigLoadDiagnostic;
 
 pub(crate) fn validate_known_config_keys(
@@ -189,6 +191,7 @@ impl ConfigSchema {
             "font",
             "input",
             "input.keyboard",
+            "input.gestures",
             "input.touchpad",
             "input.mouse",
             "input.devices",
@@ -357,6 +360,26 @@ impl ConfigSchema {
             "input.keyboard.variant",
             "input.keyboard.options",
             "input.keyboard.model",
+            "input.gestures.enabled",
+            "input.gestures.client-passthrough",
+            "input.gestures.client_passthrough",
+            "input.gestures.touch-passthrough",
+            "input.gestures.touch_passthrough",
+            "input.gestures.pinch-to-zoom",
+            "input.gestures.pinch_to_zoom",
+            "input.gestures.pinch-scope",
+            "input.gestures.pinch_scope",
+            "input.gestures.compositor-scope",
+            "input.gestures.compositor_scope",
+            "input.gestures.modifier",
+            "input.gestures.global-modifier",
+            "input.gestures.global_modifier",
+            "input.gestures.scroll-pan",
+            "input.gestures.scroll_pan",
+            "input.gestures.scroll-pan-modifier",
+            "input.gestures.scroll_pan_modifier",
+            "input.gestures.swipe-threshold-px",
+            "input.gestures.swipe_threshold_px",
             "nodes.primary-to-node-ms",
             "nodes.node-delay",
             "nodes.primary-to-preview-ms",
@@ -450,6 +473,8 @@ impl ConfigSchema {
         self.scalars.contains(path)
             || viewport_output_path(path).is_some_and(|rest| viewport_output_scalar_allowed(rest))
             || input_device_setting_key(path).is_some_and(input_device_setting_key_allowed)
+            || input_gesture_swipe_binding_key(path).is_some()
+            || input_apogee_gesture_swipe_binding_key(path).is_some()
     }
 
     fn suggestions_for_parent(&self, parent: &str) -> Vec<&'static str> {
@@ -483,6 +508,14 @@ fn validate_scalar_value(path: &str, line: &str) -> Option<String> {
         return Some(format!(
             "Invalid value `{value}` for `{path}`; expected one of: {}",
             allowed.join(", ")
+        ));
+    }
+    if gesture_modifier_scalar(path)
+        && !matches!(value.as_str(), "$mod" | "$var.mod" | "off" | "false")
+        && parse_modifiers(value.as_str()).is_none()
+    {
+        return Some(format!(
+            "Invalid modifier `{value}` for `{path}`; expected `$mod`, `none`, or modifiers like `super`, `ctrl+shift`, `lalt`"
         ));
     }
     if color_scalar(path) && quoted && !valid_overlay_color_value(value.as_str()) {
@@ -616,6 +649,8 @@ fn numeric_scalar(path: &str) -> bool {
                 | "focus-ring.primary-ry"
                 | "focus-ring.offset-x"
                 | "focus-ring.offset-y"
+                | "input.gestures.swipe-threshold-px"
+                | "input.gestures.swipe_threshold_px"
         )
     }) || input_device_setting_key(path)
         .is_some_and(|key| matches!(key, "accel-speed" | "scroll-button"))
@@ -661,6 +696,13 @@ fn bool_scalar(path: &str) -> bool {
             | "field.zoom.enabled"
             | "field.zoom.smooth"
             | "input.raise-on-click"
+            | "input.gestures.enabled"
+            | "input.gestures.client-passthrough"
+            | "input.gestures.client_passthrough"
+            | "input.gestures.touch-passthrough"
+            | "input.gestures.touch_passthrough"
+            | "input.gestures.pinch-to-zoom"
+            | "input.gestures.pinch_to_zoom"
             | "overlays.borders"
             | "placement.reveal.enabled"
             | "physics.enabled"
@@ -710,6 +752,15 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
             "right",
         ]),
         "input.focus-mode" => Some(&["click", "hover"]),
+        "input.gestures.compositor-scope" | "input.gestures.compositor_scope" => {
+            Some(&["empty-field", "empty_field", "global"])
+        }
+        "input.gestures.pinch-scope" | "input.gestures.pinch_scope" => {
+            Some(&["empty-field", "empty_field", "global"])
+        }
+        "input.gestures.scroll-pan" | "input.gestures.scroll_pan" => {
+            Some(&["off", "false", "none", "empty-field", "empty_field"])
+        }
         "nodes.border-colour-hover"
         | "nodes.border-color-hover"
         | "nodes.border-colour-inactive"
@@ -776,6 +827,36 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
             _ => None,
         },
     }
+}
+
+fn gesture_modifier_scalar(path: &str) -> bool {
+    matches!(
+        path,
+        "input.gestures.modifier"
+            | "input.gestures.global-modifier"
+            | "input.gestures.global_modifier"
+            | "input.gestures.scroll-pan-modifier"
+            | "input.gestures.scroll_pan_modifier"
+    )
+}
+
+fn input_gesture_swipe_binding_key(path: &str) -> Option<&str> {
+    let key = path.strip_prefix("input.gestures.swipe-")?;
+    valid_swipe_binding_suffix(key)
+}
+
+fn input_apogee_gesture_swipe_binding_key(path: &str) -> Option<&str> {
+    let key = path.strip_prefix("input.gestures.apogee-swipe-")?;
+    valid_swipe_binding_suffix(key)
+}
+
+fn valid_swipe_binding_suffix(key: &str) -> Option<&str> {
+    let (direction, fingers) = key.rsplit_once('-')?;
+    if !matches!(direction, "up" | "down" | "left" | "right") {
+        return None;
+    }
+    fingers.parse::<u32>().ok().filter(|fingers| *fingers > 0)?;
+    Some(key)
 }
 
 fn color_scalar(path: &str) -> bool {

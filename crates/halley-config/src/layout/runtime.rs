@@ -517,6 +517,22 @@ input:
     options ""
     model ""
   end
+  # Pointer gesture and touchscreen protocol passthrough.
+  # Touchpad gestures are forwarded through wp_pointer_gestures_v1;
+  # touchscreen contacts are forwarded through wl_touch.
+  gestures:
+    enabled true
+    client-passthrough true
+    touch-passthrough true
+    pinch-to-zoom true
+    pinch-scope "empty-field"
+    compositor-scope "global"
+    modifier "$mod"
+    scroll-pan "empty-field"
+    swipe-threshold-px 120
+    swipe-up-3 "apogee-open"
+    apogee-swipe-up-3 "apogee-close"
+  end
   # Touchpad libinput settings. Unset keys keep libinput's own defaults.
   touchpad:
     tap true
@@ -1273,6 +1289,9 @@ mod tests {
         );
         assert!(rendered.contains(
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
+        ));
+        assert!(rendered.contains(
+            "  gestures:\n    enabled true\n    client-passthrough true\n    touch-passthrough true\n    pinch-to-zoom true\n    pinch-scope \"empty-field\"\n    compositor-scope \"global\"\n    modifier \"$mod\"\n    scroll-pan \"empty-field\"\n    swipe-threshold-px 120\n    swipe-up-3 \"apogee-open\"\n    apogee-swipe-up-3 \"apogee-close\"\n  end"
         ));
         assert!(rendered.contains("  touchpad:\n    tap true\n    natural-scroll true"));
         assert!(rendered.contains("  mouse:\n    natural-scroll false"));
