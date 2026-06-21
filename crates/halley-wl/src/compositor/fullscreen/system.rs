@@ -467,6 +467,45 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_exit_restores_pre_fullscreen_zoom() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+
+        // Zoom in before fullscreen: a smaller view size than the viewport.
+        let zoomed = Vec2 {
+            x: state.model.viewport.size.x * 0.5,
+            y: state.model.viewport.size.y * 0.5,
+        };
+        state.model.zoom_ref_size = zoomed;
+        state.model.camera_target_view_size = zoomed;
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        // Fullscreen reset the live zoom to the viewport (1.0).
+        assert_eq!(
+            state.model.camera_target_view_size,
+            state.model.viewport.size
+        );
+
+        state.exit_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(300));
+        // Exiting eases the camera back toward the pre-fullscreen zoom, not 1.0.
+        assert_eq!(state.model.camera_target_view_size, zoomed);
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_camera_restore
+                .contains_key("monitor_a")
+        );
+    }
+
+    #[test]
     fn fullscreen_soft_suspend_does_not_animate() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -859,6 +898,53 @@ fn fullscreen_animation_rect(
     (pos, size)
 }
 
+/// Continuous parallax weight for a node mid fullscreen transition: `0.0` at the
+/// fullscreen extent (no parallax), `1.0` at the windowed extent (full parallax). Used
+/// to blend parallax in/out across the animation so there is no snap when the visual
+/// rect hands off to the resting (parallax-offset) position. `None` when the node has no
+/// fullscreen visual on the current monitor.
+pub(crate) fn fullscreen_parallax_restore_weight_for_node_on_current_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> Option<f32> {
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    if let Some(anim) = st
+        .model
+        .fullscreen_state
+        .fullscreen_scale_anim
+        .get(&node_id)
+        .filter(|anim| anim.monitor == monitor)
+    {
+        let e = fullscreen_animation_progress(anim.start_ms, anim.duration_ms, st.now_ms(now));
+        return Some(transition_restore_weight(
+            anim.from_size.x,
+            anim.to_size.x,
+            e,
+        ));
+    }
+    (st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(monitor)
+        .copied()
+        == Some(node_id))
+    .then_some(0.0)
+}
+
+/// Weight (0 at the larger/fullscreen extent, 1 at the smaller/windowed extent) for an
+/// eased interpolation `e` between `from`/`to` widths. Guards equal extents by falling
+/// back to `e` (treated as exit progress).
+pub(crate) fn transition_restore_weight(from: f32, to: f32, e: f32) -> f32 {
+    let big = from.max(to);
+    let small = from.min(to);
+    if (big - small).abs() < 1.0 {
+        return e.clamp(0.0, 1.0);
+    }
+    let current = from + (to - from) * e;
+    ((big - current) / (big - small)).clamp(0.0, 1.0)
+}
+
 pub(crate) fn fullscreen_entry_scale(_st: &Halley, _node_id: NodeId, _now_ms: u64) -> f32 {
     1.0
 }
@@ -1157,6 +1243,24 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 .remove(&monitor_name);
         }
 
+        // Genuine exit (not a suspend or client-fullscreen release): ease the monitor
+        // camera back to the zoom/center captured on entry, matching the window's
+        // shrink animation, so we don't stay plopped at 1.0 zoom.
+        if !suspend && !preserve_client_fullscreen {
+            if let Some(camera) = self
+                .model
+                .fullscreen_state
+                .fullscreen_camera_restore
+                .remove(&monitor_name)
+            {
+                crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
+                    self,
+                    &monitor_name,
+                    camera,
+                );
+            }
+        }
+
         self.clear_non_target_fullscreen_restore_entries(&monitor_name, node_id);
 
         // A hard exit on the current monitor animates the window shrinking back
@@ -1380,6 +1484,17 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
         let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
         self.clear_non_target_fullscreen_restore_entries(&monitor_name, node_id);
+
+        // Capture the pre-fullscreen camera (zoom + center) once per monitor so exiting
+        // fullscreen returns to it instead of staying at 1.0. `or_insert` keeps the
+        // original across fullscreen→fullscreen swaps and soft suspend/resume.
+        let pre_fullscreen_camera =
+            crate::compositor::workspace::state::snapshot_monitor_camera(self, monitor_name.as_str());
+        self.model
+            .fullscreen_state
+            .fullscreen_camera_restore
+            .entry(monitor_name.clone())
+            .or_insert(pre_fullscreen_camera);
 
         // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
         self.reset_monitor_zoom_once(monitor_name.as_str());

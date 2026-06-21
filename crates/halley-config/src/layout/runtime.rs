@@ -538,6 +538,9 @@ input:
     # Apogee lives on 4-finger: up opens, down closes.
     swipe-up-4 "apogee-open"
     apogee-swipe-down-4 "apogee-close"
+    # Multi-finger hold bindings (released via libinput hold gesture).
+    # hold-3 "toggle-state"
+    # hold-4 "apogee"
   end
   # Touchpad libinput settings. Unset keys keep libinput's own defaults.
   touchpad:

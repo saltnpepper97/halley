@@ -12,8 +12,8 @@ use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::{
-    ActiveCompositorPinch, ActiveCompositorPinchMode, ActiveCompositorSwipe, ActiveGestureRoute,
-    SwipeMode,
+    ActiveCompositorHold, ActiveCompositorPinch, ActiveCompositorPinchMode, ActiveCompositorSwipe,
+    ActiveGestureRoute, SwipeMode,
 };
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
@@ -619,7 +619,9 @@ pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
             st.input.interaction_state.active_gesture_route =
                 Some(ActiveGestureRoute::CompositorSwipe(swipe));
         }
-        ActiveGestureRoute::CompositorPinch(_) | ActiveGestureRoute::Ignored => {}
+        ActiveGestureRoute::CompositorPinch(_)
+        | ActiveGestureRoute::CompositorHold(_)
+        | ActiveGestureRoute::Ignored => {}
     }
 }
 
@@ -774,7 +776,9 @@ pub(crate) fn handle_gesture_pinch_update<B: BackendView>(
             st.input.interaction_state.active_gesture_route =
                 Some(ActiveGestureRoute::CompositorPinch(pinch));
         }
-        ActiveGestureRoute::CompositorSwipe(_) | ActiveGestureRoute::Ignored => {}
+        ActiveGestureRoute::CompositorSwipe(_)
+        | ActiveGestureRoute::CompositorHold(_)
+        | ActiveGestureRoute::Ignored => {}
     }
 }
 
@@ -814,13 +818,61 @@ pub(crate) fn handle_gesture_pinch_end<B: BackendView>(
     );
 }
 
+fn begin_hold_route<B: BackendView>(
+    st: &mut Halley,
+    ctx: &InputCtx<'_, B>,
+    fingers: u32,
+) -> ActiveGestureRoute {
+    if !st.runtime.tuning.input.gestures.enabled {
+        return ActiveGestureRoute::Ignored;
+    }
+
+    let Some(action) = hold_binding_for_fingers(st, fingers) else {
+        return begin_client_or_ignored_route(st, ctx);
+    };
+
+    let target = gesture_target_at_pointer(st, ctx);
+    let global_override = gesture_global_override_active(st, ctx);
+
+    if crate::compositor::interaction::pointer::active_constrained_pointer_surface(st).is_some() {
+        return begin_client_or_ignored_route(st, ctx);
+    }
+
+    if target.focus.is_some()
+        && (st.runtime.tuning.input.gestures.compositor_scope != CompositorGestureScope::Global
+            && !global_override
+            || target_is_session_lock(st, &target))
+    {
+        return begin_client_or_ignored_route(st, ctx);
+    }
+
+    st.activate_monitor(target.monitor.as_str());
+    debug!("gesture hold route: compositor action fingers={}", fingers);
+    ActiveGestureRoute::CompositorHold(ActiveCompositorHold {
+        monitor: target.monitor,
+        fingers,
+        action,
+    })
+}
+
+fn hold_binding_for_fingers(st: &Halley, fingers: u32) -> Option<GestureBindingAction> {
+    st.runtime
+        .tuning
+        .input
+        .gestures
+        .hold_bindings
+        .iter()
+        .find(|binding| binding.fingers == fingers)
+        .map(|binding| binding.action.clone())
+}
+
 pub(crate) fn handle_gesture_hold_begin<B: BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
     fingers: u32,
     time_msec: u32,
 ) {
-    let route = begin_client_or_ignored_route(st, ctx);
+    let route = begin_hold_route(st, ctx, fingers);
     st.input.interaction_state.active_gesture_route = Some(route.clone());
     if !matches!(route, ActiveGestureRoute::Client) {
         return;
@@ -841,12 +893,23 @@ pub(crate) fn handle_gesture_hold_begin<B: BackendView>(
 
 pub(crate) fn handle_gesture_hold_end<B: BackendView>(
     st: &mut Halley,
-    _ctx: &InputCtx<'_, B>,
+    ctx: &InputCtx<'_, B>,
     cancelled: bool,
     time_msec: u32,
 ) {
     let route = active_route(st);
     clear_active_route(st);
+    if let ActiveGestureRoute::CompositorHold(hold) = route {
+        if !cancelled {
+            debug!(
+                "gesture hold commit: fingers={} monitor={}",
+                hold.fingers, hold.monitor
+            );
+            st.activate_monitor(hold.monitor.as_str());
+            let _ = apply_gesture_binding_action(st, ctx, &hold.action);
+        }
+        return;
+    }
     if !matches!(route, ActiveGestureRoute::Client) {
         return;
     }

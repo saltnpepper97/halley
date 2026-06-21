@@ -101,6 +101,40 @@ pub(super) fn draw_overlay_chip_with_border_color(
         border_color,
         draw_border,
         true,
+        true,
+        damage,
+        alpha,
+    )
+}
+
+/// Draw just a rounded, theme-coloured stroke (transparent interior, no shadow, no
+/// backdrop blur). Used for hover/focus rings drawn over existing content.
+pub(super) fn draw_overlay_ring(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    visuals: &OverlayVisuals,
+    rect: Rectangle<i32, Physical>,
+    corner_radius: f32,
+    border_color: Color32F,
+    border_px: f32,
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    let ring_visuals = OverlayVisuals {
+        border_px,
+        ..*visuals
+    };
+    draw_overlay_chip_impl(
+        frame,
+        render_state,
+        &ring_visuals,
+        rect,
+        corner_radius,
+        Color32F::new(0.0, 0.0, 0.0, 0.0),
+        border_color,
+        true,
+        false,
+        false,
         damage,
         alpha,
     )
@@ -127,6 +161,7 @@ pub(super) fn draw_overlay_chip_without_shadow(
         visuals.palette.border.alpha(1.0),
         draw_border,
         false,
+        true,
         damage,
         alpha,
     )
@@ -142,6 +177,7 @@ fn draw_overlay_chip_impl(
     border_color: Color32F,
     draw_border: bool,
     draw_shadow: bool,
+    draw_blur: bool,
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
@@ -162,13 +198,15 @@ fn draw_overlay_chip_impl(
             damage,
         )?;
     }
-    draw_overlay_backdrop_blur(
-        frame,
-        rect,
-        if visuals.rounded { corner_radius } else { 0.0 },
-        damage,
-        alpha,
-    )?;
+    if draw_blur {
+        draw_overlay_backdrop_blur(
+            frame,
+            rect,
+            if visuals.rounded { corner_radius } else { 0.0 },
+            damage,
+            alpha,
+        )?;
+    }
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),

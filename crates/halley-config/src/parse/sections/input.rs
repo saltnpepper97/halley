@@ -7,7 +7,7 @@ use crate::keybinds::{
 };
 use crate::layout::{
     CompositorGestureScope, DeviceOverride, DeviceSettings, GestureBinding, GestureBindingAction,
-    GestureScrollPanMode, GestureSwipeDirection, RuntimeTuning,
+    GestureHoldBinding, GestureScrollPanMode, GestureSwipeDirection, RuntimeTuning,
 };
 
 use super::super::primitives::{
@@ -150,6 +150,7 @@ pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     .max(0.0);
     out.input.gestures.swipe_bindings = load_gesture_swipe_bindings(cfg, false);
     out.input.gestures.apogee_swipe_bindings = load_gesture_swipe_bindings(cfg, true);
+    out.input.gestures.hold_bindings = load_gesture_hold_bindings(cfg);
 
     out.input.touchpad = load_device_settings(cfg, "input.touchpad");
     out.input.mouse = load_device_settings(cfg, "input.mouse");
@@ -237,6 +238,39 @@ fn parse_swipe_key(key: &str, apogee_context: bool) -> Option<(GestureSwipeDirec
     };
     let fingers = parts.next()?.parse::<u32>().ok()?;
     (parts.next().is_none() && fingers > 0).then_some((direction, fingers))
+}
+
+fn parse_hold_key(key: &str) -> Option<u32> {
+    let key = key.strip_prefix("hold-")?;
+    let fingers = key.parse::<u32>().ok()?;
+    (fingers > 0).then_some(fingers)
+}
+
+fn load_gesture_hold_bindings(cfg: &RuneConfig) -> Vec<GestureHoldBinding> {
+    let mut bindings = Vec::new();
+    let Ok(keys) = cfg.get_keys("input.gestures") else {
+        return crate::layout::GestureInputConfig::default().hold_bindings;
+    };
+
+    for key in keys {
+        let Some(fingers) = parse_hold_key(key.as_str()) else {
+            continue;
+        };
+        let path = format!("input.gestures.{key}");
+        let Some(action_text) = pick_string(cfg, &[path.as_str()]) else {
+            continue;
+        };
+        let Some(action) = parse_gesture_binding_action(action_text.as_str()) else {
+            continue;
+        };
+        bindings.push(GestureHoldBinding { fingers, action });
+    }
+
+    if bindings.is_empty() {
+        crate::layout::GestureInputConfig::default().hold_bindings
+    } else {
+        bindings
+    }
 }
 
 fn parse_gesture_binding_action(action: &str) -> Option<GestureBindingAction> {
@@ -457,8 +491,10 @@ input:
       swipe-threshold-px 96
     swipe-up-3 "apogee-open"
     apogee-swipe-up-3 "apogee-close"
-    swipe-left-4 "trail-prev"
-  end
+      swipe-left-4 "trail-prev"
+    hold-3 "toggle-state"
+    hold-4 "apogee"
+   end
 end
 "#,
         )
@@ -515,6 +551,29 @@ end
                         && binding.fingers == 3
                         && binding.action == GestureBindingAction::ApogeeClose
                 })
+        );
+        assert_eq!(out.input.gestures.hold_bindings.len(), 2);
+        assert!(
+            out.input
+                .gestures
+                .hold_bindings
+                .iter()
+                .any(|binding| binding.fingers == 3
+                    && binding.action
+                        == GestureBindingAction::Compositor(
+                            crate::keybinds::CompositorBindingAction::ToggleState
+                        ))
+        );
+        assert!(
+            out.input
+                .gestures
+                .hold_bindings
+                .iter()
+                .any(|binding| binding.fingers == 4
+                    && binding.action
+                        == GestureBindingAction::Compositor(
+                            crate::keybinds::CompositorBindingAction::Apogee
+                        ))
         );
     }
 

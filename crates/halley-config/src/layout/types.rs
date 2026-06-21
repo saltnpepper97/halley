@@ -916,6 +916,12 @@ pub struct GestureBinding {
     pub action: GestureBindingAction,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GestureHoldBinding {
+    pub fingers: u32,
+    pub action: GestureBindingAction,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GestureInputConfig {
     pub enabled: bool,
@@ -939,6 +945,7 @@ pub struct GestureInputConfig {
     pub flick_min_px_per_s: f32,
     pub swipe_bindings: Vec<GestureBinding>,
     pub apogee_swipe_bindings: Vec<GestureBinding>,
+    pub hold_bindings: Vec<GestureHoldBinding>,
 }
 
 impl Default for GestureInputConfig {
@@ -970,6 +977,7 @@ impl Default for GestureInputConfig {
                 fingers: 4,
                 action: GestureBindingAction::ApogeeClose,
             }],
+            hold_bindings: Vec::new(),
         }
     }
 }

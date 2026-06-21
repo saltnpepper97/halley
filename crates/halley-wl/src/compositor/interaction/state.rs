@@ -188,10 +188,18 @@ pub(crate) struct ActiveCompositorSwipe {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorHold {
+    pub(crate) monitor: String,
+    pub(crate) fingers: u32,
+    pub(crate) action: halley_config::GestureBindingAction,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum ActiveGestureRoute {
     Client,
     CompositorPinch(ActiveCompositorPinch),
     CompositorSwipe(ActiveCompositorSwipe),
+    CompositorHold(ActiveCompositorHold),
     Ignored,
 }
 

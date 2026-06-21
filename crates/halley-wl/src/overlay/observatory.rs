@@ -14,7 +14,8 @@ use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
     OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_chip,
-    draw_overlay_chip_without_shadow, overlay_text_color_for_fill,
+    draw_overlay_chip_without_shadow, draw_overlay_ring, overlay_accent_fill,
+    overlay_text_color_for_fill,
     preview_source::{preview_src_uv, window_preview_source_rect},
     resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
@@ -109,6 +110,7 @@ fn draw_window_preview(
     tile: &ApogeeTile,
     rect: Rectangle<i32, Physical>,
     alpha: f32,
+    hovered: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     let pad = 4;
@@ -214,9 +216,26 @@ fn draw_window_preview(
         )?;
     }
 
-    draw_tile_label(frame, overlay, visuals, tile, rect, alpha, damage)?;
+    draw_tile_label(frame, overlay, visuals, tile, rect, alpha, hovered, damage)?;
     if tile.collapsed {
         draw_badge(frame, overlay, visuals, rect, alpha, damage)?;
+    }
+    if hovered {
+        let gap = 5;
+        let ring = outset_rect(rect, gap);
+        let ring_radius = radius + gap as f32;
+        let ring_px = visuals.border_px.max(2.0);
+        draw_overlay_ring(
+            frame,
+            overlay.render_state,
+            visuals,
+            ring,
+            ring_radius,
+            visuals.palette.border.alpha(alpha),
+            ring_px,
+            damage,
+            alpha,
+        )?;
     }
     Ok(())
 }
@@ -239,6 +258,7 @@ fn draw_tile_label(
     tile: &ApogeeTile,
     rect: Rectangle<i32, Physical>,
     alpha: f32,
+    hovered: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     if rect.size.w < 96 || rect.size.h < 72 {
@@ -250,7 +270,11 @@ fn draw_tile_label(
         (rect.loc.x + 8, rect.loc.y + rect.size.h - 8 - label_h).into(),
         ((rect.size.w - 16).max(1), label_h).into(),
     );
-    let fill = Color32F::new(0.02, 0.025, 0.035, 0.72 * alpha);
+    let fill = if hovered {
+        overlay_accent_fill(visuals, 0.55, 0.88 * alpha)
+    } else {
+        Color32F::new(0.02, 0.025, 0.035, 0.72 * alpha)
+    };
     draw_overlay_chip_without_shadow(
         frame,
         overlay.render_state,
@@ -437,6 +461,8 @@ pub(crate) fn draw_observatory(
     let tiles = monitor_session.tiles.clone();
     let core_tiles = monitor_session.core_tiles.clone();
     let core_offset = monitor_session.core_scroll_offset;
+    let phase_open = matches!(session.phase, ApogeePhase::Open);
+    let hovered_node = st.input.interaction_state.apogee_live_preview_node;
 
     let visuals = resolve_overlay_visuals(&st.runtime.tuning);
     let overlay = OverlayView::from_halley(st);
@@ -479,7 +505,10 @@ pub(crate) fn draw_observatory(
         {
             continue;
         }
-        draw_window_preview(frame, &overlay, &visuals, tile, rect, tile_alpha, damage)?;
+        let hovered = phase_open && hovered_node == Some(tile.node_id);
+        draw_window_preview(
+            frame, &overlay, &visuals, tile, rect, tile_alpha, hovered, damage,
+        )?;
     }
 
     Ok(true)

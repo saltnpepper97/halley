@@ -8,7 +8,6 @@ use crate::compositor::surface::{
     toplevel_min_size_for_node, window_geometry_for_node,
 };
 use crate::presentation::world_to_screen;
-use crate::window::active_window_frame_pad_px;
 
 use super::anim::{
     advance_resize_preview_toward_target, apply_resize_now, finish_resize_now, refresh_resize_now,
@@ -63,7 +62,8 @@ pub(crate) fn begin_resize(
     });
 
     let rect = (start_left, start_top, start_right, start_bottom);
-    let border_slop = active_window_frame_pad_px(&st.runtime.tuning) as f32;
+    let border_slop =
+        super::geometry::resize_edge_grab_px(&st.runtime.tuning, st.camera_render_scale());
     let handle = if st.runtime.tuning.decorations.resize_using_border
         && border_slop > 0.0
         && press_is_near_edge(rect, (frame.sx, frame.sy), border_slop)

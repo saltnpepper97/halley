@@ -60,6 +60,7 @@ use banner::draw_persistent_banner;
 pub(crate) use chip::{draw_overlay_backdrop_blur, with_overlay_blur_context};
 use chip::{
     draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
+    draw_overlay_ring,
 };
 use cluster_overflow::draw_overflow_member_chip;
 use exit_confirm::draw_exit_confirmation;

@@ -483,6 +483,7 @@ impl ConfigSchema {
             || input_device_setting_key(path).is_some_and(input_device_setting_key_allowed)
             || input_gesture_swipe_binding_key(path).is_some()
             || input_apogee_gesture_swipe_binding_key(path).is_some()
+            || input_gesture_hold_binding_key(path).is_some()
     }
 
     fn suggestions_for_parent(&self, parent: &str) -> Vec<&'static str> {
@@ -872,6 +873,12 @@ fn valid_swipe_binding_suffix(key: &str) -> Option<&str> {
         return None;
     }
     fingers.parse::<u32>().ok().filter(|fingers| *fingers > 0)?;
+    Some(key)
+}
+
+fn input_gesture_hold_binding_key(path: &str) -> Option<&str> {
+    let key = path.strip_prefix("input.gestures.hold-")?;
+    key.parse::<u32>().ok().filter(|fingers| *fingers > 0)?;
     Some(key)
 }
 

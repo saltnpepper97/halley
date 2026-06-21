@@ -492,6 +492,49 @@ pub(crate) fn maximize_animation_visual_for_node_on_monitor_at(
     (anim.monitor == monitor).then(|| maximize_animation_rect(st, anim, now))
 }
 
+/// Continuous parallax weight for a node mid maximize transition: `0.0` at the
+/// maximized extent (no parallax), `1.0` at the windowed extent (full parallax). Mirrors
+/// [`crate::compositor::fullscreen::system::fullscreen_parallax_restore_weight_for_node_on_current_monitor_at`]
+/// so the window eases back to its resting parallax-offset position without a snap.
+pub(crate) fn maximize_parallax_restore_weight_for_node_on_current_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> Option<f32> {
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    if let Some(anim) = st
+        .model
+        .workspace_state
+        .maximize_animation
+        .get(&node_id)
+        .filter(|anim| anim.monitor == monitor)
+    {
+        let now_ms = st.now_ms(now);
+        let t = (now_ms.saturating_sub(anim.start_ms) as f32 / anim.duration_ms.max(1) as f32)
+            .clamp(0.0, 1.0);
+        let e = if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
+        };
+        return Some(
+            crate::compositor::fullscreen::system::transition_restore_weight(
+                anim.from_size.x,
+                anim.to_size.x,
+                e,
+            ),
+        );
+    }
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .get(monitor)
+        .filter(|session| {
+            session.target_id == node_id && session.state == MaximizeSessionState::Active
+        })
+        .map(|_| 0.0)
+}
+
 fn maximize_animation_rect(st: &Halley, anim: &MaximizeAnimation, now: Instant) -> (Vec2, Vec2) {
     let now_ms = st.now_ms(now);
     let elapsed = now_ms.saturating_sub(anim.start_ms);

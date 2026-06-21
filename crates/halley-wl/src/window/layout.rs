@@ -252,15 +252,39 @@ pub(super) fn resolve_window_render_layout(
         .or_else(|| fullscreen_visual.map(|(center, _)| center))
         .or_else(|| maximized_visual.map(|(center, _)| center))
         .unwrap_or(node_pos);
-    let p = if stack_transition_pose.is_none()
-        && tiling_tile_transition.is_none()
-        && fullscreen_visual.is_none()
-        && maximized_visual.is_none()
-        && !active_cluster_member
+    // Parallax strength blends 0..1 with the fullscreen/maximize transition so the
+    // window eases back to its resting (parallax-offset) position with no snap when the
+    // visual rect hands off. 1.0 = normal windowed parallax, 0.0 = none.
+    let parallax_weight = if stack_transition_pose.is_some()
+        || tiling_tile_transition.is_some()
+        || active_cluster_member
     {
-        cursor_parallax_position(st, node_id, base_p)
+        0.0
+    } else if fullscreen_visual.is_some() {
+        crate::compositor::fullscreen::system::fullscreen_parallax_restore_weight_for_node_on_current_monitor_at(
+            st, node_id, now,
+        )
+        .unwrap_or(0.0)
+    } else if maximized_visual.is_some() {
+        crate::compositor::workspace::state::maximize_parallax_restore_weight_for_node_on_current_monitor_at(
+            st, node_id, now,
+        )
+        .unwrap_or(0.0)
     } else {
+        1.0
+    };
+    let p = if parallax_weight <= 0.0 {
         base_p
+    } else {
+        let full = cursor_parallax_position(st, node_id, base_p);
+        if parallax_weight >= 1.0 {
+            full
+        } else {
+            halley_core::field::Vec2 {
+                x: base_p.x + (full.x - base_p.x) * parallax_weight,
+                y: base_p.y + (full.y - base_p.y) * parallax_weight,
+            }
+        }
     };
     let local_bbox = (
         bbox.loc.x as f32,

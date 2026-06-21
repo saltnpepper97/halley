@@ -149,6 +149,10 @@ All notable changes to this project will be documented in this file.
   multi-GPU outputs, or `HALLEY_DISABLE_CURSOR_PLANE=1`. Cursor elements are submitted as
   `Kind::Cursor` so Smithay can use hardware cursor planes and fall back to primary-plane
   composition if the plane rejects the cursor.
+- Add configurable multi-finger hold gesture bindings (`hold-3`, `hold-4`, etc.) under
+  `input.gestures`, reusing existing compositor gesture action names. Hold bindings are routed
+  through libinput's hold gesture and respect the same `compositor-scope` and gesture modifier
+  rules as swipe bindings. Client passthrough is preserved when no matching hold binding exists.
 
 ### Fixed
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window

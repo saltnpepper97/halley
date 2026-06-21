@@ -537,6 +537,17 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             None
         };
 
+    let edge_resize_cursor = hover_hit.and_then(|hit| {
+        super::resize::edge_resize_handle_at(
+            st,
+            routing.ws_w,
+            routing.ws_h,
+            hit.node_id,
+            routing.local_sx,
+            routing.local_sy,
+        )
+    });
+
     let next_hover = if let Some((node_id, target)) = bloom_hover {
         st.input.interaction_state.overlay_hover_target = Some(target);
         Some(node_id)
@@ -592,6 +603,13 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         && st.input.interaction_state.pending_core_hover.is_none()
     {
         crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
+    }
+
+    if let Some(handle) = edge_resize_cursor {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(super::resize::cursor_icon_for_resize_handle(handle)),
+        );
     }
 
     if !hover_changed

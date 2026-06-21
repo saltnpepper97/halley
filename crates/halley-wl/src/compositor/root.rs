@@ -331,6 +331,7 @@ impl Halley {
                     fullscreen_restore: HashMap::new(),
                     fullscreen_motion: HashMap::new(),
                     fullscreen_scale_anim: HashMap::new(),
+                    fullscreen_camera_restore: HashMap::new(),
                     direct_scanout: HashMap::new(),
                 },
                 spawn_state: SpawnState {
