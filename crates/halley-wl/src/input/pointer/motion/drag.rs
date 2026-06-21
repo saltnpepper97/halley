@@ -368,6 +368,41 @@ mod tests {
     }
 
     #[test]
+    fn finishing_collapsed_node_drag_does_not_use_active_window_static_lock() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "node",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let now = Instant::now();
+        let _ = st
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+
+        let mut ps = PointerState::default();
+        finish_pointer_drag(
+            &mut st,
+            &mut ps,
+            id,
+            false,
+            halley_core::field::Vec2 { x: 40.0, y: 40.0 },
+            now,
+        );
+
+        assert_ne!(st.input.interaction_state.resize_static_node, Some(id));
+        let style = crate::frame_loop::anim_style_for(
+            &st,
+            id,
+            halley_core::field::NodeState::Node,
+            now + std::time::Duration::from_millis(16),
+        );
+        assert_eq!(style.scale, 0.30);
+    }
+
+    #[test]
     fn move_window_drag_does_not_enable_edge_pan() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
@@ -787,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn finishing_active_drag_raises_dropped_window() {
+    fn finishing_active_drag_does_not_raise_on_release() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let existing = st.model.field.spawn_surface(
@@ -836,10 +871,17 @@ mod tests {
             Instant::now(),
         );
 
-        assert!(st.overlap_policy_stack_rank(dragged) > st.overlap_policy_stack_rank(existing));
+        assert!(st.overlap_policy_stack_rank(existing) > st.overlap_policy_stack_rank(dragged));
         assert_eq!(
             st.model.focus_state.primary_interaction_focus,
             Some(dragged)
+        );
+        assert!(
+            !st.ui
+                .render_state
+                .window_animations
+                .raise_animations
+                .contains_key(&dragged)
         );
     }
 }
@@ -872,25 +914,19 @@ pub(crate) fn finish_pointer_drag(
             now_ms,
         );
     if !joined {
-        let moved_in_cluster = if started_active {
-            st.move_active_cluster_member_to_drop_tile(
+        if started_active {
+            let _ = st.move_active_cluster_member_to_drop_tile(
                 drag_monitor.as_str(),
                 node_id,
                 world_now,
                 now_ms,
-            )
-        } else {
-            false
-        };
-        if started_active {
+            );
             crate::compositor::carry::system::finalize_mouse_drag_state(
                 st,
                 node_id,
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 },
                 now,
             );
-        } else if !moved_in_cluster {
-            crate::compositor::carry::system::update_carry_state_preview(st, node_id, now);
         }
     } else {
         st.input.interaction_state.cluster_join_candidate = None;
@@ -909,14 +945,14 @@ pub(crate) fn finish_pointer_drag(
         None => {}
     }
     if started_active {
-        let _ = st.raise_overlap_policy_node(node_id);
         st.set_recent_top_node(node_id, now + Duration::from_millis(1200));
         st.set_interaction_focus(Some(node_id), 30_000, now);
     }
     // Hold the just-dropped window fixed at its release position so the overlap
     // resolver pushes *neighbors* apart instead of snapping the dropped window.
     // Reuses the resize static-lock that the solver already treats as immovable.
-    if st.input.interaction_state.resize_static_node.is_none()
+    if started_active
+        && st.input.interaction_state.resize_static_node.is_none()
         && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
     {
         st.input.interaction_state.resize_static_node = Some(node_id);
@@ -924,6 +960,8 @@ pub(crate) fn finish_pointer_drag(
         st.input.interaction_state.resize_static_until_ms = now_ms + 350;
     }
     st.resolve_surface_overlap();
+    ps.hover_node = None;
+    ps.hover_started_at = None;
     ps.preview_block_until = Some(now + Duration::from_millis(360));
     ps.drag = None;
 }
