@@ -170,6 +170,12 @@ All notable changes to this project will be documented in this file.
 - Improve resize-by-border interaction with a minimum edge grab band, hover resize handles, and
   plain left-press edge resize/release behavior.
 - Polish Apogee hovered live-preview feedback with an accent label and transparent focus ring.
+- Cap gesture-driven Apogee open scrub speed so hard four-finger flicks still commit the overview
+  but no longer visually snap the open animation faster than the configured interaction can read.
+- Defer Apogee selection activation until the close animation finishes so the desktop doesn't
+  mutate underneath the fading overlay. Maximized and fullscreen windows no longer flash or
+  displace when selected from the overview: the close animation flies back to the actual
+  presentation visual rect instead of the stale windowed field position.
 
 ### Fixed
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window

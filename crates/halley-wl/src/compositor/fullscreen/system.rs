@@ -974,8 +974,15 @@ pub(crate) fn fullscreen_visual_for_node_on_current_monitor_at(
     now: Instant,
 ) -> Option<(Vec2, Vec2)> {
     let monitor = st.model.monitor_state.current_monitor.as_str();
-    // A scale anim for this node on the current monitor drives the visual rect
-    // for BOTH enter (node active) and exit (node already removed from active).
+    fullscreen_visual_for_node_on_monitor_at(st, node_id, monitor, now)
+}
+
+pub(crate) fn fullscreen_visual_for_node_on_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    monitor: &str,
+    now: Instant,
+) -> Option<(Vec2, Vec2)> {
     if let Some(anim) = st
         .model
         .fullscreen_state
@@ -985,7 +992,6 @@ pub(crate) fn fullscreen_visual_for_node_on_current_monitor_at(
     {
         return Some(fullscreen_animation_rect(st, anim, now));
     }
-    // No anim in flight: only the active fullscreen node gets the viewport rect.
     (st.model
         .fullscreen_state
         .fullscreen_active_node

@@ -41,6 +41,9 @@ const APOGEE_GESTURE_START_DEADZONE_PX: f32 = 8.0;
 /// Release progress at/above which a scrubbed Apogee open commits (a flick also
 /// commits below this).
 const APOGEE_GESTURE_COMMIT_PROGRESS: f32 = 0.4;
+/// Maximum scrubbed Apogee open speed. A hard flick can still commit the open,
+/// but the visual transition will not jump faster than this.
+const APOGEE_GESTURE_MAX_PROGRESS_PER_SEC: f32 = 4.0;
 
 /// Whether a swipe of `fingers` going up is bound to open Apogee.
 fn swipe_up_opens_apogee(st: &Halley, fingers: u32) -> bool {
@@ -75,6 +78,13 @@ fn sample_velocity(prev: Vec2, last_msec: u32, now_msec: u32, dx: f64, dy: f64) 
 #[inline]
 fn vec_len(v: Vec2) -> f32 {
     v.x.hypot(v.y)
+}
+
+#[cfg(test)]
+fn cap_progress_delta(current: f32, target: f32, max_delta: f32) -> f32 {
+    let current = current.clamp(0.0, 1.0);
+    let target = target.clamp(0.0, 1.0);
+    current + (target - current).clamp(-max_delta.max(0.0), max_delta.max(0.0))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -579,6 +589,7 @@ pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
             );
         }
         ActiveGestureRoute::CompositorSwipe(mut swipe) => {
+            let dt_ms = time_msec.wrapping_sub(swipe.last_time_msec).max(1) as f32;
             swipe.vel =
                 sample_velocity(swipe.vel, swipe.last_time_msec, time_msec, delta_x, delta_y);
             swipe.last_time_msec = time_msec;
@@ -606,8 +617,11 @@ pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
                     }
 
                     if swipe.drives_apogee_open {
-                        let progress = (up_travel / APOGEE_GESTURE_OPEN_TRAVEL_PX).clamp(0.0, 1.0);
-                        st.set_apogee_open_gesture_progress(progress);
+                        let target_progress =
+                            (up_travel / APOGEE_GESTURE_OPEN_TRAVEL_PX).clamp(0.0, 1.0);
+                        let max_delta = APOGEE_GESTURE_MAX_PROGRESS_PER_SEC
+                            * (dt_ms / 1000.0).clamp(0.001, 0.1);
+                        st.set_apogee_open_gesture_progress_capped(target_progress, max_delta);
                     } else if swipe.latched.is_none() {
                         swipe.latched = classify_swipe_direction(
                             swipe.delta,
@@ -981,5 +995,12 @@ mod tests {
         let intent = classify_pending_pinch(Vec2 { x: 2.0, y: 0.0 }, 1.03);
 
         assert_eq!(intent, None);
+    }
+
+    #[test]
+    fn apogee_progress_delta_is_capped() {
+        assert!((cap_progress_delta(0.10, 0.90, 0.08) - 0.18).abs() < 0.001);
+        assert!((cap_progress_delta(0.90, 0.10, 0.08) - 0.82).abs() < 0.001);
+        assert!((cap_progress_delta(0.40, 0.44, 0.08) - 0.44).abs() < 0.001);
     }
 }

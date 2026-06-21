@@ -81,6 +81,9 @@ pub(crate) struct ApogeeSession {
     /// `progress()` returns this value directly so the overview tracks the finger.
     /// Cleared on commit/cancel, handing back to the timed `started_at` animation.
     pub(crate) manual_progress: Option<f32>,
+    /// When set, the close transition will activate this target after finishing,
+    /// so the desktop doesn't mutate underneath the fading overlay.
+    pub(crate) pending_selection: Option<NodeId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,7 +170,7 @@ impl Halley {
 
             let previous_monitor = self.begin_temporary_render_monitor(monitor.as_str());
             let (tiles, core_tiles, core_atlas_width) =
-                build_apogee_tiles(self, monitor.as_str(), screen_w, screen_h);
+                build_apogee_tiles(self, monitor.as_str(), screen_w, screen_h, now);
             self.end_temporary_render_monitor(previous_monitor);
             has_content |= !tiles.is_empty() || !core_tiles.is_empty();
             monitors.push(ApogeeMonitorSession {
@@ -189,6 +192,7 @@ impl Halley {
             duration,
             monitors,
             manual_progress: None,
+            pending_selection: None,
         });
     }
 
@@ -205,8 +209,13 @@ impl Halley {
         }
     }
 
-    /// Scrub the gesture-driven open to `progress` (0..=1).
-    pub(crate) fn set_apogee_open_gesture_progress(&mut self, progress: f32) {
+    /// Scrub the gesture-driven open with a per-update cap, so fast flicks still
+    /// commit but cannot visually teleport the overview to fully open.
+    pub(crate) fn set_apogee_open_gesture_progress_capped(
+        &mut self,
+        progress: f32,
+        max_delta: f32,
+    ) {
         let drives = self
             .input
             .interaction_state
@@ -216,7 +225,16 @@ impl Halley {
                 session.manual_progress.is_some() && session.phase == ApogeePhase::Opening
             });
         if let Some(session) = drives {
-            session.manual_progress = Some(progress.clamp(0.0, 1.0));
+            let target = progress.clamp(0.0, 1.0);
+            let next = match session.manual_progress {
+                Some(current) => {
+                    let current = current.clamp(0.0, 1.0);
+                    let max_delta = max_delta.max(0.0);
+                    current + (target - current).clamp(-max_delta, max_delta)
+                }
+                None => target,
+            };
+            session.manual_progress = Some(next.clamp(0.0, 1.0));
             self.request_maintenance();
         }
     }
@@ -359,9 +377,14 @@ impl Halley {
             }
             ApogeePhase::Closing => {
                 if progress >= 1.0 {
+                    let pending = session.pending_selection.take();
                     self.input.interaction_state.apogee_session = None;
                     self.input.interaction_state.apogee_live_preview_node = None;
                     self.input.interaction_state.apogee_live_preview_last_at = None;
+                    if let Some(node_id) = pending {
+                        activate_apogee_target(self, node_id, now);
+                        self.request_maintenance();
+                    }
                 }
             }
             ApogeePhase::Open => {}
@@ -526,6 +549,26 @@ pub(crate) fn apogee_region_for_point(screen_h: i32, sy: f32) -> ApogeeInteracti
     }
 }
 
+/// Begin closing Apogee with a pending selection. The selected tile is raised to
+/// the top of the draw order for the close animation, and the actual focus /
+/// activation is deferred until the close animation finishes (via `tick_apogee`)
+/// so the desktop doesn't mutate underneath the fading overlay.
+pub(crate) fn select_apogee_target(st: &mut Halley, node_id: NodeId, now: Instant) {
+    if let Some(session) = st.input.interaction_state.apogee_session.as_mut() {
+        for monitor_session in &mut session.monitors {
+            if let Some(idx) = monitor_session.tiles.iter().position(|tile| {
+                tile.node_id == node_id && matches!(tile.kind, ApogeeTileKind::Window)
+            }) {
+                let tile = monitor_session.tiles.remove(idx);
+                monitor_session.tiles.push(tile);
+                break;
+            }
+        }
+        session.pending_selection = Some(node_id);
+    }
+    st.close_apogee(now);
+}
+
 /// Fly the camera to a picked overview tile and focus/activate it. Reuses the same
 /// reveal path as clicking a node on the Field, so you land *at* the window.
 pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Instant) {
@@ -568,6 +611,7 @@ fn build_apogee_tiles(
     monitor: &str,
     screen_w: i32,
     screen_h: i32,
+    now: Instant,
 ) -> (Vec<ApogeeTile>, Vec<ApogeeTile>, f32) {
     let view = OverlayView::from_halley(st);
     let scale_x = screen_w as f32 / view.camera_view_size.x.max(1.0);
@@ -585,12 +629,46 @@ fn build_apogee_tiles(
         };
         let (kind, collapsed) = apogee_tile_class(&node.kind, &node.state);
 
-        let (cx, cy) = view.world_to_screen(screen_w, screen_h, node.pos.x, node.pos.y);
+        // Use the presentation visual rect (fullscreen or maximized) when the
+        // node is in a presentation state, so the close animation flies back to
+        // the correct on-screen geometry instead of the windowed field position.
+        let presentation_visual = {
+            let fs_visual =
+                crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_monitor_at(
+                    st, *node_id, monitor, now,
+                );
+            let is_soft_suspended = st
+                .model
+                .fullscreen_state
+                .fullscreen_soft_suspended_node
+                .get(monitor)
+                .copied()
+                == Some(*node_id);
+            let has_fs_anim = st
+                .model
+                .fullscreen_state
+                .fullscreen_scale_anim
+                .get(node_id)
+                .is_some_and(|a| a.monitor == monitor);
+            if is_soft_suspended && !has_fs_anim {
+                None
+            } else {
+                fs_visual
+            }
+        }
+        .or_else(|| {
+            crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+                st, *node_id, monitor, now,
+            )
+        });
+
+        let (src_center, src_size) = presentation_visual.unwrap_or((node.pos, node.footprint));
+        let (cx, cy) = view.world_to_screen(screen_w, screen_h, src_center.x, src_center.y);
         let from = TileRect {
             cx: cx as f32,
             cy: cy as f32,
-            w: (node.footprint.x * scale_x).max(8.0),
-            h: (node.footprint.y * scale_y).max(8.0),
+            w: (src_size.x * scale_x).max(8.0),
+            h: (src_size.y * scale_y).max(8.0),
         };
         let preview_size = if matches!(kind, ApogeeTileKind::Window) {
             apogee_window_preview_size(&view, *node_id, node.intrinsic_size)
@@ -1571,6 +1649,87 @@ mod tests {
             Some(target)
         );
         assert!(state.node_draws_above_fullscreen_on_monitor(target, monitor.as_str()));
+    }
+
+    #[test]
+    fn select_apogee_target_defers_activation_until_close_completes() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, monitor.as_str());
+        let _ = state
+            .model
+            .field
+            .set_state(target, halley_core::field::NodeState::Active);
+
+        state.open_apogee(now);
+
+        // Selection should start close but not activate immediately.
+        select_apogee_target(&mut state, target, now);
+
+        let session = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("apogee session still alive during close");
+        assert!(matches!(session.phase, ApogeePhase::Closing));
+        assert_eq!(session.pending_selection, Some(target));
+        // Activation is deferred — focus must NOT have changed yet.
+        assert_ne!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
+    }
+
+    #[test]
+    fn tick_apogee_applies_pending_selection_on_close_completion() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, monitor.as_str());
+        let _ = state
+            .model
+            .field
+            .set_state(target, halley_core::field::NodeState::Active);
+
+        state.open_apogee(now);
+        select_apogee_target(&mut state, target, now);
+
+        // Advance time well past the close animation duration.
+        let close_duration = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("session")
+            .duration;
+        let later = now + close_duration + std::time::Duration::from_millis(50);
+
+        state.tick_apogee(later);
+
+        // Session is cleared and activation has been applied.
+        assert!(state.input.interaction_state.apogee_session.is_none());
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
     }
 
     #[test]

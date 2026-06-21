@@ -99,9 +99,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         drop(ps);
         if matches!(button_state, ButtonState::Pressed) && left {
             if let Some(node_id) = hit {
-                crate::compositor::overview::activate_apogee_target(st, node_id, now);
+                crate::compositor::overview::select_apogee_target(st, node_id, now);
+            } else {
+                st.close_apogee(now);
             }
-            st.close_apogee(now);
             ctx.backend.request_redraw();
         }
         return;
