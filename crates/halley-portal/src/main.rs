@@ -8,7 +8,7 @@ use std::sync::Arc;
 use eventline::{error, info};
 use zbus::blocking::Connection;
 
-use dbus::{ScreenCastInterface, ScreenCastState};
+use dbus::{ScreenCastInterface, ScreenCastState, ScreenshotInterface};
 use pipewire_producer::PipewireProducer;
 
 const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.halley";
@@ -53,7 +53,9 @@ fn main() {
 fn print_help() {
     println!("xdg-desktop-portal-halley {}", env!("CARGO_PKG_VERSION"));
     println!();
-    println!("Native xdg-desktop-portal ScreenCast backend for the Halley compositor.");
+    println!(
+        "Native xdg-desktop-portal ScreenCast and Screenshot backend for the Halley compositor."
+    );
     println!("Ordinarily autostarted by xdg-desktop-portal; not run directly.");
     println!();
     println!("Options:");
@@ -71,14 +73,18 @@ fn run() -> zbus::Result<()> {
     info!("connected to session bus");
 
     screencast_state.set_connection(connection.clone());
+    let shared_connection = screencast_state.connection_arc();
 
     connection
         .object_server()
         .at(OBJECT_PATH, ScreenCastInterface::new(screencast_state))?;
+    connection
+        .object_server()
+        .at(OBJECT_PATH, ScreenshotInterface::new(shared_connection))?;
 
     connection.request_name(BUS_NAME)?;
     info!("acquired bus name {BUS_NAME}");
-    info!("ScreenCast backend ready at {OBJECT_PATH}");
+    info!("ScreenCast + Screenshot backend ready at {OBJECT_PATH}");
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(3600));

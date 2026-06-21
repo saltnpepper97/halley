@@ -422,7 +422,24 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
         }) {
             return false;
         }
-        if self.active_surface_is_frontmost_on_monitor(node_id) {
+        let needs_raise_above_fullscreen = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .and_then(|monitor| {
+                self.model
+                    .fullscreen_state
+                    .fullscreen_active_node
+                    .get(monitor.as_str())
+                    .copied()
+            })
+            .is_some_and(|fullscreen_id| {
+                fullscreen_id != node_id
+                    && self.overlap_policy_stack_rank(node_id).0
+                        <= self.overlap_policy_stack_rank(fullscreen_id).0
+            });
+        if !needs_raise_above_fullscreen && self.active_surface_is_frontmost_on_monitor(node_id) {
             return false;
         }
         self.model.focus_state.next_overlap_raise_order = self

@@ -80,6 +80,7 @@ impl portal::OutputCaptureBackend for WinitOutputCaptureBackend {
             cursor_screen,
             overlay_cursor,
             logical_region,
+            None,
         )
     }
 
@@ -856,7 +857,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-                drain_ipc_commands(|request| match request {
+                drain_ipc_commands_with_fds(|request, fds| match request {
                     Request::Compositor(CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         exit_confirm_controller(&mut *st).show();
@@ -917,7 +918,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             "dpms is only supported on the tty backend".into(),
                         ))
                     }
-                    request => crate::ipc::handle_request(st, request),
+                    request => crate::ipc::handle_request_with_fds(st, request, fds),
                 });
 
                 {

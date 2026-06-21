@@ -44,6 +44,17 @@ fn screenshot_window_matches_monitor(st: &Halley, node_id: NodeId, monitor: &str
     })
 }
 
+/// True when at least one capturable window (an Active, visible surface) exists on the
+/// monitor, i.e. Window-capture mode has something to target. Used to blank the Window
+/// option in the screenshot toolbar on an empty field.
+pub(crate) fn has_screenshot_window_target_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .field
+        .nodes()
+        .keys()
+        .any(|&node_id| screenshot_window_matches_monitor(st, node_id, monitor))
+}
+
 pub(super) fn screenshot_window_crop_for_node(
     st: &mut Halley,
     node_id: NodeId,
@@ -381,7 +392,12 @@ pub(super) fn screenshot_region_apply_drag(
 
 #[cfg(test)]
 mod tests {
-    use super::inflate_window_capture_rect_by_frame_pad;
+    use super::{
+        has_screenshot_window_target_for_monitor, inflate_window_capture_rect_by_frame_pad,
+    };
+    use crate::compositor::root::Halley;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
 
     #[test]
     fn window_capture_rect_includes_scaled_frame_pad() {
@@ -389,5 +405,34 @@ mod tests {
             inflate_window_capture_rect_by_frame_pad((100.0, 200.0, 300.0, 500.0), 10.0, 1.5);
 
         assert_eq!(inflated, (85.0, 185.0, 315.0, 515.0));
+    }
+
+    #[test]
+    fn window_target_absent_on_empty_field_present_with_window() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+
+        // Empty field: Window capture has nothing to target.
+        assert!(!has_screenshot_window_target_for_monitor(
+            &state,
+            monitor.as_str()
+        ));
+
+        let win = state.model.field.spawn_surface(
+            "app",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 200.0, y: 150.0 },
+        );
+        state.assign_node_to_monitor(win, monitor.as_str());
+        let _ = state
+            .model
+            .field
+            .set_state(win, halley_core::field::NodeState::Active);
+
+        assert!(has_screenshot_window_target_for_monitor(
+            &state,
+            monitor.as_str()
+        ));
     }
 }

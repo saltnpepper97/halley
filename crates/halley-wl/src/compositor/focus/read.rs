@@ -90,7 +90,9 @@ impl<'a> FocusReadContext<'a> {
                     .map(String::as_str)
                     .or(fullscreen_monitor);
                 if requested_monitor == fullscreen_monitor {
-                    if st.node_has_overlap_policy(requested_id) {
+                    if fullscreen_monitor.is_some_and(|monitor| {
+                        st.node_draws_above_fullscreen_on_monitor(requested_id, monitor)
+                    }) {
                         requested
                     } else {
                         fullscreen_id

@@ -1,5 +1,6 @@
 use std::fs;
 use std::io;
+use std::os::fd::OwnedFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::mpsc;
@@ -16,11 +17,12 @@ use halley_api::{
     ApiError, CompositorRequest, HALLEY_API_VERSION, OutputInfo, OutputsResponse, Request,
     Response, VersionInfo,
 };
-use halley_ipc::{decode_request, encode_response, read_frame, write_frame};
+use halley_ipc::{decode_request, encode_response, read_frame_with_fds, write_frame};
 
 #[derive(Debug)]
 pub struct RuntimeIpcRequest {
     pub request: Request,
+    pub fds: Vec<OwnedFd>,
     pub reply_tx: mpsc::Sender<Response>,
 }
 
@@ -114,9 +116,9 @@ pub fn publish_outputs(outputs: Vec<OutputInfo>) {
     }
 }
 
-pub fn drain_ipc_commands<F>(mut f: F)
+pub fn drain_ipc_commands_with_fds<F>(mut f: F)
 where
-    F: FnMut(Request) -> Response,
+    F: FnMut(Request, Vec<OwnedFd>) -> Response,
 {
     let Some(rx) = IPC_REQUEST_RX.get() else {
         return;
@@ -133,7 +135,7 @@ where
     loop {
         match guard.try_recv() {
             Ok(request) => {
-                let response = f(request.request);
+                let response = f(request.request, request.fds);
                 let _ = request.reply_tx.send(response);
             }
             Err(mpsc::TryRecvError::Empty) => break,
@@ -147,8 +149,10 @@ fn handle_client(
     request_tx: &mpsc::Sender<RuntimeIpcRequest>,
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> io::Result<()> {
-    let response = match read_frame(stream).and_then(|bytes| decode_request(&bytes)) {
-        Ok(request) => handle_request(request, request_tx, outputs),
+    let response = match read_frame_with_fds(stream, 8)
+        .and_then(|(bytes, fds)| decode_request(&bytes).map(|request| (request, fds)))
+    {
+        Ok((request, fds)) => handle_request(request, fds, request_tx, outputs),
         Err(err) => Response::Error(ApiError::InvalidRequest(err.to_string())),
     };
 
@@ -176,6 +180,7 @@ fn spawn_ipc_client_handler(
 
 fn handle_request(
     request: Request,
+    fds: Vec<OwnedFd>,
     request_tx: &mpsc::Sender<RuntimeIpcRequest>,
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> Response {
@@ -189,7 +194,11 @@ fn handle_request(
         },
         request => {
             let (reply_tx, reply_rx) = mpsc::channel();
-            let envelope = RuntimeIpcRequest { request, reply_tx };
+            let envelope = RuntimeIpcRequest {
+                request,
+                fds,
+                reply_tx,
+            };
             if let Err(err) = request_tx.send(envelope) {
                 return Response::Error(ApiError::Internal(err.to_string()));
             }

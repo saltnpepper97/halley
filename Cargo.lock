@@ -1453,6 +1453,7 @@ name = "halley-ipc"
 version = "0.5.0"
 dependencies = [
  "halley-api",
+ "libc",
  "postcard",
 ]
 

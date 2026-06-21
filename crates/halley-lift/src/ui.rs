@@ -390,6 +390,8 @@ pub struct IconCache {
     target_size: u32,
     search_depth: usize,
     indexed: bool,
+    loaded_disk_index: bool,
+    index_refresh_requested: bool,
     index_rx: Option<Receiver<HashMap<String, IconIndexEntry>>>,
     decode_tx: Option<Sender<(String, PathBuf)>>,
     decode_rx: Option<Receiver<(String, Option<IconRaster>)>>,
@@ -460,7 +462,8 @@ impl IconCache {
                     .and_then(|path| load_index_cache(path, cache_fingerprint.as_str()))
             })
             .flatten();
-        let indexed = !config.icons || cached_index.is_some();
+        let loaded_disk_index = cached_index.is_some();
+        let indexed = !config.icons || loaded_disk_index;
         Self {
             entries: HashMap::new(),
             index: cached_index.unwrap_or_default(),
@@ -468,6 +471,8 @@ impl IconCache {
             target_size,
             search_depth,
             indexed,
+            loaded_disk_index,
+            index_refresh_requested: false,
             index_rx: None,
             decode_tx: None,
             decode_rx: None,
@@ -520,7 +525,7 @@ impl IconCache {
     }
 
     pub fn needs_index(&self) -> bool {
-        !self.indexed && self.index_rx.is_none()
+        (!self.indexed || self.index_refresh_requested) && self.index_rx.is_none()
     }
 
     pub fn has_pending_index(&self) -> bool {
@@ -535,6 +540,7 @@ impl IconCache {
         if !self.needs_index() {
             return;
         }
+        self.index_refresh_requested = false;
         let roots = self.roots.clone();
         let search_depth = self.search_depth;
         let target_size = self.target_size;
@@ -556,6 +562,8 @@ impl IconCache {
         };
         self.index = index;
         self.indexed = true;
+        self.loaded_disk_index = false;
+        self.index_refresh_requested = false;
         self.index_rx = None;
         // Drop entries that resolved to nothing while the index was still building so
         // they get another chance now that path resolution can succeed.
@@ -574,11 +582,19 @@ impl IconCache {
             return false;
         };
         let mut changed = false;
+        let mut refresh_needed = false;
         while let Ok((key, raster)) = rx.try_recv() {
+            let missing = raster.is_none();
             let slot = raster.map_or(IconSlot::Missing, IconSlot::Ready);
             self.entries.insert(key, slot);
             self.pending_decodes = self.pending_decodes.saturating_sub(1);
+            if missing {
+                refresh_needed = true;
+            }
             changed = true;
+        }
+        if refresh_needed {
+            self.request_index_refresh();
         }
         changed
     }
@@ -604,6 +620,7 @@ impl IconCache {
                 // unresolved name is genuinely missing and is cached as such.
                 None if self.indexed => {
                     self.entries.insert(key.clone(), IconSlot::Missing);
+                    self.request_index_refresh();
                 }
                 None => {}
             }
@@ -633,6 +650,12 @@ impl IconCache {
         });
         self.decode_tx = Some(job_tx);
         self.decode_rx = Some(res_rx);
+    }
+
+    fn request_index_refresh(&mut self) {
+        if self.loaded_disk_index && self.index_rx.is_none() {
+            self.index_refresh_requested = true;
+        }
     }
 
     fn resolve_icon_path(&self, name: &str) -> Option<PathBuf> {
@@ -1289,6 +1312,33 @@ fn draw_result_icon(
                 radius,
                 colors.accent,
             );
+        }
+        LiftResultKind::App => {
+            if let Some(raster) = icon_cache.search_glyph(config.icon_size, LiftMode::Apps) {
+                draw_raster_tinted(
+                    canvas,
+                    width,
+                    height,
+                    raster,
+                    x,
+                    y,
+                    size,
+                    size,
+                    colors.accent,
+                );
+            } else {
+                fill_rounded_rect(
+                    canvas,
+                    width,
+                    height,
+                    x,
+                    y,
+                    size,
+                    size,
+                    radius,
+                    colors.accent,
+                );
+            }
         }
         LiftResultKind::Term => {
             if let Some(raster) = icon_cache.term_glyph(config.icon_size) {
@@ -2019,6 +2069,7 @@ fn unpremultiply_rgba(pixels: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::LiftAction;
 
     #[test]
     fn outline_search_fill_preserves_configured_alpha() {
@@ -2126,5 +2177,69 @@ mod tests {
             .clone();
 
         assert_ne!(loupe, action);
+    }
+
+    #[test]
+    fn disk_index_miss_requests_background_refresh() {
+        let mut cache = IconCache {
+            entries: HashMap::new(),
+            index: HashMap::new(),
+            roots: Vec::new(),
+            target_size: 28,
+            search_depth: 5,
+            indexed: true,
+            loaded_disk_index: true,
+            index_refresh_requested: false,
+            index_rx: None,
+            decode_tx: None,
+            decode_rx: None,
+            pending_decodes: 0,
+            cache_path: None,
+            cache_fingerprint: String::new(),
+            search_icon: None,
+            app_search_icon: None,
+            cluster_search_icon: None,
+            action_search_icon: None,
+            action_icon: None,
+            term_icon: None,
+        };
+
+        assert!(cache.load("new-app-icon").is_none());
+
+        assert!(cache.needs_index());
+    }
+
+    #[test]
+    fn app_result_draws_fallback_when_raster_icon_is_missing() {
+        let config = LiftConfig::default();
+        let mut cache = IconCache::new(&config);
+        cache.indexed = true;
+        let result = LiftResult {
+            section: "Applications".into(),
+            title: "Missing Icon App".into(),
+            subtitle: None,
+            icon_name: Some("definitely-missing-icon".into()),
+            kind: LiftResultKind::App,
+            score: 1.0,
+            is_field_pinned: false,
+            shortcut_hint: None,
+            action: LiftAction::ReloadConfig,
+        };
+        let width = 48;
+        let height = 48;
+        let mut canvas = vec![0; (width * height * 4) as usize];
+
+        draw_result_icon(
+            &mut canvas,
+            width,
+            height,
+            &mut cache,
+            &config,
+            &result,
+            8,
+            8,
+        );
+
+        assert!(canvas.chunks_exact(4).any(|pixel| pixel[3] > 0));
     }
 }

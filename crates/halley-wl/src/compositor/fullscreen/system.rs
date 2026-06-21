@@ -1358,7 +1358,6 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         self.request_maintenance();
     }
 
-    #[cfg(test)]
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         self.exit_xdg_fullscreen_inner(node_id, now, true, true);
     }
@@ -1488,8 +1487,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         // Capture the pre-fullscreen camera (zoom + center) once per monitor so exiting
         // fullscreen returns to it instead of staying at 1.0. `or_insert` keeps the
         // original across fullscreen→fullscreen swaps and soft suspend/resume.
-        let pre_fullscreen_camera =
-            crate::compositor::workspace::state::snapshot_monitor_camera(self, monitor_name.as_str());
+        let pre_fullscreen_camera = crate::compositor::workspace::state::snapshot_monitor_camera(
+            self,
+            monitor_name.as_str(),
+        );
         self.model
             .fullscreen_state
             .fullscreen_camera_restore

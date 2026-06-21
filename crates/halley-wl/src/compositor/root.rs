@@ -619,6 +619,7 @@ impl Halley {
             || entry.pinned
     }
 
+    #[allow(dead_code)]
     pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {
         self.aperture.config()
     }
@@ -1415,7 +1416,6 @@ impl Halley {
             })
     }
 
-    #[cfg(test)]
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self)
             .soft_suspend_xdg_fullscreen(node_id, now)

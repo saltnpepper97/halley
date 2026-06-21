@@ -311,6 +311,9 @@ pub(crate) struct TtyOutputCaptureBackend {
     pub(crate) outputs: Rc<RefCell<Vec<TtyDrmOutput>>>,
     pub(crate) pointer_state: Rc<RefCell<PointerState>>,
     pub(crate) dmabuf_formats: Vec<smithay::backend::allocator::Format>,
+    /// Reused per-output offscreen textures for screencast SHM capture, so each
+    /// captured frame does not allocate a full-output GPU buffer.
+    pub(crate) capture_texture_cache: RefCell<HashMap<String, GlesTexture>>,
 }
 
 impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
@@ -364,6 +367,7 @@ impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
             cursor_screen,
             overlay_cursor,
             logical_region,
+            Some(&self.capture_texture_cache),
         )
     }
 

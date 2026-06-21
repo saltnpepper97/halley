@@ -4,6 +4,7 @@ mod node;
 mod trail;
 mod view;
 
+use std::os::fd::OwnedFd;
 use std::time::Instant;
 
 use halley_api::{
@@ -30,6 +31,14 @@ use self::monitor::adjacent_monitor;
 use self::node::resolve_node_selector;
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
+    handle_request_with_fds(st, request, Vec::new())
+}
+
+pub(crate) fn handle_request_with_fds(
+    st: &mut Halley,
+    request: Request,
+    fds: Vec<OwnedFd>,
+) -> Response {
     match request {
         Request::Capture(request) => handle_capture_request(st, request),
         Request::Node(request) => handle_node_request(st, request),
@@ -39,7 +48,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Stack(request) => handle_stack_request(st, request),
         Request::Tile(request) => handle_tile_request(st, request),
         Request::Cluster(request) => handle_cluster_request(st, request),
-        Request::PortalScreenCast(request) => handle_portal_screencast_request(st, request),
+        Request::PortalScreenCast(request) => handle_portal_screencast_request(st, request, fds),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(ApiError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -61,7 +70,11 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
     }
 }
 
-fn handle_portal_screencast_request(st: &mut Halley, request: PortalScreenCastRequest) -> Response {
+fn handle_portal_screencast_request(
+    st: &mut Halley,
+    request: PortalScreenCastRequest,
+    fds: Vec<OwnedFd>,
+) -> Response {
     match request {
         PortalScreenCastRequest::ListOutputs => {
             Response::PortalScreenCast(PortalScreenCastResponse::Outputs(portal_outputs(st)))
@@ -101,8 +114,9 @@ fn handle_portal_screencast_request(st: &mut Halley, request: PortalScreenCastRe
         PortalScreenCastRequest::Start {
             session_handle,
             output,
-            cursor_mode: _,
+            cursor_mode,
         } => {
+            let cursor_mode = crate::portal::ScreencastCursorMode::from_portal_mode(cursor_mode);
             let (width, height) = st
                 .model
                 .monitor_state
@@ -129,7 +143,7 @@ fn handle_portal_screencast_request(st: &mut Halley, request: PortalScreenCastRe
 
             match st
                 .screencast
-                .start_output(&session_handle, &output, width, height)
+                .start_output(&session_handle, &output, width, height, cursor_mode)
             {
                 Ok(shm_path) => Response::PortalScreenCast(PortalScreenCastResponse::Started {
                     node_id: 0,
@@ -149,16 +163,71 @@ fn handle_portal_screencast_request(st: &mut Halley, request: PortalScreenCastRe
         PortalScreenCastRequest::StartWindow {
             session_handle,
             node_id,
-            cursor_mode: _,
-        } => start_window_screencast(st, session_handle, node_id),
+            cursor_mode,
+        } => start_window_screencast(
+            st,
+            session_handle,
+            node_id,
+            crate::portal::ScreencastCursorMode::from_portal_mode(cursor_mode),
+        ),
         PortalScreenCastRequest::Stop { session_handle } => {
             st.screencast.stop(&session_handle);
             Response::PortalScreenCast(PortalScreenCastResponse::Stopped)
         }
+        PortalScreenCastRequest::SetActive {
+            session_handle,
+            active,
+        } => {
+            st.screencast.set_active(&session_handle, active);
+            Response::PortalScreenCast(PortalScreenCastResponse::ActiveSet)
+        }
+        PortalScreenCastRequest::AddDmabufBuffer {
+            session_handle,
+            buffer_id,
+            width,
+            height,
+            format,
+            modifier,
+            flags,
+            planes,
+        } => match st.screencast.add_dmabuf_buffer(
+            &session_handle,
+            buffer_id,
+            fds,
+            width,
+            height,
+            format,
+            modifier,
+            flags,
+            planes,
+        ) {
+            Ok(()) => Response::PortalScreenCast(PortalScreenCastResponse::DmabufBufferAdded),
+            Err(err) => Response::PortalScreenCast(PortalScreenCastResponse::Error(err)),
+        },
+        PortalScreenCastRequest::RemoveDmabufBuffer {
+            session_handle,
+            buffer_id,
+        } => {
+            st.screencast
+                .remove_dmabuf_buffer(&session_handle, buffer_id);
+            Response::PortalScreenCast(PortalScreenCastResponse::DmabufBufferRemoved)
+        }
+        PortalScreenCastRequest::RenderDmabufBuffer {
+            session_handle,
+            buffer_id,
+        } => match crate::portal::render_screencast_dmabuf_buffer(st, &session_handle, buffer_id) {
+            Ok(()) => Response::PortalScreenCast(PortalScreenCastResponse::DmabufFrameRendered),
+            Err(err) => Response::PortalScreenCast(PortalScreenCastResponse::Error(err)),
+        },
     }
 }
 
-fn start_window_screencast(st: &mut Halley, session_handle: String, node_id_u64: u64) -> Response {
+fn start_window_screencast(
+    st: &mut Halley,
+    session_handle: String,
+    node_id_u64: u64,
+    cursor_mode: crate::portal::ScreencastCursorMode,
+) -> Response {
     use halley_api::PORTAL_SOURCE_TYPE_WINDOW;
     use halley_core::field::NodeId;
 
@@ -199,10 +268,14 @@ fn start_window_screencast(st: &mut Halley, session_handle: String, node_id_u64:
         .get(monitor.as_str())
         .map(|m| (m.offset_x, m.offset_y))
         .unwrap_or((0, 0));
-    match st
-        .screencast
-        .start_window(&session_handle, node_id, &monitor, width, height)
-    {
+    match st.screencast.start_window(
+        &session_handle,
+        node_id,
+        &monitor,
+        width,
+        height,
+        cursor_mode,
+    ) {
         Ok(shm_path) => Response::PortalScreenCast(PortalScreenCastResponse::Started {
             node_id: 0,
             width,

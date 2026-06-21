@@ -303,7 +303,7 @@ pub(crate) fn node_draws_above_fullscreen_on_monitor(
     else {
         return false;
     };
-    if fullscreen_id == node_id || !node_has_overlap_policy(st, node_id) {
+    if fullscreen_id == node_id {
         return false;
     }
     let Some(node) = st.model.field.node(node_id) else {
@@ -312,6 +312,12 @@ pub(crate) fn node_draws_above_fullscreen_on_monitor(
     if node.state != halley_core::field::NodeState::Active || !st.model.field.is_visible(node_id) {
         return false;
     }
+    let explicitly_raised_above_fullscreen =
+        st.overlap_policy_stack_rank(node_id).0 > st.overlap_policy_stack_rank(fullscreen_id).0;
+    if !node_has_overlap_policy(st, node_id) && !explicitly_raised_above_fullscreen {
+        return false;
+    }
+
     st.model
         .monitor_state
         .node_monitor

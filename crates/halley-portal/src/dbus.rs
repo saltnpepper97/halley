@@ -9,10 +9,12 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 use halley_api::{
-    PORTAL_CURSOR_MODE_EMBEDDED, PORTAL_CURSOR_MODE_HIDDEN, PORTAL_CURSOR_MODE_METADATA,
-    PORTAL_SOURCE_TYPE_MONITOR, PORTAL_SOURCE_TYPE_WINDOW, PortalSourceSelection,
+    CaptureMode, PORTAL_CURSOR_MODE_EMBEDDED, PORTAL_CURSOR_MODE_HIDDEN,
+    PORTAL_CURSOR_MODE_METADATA, PORTAL_SOURCE_TYPE_MONITOR, PORTAL_SOURCE_TYPE_WINDOW,
+    PortalSourceSelection,
 };
 
+use crate::compositor_client::{CompositorClient, ScreenshotOutcome};
 use crate::pipewire_producer::PipewireProducer;
 use crate::session::{CursorMode, SessionStore};
 
@@ -20,6 +22,14 @@ const SCREENCAST_VERSION: u32 = 6;
 const AVAILABLE_SOURCE_TYPES: u32 = PORTAL_SOURCE_TYPE_MONITOR | PORTAL_SOURCE_TYPE_WINDOW;
 const AVAILABLE_CURSOR_MODES: u32 =
     PORTAL_CURSOR_MODE_HIDDEN | PORTAL_CURSOR_MODE_EMBEDDED | PORTAL_CURSOR_MODE_METADATA;
+
+const SCREENSHOT_VERSION: u32 = 3;
+const SCREENSHOT_TARGET_SCREEN: u32 = 1;
+const SCREENSHOT_TARGET_WINDOW: u32 = 2;
+const SCREENSHOT_TARGET_AREA: u32 = 4;
+const SCREENSHOT_TARGET_ACTIVE_WINDOW: u32 = 8;
+const AVAILABLE_SCREENSHOT_TARGETS: u32 =
+    SCREENSHOT_TARGET_SCREEN | SCREENSHOT_TARGET_WINDOW | SCREENSHOT_TARGET_AREA;
 
 type Vardict = HashMap<String, OwnedValue>;
 
@@ -44,6 +54,10 @@ impl ScreenCastState {
 
     pub fn set_connection(&self, conn: Connection) {
         *self.connection.lock().unwrap() = Some(conn);
+    }
+
+    pub fn connection_arc(&self) -> Arc<Mutex<Option<Connection>>> {
+        self.connection.clone()
     }
 
     pub fn set_pipewire(&mut self, pw: Arc<PipewireProducer>) {
@@ -342,6 +356,97 @@ impl ScreenCastInterface {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Screenshot interface
+// ---------------------------------------------------------------------------
+
+pub struct ScreenshotInterface {
+    connection: Arc<Mutex<Option<Connection>>>,
+}
+
+impl ScreenshotInterface {
+    pub fn new(connection: Arc<Mutex<Option<Connection>>>) -> Self {
+        Self { connection }
+    }
+}
+
+#[interface(name = "org.freedesktop.impl.portal.Screenshot")]
+impl ScreenshotInterface {
+    fn screenshot(
+        &self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        _parent_window: &str,
+        options: Vardict,
+    ) -> fdo::Result<(u32, Vardict)> {
+        export_request_object(&self.connection, &handle)?;
+
+        let interactive = extract_bool(&options, "interactive").unwrap_or(false);
+        let target = extract_u32(&options, "target");
+
+        debug!(
+            "Screenshot: app_id={} target={:?} interactive={}",
+            app_id, target, interactive
+        );
+
+        let mode = match target {
+            Some(SCREENSHOT_TARGET_SCREEN) => CaptureMode::Screen,
+            Some(SCREENSHOT_TARGET_WINDOW) => CaptureMode::Window,
+            Some(SCREENSHOT_TARGET_AREA) => CaptureMode::Region,
+            Some(SCREENSHOT_TARGET_ACTIVE_WINDOW) => {
+                warn!("Screenshot: active-window target not yet supported");
+                return Ok((2, Vardict::new()));
+            }
+            None if interactive => CaptureMode::Menu,
+            None => CaptureMode::Screen,
+            Some(other) => {
+                warn!("Screenshot: unsupported target {other}");
+                return Ok((2, Vardict::new()));
+            }
+        };
+
+        match CompositorClient::screenshot(mode) {
+            Ok(ScreenshotOutcome::Saved(path)) => {
+                let uri = path_to_file_uri(&path);
+                let mut results = Vardict::new();
+                results.insert("uri".into(), owned_from_value(Value::from(uri))?);
+                info!("Screenshot: captured for app_id={app_id}");
+                Ok((0, results))
+            }
+            Ok(ScreenshotOutcome::Cancelled) => {
+                info!("Screenshot: user cancelled (app_id={app_id})");
+                Ok((1, Vardict::new()))
+            }
+            Err(e) => {
+                warn!("Screenshot: failed (app_id={app_id}): {e}");
+                Ok((2, Vardict::new()))
+            }
+        }
+    }
+
+    fn pick_color(
+        &self,
+        handle: OwnedObjectPath,
+        _app_id: &str,
+        _parent_window: &str,
+        _options: Vardict,
+    ) -> fdo::Result<(u32, Vardict)> {
+        export_request_object(&self.connection, &handle)?;
+        warn!("PickColor: not supported");
+        Ok((2, Vardict::new()))
+    }
+
+    #[zbus(property)]
+    fn available_targets(&self) -> u32 {
+        AVAILABLE_SCREENSHOT_TARGETS
+    }
+
+    #[zbus(property, name = "version")]
+    fn version(&self) -> u32 {
+        SCREENSHOT_VERSION
+    }
+}
+
 pub struct SessionInterface {
     session_handle: String,
     sessions: Arc<Mutex<SessionStore>>,
@@ -461,4 +566,29 @@ fn extract_u32(dict: &Vardict, key: &str) -> Option<u32> {
         Value::U32(v) => Some(*v),
         _ => None,
     }
+}
+
+fn extract_bool(dict: &Vardict, key: &str) -> Option<bool> {
+    let ov = dict.get(key)?;
+    match &**ov {
+        Value::Bool(v) => Some(*v),
+        _ => None,
+    }
+}
+
+/// Convert a filesystem path to a `file://` URI with percent-encoding for
+/// characters outside the unreserved set.
+fn path_to_file_uri(path: &str) -> String {
+    let mut result = String::from("file://");
+    for byte in path.bytes() {
+        match byte {
+            b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                result.push(byte as char);
+            }
+            _ => {
+                result.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    result
 }

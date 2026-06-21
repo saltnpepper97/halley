@@ -277,13 +277,17 @@ fn draw_screenshot_menu(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let (selected_idx, hovered_idx) = st
+    let (selected_idx, hovered_idx, session_monitor) = st
         .input
         .interaction_state
         .screenshot_session
         .as_ref()
-        .map(|s| (s.menu_selected, s.menu_hovered))
-        .unwrap_or((0, None));
+        .map(|s| (s.menu_selected, s.menu_hovered, s.monitor.clone()))
+        .unwrap_or((0, None, st.model.monitor_state.current_monitor.clone()));
+    let window_disabled = !crate::compositor::screenshot::has_screenshot_window_target_for_monitor(
+        st,
+        session_monitor.as_str(),
+    );
     let background = screenshot_menu_background_color(overlay.tuning);
     let highlight = screenshot_menu_highlight_color(overlay.tuning);
     let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
@@ -317,13 +321,21 @@ fn draw_screenshot_menu(
     )?;
     for (idx, mode) in screenshot_menu_modes().into_iter().enumerate() {
         let rect = screenshot_menu_rect(idx, screen_w, screen_h);
-        let active = hovered_idx == Some(idx) || selected_idx == idx;
-        let fill = if active {
+        let disabled = window_disabled && mode == CaptureMode::Window;
+        let active = !disabled && (hovered_idx == Some(idx) || selected_idx == idx);
+        let fill = if disabled {
+            color32f(item_fill, 0.30)
+        } else if active {
             color32f(background, 0.96)
         } else {
             color32f(item_fill, 0.94)
         };
-        let border = if active {
+        let border = if disabled {
+            color32f(
+                screenshot_menu_inactive_highlight_color(overlay.tuning),
+                INACTIVE_BORDER_ALPHA * 0.4,
+            )
+        } else if active {
             color32f(highlight, ACTIVE_BORDER_ALPHA)
         } else {
             color32f(
@@ -366,7 +378,7 @@ fn draw_screenshot_menu(
                 &[damage],
                 &[],
                 Transform::Normal,
-                1.0,
+                if disabled { 0.30 } else { 1.0 },
                 None,
                 &[],
             )?;

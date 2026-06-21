@@ -545,7 +545,9 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
-    if crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now) {
+    if crate::compositor::actions::window::focus_from_presentation_navigation(st, node_id, now)
+        || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
+    {
         return;
     }
     // Cluster cores (and any non-surface node): focus + pan to its Field position.
@@ -1537,6 +1539,38 @@ mod tests {
             monitor.tiles.iter().any(|tile| tile.node_id == right)
                 && monitor.tiles.iter().all(|tile| tile.node_id != left)
         }));
+    }
+
+    #[test]
+    fn apogee_activation_can_raise_visible_target_above_fullscreen() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, monitor.as_str());
+        state.assign_node_to_monitor(target, monitor.as_str());
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+
+        activate_apogee_target(&mut state, target, now);
+
+        assert!(state.is_fullscreen_active(fullscreen));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
+        assert!(state.node_draws_above_fullscreen_on_monitor(target, monitor.as_str()));
     }
 
     #[test]

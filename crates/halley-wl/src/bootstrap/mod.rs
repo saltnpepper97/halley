@@ -30,7 +30,7 @@ pub(crate) use common::{
     ensure_host_display, ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
     refresh_portal_services_nonblocking, sync_portal_activation_environment,
 };
-pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
+pub(crate) use ipc::{drain_ipc_commands_with_fds, init_ipc, publish_outputs, shutdown_ipc};
 
 // Set to true by the SIGTERM/SIGINT handler so the event loop can exit cleanly,
 // allowing Drop impls (including the spawned-children cleanup) to run.

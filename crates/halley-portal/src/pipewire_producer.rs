@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Cursor;
 use std::mem::MaybeUninit;
+use std::os::fd::RawFd;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,10 +17,24 @@ use pipewire::loop_::Timeout;
 use pipewire::main_loop::MainLoopRc;
 use pipewire::properties::PropertiesBox;
 use pipewire::spa;
+use pipewire::spa::buffer::DataType;
 use pipewire::spa::sys as spa_sys;
-use pipewire::stream::{StreamFlags, StreamListener, StreamRc};
+use pipewire::stream::{StreamFlags, StreamListener, StreamRc, StreamState};
 
-const SHM_HEADER_SIZE: usize = 32;
+use halley_api::protocol::{
+    PortalDmabufPlane, SHM_CURSOR_BITMAP_BYTES, SHM_CURSOR_FIELDS, SHM_CURSOR_OFF_HEIGHT,
+    SHM_CURSOR_OFF_HOTSPOT_X, SHM_CURSOR_OFF_HOTSPOT_Y, SHM_CURSOR_OFF_POS_X, SHM_CURSOR_OFF_POS_Y,
+    SHM_CURSOR_OFF_SERIAL, SHM_CURSOR_OFF_STRIDE, SHM_CURSOR_OFF_VISIBLE, SHM_CURSOR_OFF_WIDTH,
+    SHM_CURSOR_OFFSET, SHM_PIXELS_OFFSET,
+};
+
+/// Size of the per-buffer `SPA_META_Cursor` region we request: the cursor struct,
+/// an inline bitmap struct, and room for a max-size BGRA cursor bitmap.
+const CURSOR_META_SIZE: usize = std::mem::size_of::<spa_sys::spa_meta_cursor>()
+    + std::mem::size_of::<spa_sys::spa_meta_bitmap>()
+    + SHM_CURSOR_BITMAP_BYTES;
+const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
+const DRM_FORMAT_MOD_INVALID: u64 = u64::MAX;
 
 pub enum PwCommand {
     CreateStream {
@@ -245,7 +260,7 @@ fn create_pw_stream(
         .map_err(|e| format!("failed to open shm file {shm_path}: {e}"))?;
     let mmap = unsafe { Mmap::map(&file) }.map_err(|e| format!("failed to mmap shm file: {e}"))?;
 
-    if mmap.len() < SHM_HEADER_SIZE + 4 {
+    if mmap.len() < SHM_PIXELS_OFFSET + 4 {
         return Err("shm file too small".into());
     }
     if &mmap[0..4] != b"HALS" {
@@ -278,20 +293,100 @@ fn create_pw_stream(
 
     let listener = stream
         .add_local_listener_with_user_data(0u64)
+        .state_changed({
+            let session_id_for_state = session_id.to_string();
+            move |_stream, _user_data, _old, new| {
+                info!(
+                    "pipewire state changed: session={} state={:?}",
+                    session_id_for_state, new
+                );
+                if matches!(new, StreamState::Streaming) {
+                    let handle = session_id_for_state.clone();
+                    std::thread::spawn(move || {
+                        let _ =
+                            crate::compositor_client::CompositorClient::set_active(&handle, true);
+                    });
+                }
+            }
+        })
+        .add_buffer({
+            let session_id_for_add = session_id.to_string();
+            move |_stream, _frame_count, buffer| {
+                let Some((buffer_id, planes, fds)) = dmabuf_buffer_info(buffer, width, height) else {
+                    return;
+                };
+                if let Err(err) = crate::compositor_client::CompositorClient::add_dmabuf_buffer(
+                    &session_id_for_add,
+                    buffer_id,
+                    width as i32,
+                    height as i32,
+                    DRM_FORMAT_XRGB8888,
+                    DRM_FORMAT_MOD_INVALID,
+                    0,
+                    planes,
+                    &fds,
+                ) {
+                    warn!(
+                        "pipewire add_buffer: failed to register dmabuf buffer session={} buffer={} err={}",
+                        session_id_for_add, buffer_id, err
+                    );
+                }
+            }
+        })
+        .remove_buffer({
+            let session_id_for_remove = session_id.to_string();
+            move |_stream, _frame_count, buffer| {
+                if let Some((buffer_id, _, _)) = dmabuf_buffer_info(buffer, width, height) {
+                    let _ = crate::compositor_client::CompositorClient::remove_dmabuf_buffer(
+                        &session_id_for_remove,
+                        buffer_id,
+                    );
+                }
+            }
+        })
         .process(move |stream, frame_count| {
-            let data_offset = SHM_HEADER_SIZE;
+            let data_offset = SHM_PIXELS_OFFSET;
             let available = mmap_ref.len().saturating_sub(data_offset);
             let copy_len = available.min(frame_size);
 
             let Some(mut buffer) = stream.dequeue_buffer() else {
                 return;
             };
+
+            // Mirror the compositor's shm cursor block into the buffer's
+            // SPA_META_Cursor (METADATA cursor mode). Consumers like OBS draw and
+            // toggle this cursor client-side, so the toggle is live.
+            fill_cursor_meta(&buffer, &mmap_ref);
+
             let datas = buffer.datas_mut();
             if datas.is_empty() {
                 return;
             }
 
             let data = &mut datas[0];
+            if data.type_() == DataType::DmaBuf && data.fd() >= 0 {
+                let buffer_id = data.fd() as u64;
+                match crate::compositor_client::CompositorClient::render_dmabuf_buffer(
+                    &session_id_for_process,
+                    buffer_id,
+                ) {
+                    Ok(()) => {
+                        let chunk = data.chunk_mut();
+                        *chunk.offset_mut() = 0;
+                        *chunk.size_mut() = frame_size as u32;
+                        *chunk.stride_mut() = (width * 4) as i32;
+                        *frame_count = frame_count.wrapping_add(1);
+                    }
+                    Err(err) => {
+                        warn!(
+                            "pipewire process: dmabuf render failed session={} buffer={} err={}",
+                            session_id_for_process, buffer_id, err
+                        );
+                    }
+                }
+                return;
+            }
+
             let copied = if let Some(dst) = data.data() {
                 let len = copy_len.min(dst.len());
                 dst[..len].copy_from_slice(&mmap_ref[data_offset..data_offset + len]);
@@ -337,10 +432,16 @@ fn create_pw_stream(
     let format_pod = spa::pod::Pod::from_bytes(&format_data)
         .ok_or_else(|| "failed to build PipeWire format pod".to_string())?;
 
-    let buffers_data = build_buffers_pod_bytes(width, height);
+    let buffers_data = build_buffers_pod_bytes(width, height)?;
     let buffers_pod = spa::pod::Pod::from_bytes(&buffers_data)
         .ok_or_else(|| "failed to build PipeWire buffers pod".to_string())?;
-    let mut params = [format_pod, buffers_pod];
+
+    // Request a per-buffer SPA_META_Cursor region so we can ship the cursor as
+    // metadata (drawn/toggled client-side) instead of baking it into pixels.
+    let meta_data = build_meta_pod_bytes();
+    let meta_pod = spa::pod::Pod::from_bytes(&meta_data)
+        .ok_or_else(|| "failed to build PipeWire meta pod".to_string())?;
+    let mut params = [format_pod, buffers_pod, meta_pod];
 
     // Do not add ALLOC_BUFFERS or DRIVER here. ALLOC_BUFFERS made PipeWire hand
     // us invalid/zero-sized buffers, and DRIVER made WirePlumber link activation
@@ -366,12 +467,172 @@ fn create_pw_stream(
         .get("object.serial")
         .and_then(|s| s.parse::<u64>().ok());
 
-    // format_data/buffers_data must outlive the connect call - they do since
-    // we're still in scope.
+    // format_data/buffers_data/meta_data must outlive the connect call - they do
+    // since we're still in scope.
     drop(format_data);
     drop(buffers_data);
+    drop(meta_data);
 
     Ok((stream, listener, mmap, node_id, serial))
+}
+
+fn dmabuf_buffer_info(
+    buffer: *mut pipewire::sys::pw_buffer,
+    width: u32,
+    _height: u32,
+) -> Option<(u64, Vec<PortalDmabufPlane>, Vec<RawFd>)> {
+    if buffer.is_null() {
+        return None;
+    }
+    let spa_buffer = unsafe { (*buffer).buffer };
+    if spa_buffer.is_null() {
+        return None;
+    }
+
+    let n_datas = unsafe { (*spa_buffer).n_datas as usize };
+    let datas = unsafe { (*spa_buffer).datas };
+    if n_datas == 0 || datas.is_null() {
+        return None;
+    }
+
+    let mut planes = Vec::new();
+    let mut fds = Vec::new();
+    for idx in 0..n_datas {
+        let data = unsafe { &*datas.add(idx) };
+        if data.type_ != spa_sys::SPA_DATA_DmaBuf || data.fd < 0 {
+            return None;
+        }
+        let stride = if !data.chunk.is_null() {
+            let chunk_stride = unsafe { (*data.chunk).stride };
+            if chunk_stride > 0 {
+                chunk_stride as u32
+            } else {
+                width.saturating_mul(4)
+            }
+        } else {
+            width.saturating_mul(4)
+        };
+        planes.push(PortalDmabufPlane {
+            fd_index: fds.len() as u32,
+            plane_index: idx as u32,
+            offset: data.mapoffset as u32,
+            stride,
+        });
+        fds.push(data.fd as RawFd);
+    }
+
+    let buffer_id = fds.first().copied()? as u64;
+    Some((buffer_id, planes, fds))
+}
+
+/// Mirror the compositor's shm cursor block into the buffer's `SPA_META_Cursor`.
+/// When the cursor is not visible this frame, `id` is set to 0 (consumer draws
+/// nothing); otherwise position/hotspot are set and the BGRA bitmap is written
+/// inline so each buffer is self-contained.
+fn fill_cursor_meta(buffer: &pipewire::buffer::Buffer<'_>, mmap: &Mmap) {
+    let Some(meta) = buffer.find_meta::<spa::buffer::meta::MetaCursor>() else {
+        return;
+    };
+    let cur = meta as *const spa::buffer::meta::MetaCursor as *mut spa_sys::spa_meta_cursor;
+    let base = SHM_CURSOR_OFFSET;
+    let read_u32 = |off: usize| -> u32 {
+        mmap.get(base + off..base + off + 4)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(0)
+    };
+    let read_i32 = |off: usize| -> i32 {
+        mmap.get(base + off..base + off + 4)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(i32::from_le_bytes)
+            .unwrap_or(0)
+    };
+
+    unsafe {
+        if read_u32(SHM_CURSOR_OFF_VISIBLE) == 0 {
+            (*cur).id = 0;
+            (*cur).flags = 0;
+            (*cur).bitmap_offset = 0;
+            return;
+        }
+
+        let serial = mmap
+            .get(base + SHM_CURSOR_OFF_SERIAL..base + SHM_CURSOR_OFF_SERIAL + 8)
+            .and_then(|b| <[u8; 8]>::try_from(b).ok())
+            .map(u64::from_le_bytes)
+            .unwrap_or(1);
+        (*cur).id = (serial as u32).max(1);
+        (*cur).flags = 0;
+        (*cur).position.x = read_i32(SHM_CURSOR_OFF_POS_X);
+        (*cur).position.y = read_i32(SHM_CURSOR_OFF_POS_Y);
+        (*cur).hotspot.x = read_i32(SHM_CURSOR_OFF_HOTSPOT_X);
+        (*cur).hotspot.y = read_i32(SHM_CURSOR_OFF_HOTSPOT_Y);
+
+        let w = read_u32(SHM_CURSOR_OFF_WIDTH);
+        let h = read_u32(SHM_CURSOR_OFF_HEIGHT);
+        let stride = read_u32(SHM_CURSOR_OFF_STRIDE);
+        let bmp_bytes = (stride as usize).saturating_mul(h as usize);
+        let cursor_sz = std::mem::size_of::<spa_sys::spa_meta_cursor>();
+        let bitmap_sz = std::mem::size_of::<spa_sys::spa_meta_bitmap>();
+
+        // Always ship the bitmap when visible so each rotated PipeWire buffer is
+        // self-contained (avoids a missing cursor on buffers that didn't see the
+        // last change).
+        if w > 0 && h > 0 && bmp_bytes > 0 && cursor_sz + bitmap_sz + bmp_bytes <= CURSOR_META_SIZE
+        {
+            (*cur).bitmap_offset = cursor_sz as u32;
+            let bmp = (cur as *mut u8).add(cursor_sz) as *mut spa_sys::spa_meta_bitmap;
+            (*bmp).format = spa_sys::SPA_VIDEO_FORMAT_BGRA;
+            (*bmp).size.width = w;
+            (*bmp).size.height = h;
+            (*bmp).stride = stride as i32;
+            (*bmp).offset = bitmap_sz as u32;
+            let dst = (bmp as *mut u8).add(bitmap_sz);
+            let src_off = base + SHM_CURSOR_FIELDS;
+            if let Some(src) = mmap.get(src_off..src_off + bmp_bytes) {
+                std::ptr::copy_nonoverlapping(src.as_ptr(), dst, bmp_bytes);
+            }
+        } else {
+            (*cur).bitmap_offset = 0;
+        }
+    }
+}
+
+fn build_meta_pod_bytes() -> Vec<u8> {
+    use spa::pod::builder::Builder;
+
+    let mut data = vec![0u8; 256];
+    let mut builder = Builder::new(&mut data);
+    let mut frame: MaybeUninit<spa_sys::spa_pod_frame> = MaybeUninit::uninit();
+    unsafe {
+        builder
+            .push_object(
+                &mut frame,
+                spa_sys::SPA_TYPE_OBJECT_ParamMeta,
+                spa_sys::SPA_PARAM_Meta,
+            )
+            .expect("push meta object failed");
+    }
+
+    builder
+        .add_prop(spa_sys::SPA_PARAM_META_type, 0)
+        .expect("add meta type failed");
+    builder
+        .add_id(spa::utils::Id(spa_sys::SPA_META_Cursor))
+        .expect("add meta type value failed");
+
+    builder
+        .add_prop(spa_sys::SPA_PARAM_META_size, 0)
+        .expect("add meta size failed");
+    builder
+        .add_int(CURSOR_META_SIZE as i32)
+        .expect("add meta size value failed");
+
+    unsafe {
+        builder.pop(&mut frame.assume_init());
+    }
+
+    data
 }
 
 fn wait_for_node_id(mainloop: &MainLoopRc, stream: &StreamRc) -> Result<u32, String> {
@@ -391,9 +652,9 @@ fn wait_for_node_id(mainloop: &MainLoopRc, stream: &StreamRc) -> Result<u32, Str
 }
 
 fn build_format_pod_bytes(width: u32, height: u32) -> Result<Vec<u8>, String> {
-    // OBS accepts BGRx and may negotiate a smaller size than the compositor
-    // output. The copy path clamps to the destination buffer length, so advertise
-    // a size/framerate range instead of a fixed mode to keep OBS linking.
+    // The compositor-side DMA-BUF render path currently renders whole-output
+    // buffers, so keep the PipeWire source size fixed to the compositor stream
+    // size. Negotiated downscale needs a scaled render target before it is safe.
     let obj = spa::pod::object!(
         spa::utils::SpaTypes::ObjectParamFormat,
         spa::param::ParamType::EnumFormat,
@@ -414,18 +675,8 @@ fn build_format_pod_bytes(width: u32, height: u32) -> Result<Vec<u8>, String> {
         ),
         spa::pod::property!(
             spa::param::format::FormatProperties::VideoSize,
-            Choice,
-            Range,
             Rectangle,
-            spa::utils::Rectangle { width, height },
-            spa::utils::Rectangle {
-                width: 1,
-                height: 1
-            },
-            spa::utils::Rectangle {
-                width: 8192,
-                height: 8192
-            }
+            spa::utils::Rectangle { width, height }
         ),
         spa::pod::property!(
             spa::param::format::FormatProperties::VideoFramerate,
@@ -446,54 +697,29 @@ fn build_format_pod_bytes(width: u32, height: u32) -> Result<Vec<u8>, String> {
     .map_err(|e| format!("failed to serialize PipeWire format pod: {e}"))
 }
 
-fn build_buffers_pod_bytes(width: u32, height: u32) -> Vec<u8> {
-    use spa::pod::builder::Builder;
+fn build_buffers_pod_bytes(width: u32, height: u32) -> Result<Vec<u8>, String> {
+    use spa::pod::Property;
+    use spa::utils::SpaTypes;
 
     let stride = (width * 4) as i32;
     let size = stride * height as i32;
-    let mut data = Vec::with_capacity(512);
-    data.resize(512, 0u8);
-    let mut builder = Builder::new(&mut data);
 
-    let mut frame: MaybeUninit<spa_sys::spa_pod_frame> = MaybeUninit::uninit();
-    unsafe {
-        builder
-            .push_object(
-                &mut frame,
-                spa_sys::SPA_TYPE_OBJECT_ParamBuffers,
-                spa_sys::SPA_PARAM_Buffers,
-            )
-            .expect("push_object failed");
-    }
+    let obj = spa::pod::object!(
+        SpaTypes::ObjectParamBuffers,
+        spa::param::ParamType::Buffers,
+        Property::new(spa_sys::SPA_PARAM_BUFFERS_blocks, spa::pod::Value::Int(1)),
+        Property::new(spa_sys::SPA_PARAM_BUFFERS_size, spa::pod::Value::Int(size)),
+        Property::new(
+            spa_sys::SPA_PARAM_BUFFERS_stride,
+            spa::pod::Value::Int(stride)
+        ),
+        Property::new(spa_sys::SPA_PARAM_BUFFERS_align, spa::pod::Value::Int(16)),
+    );
 
-    builder
-        .add_prop(spa_sys::SPA_PARAM_BUFFERS_blocks, 0)
-        .expect("add blocks failed");
-    builder.add_int(1).expect("add blocks value failed");
-
-    builder
-        .add_prop(spa_sys::SPA_PARAM_BUFFERS_size, 0)
-        .expect("add size failed");
-    builder.add_int(size).expect("add size value failed");
-
-    builder
-        .add_prop(spa_sys::SPA_PARAM_BUFFERS_stride, 0)
-        .expect("add stride failed");
-    builder.add_int(stride).expect("add stride value failed");
-
-    builder
-        .add_prop(spa_sys::SPA_PARAM_BUFFERS_align, 0)
-        .expect("add align failed");
-    builder.add_int(16).expect("add align value failed");
-
-    // Intentionally omit SPA_PARAM_BUFFERS_dataType. A previous mask intended
-    // to force MemFd/MemPtr caused PipeWire to spam "invalid memory type".
-    // Size/stride/align are enough to prevent OBS from giving us zero-length
-    // mapped buffers while leaving memory-type negotiation to PipeWire.
-
-    unsafe {
-        builder.pop(&mut frame.assume_init());
-    }
-
-    data
+    spa::pod::serialize::PodSerializer::serialize(
+        Cursor::new(Vec::new()),
+        &spa::pod::Value::Object(obj),
+    )
+    .map(|success| success.0.into_inner())
+    .map_err(|e| format!("failed to serialize PipeWire buffers pod: {e}"))
 }

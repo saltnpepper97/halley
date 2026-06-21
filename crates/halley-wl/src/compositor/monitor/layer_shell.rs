@@ -346,6 +346,7 @@ pub(crate) fn layer_surface_monitor_name(st: &Halley, surface: &WlSurface) -> St
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
 }
 
+#[allow(dead_code)]
 pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> bool {
     st.model
         .monitor_state

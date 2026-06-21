@@ -15,5 +15,5 @@ exclude.workspace = true
 halley-wl.workspace = true
 
 [features]
-default = ["aperture"]
+default = []
 aperture = ["halley-wl/aperture"]

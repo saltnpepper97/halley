@@ -484,6 +484,23 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         crate::compositor::monitor::layer_shell::keyboard_focus_is_lift_layer_surface(st);
     let session_lock_active = crate::protocol::wayland::session_lock::session_lock_active(st);
     let compositor_shortcuts_blocked = layer_shell_keyboard_focus || session_lock_active;
+
+    // A layer-shell launcher (Lift) receives Enter/Escape as a *forwarded* key while it
+    // holds keyboard focus. When it launches an app and destroys its surface, focus moves
+    // to the new window, whose `enter` event inherits the still-forwarded key from
+    // Smithay and starts client-side repeat; the physical release lands on the dead
+    // launcher surface, so the window never sees a key-up and repeats forever. Trap the
+    // release so the physical key-up flushes through `flush_trapped_modal_release`, which
+    // forwards a synthetic Released to whatever holds focus then (the new window) and
+    // clears the stale forwarded-pressed key. Persistent layer-shell clients are
+    // unaffected: the synthetic release just goes back to them.
+    if pressed && !is_mod_key && layer_shell_keyboard_focus {
+        let trap_enter = key_name_to_evdev("return").map(|code| code + 8);
+        let trap_escape = key_name_to_evdev("escape").map(|code| code + 8);
+        if Some(code) == trap_enter || Some(code) == trap_escape {
+            crate::compositor::interaction::state::trap_modal_key_release(st, code);
+        }
+    }
     let matched_action = if pressed && !is_mod_key && !compositor_shortcuts_blocked {
         compositor_binding_action(st, code, &mods)
     } else {

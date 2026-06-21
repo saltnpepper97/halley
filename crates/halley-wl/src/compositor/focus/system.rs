@@ -938,6 +938,14 @@ mod tests {
             Some(fullscreen_left)
         );
         assert_eq!(state.fullscreen_focus_override(None), Some(fullscreen_left));
+
+        let _ = state.raise_overlap_policy_node(fullscreen_left);
+        assert!(state.raise_overlap_policy_node(other_left));
+        assert!(state.node_draws_above_fullscreen_on_monitor(other_left, "left"));
+        assert_eq!(
+            state.fullscreen_focus_override(Some(other_left)),
+            Some(other_left)
+        );
     }
 
     #[test]

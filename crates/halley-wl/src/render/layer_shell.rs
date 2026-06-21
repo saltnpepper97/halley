@@ -170,6 +170,16 @@ pub(crate) fn collect_layer_surfaces(
 
         let is_aperture =
             crate::compositor::monitor::layer_shell::surface_is_aperture(st, &placement.wl_surface);
+        let aperture_blur = {
+            #[cfg(feature = "aperture")]
+            {
+                st.aperture_config().peek.blur && is_aperture
+            }
+            #[cfg(not(feature = "aperture"))]
+            {
+                false
+            }
+        };
         let group = LayerSurfaceRenderGroup {
             dst: layer_group_dst(
                 &elements,
@@ -178,7 +188,7 @@ pub(crate) fn collect_layer_surfaces(
             ),
             blur: layer_shell_blur_enabled(st, placement.layer)
                 || surface_wants_background_blur(&placement.wl_surface)
-                || (st.aperture_config().peek.blur && is_aperture),
+                || aperture_blur,
             is_aperture,
             elements,
         };

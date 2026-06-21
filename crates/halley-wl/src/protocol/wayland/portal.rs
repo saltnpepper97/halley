@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::ptr;
@@ -8,7 +10,7 @@ use smithay::{
     backend::{
         allocator::{Format, Fourcc, dmabuf::Dmabuf},
         renderer::{
-            Bind, BufferType, ExportMem, Offscreen, TextureMapping, buffer_type,
+            Bind, BufferType, ExportMem, Offscreen, Texture, TextureMapping, buffer_type,
             gles::{GlesRenderer, GlesTexture},
         },
     },
@@ -210,6 +212,7 @@ pub(crate) fn capture_output_via_renderer(
     cursor_screen: Option<(f32, f32)>,
     overlay_cursor: bool,
     logical_region: Option<Rectangle<i32, Logical>>,
+    texture_cache: Option<&RefCell<HashMap<String, GlesTexture>>>,
 ) -> Result<ShmCaptureFrame, Box<dyn std::error::Error>> {
     let spec = screencopy_spec_for_output_name(st, output_name, logical_region)
         .ok_or_else(|| io::Error::other(format!("output {output_name} has no active mode")))?;
@@ -221,11 +224,38 @@ pub(crate) fn capture_output_via_renderer(
     let previous_monitor = st.begin_temporary_render_monitor(output_name);
     let previous_layer_configure = st.input.interaction_state.suppress_layer_shell_configure;
     let result = (|| {
-        let mut texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
-            renderer,
-            Fourcc::Xrgb8888,
-            (output_size.w, output_size.h).into(),
-        )?;
+        // Reuse a per-output offscreen texture across captures rather than
+        // allocating a full-output GPU buffer every frame. We re-render into it
+        // each capture, so stale contents don't matter.
+        let buffer_size = Size::from((output_size.w, output_size.h));
+        let mut texture = match texture_cache {
+            Some(cache) => {
+                let cached = cache
+                    .borrow()
+                    .get(output_name)
+                    .filter(|texture| texture.size() == buffer_size)
+                    .cloned();
+                match cached {
+                    Some(texture) => texture,
+                    None => {
+                        let texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+                            renderer,
+                            Fourcc::Xrgb8888,
+                            buffer_size,
+                        )?;
+                        cache
+                            .borrow_mut()
+                            .insert(output_name.to_string(), texture.clone());
+                        texture
+                    }
+                }
+            }
+            None => <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+                renderer,
+                Fourcc::Xrgb8888,
+                buffer_size,
+            )?,
+        };
 
         let cursor_status =
             overlay_cursor.then(|| crate::compositor::platform::effective_cursor_image_status(st));

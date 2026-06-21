@@ -903,6 +903,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     outputs: outputs.clone(),
                     pointer_state: pointer_state.clone(),
                     dmabuf_formats: capture_dmabuf_formats,
+                    capture_texture_cache: RefCell::new(HashMap::new()),
                 }),
             );
             let mod_state_for_timer = mod_state.clone();
@@ -1920,7 +1921,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-                drain_ipc_commands(|request| match request {
+                drain_ipc_commands_with_fds(|request, fds| match request {
                     halley_api::Request::Compositor(halley_api::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         exit_confirm_controller(&mut *st).show();
@@ -2002,7 +2003,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             ))
                         }
                     }
-                    request => crate::ipc::handle_request(st, request),
+                    request => crate::ipc::handle_request_with_fds(st, request, fds),
                 });
 
                 xwayland_for_timer.borrow_mut().tick();

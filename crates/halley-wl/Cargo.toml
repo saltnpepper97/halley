@@ -67,5 +67,5 @@ cosmic-text = { version = "0.19.0", features = ["swash"] }
 memmap2 = "0.9"
 
 [features]
-default = ["aperture"]
+default = []
 aperture = []

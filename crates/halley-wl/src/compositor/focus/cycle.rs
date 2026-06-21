@@ -415,10 +415,10 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
                         && self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), target)
                 })
             {
+                let _ = self.raise_overlap_policy_node(target);
                 let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
                     self, target, now,
                 );
-                let _ = self.raise_overlap_policy_node(target);
                 changed
             } else {
                 crate::compositor::actions::window::focus_from_presentation_navigation(
@@ -1108,7 +1108,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_from_fullscreen_to_offscreen_active_window_exits_and_centers() {
+    fn commit_from_fullscreen_to_offscreen_active_window_soft_suspends_and_centers() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -1153,11 +1153,46 @@ mod tests {
             halley_core::field::NodeState::Active
         );
         assert!(!state.is_fullscreen_active(fullscreen));
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .values()
+                .any(|&node_id| node_id == fullscreen)
+        );
         assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![offscreen, fullscreen],
+            preview_index: 1,
+            opened_at: now,
+            step_from_visual_index: 1.0,
+            step_to_visual_index: 1.0,
+            step_started_at: now,
+            closing_started_at: None,
+            origin_focus: Some(offscreen),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert!(state.is_fullscreen_active(fullscreen));
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .is_empty()
+        );
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(fullscreen)
+        );
     }
 
     #[test]
-    fn commit_from_fullscreen_to_visible_active_window_exits_without_panning() {
+    fn commit_from_fullscreen_to_visible_active_window_keeps_fullscreen_and_raises() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -1197,10 +1232,18 @@ mod tests {
             state.model.focus_state.primary_interaction_focus,
             Some(visible)
         );
-        assert!(!state.is_fullscreen_active(fullscreen));
+        assert!(state.is_fullscreen_active(fullscreen));
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .is_empty()
+        );
         assert!(
             state.overlap_policy_stack_rank(visible) > state.overlap_policy_stack_rank(fullscreen)
         );
+        assert!(state.node_draws_above_fullscreen_on_monitor(visible, "default"));
         assert!(state.input.interaction_state.viewport_pan_anim.is_none());
     }
 
@@ -1331,6 +1374,7 @@ mod tests {
         assert!(
             state.overlap_policy_stack_rank(other) > state.overlap_policy_stack_rank(fullscreen)
         );
+        assert!(state.node_draws_above_fullscreen_on_monitor(other, current_monitor.as_str()));
     }
 
     #[test]
@@ -1409,5 +1453,6 @@ mod tests {
         assert!(
             state.overlap_policy_stack_rank(other) > state.overlap_policy_stack_rank(fullscreen)
         );
+        assert!(state.node_draws_above_fullscreen_on_monitor(other, current_monitor.as_str()));
     }
 }

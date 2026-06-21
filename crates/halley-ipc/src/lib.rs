@@ -2,7 +2,8 @@ pub mod codec;
 pub mod error;
 
 pub use codec::{
-    decode_request, decode_response, encode_request, encode_response, read_frame, write_frame,
+    decode_request, decode_response, encode_request, encode_response, read_frame,
+    read_frame_with_fds, write_frame, write_frame_with_fds,
 };
 pub use error::CodecError;
 
