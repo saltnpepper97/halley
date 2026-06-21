@@ -14,7 +14,7 @@ use super::release::{
     clear_pointer_activity, collapse_bloom_for_core_if_open, restore_fullscreen_click_focus,
 };
 use crate::input::pointer::motion::{begin_drag, node_is_pointer_draggable};
-use crate::input::pointer::resize::begin_resize;
+use crate::input::pointer::resize::{begin_resize, edge_resize_handle_at};
 
 fn begin_pan_if_allowed(
     st: &mut Halley,
@@ -112,6 +112,15 @@ pub(super) fn handle_left_press(
     };
     if st.runtime.tuning.input.raise_on_click {
         let _ = st.raise_overlap_policy_node(hit.node_id);
+    }
+    if !drag_binding_active
+        && !hit.is_core
+        && !hit.move_surface
+        && edge_resize_handle_at(st, frame.ws_w, frame.ws_h, hit.node_id, frame.sx, frame.sy)
+            .is_some()
+    {
+        begin_resize(st, ps, backend, hit, frame);
+        return;
     }
     if frame.workspace_active {
         let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);

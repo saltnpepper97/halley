@@ -66,6 +66,7 @@ impl SeatHandler for Halley {
 delegate_seat!(Halley);
 delegate_cursor_shape!(Halley);
 delegate_pointer_constraints!(Halley);
+delegate_pointer_gestures!(Halley);
 delegate_relative_pointer!(Halley);
 delegate_drm_syncobj!(Halley);
 delegate_idle_notify!(Halley);

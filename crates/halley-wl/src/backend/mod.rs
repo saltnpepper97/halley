@@ -19,8 +19,8 @@ use smithay::reexports::drm::control::{self as drm_control, Device as DrmControl
 use smithay::{
     backend::drm::DrmEvent,
     backend::input::{
-        AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-        PointerButtonEvent,
+        AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent,
+        PointerAxisEvent, PointerButtonEvent, TouchEvent,
     },
     backend::libinput::LibinputInputBackend,
     backend::libinput::LibinputSessionInterface,
@@ -38,10 +38,10 @@ use smithay::{
 
 use crate::animation::advance_node_move_anim;
 use crate::bootstrap::{
-    XwaylandSatellite, drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
-    ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
-    refresh_portal_services_nonblocking, run_autostart_commands, shutdown_requested,
-    sync_portal_activation_environment,
+    XwaylandSatellite, drain_ipc_commands_with_fds, ensure_dbus_session_bus_address,
+    ensure_host_display, ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging,
+    publish_outputs, refresh_portal_services_nonblocking, run_autostart_commands,
+    shutdown_requested, sync_portal_activation_environment,
 };
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;

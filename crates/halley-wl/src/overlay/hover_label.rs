@@ -10,7 +10,10 @@ use crate::presentation::themed_node_label_colors;
 use crate::text::{draw_ui_text, ui_text_size};
 
 use super::{
-    BANNER_EDGE_PAD, draw_overlay_chip, draw_overlay_chip_without_shadow, resolve_overlay_visuals,
+    BANNER_EDGE_PAD, draw_overlay_chip, draw_overlay_chip_without_shadow,
+    preview_source::{preview_src_uv, window_preview_source_rect},
+    resolve_overlay_visuals,
+    view::OverlayView,
 };
 
 pub(crate) fn draw_overlay_hover_label(
@@ -248,12 +251,14 @@ fn draw_cached_hover_thumbnail(
         return Ok(());
     };
 
-    let (src_x, src_y, src_w, src_h) = hover_preview_source(st, node_id, bbox);
-    let dst = aspect_fit_rect(body, src_w.round() as i32, src_h.round() as i32);
+    let overlay = OverlayView::from_halley(st);
+    let source = window_preview_source_rect(&overlay, node_id, bbox);
+    let dst = aspect_fit_rect(body, source.w.round() as i32, source.h.round() as i32);
     let src = Rectangle::<f64, Buffer>::new(
-        (src_x as f64, src_y as f64).into(),
-        (src_w.max(1.0) as f64, src_h.max(1.0) as f64).into(),
+        (source.x as f64, source.y as f64).into(),
+        (source.w.max(1.0) as f64, source.h.max(1.0) as f64).into(),
     );
+    let (src_uv_offset, src_uv_scale) = preview_src_uv(texture, source);
     let corner = radius.min(dst.size.w.min(dst.size.h) as f32 / 2.0).max(0.0);
     let program = st.ui.render_state.gpu.window_texture_program.as_ref();
     let uniforms = [
@@ -265,6 +270,8 @@ fn draw_cached_hover_thumbnail(
         Uniform::new("content_alpha_scale", 1.0f32),
         Uniform::new("geo_offset", (0.0f32, 0.0f32)),
         Uniform::new("geo_size", (dst.size.w as f32, dst.size.h as f32)),
+        Uniform::new("src_uv_offset", src_uv_offset),
+        Uniform::new("src_uv_scale", src_uv_scale),
     ];
     frame.render_texture_from_to(
         texture,
@@ -278,37 +285,6 @@ fn draw_cached_hover_thumbnail(
         if program.is_some() { &uniforms } else { &[] },
     )?;
     Ok(())
-}
-
-fn hover_preview_source(
-    st: &Halley,
-    node_id: halley_core::field::NodeId,
-    bbox: smithay::utils::Rectangle<i32, smithay::utils::Logical>,
-) -> (f32, f32, f32, f32) {
-    let bbox_w = bbox.size.w.max(1) as f32;
-    let bbox_h = bbox.size.h.max(1) as f32;
-    let Some((geo_x, geo_y, geo_w, geo_h)) = st
-        .ui
-        .render_state
-        .cache
-        .window_geometry
-        .get(&node_id)
-        .copied()
-    else {
-        return (0.0, 0.0, bbox_w, bbox_h);
-    };
-    if geo_w <= 0.0 || geo_h <= 0.0 {
-        return (0.0, 0.0, bbox_w, bbox_h);
-    }
-    let left = (geo_x - bbox.loc.x as f32).clamp(0.0, bbox_w);
-    let top = (geo_y - bbox.loc.y as f32).clamp(0.0, bbox_h);
-    let right = (geo_x + geo_w - bbox.loc.x as f32).clamp(0.0, bbox_w);
-    let bottom = (geo_y + geo_h - bbox.loc.y as f32).clamp(0.0, bbox_h);
-    if right <= left || bottom <= top {
-        (0.0, 0.0, bbox_w, bbox_h)
-    } else {
-        (left, top, right - left, bottom - top)
-    }
 }
 
 fn aspect_fit_rect(

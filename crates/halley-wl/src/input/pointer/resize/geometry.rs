@@ -6,12 +6,47 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use crate::animation::active_surface_render_scale;
-use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::interaction::{ResizeCtx, ResizeHandle};
 use crate::compositor::root::Halley;
-use crate::compositor::surface::active_stacking_render_order_for_monitor;
+use crate::compositor::surface::{
+    active_stacking_render_order_for_monitor, node_allows_interactive_resize,
+};
 use crate::frame_loop::anim_style_for;
-use crate::presentation::world_to_screen;
+use crate::presentation::{cursor_parallax_position, world_to_screen};
 use crate::window::active_window_frame_pad_px;
+
+use super::handles::{pick_resize_handle_from_screen, press_is_near_edge};
+
+/// Minimum screen-px band around a window edge that counts as a resize grab, so
+/// thin (or zero) borders are still grabbable like a normal stacking WM.
+pub(crate) const RESIZE_EDGE_GRAB_PX: f32 = 8.0;
+
+/// Screen-px band within which a press/hover counts as grabbing an edge.
+pub(crate) fn resize_edge_grab_px(tuning: &halley_config::RuntimeTuning, cam_scale: f32) -> f32 {
+    (active_window_frame_pad_px(tuning) as f32 * cam_scale).max(RESIZE_EDGE_GRAB_PX)
+}
+
+/// When `resize-using-border` is enabled, return the resize handle for a pointer
+/// hovering/pressing near an interactive-resizable window's edge, else `None`.
+pub(crate) fn edge_resize_handle_at(
+    st: &Halley,
+    w: i32,
+    h: i32,
+    node_id: halley_core::field::NodeId,
+    sx: f32,
+    sy: f32,
+) -> Option<ResizeHandle> {
+    if !st.runtime.tuning.decorations.resize_using_border {
+        return None;
+    }
+    if !node_allows_interactive_resize(st, node_id) {
+        return None;
+    }
+    let rect = active_node_screen_rect(st, w, h, node_id, Instant::now(), None)?;
+    let band = resize_edge_grab_px(&st.runtime.tuning, st.camera_render_scale());
+    press_is_near_edge(rect, (sx, sy), band)
+        .then(|| pick_resize_handle_from_screen(rect, (sx, sy), band))
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ActiveNodeSurfaceTransformScreen {
@@ -193,7 +228,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             1.0f32,
         )
     } else {
-        let p = n.pos;
+        let p = cursor_parallax_position(st, node_id, n.pos);
         let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
         let bbox_lx = st

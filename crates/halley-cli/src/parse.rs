@@ -6,8 +6,8 @@ use halley_api::{
 use crate::cmd::{
     bearings::parse_bearings_request, capture::parse_capture_request,
     cluster::parse_cluster_request, gamescope::parse_gamescope_request,
-    monitor::parse_monitor_request, node::parse_node_request, stack::parse_stack_request,
-    tile::parse_tile_request, trail::parse_trail_request,
+    monitor::parse_monitor_request, node::parse_node_request, portal::parse_portal_request,
+    stack::parse_stack_request, tile::parse_tile_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
@@ -15,6 +15,7 @@ pub(crate) enum ParseOutcome {
     Request(Request),
     Help(HelpTopic),
     Gamescope(crate::cmd::gamescope::GamescopeInvocation),
+    Portal(crate::cmd::portal::PortalCommand),
 }
 
 pub(crate) struct UsageError {
@@ -71,6 +72,7 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
         "node" => parse_node_request(&args[1..]),
         "trail" => parse_trail_request(&args[1..]),
         "monitor" => parse_monitor_request(&args[1..]),
+        "portal" => parse_portal_request(&args[1..]),
         "bearings" => parse_bearings_request(&args[1..]),
         "cluster" => parse_cluster_request(&args[1..]),
         "stack" => parse_stack_request(&args[1..]),

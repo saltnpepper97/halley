@@ -18,7 +18,6 @@ pub(crate) fn cursor_icon_for_resize_handle(handle: ResizeHandle) -> CursorIcon 
 
 /// Pick a resize handle from the nearest edge/corner to the press point.
 /// Only called for direct border grabs (press within edge slop zone).
-#[allow(dead_code)]
 pub(crate) fn pick_resize_handle_from_screen(
     rect: (f32, f32, f32, f32),
     p: (f32, f32),
@@ -121,7 +120,6 @@ pub(crate) fn handle_from_press_position(
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn press_is_near_edge(
     rect: (f32, f32, f32, f32),
     p: (f32, f32),

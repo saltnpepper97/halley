@@ -23,6 +23,14 @@ uniform float content_alpha_scale;
 uniform vec2 geo_offset;
 uniform vec2 geo_size;
 
+// Maps the incoming texture coordinate (v_coords, which spans the rendered `src`
+// sub-rect in normalised texture space) back to [0,1] across the dst quad. When a
+// caller renders a cropped `src` (CSD/GTK apps whose preview is inset to the window
+// geometry), v_coords no longer spans [0,1], which would miscentre the rounding SDF
+// and leave square corners. src_uv_scale <= 0 means "unset" -> identity (full src).
+uniform vec2 src_uv_offset;
+uniform vec2 src_uv_scale;
+
 float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
     vec2 half_size = size * 0.5;
     vec2 q = abs(p) - (half_size - vec2(radius));
@@ -37,8 +45,14 @@ float sdf_alpha(float dist) {
 void main() {
     vec2 outer_size = max(rect_size, vec2(1.0));
 
+    // Remap the texture coordinate to dst-normalised space so the rounding geometry
+    // is independent of any `src` crop (see src_uv_* docs above).
+    vec2 dst_uv = (src_uv_scale.x > 0.0 && src_uv_scale.y > 0.0)
+        ? (v_coords - src_uv_offset) / src_uv_scale
+        : v_coords;
+
     // Pixel position within the dst rect.
-    vec2 px = v_coords * outer_size;
+    vec2 px = dst_uv * outer_size;
 
     // ----------------------------------------------------------------
     // Outer clip: rounded rect of the full dst (border + bbox extent).

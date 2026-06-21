@@ -113,6 +113,7 @@ pub enum CompositorBindingAction {
     ToggleFocusedPin,
     CloseFocusedWindow,
     ClusterMode,
+    Apogee,
     FocusCycle(FocusCycleBindingAction),
     Quit { requires_shift: bool },
     ZoomIn,

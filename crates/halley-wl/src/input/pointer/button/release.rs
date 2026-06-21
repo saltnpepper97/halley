@@ -57,6 +57,10 @@ pub(crate) fn handle_button_release(
                 ps.panning = false;
                 ps.pan_monitor = None;
             }
+            // Plain (no-binding) left-press edge resize finalizes on left release.
+            if button_code == 0x110 && ps.resize.is_some() {
+                finalize_resize(st, ps, backend);
+            }
         }
     }
 }

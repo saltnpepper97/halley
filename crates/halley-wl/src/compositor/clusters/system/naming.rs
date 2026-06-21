@@ -185,6 +185,30 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
             .flatten()
     }
 
+    pub(crate) fn pending_lift_cluster_build_waits_for_candidate_identity(
+        &self,
+        monitor: &str,
+        node_id: NodeId,
+    ) -> bool {
+        self.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .get(monitor)
+            .is_some_and(|build| {
+                build.candidate_node_ids.contains(&node_id)
+                    && !build.app_launches.is_empty()
+                    && build.selected_node_ids.len() < build.expected_members
+            })
+    }
+
+    pub(crate) fn pending_lift_cluster_node_staged(&self, node_id: NodeId) -> bool {
+        self.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .values()
+            .any(|build| build.staged_node_ids.contains(&node_id))
+    }
+
     pub(crate) fn cluster_name_record(&self, cid: ClusterId) -> Option<&ClusterNameRecord> {
         self.model.cluster_state.cluster_names.get(&cid)
     }
@@ -251,6 +275,27 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    pub(crate) fn note_pending_lift_cluster_candidate_node(
+        &mut self,
+        monitor: &str,
+        node_id: NodeId,
+    ) -> bool {
+        let Some(build) = self
+            .model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .get_mut(monitor)
+        else {
+            return false;
+        };
+        if build.app_launches.is_empty() || build.selected_node_ids.len() >= build.expected_members
+        {
+            return false;
+        }
+        build.staged_node_ids.insert(node_id);
+        build.candidate_node_ids.insert(node_id)
+    }
+
     fn open_cluster_name_prompt_for_monitor(
         &mut self,
         monitor: &str,
@@ -300,13 +345,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         now: Instant,
     ) -> bool {
         let app_launches = normalized_draft_app_launches(app_launches);
-        let mut app_ids = normalized_draft_app_ids(app_ids);
-        for launch in &app_launches {
-            let folded = launch.app_id.trim().to_ascii_lowercase();
-            if !folded.is_empty() && !app_ids.iter().any(|existing| existing == &folded) {
-                app_ids.push(folded);
-            }
-        }
+        let app_ids = normalized_draft_app_ids(app_ids);
         let mut selected = running_node_ids
             .into_iter()
             .filter(|node_id| {
@@ -390,17 +429,23 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .pending_lift_cluster_builds
             .get_mut(monitor)
         {
+            if !build.candidate_node_ids.contains(&node_id) {
+                return false;
+            }
             let app_ids = build
                 .app_launches
                 .iter()
                 .map(|launch| launch.app_id.clone())
                 .collect::<Vec<_>>();
             if !draft_app_ids_match(&app_ids, app_id) {
+                build.candidate_node_ids.remove(&node_id);
+                build.staged_node_ids.remove(&node_id);
                 return false;
             }
             if !build.selected_node_ids.insert(node_id) {
                 return false;
             }
+            build.candidate_node_ids.remove(&node_id);
             self.model
                 .spawn_state
                 .pending_initial_reveal
@@ -551,10 +596,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         };
         let now_ms = self.now_ms(now);
-        if selected_nodes.len() < 2 {
+        if selected_nodes.is_empty() {
             self.ui.render_state.show_overlay_toast(
                 monitor.as_str(),
-                "Not enough selections\nSelect at least two windows",
+                "Not enough selections\nSelect at least one window",
                 3000,
                 now_ms,
             );
@@ -849,31 +894,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
     }
 
-    fn selected_has_matching_app(
-        &self,
-        selected_nodes: &std::collections::HashSet<NodeId>,
-        app_id: &str,
-    ) -> bool {
-        selected_nodes.iter().any(|node_id| {
-            self.model
-                .node_app_ids
-                .get(node_id)
-                .is_some_and(|node_app_id| draft_app_ids_match(&[app_id.to_string()], node_app_id))
-        })
-    }
-
     fn pending_lift_expected_members(
         &self,
         selected_nodes: &std::collections::HashSet<NodeId>,
         app_launches: &[ClusterFinalizeAppLaunch],
     ) -> usize {
-        let missing_launches = app_launches
-            .iter()
-            .filter(|launch| {
-                !self.selected_has_matching_app(selected_nodes, launch.app_id.as_str())
-            })
-            .count();
-        (selected_nodes.len() + missing_launches).max(2)
+        selected_nodes.len() + app_launches.len()
     }
 
     fn start_pending_lift_cluster_build(
@@ -898,6 +924,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             monitor.to_string(),
             PendingLiftClusterBuildState {
                 selected_node_ids: draft.selected_node_ids,
+                candidate_node_ids: std::collections::HashSet::new(),
+                staged_node_ids: std::collections::HashSet::new(),
                 app_launches: draft.app_launches,
                 name_record,
                 expected_members,
@@ -936,7 +964,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     fn launch_pending_lift_cluster_apps(&mut self, monitor: &str, now: Instant) {
-        let (selected, launches) = {
+        let launches = {
             let Some(build) = self
                 .model
                 .cluster_state
@@ -949,7 +977,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 return;
             }
             build.launched = true;
-            (build.selected_node_ids.clone(), build.app_launches.clone())
+            build.app_launches.clone()
         };
 
         let wayland_display = self
@@ -960,9 +988,6 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .unwrap_or_default();
         self.model.spawn_state.pending_spawn_monitor = Some(monitor.to_string());
         for launch in launches {
-            if self.selected_has_matching_app(&selected, launch.app_id.as_str()) {
-                continue;
-            }
             if launch.command.trim().is_empty() {
                 continue;
             }
@@ -990,20 +1015,50 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         };
         if build.selected_node_ids.len() < build.expected_members
-            || build.selected_node_ids.len() < 2
+            || build.selected_node_ids.is_empty()
         {
             return false;
         }
         let members =
             self.order_cluster_creation_members(build.selected_node_ids.iter().copied().collect());
-        for member in &members {
-            let _ = self.model.field.set_detached(*member, false);
-        }
-        let created = self.create_cluster(members).ok().and_then(|cid| {
+        let created = self.create_cluster(members.clone()).ok().and_then(|cid| {
             self.finish_lift_finalized_cluster(cid, monitor, build.name_record.clone(), now)
         });
         if created.is_none() {
+            for node_id in &build.staged_node_ids {
+                self.model
+                    .spawn_state
+                    .pending_initial_reveal
+                    .remove(node_id);
+                if self
+                    .model
+                    .field
+                    .cluster_id_for_member_public(*node_id)
+                    .is_none()
+                {
+                    let _ = self.model.field.set_detached(*node_id, false);
+                }
+            }
+            self.model
+                .cluster_state
+                .pending_lift_cluster_builds
+                .remove(monitor);
             return false;
+        }
+        for member in &members {
+            self.model.spawn_state.pending_initial_reveal.remove(member);
+            let _ = self.model.field.set_detached(*member, false);
+        }
+        for node_id in build
+            .staged_node_ids
+            .iter()
+            .filter(|node_id| !build.selected_node_ids.contains(node_id))
+        {
+            self.model
+                .spawn_state
+                .pending_initial_reveal
+                .remove(node_id);
+            let _ = self.model.field.set_detached(*node_id, false);
         }
         self.model
             .cluster_state
@@ -1047,7 +1102,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         {
             return self.start_pending_lift_cluster_build(monitor, draft, name_record, now);
         }
-        if selected_nodes.len() < 2 {
+        if selected_nodes.is_empty() {
             if self
                 .model
                 .cluster_state
@@ -1057,7 +1112,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 let now_ms = self.now_ms(now);
                 self.ui.render_state.show_overlay_toast(
                     monitor,
-                    "Waiting for staged apps\nNeed at least two windows",
+                    "Waiting for staged apps\nNeed at least one window",
                     3000,
                     now_ms,
                 );

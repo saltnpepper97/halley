@@ -112,7 +112,7 @@ Halley targets a native Linux Wayland session and expects:
 Optional but commonly needed:
 
 - `xwayland-satellite` for X11 app support
-- `xdg-desktop-portal-wlr` for portal-driven screenshot and screencast flows and `xdg-desktop-portal-gtk`
+- Halley's native `xdg-desktop-portal-halley` backend for portal-driven screen/window sharing, plus `xdg-desktop-portal-gtk` for common file/dialog portals
 - `fuzzel` plus a Wayland terminal such as `ghostty`, `kitty`, `foot`, `wezterm`, `alacritty`, `rio`, or `contour` if you use the default launch bindings
 
 ---
@@ -141,7 +141,28 @@ or
     cd halley
     cargo build --release
 
-The compositor binary will be available at `target/release/halley`.
+The compositor, control CLI, and portal backend binaries will be available at:
+
+    target/release/halley
+    target/release/halleyctl
+    target/release/xdg-desktop-portal-halley
+
+For local testing without system-wide binaries, install them into `~/.local/bin`:
+
+    install -Dm755 target/release/halley ~/.local/bin/halley
+    install -Dm755 target/release/halleyctl ~/.local/bin/halleyctl
+    install -Dm755 target/release/xdg-desktop-portal-halley ~/.local/bin/xdg-desktop-portal-halley
+
+Then register the user-local portal service and metadata:
+
+    install -Dm644 packaging/xdg-desktop-portal/portals/halley.portal ~/.local/share/xdg-desktop-portal/portals/halley.portal
+    mkdir -p ~/.local/share/dbus-1/services ~/.config/xdg-desktop-portal
+    printf '[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.halley\nExec=%s/.local/bin/xdg-desktop-portal-halley\n' "$HOME" > ~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.halley.service
+    install -Dm644 packaging/xdg-desktop-portal/halley-portals.conf ~/.config/xdg-desktop-portal/halley-portals.conf
+
+Check the installed portal path and advertised capture support with:
+
+    halleyctl portal status
 
 ### Display Manager Session
 
@@ -231,8 +252,8 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 
 ## Portals To Use
 
-- `xdg-desktop-portal-wlr`
-- `xdg-desktop-portal-gtk`
+- `xdg-desktop-portal-halley` for ScreenCast, including monitor and window sharing
+- `xdg-desktop-portal-gtk` for common desktop dialogs not implemented by Halley
 
 ---
 

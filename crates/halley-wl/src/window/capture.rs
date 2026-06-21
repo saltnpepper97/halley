@@ -10,10 +10,37 @@ use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Re
 use smithay::utils::{Buffer, Rectangle, Transform};
 
 use crate::compositor::spawn::state::{node_rule_opacity, node_wants_blur};
+use crate::presentation::cursor_parallax_position_for_monitor;
 use crate::render::{
     draw_offscreen_textures, draw_window_borders, ensure_node_circle_resources,
     ensure_window_texture_program,
 };
+
+fn preview_offscreen_clip(
+    st: &Halley,
+    node_id: NodeId,
+) -> Option<(
+    Rectangle<i32, smithay::utils::Logical>,
+    f32,
+    smithay::backend::renderer::gles::GlesTexProgram,
+)> {
+    let (x, y, w, h) = window_geometry_for_node(st, node_id)?;
+    let program = st
+        .ui
+        .render_state
+        .gpu
+        .surface_clip_program
+        .as_ref()?
+        .clone();
+    Some((
+        Rectangle::<i32, smithay::utils::Logical>::new(
+            (x.round() as i32, y.round() as i32).into(),
+            (w.round().max(1.0) as i32, h.round().max(1.0) as i32).into(),
+        ),
+        st.runtime.tuning.window_border_radius_px() as f32,
+        program,
+    ))
+}
 
 pub(super) fn render_view_for_monitor(st: &Halley, monitor: &str) -> (Vec2, Vec2, Vec2) {
     if st.model.monitor_state.current_monitor == monitor {
@@ -122,7 +149,9 @@ pub(crate) fn capture_closing_window_animation(
         crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
             st, node_id, monitor, now,
         );
-    let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
+    let visual_pos = maximized_visual
+        .map(|(pos, _)| pos)
+        .unwrap_or_else(|| cursor_parallax_position_for_monitor(st, monitor, node_id, node.pos));
     let (cx, cy) = world_to_screen_for_view(
         view_center,
         view_size,
@@ -392,12 +421,18 @@ fn save_window_capture_png(
 /// once and reuse the still — this caps live render-to-texture to ~1/frame.
 /// Windows that must render live (`node_requires_live_surface_render`, e.g. the
 /// Wine secondary-monitor surfaces) are skipped and fall back to their icon.
+/// Max number of *new* neighbour still captures per frame. The selected card is
+/// always captured (it's the live preview); neighbours beyond this budget keep their
+/// app-icon fallback and capture on a later frame, so opening the switcher with many
+/// windows doesn't do several full render-to-texture passes in one frame.
+const FOCUS_CYCLE_NEIGHBOUR_CAPTURE_BUDGET: usize = 1;
+
 pub(crate) fn prewarm_focus_cycle_previews(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
     now: Instant,
 ) {
-    let Some(slots) = st
+    let Some(mut slots) = st
         .input
         .interaction_state
         .focus_cycle_session
@@ -408,18 +443,28 @@ pub(crate) fn prewarm_focus_cycle_previews(
         return;
     };
 
-    let node_surfaces: HashMap<NodeId, WlSurface> = st
-        .platform
-        .xdg_shell_state
-        .toplevel_surfaces()
-        .iter()
-        .filter_map(|toplevel| {
-            let wl = toplevel.wl_surface().clone();
-            let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
-            Some((node_id, wl))
-        })
-        .collect();
+    // Process the selected card (offset 0) first, then the nearest neighbours, so the
+    // cards the user is most likely to land on warm before the far ones when the
+    // per-frame capture budget defers the rest.
+    slots.sort_by_key(|(offset, _)| offset.abs());
 
+    let wanted_nodes: HashSet<NodeId> = slots.iter().map(|(_, node_id)| *node_id).collect();
+    let mut node_surfaces: HashMap<NodeId, WlSurface> = HashMap::new();
+    for toplevel in st.platform.xdg_shell_state.toplevel_surfaces().iter() {
+        let wl = toplevel.wl_surface().clone();
+        let Some(node_id) = st.model.surface_to_node.get(&wl.id()).copied() else {
+            continue;
+        };
+        if wanted_nodes.contains(&node_id) {
+            node_surfaces.insert(node_id, wl);
+            if node_surfaces.len() == wanted_nodes.len() {
+                break;
+            }
+        }
+    }
+
+    let mut neighbour_captures = 0usize;
+    let mut deferred = false;
     for (offset, node_id) in slots {
         let Some(wl) = node_surfaces.get(&node_id).cloned() else {
             continue;
@@ -427,18 +472,252 @@ pub(crate) fn prewarm_focus_cycle_previews(
         if node_requires_live_surface_render(st, node_id) {
             continue;
         }
+        if st.fullscreen_monitor_for_node(node_id).is_some() {
+            continue;
+        }
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
-        if node.state != halley_core::field::NodeState::Active {
+        if !matches!(node.kind, halley_core::field::NodeKind::Surface) {
             continue;
         }
         let bbox = sync_node_size_from_surface(st, node_id, &wl);
 
-        // Only the selected card rebuilds on a dirty commit; neighbours reuse the
-        // first still capture. (The visible-window prewarm above never refreshes a
-        // complete-but-dirty cache, so static previews stay a single capture too.)
+        // The selected card previews live: it reads (and refreshes) the shared
+        // `window_offscreen_cache`, which the main render pass also keeps current
+        // for on-screen windows. Neighbours preview a single frozen still kept in a
+        // dedicated `focus_cycle_still` map the main pass never touches — sharing
+        // the live cache made any neighbour that was also visible on the desktop
+        // animate (the main pass overwrote its texture every committed frame).
         let selected = offset == 0;
+
+        if selected {
+            // A fresh still is captured when this card is later demoted to a
+            // neighbour, so don't leave a stale frozen copy around.
+            st.ui.render_state.clear_focus_cycle_still_for(node_id);
+
+            let needs_capture = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get(&node_id)
+                .is_none_or(|cache| {
+                    !cache.matches_size(bbox.size.w, bbox.size.h)
+                        || cache.texture.is_none()
+                        || cache.bbox.is_none()
+                        || !cache.has_content
+                        || cache.dirty
+                });
+            if !needs_capture {
+                continue;
+            }
+
+            st.ui.render_state.ensure_window_offscreen_cache(
+                node_id,
+                bbox.size.w,
+                bbox.size.h,
+                now,
+            );
+
+            // Capture with the same geometry clip the live-window and Apogee
+            // prewarms use (`preview_offscreen_clip`); the three paths share one
+            // offscreen cache keyed by node id and the live draw path reuses
+            // whatever texture is there without re-clipping. Capturing the raw
+            // (clip=None) surface left CSD/GTK windows' shadow margins + square
+            // corners in the shared cache, so after picking such a window the live
+            // path drew it mis-clipped and undersized with backdrop blur showing.
+            let clip = preview_offscreen_clip(st, node_id);
+            if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, clip) {
+                let cache = st
+                    .ui
+                    .render_state
+                    .cache
+                    .window_offscreen_cache
+                    .get_mut(&node_id)
+                    .expect("offscreen cache should exist after ensure");
+                cache.texture = Some(offscreen.texture);
+                cache.bbox = Some(offscreen.bbox);
+                cache.has_content = offscreen.has_content;
+                cache.mark_clean(now);
+            }
+        } else {
+            // Neighbour: capture the still once, then leave it frozen.
+            let needs_capture = st
+                .ui
+                .render_state
+                .cache
+                .focus_cycle_still
+                .get(&node_id)
+                .is_none_or(|cache| {
+                    !cache.matches_size(bbox.size.w, bbox.size.h)
+                        || cache.texture.is_none()
+                        || cache.bbox.is_none()
+                        || !cache.has_content
+                });
+            if !needs_capture {
+                continue;
+            }
+
+            // Spread neighbour captures across frames so opening the switcher with many
+            // windows doesn't stall on several render-to-texture passes at once. Over
+            // budget: keep the icon fallback this frame and request another.
+            if neighbour_captures >= FOCUS_CYCLE_NEIGHBOUR_CAPTURE_BUDGET {
+                deferred = true;
+                continue;
+            }
+            neighbour_captures += 1;
+
+            st.ui
+                .render_state
+                .ensure_focus_cycle_still(node_id, bbox.size.w, bbox.size.h, now);
+
+            let clip = preview_offscreen_clip(st, node_id);
+            if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, clip) {
+                let cache = st
+                    .ui
+                    .render_state
+                    .cache
+                    .focus_cycle_still
+                    .get_mut(&node_id)
+                    .expect("focus-cycle still should exist after ensure");
+                cache.texture = Some(offscreen.texture);
+                cache.bbox = Some(offscreen.bbox);
+                cache.has_content = offscreen.has_content;
+                cache.mark_clean(now);
+            }
+        }
+    }
+
+    // Drop frozen stills for cards no longer visible in the switcher.
+    st.ui.render_state.prune_focus_cycle_still(&wanted_nodes);
+
+    // Some neighbour stills were deferred by the per-frame budget; schedule another
+    // frame so they fill in even if the switcher is otherwise idle.
+    if deferred {
+        st.request_maintenance();
+    }
+}
+
+pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Halley, now: Instant) {
+    use crate::compositor::overview::{ApogeePhase, ApogeeTileKind};
+
+    const APOGEE_INITIAL_CAPTURE_BUDGET: usize = 4;
+    const APOGEE_LIVE_REFRESH_MIN_MS: u64 = 33;
+
+    let Some(session) = st.input.interaction_state.apogee_session.as_ref() else {
+        return;
+    };
+    if session.phase == ApogeePhase::Closing {
+        return;
+    }
+    let current_monitor = st.model.monitor_state.current_monitor.clone();
+    let Some(monitor_session) = session.monitor_session(current_monitor.as_str()) else {
+        return;
+    };
+    let tile_node_ids = monitor_session
+        .tiles
+        .iter()
+        .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+        .map(|tile| tile.node_id)
+        .collect::<Vec<_>>();
+
+    let live = st.runtime.tuning.apogee.live_previews;
+    let live_node = live
+        .then_some(st.input.interaction_state.apogee_live_preview_node)
+        .flatten()
+        .filter(|node_id| tile_node_ids.contains(node_id));
+    let mut missing = Vec::new();
+    for node_id in tile_node_ids {
+        // Fullscreen windows capture to a black texture; Apogee shows their app
+        // icon instead, so don't spend capture budget on them.
+        if st.fullscreen_monitor_for_node(node_id).is_some() {
+            continue;
+        }
+        let cache = st
+            .ui
+            .render_state
+            .cache
+            .window_offscreen_cache
+            .get(&node_id);
+        let needs_initial = cache.is_none_or(|cache| {
+            cache.texture.is_none() || cache.bbox.is_none() || !cache.has_content
+        });
+        if needs_initial {
+            missing.push(node_id);
+        }
+    }
+
+    if let Some(live_node) = live_node {
+        // If the hovered tile still needs its first snapshot, prioritize it so
+        // hover-live feels immediate even when many windows are filling in.
+        missing.sort_by_key(|node_id| if *node_id == live_node { 0 } else { 1 });
+    }
+
+    let mut refresh_live = false;
+    let mut targets = missing
+        .iter()
+        .take(APOGEE_INITIAL_CAPTURE_BUDGET)
+        .copied()
+        .collect::<Vec<_>>();
+    if targets.is_empty()
+        && let Some(live_node) = live_node
+        && st
+            .ui
+            .render_state
+            .cache
+            .window_offscreen_cache
+            .get(&live_node)
+            .is_some_and(|cache| cache.dirty)
+    {
+        let due = st
+            .input
+            .interaction_state
+            .apogee_live_preview_last_at
+            .is_none_or(|last| {
+                now.saturating_duration_since(last).as_millis() as u64 >= APOGEE_LIVE_REFRESH_MIN_MS
+            });
+        if due {
+            targets.push(live_node);
+            refresh_live = true;
+        }
+    }
+    if targets.is_empty() {
+        return;
+    }
+
+    let wanted: HashSet<NodeId> = targets.iter().copied().collect();
+    let mut node_surfaces: HashMap<NodeId, WlSurface> = HashMap::new();
+    for toplevel in st.platform.xdg_shell_state.toplevel_surfaces().iter() {
+        let wl = toplevel.wl_surface().clone();
+        let Some(node_id) = st.model.surface_to_node.get(&wl.id()).copied() else {
+            continue;
+        };
+        if wanted.contains(&node_id) {
+            node_surfaces.insert(node_id, wl);
+            if node_surfaces.len() == wanted.len() {
+                break;
+            }
+        }
+    }
+
+    for node_id in targets {
+        let Some(wl) = node_surfaces.get(&node_id).cloned() else {
+            continue;
+        };
+        if node_requires_live_surface_render(st, node_id) {
+            continue;
+        }
+        if st.fullscreen_monitor_for_node(node_id).is_some() {
+            continue;
+        }
+        let Some(node) = st.model.field.node(node_id) else {
+            continue;
+        };
+        if !matches!(node.kind, halley_core::field::NodeKind::Surface) {
+            continue;
+        }
+        let bbox = sync_node_size_from_surface(st, node_id, &wl);
         let needs_capture = st
             .ui
             .render_state
@@ -450,17 +729,16 @@ pub(crate) fn prewarm_focus_cycle_previews(
                     || cache.texture.is_none()
                     || cache.bbox.is_none()
                     || !cache.has_content
-                    || (selected && cache.dirty)
+                    || (live && cache.dirty)
             });
         if !needs_capture {
             continue;
         }
-
         st.ui
             .render_state
             .ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
-
-        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, None) {
+        let clip = preview_offscreen_clip(st, node_id);
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, clip) {
             let cache = st
                 .ui
                 .render_state
@@ -472,6 +750,9 @@ pub(crate) fn prewarm_focus_cycle_previews(
             cache.bbox = Some(offscreen.bbox);
             cache.has_content = offscreen.has_content;
             cache.mark_clean(now);
+            if refresh_live && Some(node_id) == live_node {
+                st.input.interaction_state.apogee_live_preview_last_at = Some(now);
+            }
         }
     }
 }
@@ -587,7 +868,8 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
             continue;
         }
 
-        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, None) {
+        let clip = preview_offscreen_clip(st, node_id);
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, clip) {
             let cache = st
                 .ui
                 .render_state

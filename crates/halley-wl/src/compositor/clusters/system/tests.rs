@@ -1,6 +1,6 @@
 use super::*;
 use crate::compositor::actions::window::toggle_focused_active_node_state;
-use halley_core::field::Vec2;
+use halley_core::field::{Vec2, Visibility};
 use smithay::reexports::wayland_server::Display;
 
 fn single_monitor_tuning() -> halley_config::RuntimeTuning {
@@ -133,13 +133,16 @@ fn generic_cluster_names_are_monitor_local_reclaimable_and_moveable() {
         "Cluster 2"
     );
 
-    let member_to_remove = st
+    let members_to_remove = st
         .model
         .field
         .cluster(cid_a1)
         .expect("cluster a1")
-        .members()[0];
-    let _ = st.remove_node_from_field(member_to_remove, st.now_ms(Instant::now()));
+        .members()
+        .to_vec();
+    for member_to_remove in members_to_remove {
+        let _ = st.remove_node_from_field(member_to_remove, st.now_ms(Instant::now()));
+    }
 
     let (_cid_a3, core_a3) = create_named_test_cluster(&mut st, "monitor_a", ["a5", "a6"], 220.0);
     assert_eq!(
@@ -516,6 +519,12 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     st.assign_node_to_monitor(beta, "monitor_a");
 
     assert!(
+        cluster_system_controller(&mut st)
+            .note_pending_lift_cluster_candidate_node("monitor_a", alpha)
+    );
+    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(alpha));
+    st.model.spawn_state.pending_initial_reveal.insert(alpha);
+    assert!(
         cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
             alpha,
@@ -523,6 +532,19 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
         )
     );
     assert_eq!(st.model.field.cluster_ids().len(), 0);
+    assert!(
+        st.model
+            .field
+            .node(alpha)
+            .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+    );
+    assert!(!st.model.spawn_state.pending_initial_reveal.contains(&alpha));
+    assert!(
+        cluster_system_controller(&mut st)
+            .note_pending_lift_cluster_candidate_node("monitor_a", beta)
+    );
+    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(beta));
+    st.model.spawn_state.pending_initial_reveal.insert(beta);
     assert!(
         cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
@@ -540,10 +562,23 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     );
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_some());
     assert!(st.model.field.cluster_id_for_member_public(beta).is_some());
+    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(alpha));
+    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(beta));
+    assert!(!st.model.spawn_state.pending_initial_reveal.contains(&beta));
+    for member in [alpha, beta] {
+        assert!(st.model.field.node(member).is_some_and(|node| {
+            node.visibility.has(Visibility::HIDDEN_BY_CLUSTER)
+                && !node.visibility.has(Visibility::DETACHED)
+        }));
+        assert!(!st.model.field.is_visible(member));
+    }
+    let cid = st.model.field.cluster_ids()[0];
+    let core = st.model.field.cluster(cid).and_then(|cluster| cluster.core);
+    assert!(core.is_some_and(|core| st.model.field.is_visible(core)));
 }
 
 #[test]
-fn lift_finalize_pending_completion_does_not_show_ready_toast() {
+fn lift_finalize_app_launches_do_not_select_existing_matching_windows() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
@@ -586,7 +621,23 @@ fn lift_finalize_pending_completion_does_not_show_ready_toast() {
         cluster_system_controller(&mut st)
             .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
     );
-    assert_eq!(st.model.field.cluster_ids().len(), 1);
+    assert_eq!(st.model.field.cluster_ids().len(), 0);
+    assert!(
+        st.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .contains_key("monitor_a")
+    );
+    assert!(st.model.field.cluster_id_for_member_public(alpha).is_none());
+    assert!(st.model.field.cluster_id_for_member_public(beta).is_none());
+    assert!(
+        !cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
+            "monitor_a",
+            alpha,
+            "alpha",
+        )
+    );
+    assert!(st.model.field.cluster_id_for_member_public(alpha).is_none());
     assert_eq!(
         st.ui
             .render_state
@@ -595,6 +646,60 @@ fn lift_finalize_pending_completion_does_not_show_ready_toast() {
             .get("monitor_a")
             .and_then(|toast| toast.message.as_deref()),
         None
+    );
+}
+
+#[test]
+fn lift_finalize_releases_non_matching_staged_candidate() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let now = Instant::now();
+
+    assert!(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
+            "monitor_a",
+            Some("Work".to_string()),
+            Vec::new(),
+            vec![
+                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                    app_id: "alpha.desktop".to_string(),
+                    command: "true".to_string(),
+                },
+            ],
+            Vec::new(),
+            now,
+        )
+    );
+    assert!(
+        cluster_system_controller(&mut st)
+            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
+    );
+
+    let candidate = st.model.field.spawn_surface(
+        "Gamma",
+        Vec2 { x: 160.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(candidate, "monitor_a");
+    assert!(
+        cluster_system_controller(&mut st)
+            .note_pending_lift_cluster_candidate_node("monitor_a", candidate)
+    );
+    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(candidate));
+
+    assert!(
+        !cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
+            "monitor_a",
+            candidate,
+            "gamma",
+        )
+    );
+    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(candidate));
+    assert!(
+        st.model
+            .field
+            .cluster_id_for_member_public(candidate)
+            .is_none()
     );
 }
 

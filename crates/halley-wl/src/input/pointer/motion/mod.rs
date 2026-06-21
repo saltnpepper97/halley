@@ -24,9 +24,23 @@ pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable
 
 use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
 use super::focus::pointer_focus_for_screen;
+use super::portal_chooser::handle_portal_chooser_pointer_motion;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
 use crate::input::keyboard::modkeys::modifier_active;
+
+fn request_apogee_cursor_redraw<B: BackendView>(
+    ctx: &InputCtx<'_, B>,
+    previous_monitor: Option<&str>,
+    target_monitor: &str,
+) {
+    if let Some(previous_monitor) = previous_monitor
+        && previous_monitor != target_monitor
+    {
+        ctx.backend.request_output_redraw(previous_monitor);
+    }
+    ctx.backend.request_output_redraw(target_monitor);
+}
 
 #[inline]
 fn event_time_msec(time_usec: u64) -> u32 {
@@ -46,6 +60,65 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     time_usec: u64,
 ) {
     if exit_confirm_controller(&*st).active() {
+        return;
+    }
+
+    if st.input.interaction_state.apogee_session.is_some()
+        && !crate::protocol::wayland::session_lock::session_lock_active(st)
+    {
+        let now_ms = st.now_ms(Instant::now());
+        st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
+        let previous_monitor = st
+            .input
+            .interaction_state
+            .last_pointer_screen_global
+            .map(|(last_sx, last_sy)| st.monitor_for_screen_or_interaction(last_sx, last_sy));
+        let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        let now = Instant::now();
+        let (local_w, local_h, local_sx, local_sy) =
+            st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        {
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.screen = (sx, sy);
+            ps.workspace_size = (local_w, local_h);
+            ps.hover_node = None;
+            ps.hover_started_at = None;
+        }
+        st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+        st.input.interaction_state.overlay_hover_target = None;
+        st.input.interaction_state.pending_core_hover = None;
+        let hit = crate::compositor::overview::apogee_tile_at(
+            st,
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+            now,
+        );
+        let live_preview = crate::compositor::overview::apogee_window_tile_at(
+            st,
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+            now,
+        );
+        let live_preview_changed =
+            st.input.interaction_state.apogee_live_preview_node != live_preview;
+        if live_preview_changed {
+            st.input.interaction_state.apogee_live_preview_node = live_preview;
+            st.input.interaction_state.apogee_live_preview_last_at = None;
+        }
+        let icon = if hit.is_some() {
+            Some(smithay::input::pointer::CursorIcon::Pointer)
+        } else {
+            Some(smithay::input::pointer::CursorIcon::Default)
+        };
+        if st.input.interaction_state.cursor_override_icon != icon {
+            crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
+        }
+        request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
+        if live_preview_changed {
+            ctx.backend.request_output_redraw(target_monitor.as_str());
+        }
         return;
     }
 
@@ -198,6 +271,17 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         routing.global_sx,
         routing.global_sy,
         now,
+    ) {
+        return;
+    }
+    if handle_portal_chooser_pointer_motion(
+        st,
+        ctx,
+        routing.monitor.as_str(),
+        routing.ws_w,
+        routing.ws_h,
+        routing.local_sx,
+        routing.local_sy,
     ) {
         return;
     }
@@ -453,6 +537,17 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             None
         };
 
+    let edge_resize_cursor = hover_hit.and_then(|hit| {
+        super::resize::edge_resize_handle_at(
+            st,
+            routing.ws_w,
+            routing.ws_h,
+            hit.node_id,
+            routing.local_sx,
+            routing.local_sy,
+        )
+    });
+
     let next_hover = if let Some((node_id, target)) = bloom_hover {
         st.input.interaction_state.overlay_hover_target = Some(target);
         Some(node_id)
@@ -508,6 +603,13 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         && st.input.interaction_state.pending_core_hover.is_none()
     {
         crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
+    }
+
+    if let Some(handle) = edge_resize_cursor {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(super::resize::cursor_icon_for_resize_handle(handle)),
+        );
     }
 
     if !hover_changed

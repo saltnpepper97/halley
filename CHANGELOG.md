@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- Add `field.parallax` config for zoomed-out window-drag depth (`enabled`, `strength`, `tau-ms`),
+  with eased parallax while moving windows and no background drift from ordinary cursor motion.
 - Add the Halley Discord community/support invite to the README.
 - Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
   fill) so markers recede into the field; the border ring and app icon stay fully opaque.
@@ -45,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - Add a Halley Lift search-bar magnifier icon: a `search-icon:` block (`enabled`, `side`
   `left`/`right`, `size`) with a `colors.search-icon` tint (empty follows `hint`). The bundled
   square SVG is rendered to an alpha mask and tinted at draw time.
+- Add a dedicated Halley Lift Apps-mode search glyph, alongside refreshed bundled search and
+  terminal glyph strokes for clearer small-size rendering.
 - Add drawn fallback glyphs for Halley Lift result rows without a raster icon: a squircle for
   nodes and a ring for `term` entries.
 - Add libinput input-device customization to the `input:` config section: per-class
@@ -55,11 +59,48 @@ All notable changes to this project will be documented in this file.
   re-apply live on config reload; unset keys keep libinput's own defaults. Also adds an
   `input.keyboard.model` xkb key. Wired into the internal template, bootstrap backfill, and
   example configs.
+- Add a native `xdg-desktop-portal-halley` ScreenCast backend with D-Bus activation,
+  portal session state, PipeWire stream creation, and monitor/window source metadata.
+  The compositor owns the actual source selection and frame capture through a narrow
+  Halley IPC surface.
+- Add compositor-paced portal screencast sessions backed by shared-memory frame files.
+  Monitor streams receive full output frames, while window streams crop the selected
+  live window from its host output before the portal backend publishes the PipeWire
+  `Video/Source` stream.
+- Add fd-passing support to the Halley IPC socket and wire portal screencast DMA-BUF
+  buffer registration/render/remove requests through the compositor, allowing PipeWire
+  DMA-BUF buffers to be rendered by the compositor process instead of forcing the
+  shared-memory readback path.
+- Add a Halley-native ScreenCast source chooser overlay for portal clients, including
+  monitor picking, window picking, direct single-source selection for apps that already
+  chose a type, and screenshot-style hovered-window highlighting.
+- Add `halleyctl portal status` and `halleyctl portal version` diagnostics for checking
+  backend discovery, compositor IPC, advertised sources, cursor modes, and versions.
+- Add gesture/touch input configuration under `input.gestures`, including touchpad
+  gesture passthrough, touchscreen passthrough, compositor pinch-to-zoom, configurable
+  swipe bindings, Apogee swipe handling, and gesture scope/modifier controls.
 - Add `halley --nested` as an explicit nested compositor launcher. It forces the winit
   backend, creates a visible host window titled `Halley`, opens a nested Wayland socket for
   clients, and avoids full-session startup behavior such as session autostart.
+- Add a native `org.freedesktop.impl.portal.Screenshot` backend in
+  `xdg-desktop-portal-halley`, supporting Screen, Window, and Area targets via the
+  existing Halley capture overlay. Portal requests map to compositor capture modes,
+  poll the capture IPC, and return a `file://` URI. `PickColor` is advertised as
+  unsupported for now. GTK remains the fallback for other portal interfaces.
 
 ### Changed
+- Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
+  card motion between selections, while keeping the existing bounded snapshot prewarm behavior.
+- Open Apogee on every active monitor at once, with each monitor showing only its own windows and
+  cluster cores, and close all monitor views together when selecting a target.
+- Rework Apogee preview capture so each active monitor fills missing snapshots in small batches,
+  prioritizes the hovered live preview, and rate-limits live refreshes to keep the overview
+  responsive with many windows.
+- Treat touchpad finger scrolling as high-resolution input: compositor wheel bindings now use an
+  accumulated threshold instead of firing on every tiny delta, while two-finger scroll over empty
+  field space pans smoothly on both axes without adding gesture handling yet.
+- Animate compositor fullscreen exits back to the restored window geometry, using the existing
+  fullscreen animation settings and skipping soft-suspend/fullscreen-preservation paths.
 - Make camera zoom inertial, like a powered lens. Instead of easing to a fresh target on every
   press, each zoom input injects velocity in log(view-size) space: repeating in the same
   direction stacks velocity into an accelerating ramp, the opposite direction bleeds it off, and
@@ -102,8 +143,65 @@ All notable changes to this project will be documented in this file.
   and client-requested fullscreen surfaces remain excluded.
 - Add configurable raise animation triggering via `animations.raise.trigger "always"` or
   `"overlap"`.
+- Prefer Halley's native ScreenCast portal backend in packaged portal configuration instead
+  of `xdg-desktop-portal-wlr`, while leaving GTK as the default fallback backend for other
+  portal interfaces.
+- Add an opportunistic DMA-BUF ScreenCast render path for PipeWire buffers that are already
+  delivered as DMA-BUFs, while keeping mapped shared-memory buffers as the default-compatible
+  path for OBS, Discord, and PipeWire setups that do not expose suitable DMA-BUF buffers.
+- Make `halley-session` start and wait on the systemd user `halley.service` when available,
+  so `graphical-session.target`, desktop autostart, and portal services come up correctly
+  under display managers.
+- Start the compositor-side package track at `0.5.0` for the main compositor, Wayland backend,
+  config, IPC, CLI, and capture crates, while keeping `halley-api` on its independent track,
+  pinning `halley-core` at `0.4.0`, and leaving `halley-lift`, `halley-aperture`, and
+  `halley-portal` on their existing `0.1.0` package tracks.
+- Use DRM cursor-plane scanout for TTY composed frames on single-GPU, untransformed outputs when
+  available, keeping software cursor rendering for winit, portal captures, transformed outputs,
+  multi-GPU outputs, or `HALLEY_DISABLE_CURSOR_PLANE=1`. Cursor elements are submitted as
+  `Kind::Cursor` so Smithay can use hardware cursor planes and fall back to primary-plane
+  composition if the plane rejects the cursor.
+- Add configurable multi-finger hold gesture bindings (`hold-3`, `hold-4`, etc.) under
+  `input.gestures`, reusing existing compositor gesture action names. Hold bindings are routed
+  through libinput's hold gesture and respect the same `compositor-scope` and gesture modifier
+  rules as swipe bindings. Client passthrough is preserved when no matching hold binding exists.
+- Restore the pre-fullscreen camera zoom/center on genuine fullscreen exit, and blend parallax back
+  in during fullscreen and maximize exit animations to avoid a visual snap as windows return.
+- Improve resize-by-border interaction with a minimum edge grab band, hover resize handles, and
+  plain left-press edge resize/release behavior.
+- Polish Apogee hovered live-preview feedback with an accent label and transparent focus ring.
+- Cap gesture-driven Apogee open scrub speed so hard four-finger flicks still commit the overview
+  but no longer visually snap the open animation faster than the configured interaction can read.
+- Defer Apogee selection activation until the close animation finishes so the desktop doesn't
+  mutate underneath the fading overlay. Maximized and fullscreen windows no longer flash or
+  displace when selected from the overview: the close animation flies back to the actual
+  presentation visual rect instead of the stale windowed field position.
 
 ### Fixed
+- Use an Apogee-specific render fast path while the overview is active: skip hidden field window
+  rendering, keep background/bottom layer surfaces visible behind the dim, and draw Aperture above
+  Apogee in minimal mode.
+- Keep Aperture promoted above Apogee regardless of which layer-shell layer it uses.
+- Restore Aperture visibility in the Apogee fast path by drawing non-Aperture background/bottom
+  layers below Apogee, then promoting Aperture-only layer-shell surfaces above the overview so the
+  minimal tab remains visible.
+- Pin Steam client notification popups to the monitor output instead of letting them track spatial
+  camera pan/zoom, while leaving ordinary window-parented context menus attached to their parent
+  windows.
+- Crop cached Alt+Tab/Apogee/hover preview textures to the real window aspect before fitting them,
+  and remap rounded-texture shader coordinates for cropped sources, avoiding square Firefox/GTK
+  thumbnails or square preview corners when their surface-tree cache is padded.
+- Capture collapsed surface-node previews for Apogee instead of leaving their card bodies black.
+- Keep same-monitor drag parallax held after releasing a moved window; only disabled/Apogee/cross-monitor
+  cases return the temporary parallax offset home.
+- Preserve the released window's visual position when ending a drag under held parallax, avoiding a
+  small snap as the dragged window rejoins the parallaxed field.
+- Preserve resized windows' visual position when releasing under held parallax, and use the
+  parallax-adjusted position for close-animation captures and collapsed-node hit testing.
+- Keep a dropped window fixed at its exact release point while overlap resolution pushes neighboring
+  windows aside, avoiding a post-drop snap of the window being moved.
+- Render collapsed surface nodes in Apogee using the original window preview aspect/weight instead
+  of the collapsed marker footprint, so they match the shape they had before collapsing.
 - Keep a window raised after you resize it instead of snapping it back behind whatever it was
   under. Resizing an occluded window now lifts it forward and *commits* that position on release
   (using the same persistent overlap order as `raise-on-click`), rather than only floating it on
@@ -121,6 +219,9 @@ All notable changes to this project will be documented in this file.
   fall back to X11/Xwayland when their native Wayland path fails.
 - Advertise the canonical/main TTY output first so Xwayland/XRandR sees the intended primary
   output ordering for monitor selection.
+- Keep the Xwayland RandR primary output synced to the active cursor monitor and advertise complete
+  `wl_output` mode, scale, transform, and preferred-surface state before clients bind, so SDL/Unity
+  Xwayland games pick the correct monitor and resolution at startup.
 - Make winit/nested input-device configuration behavior explicit: `input.touchpad`,
   `input.mouse`, and `input.devices` are applied on the TTY backend that owns libinput devices,
   and winit now warns instead of silently appearing to ignore those settings.
@@ -136,6 +237,33 @@ All notable changes to this project will be documented in this file.
   the shared overlay chip renderer.
 - Fix Halley Lift caret placement so trailing spaces advance the caret immediately and empty input
   still shows the caret.
+- Fix native ScreenCast startup by creating screencast SHM files with read/write mappings,
+  retaining PipeWire stream listeners for the session lifetime, activating streams after
+  connect, and writing buffers through PipeWire's chunk/data APIs so portal consumers receive
+  live frames instead of black previews.
+- Track PipeWire ScreenCast stream state through compositor IPC, without treating the initial
+  `Paused` startup state as a signal to stop producing frames for portal consumers.
+- Align the crates.io v0.4 API surface by correcting package metadata and removing stale Gamescope
+  config exports from the public config crate.
+- Tighten the portal source chooser visuals by removing excess mode-bar padding and matching
+  the screenshot overlay's single hovered-window highlight behavior during window selection.
+- Place window-parented XDG popups within their parent window's monitor, preventing context menus
+  and dropdowns from being constrained by another active monitor.
+- Fix Halley Lift cluster creation so the cluster-mode search text is only used for filtering,
+  not as the cluster name; Lift-created clusters now keep the compositor's default cluster naming
+  behavior unless a real name is submitted.
+- Stage app windows launched for a Halley Lift cluster inside the pending cluster build instead of
+  letting them enter the normal field lifecycle first. Staged windows skip normal reveal, raise,
+  overlap, spawn animation, and render collection paths until they are either absorbed into the
+  final cluster or intentionally released.
+- Prevent already-open matching apps such as Firefox from being mistaken for newly launched Lift
+  cluster members when their app identity refreshes; only windows created as staged candidates for
+  the pending Lift build can satisfy app-launch slots.
+- Keep Lift-launched cluster members hidden through final cluster creation and collapse, removing
+  the standalone field-window flash before the collapsed cluster core appears.
+- Block compositor pan/zoom gestures and keyboard zoom actions while cluster mode or an active
+  cluster workspace is in control, keeping cluster interactions from moving the field underneath
+  the cluster UI.
 
 ## [v0.4.0] - 2026-06-12
 

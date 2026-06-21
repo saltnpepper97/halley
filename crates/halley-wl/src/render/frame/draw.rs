@@ -550,7 +550,7 @@ pub(crate) fn draw_offscreen_textures(
     Ok(())
 }
 
-fn draw_layer_groups(
+pub(super) fn draw_layer_groups(
     frame: &mut GlesFrame<'_, '_>,
     damage: Rectangle<i32, Physical>,
     groups: &[LayerSurfaceRenderGroup],
@@ -564,6 +564,38 @@ fn draw_layer_groups(
                 eventline::warn!("layer-shell blur skipped this frame: {err}");
             }
         }
+        let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
+    }
+    Ok(())
+}
+
+pub(super) fn draw_apogee_background_layers(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    background: &[LayerSurfaceRenderGroup],
+    bottom: &[LayerSurfaceRenderGroup],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    draw_non_aperture_layer_groups(frame, damage, background)?;
+    draw_non_aperture_layer_groups(frame, damage, bottom)
+}
+
+pub(super) fn draw_apogee_aperture_layers(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    groups: &[LayerSurfaceRenderGroup],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for group in groups.iter().filter(|group| group.is_aperture) {
+        let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
+    }
+    Ok(())
+}
+
+fn draw_non_aperture_layer_groups(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    groups: &[LayerSurfaceRenderGroup],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for group in groups.iter().filter(|group| !group.is_aperture) {
         let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
     }
     Ok(())
@@ -613,6 +645,8 @@ pub(crate) fn draw_single_offscreen_texture(
             Uniform::new("content_alpha_scale", 1.0f32),
             Uniform::new("geo_offset", (tex.geo_offset_x, tex.geo_offset_y)),
             Uniform::new("geo_size", (tex.geo_w, tex.geo_h)),
+            Uniform::new("src_uv_offset", (0.0f32, 0.0f32)),
+            Uniform::new("src_uv_scale", (0.0f32, 0.0f32)),
         ];
 
         frame.render_texture_from_to(
@@ -930,6 +964,8 @@ pub(crate) fn draw_window_borders(
                     Uniform::new("content_alpha_scale", 0.0f32),
                     Uniform::new("geo_offset", (0.0f32, 0.0f32)),
                     Uniform::new("geo_size", (0.0f32, 0.0f32)),
+                    Uniform::new("src_uv_offset", (0.0f32, 0.0f32)),
+                    Uniform::new("src_uv_scale", (0.0f32, 0.0f32)),
                 ];
 
                 frame.render_texture_from_to(

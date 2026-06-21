@@ -18,6 +18,8 @@ pub(crate) struct OverlayView<'a> {
     pub(crate) render_state: &'a RenderState,
     pub(crate) tuning: &'a RuntimeTuning,
     pub(crate) node_app_ids: &'a std::collections::HashMap<NodeId, String>,
+    pub(crate) last_active_size: &'a std::collections::HashMap<NodeId, Vec2>,
+    pub(crate) fullscreen_active: &'a std::collections::HashMap<String, NodeId>,
     pub(crate) viewport: Viewport,
     pub(crate) camera_view_size: Vec2,
 }
@@ -32,9 +34,17 @@ impl<'a> OverlayView<'a> {
             render_state: &st.ui.render_state,
             tuning: &st.runtime.tuning,
             node_app_ids: &st.model.node_app_ids,
+            last_active_size: &st.model.workspace_state.last_active_size,
+            fullscreen_active: &st.model.fullscreen_state.fullscreen_active_node,
             viewport: st.model.viewport,
             camera_view_size: camera_controller(st).view_size(),
         }
+    }
+
+    /// Whether `node_id` is the active fullscreen window on its monitor. A node is
+    /// fullscreen on at most its own monitor, so a values scan is correct.
+    pub(crate) fn node_is_fullscreen(&self, node_id: NodeId) -> bool {
+        self.fullscreen_active.values().any(|&n| n == node_id)
     }
 
     pub(crate) fn cluster_overflow_visible_for_monitor(&self, monitor: &str, now_ms: u64) -> bool {
@@ -111,5 +121,39 @@ impl<'a> OverlayView<'a> {
         let sx = (nx * w as f32).round() as i32;
         let sy = (ny * h as f32).round() as i32;
         (sx, sy)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn node_is_fullscreen_reflects_active_fullscreen_node() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let win = state.model.field.spawn_surface(
+            "win",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let other = state.model.field.spawn_surface(
+            "other",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(win);
+        state.assign_node_to_current_monitor(other);
+        let monitor = state.focused_monitor().to_string();
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, win);
+
+        let view = OverlayView::from_halley(&state);
+        assert!(view.node_is_fullscreen(win));
+        assert!(!view.node_is_fullscreen(other));
     }
 }

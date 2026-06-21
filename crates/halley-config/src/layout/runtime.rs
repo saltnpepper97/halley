@@ -12,12 +12,13 @@ use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding
 
 use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
-    AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    AnimationsConfig, ApogeeConfig, BearingsConfig, ClickCollapsedOutsideFocusMode,
+    ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
+    CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig,
+    GamescopeConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    OverlayStyleConfig, PanToNewMode, ParallaxConfig, PinsConfig, PlacementConfig,
+    RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +96,7 @@ pub struct RuntimeTuning {
     pub pan_to_new: PanToNewMode,
     pub placement: PlacementConfig,
     pub pins: PinsConfig,
+    pub parallax: ParallaxConfig,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
     pub zoom_enabled: bool,
@@ -124,6 +126,7 @@ pub struct RuntimeTuning {
     pub cursor: CursorConfig,
     pub font: FontConfig,
     pub debug: DebugConfig,
+    pub apogee: ApogeeConfig,
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
@@ -514,6 +517,31 @@ input:
     options ""
     model ""
   end
+  # Pointer gesture and touchscreen protocol passthrough.
+  # Touchpad gestures are forwarded through wp_pointer_gestures_v1;
+  # touchscreen contacts are forwarded through wl_touch.
+  gestures:
+    enabled true
+    client-passthrough true
+    touch-passthrough true
+    pinch-to-zoom true
+    pinch-scope "empty-field"
+    compositor-scope "global"
+    modifier "$mod"
+    scroll-pan "empty-field"
+    swipe-threshold-px 120
+    # 3-finger swipe pans the canvas (continuous, with flick momentum).
+    pan-fingers 3
+    pan-momentum true
+    pan-decay-rate 6
+    flick-min-px-per-s 200
+    # Apogee lives on 4-finger: up opens, down closes.
+    swipe-up-4 "apogee-open"
+    apogee-swipe-down-4 "apogee-close"
+    # Multi-finger hold bindings (released via libinput hold gesture).
+    # hold-3 "toggle-state"
+    # hold-4 "apogee"
+  end
   # Touchpad libinput settings. Unset keys keep libinput's own defaults.
   touchpad:
     tap true
@@ -556,6 +584,17 @@ debug:
   show-ring-when-resizing true
 end
 
+# Apogee is the flat overview mosaic. It uses cached window snapshots by default
+# so opening it has alt-tab-like performance instead of continuously rendering all windows.
+apogee:
+  enabled true
+  live-previews false
+  transition-ms 320
+  gap 24
+  max-rows 3
+  background-dim 0.85
+end
+
 "##;
 
 const INTERNAL_CONFIG_SUFFIX: &str = r##"
@@ -585,6 +624,14 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+  end
+
+  # Subtle cursor-driven depth while zoomed out. `strength` controls distance;
+  # `tau-ms` controls easing (higher = floatier, lower = snappier).
+  parallax:
+    enabled true
+    strength 0.035
+    tau-ms 90
   end
 end
 
@@ -1252,6 +1299,12 @@ mod tests {
         assert!(rendered.contains(
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
         ));
+        assert!(rendered.contains(
+            "  gestures:\n    enabled true\n    client-passthrough true\n    touch-passthrough true\n    pinch-to-zoom true\n    pinch-scope \"empty-field\"\n    compositor-scope \"global\"\n    modifier \"$mod\"\n    scroll-pan \"empty-field\"\n    swipe-threshold-px 120\n"
+        ));
+        assert!(rendered.contains("    pan-fingers 3\n    pan-momentum true"));
+        assert!(rendered.contains("    swipe-up-4 \"apogee-open\""));
+        assert!(rendered.contains("    apogee-swipe-down-4 \"apogee-close\""));
         assert!(rendered.contains("  touchpad:\n    tap true\n    natural-scroll true"));
         assert!(rendered.contains("  mouse:\n    natural-scroll false"));
         // The compositor template must never absorb standalone companion-app configs.

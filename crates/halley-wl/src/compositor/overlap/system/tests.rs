@@ -1585,3 +1585,60 @@ fn windows_settle_back_to_rest_after_contact_clears() {
     );
     assert!(!nodes_overlap(&state, a, b));
 }
+
+#[test]
+fn dropped_window_stays_put_while_neighbor_yields() {
+    // A window dropped overlapping a neighbor must keep its exact release position
+    // (no snap); the static lock applied in `finish_pointer_drag` makes the neighbor
+    // move instead.
+    let tuning = halley_config::RuntimeTuning::default();
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let dropped = state.model.field.spawn_surface(
+        "dropped",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let neighbor = state.model.field.spawn_surface(
+        "neighbor",
+        Vec2 { x: 40.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+
+    let _ = state
+        .model
+        .field
+        .set_state(dropped, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(neighbor, halley_core::field::NodeState::Node);
+
+    let release_pos = state.model.field.node(dropped).expect("dropped").pos;
+    let neighbor_start = state.model.field.node(neighbor).expect("neighbor").pos;
+    assert!(nodes_overlap(&state, dropped, neighbor));
+
+    // Mirror the static lock set in `finish_pointer_drag`.
+    state.input.interaction_state.resize_static_node = Some(dropped);
+    state.input.interaction_state.resize_static_lock_pos = Some(release_pos);
+    state.input.interaction_state.resize_static_until_ms = u64::MAX;
+
+    tick_overlap_frames(&mut state, 24);
+
+    let dropped_now = state.model.field.node(dropped).expect("dropped").pos;
+    let neighbor_now = state.model.field.node(neighbor).expect("neighbor").pos;
+
+    assert!(
+        (dropped_now.x - release_pos.x).abs() <= 0.5
+            && (dropped_now.y - release_pos.y).abs() <= 0.5,
+        "dropped window should not move: {release_pos:?} -> {dropped_now:?}"
+    );
+    assert!(
+        (neighbor_now.x - neighbor_start.x).abs() > 1.0,
+        "neighbor should yield: {neighbor_start:?} -> {neighbor_now:?}"
+    );
+    assert!(!nodes_overlap(&state, dropped, neighbor));
+}

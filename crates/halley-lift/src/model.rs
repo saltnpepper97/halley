@@ -37,7 +37,6 @@ pub struct LiftResult {
 
 #[derive(Clone, Debug, Default)]
 pub struct ClusterDraft {
-    pub name_hint: Option<String>,
     pub app_ids: Vec<String>,
     pub running_node_ids: Vec<u64>,
 }

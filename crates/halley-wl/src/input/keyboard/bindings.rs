@@ -25,6 +25,9 @@ use halley_config::{
 use std::time::Instant;
 
 fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
+    if st.input.interaction_state.apogee_session.is_some() {
+        st.close_apogee(Instant::now());
+    }
     let activation_token =
         crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
     match super::spawn::spawn_command(
@@ -43,6 +46,9 @@ fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -
 }
 
 fn spawn_open_terminal_binding(st: &mut Halley, wayland_display: &str) -> bool {
+    if st.input.interaction_state.apogee_session.is_some() {
+        st.close_apogee(Instant::now());
+    }
     let activation_token =
         crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
     match super::spawn::spawn_wayland_terminal(
@@ -161,6 +167,12 @@ pub(crate) fn apply_compositor_action_press(
     config_path: &str,
     wayland_display: &str,
 ) -> bool {
+    if st.input.interaction_state.apogee_session.is_some()
+        && !apogee_allows_compositor_action(&action)
+    {
+        return true;
+    }
+
     match action {
         CompositorBindingAction::Quit { .. } => {
             exit_confirm_controller(st).show();
@@ -212,6 +224,7 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::ToggleFocusedPin => toggle_focused_pin_state(st),
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
+        CompositorBindingAction::Apogee => st.toggle_apogee(Instant::now()),
         CompositorBindingAction::FocusCycle(direction) => {
             st.start_or_step_focus_cycle(direction, Instant::now())
         }
@@ -311,6 +324,16 @@ pub(crate) fn apply_compositor_action_press(
     }
 }
 
+fn apogee_allows_compositor_action(action: &CompositorBindingAction) -> bool {
+    matches!(
+        action,
+        CompositorBindingAction::Apogee
+            | CompositorBindingAction::OpenTerminal
+            | CompositorBindingAction::Reload
+            | CompositorBindingAction::Quit { .. }
+    )
+}
+
 pub(crate) fn apply_compositor_action_release(
     st: &mut Halley,
     action: CompositorBindingAction,
@@ -341,6 +364,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::ToggleFocusedPin
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
+            | CompositorBindingAction::Apogee
             | CompositorBindingAction::FocusCycle(_)
             | CompositorBindingAction::Stack(_)
             | CompositorBindingAction::Tile(_)

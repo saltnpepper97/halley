@@ -68,7 +68,6 @@ impl<T: DerefMut<Target = Halley>> CameraController<T> {
         pan_camera_target(self, delta)
     }
 
-    #[cfg(test)]
     #[inline]
     pub(crate) fn set_target_view_size(&mut self, size: Vec2) {
         set_camera_target_view_size(self, size)
@@ -151,6 +150,8 @@ fn fullscreen_lock_active_on_monitor(st: &Halley, monitor: &str) -> bool {
 pub(crate) fn pan_blocked_on_monitor(st: &Halley, monitor: &str) -> bool {
     fullscreen_lock_active_on_monitor(st, monitor)
         || crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor)
+        || st.active_cluster_workspace_for_monitor(monitor).is_some()
+        || st.cluster_mode_active_for_monitor(monitor)
 }
 
 #[inline]
@@ -184,6 +185,38 @@ pub(crate) fn update_zoom_live_surface_sizes(st: &mut Halley) {
 /// ceiling); `VEL_EPS` is the speed below which the glide snaps to rest.
 const ZOOM_VEL_STACK_MAX: f32 = 6.0;
 const ZOOM_VEL_EPS: f32 = 0.02;
+
+/// Inertial-pan tuning. Pan velocity lives in world units per second.
+/// `PAN_VEL_EPS` is the speed below which a coasting flick snaps to rest;
+/// `PAN_VEL_MAX` caps how fast a flick can launch the viewport.
+const PAN_VEL_EPS: f32 = 4.0;
+const PAN_VEL_MAX: f32 = 12000.0;
+
+#[inline]
+fn pan_decay_rate(st: &Halley) -> f32 {
+    st.runtime
+        .tuning
+        .input
+        .gestures
+        .pan_decay_rate
+        .clamp(0.5, 30.0)
+}
+
+/// Seed inertial pan with a release velocity (world units/sec), clamped to a max
+/// launch speed. A subsequent `tick_camera_smoothing` coasts the camera target
+/// and decays the velocity with friction.
+pub(crate) fn fling_pan(st: &mut Halley, vel: Vec2) {
+    let speed = vel.x.hypot(vel.y);
+    st.model.pan_vel = if speed > PAN_VEL_MAX && speed > 0.0 {
+        Vec2 {
+            x: vel.x / speed * PAN_VEL_MAX,
+            y: vel.y / speed * PAN_VEL_MAX,
+        }
+    } else {
+        vel
+    };
+    st.request_maintenance();
+}
 
 pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
     if !st.runtime.tuning.zoom_enabled {
@@ -249,6 +282,7 @@ pub(crate) fn tick_camera_smoothing_passive(st: &mut Halley, now: Instant) -> bo
 fn tick_camera_smoothing_inner(st: &mut Halley, now: Instant, passive: bool) -> bool {
     if !passive && st.input.interaction_state.viewport_pan_anim.is_some() {
         st.model.zoom_log_vel = 0.0;
+        st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
         snap_camera_targets_to_live(st);
         return false;
     }
@@ -259,6 +293,7 @@ fn tick_camera_smoothing_inner(st: &mut Halley, now: Instant, passive: bool) -> 
         st.model.viewport.center = st.model.camera_target_center;
         st.model.zoom_ref_size = st.model.camera_target_view_size;
         st.model.zoom_log_vel = 0.0;
+        st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
         if !passive {
             st.runtime.tuning.viewport_center = st.model.viewport.center;
             st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
@@ -288,6 +323,26 @@ fn tick_camera_smoothing_inner(st: &mut Halley, now: Instant, passive: bool) -> 
     };
 
     let mut changed = false;
+
+    // Inertial pan: coast the target center by velocity with friction so a flick
+    // glides to a smooth stop, mirroring the inertial-zoom integration below. The
+    // center-ease that follows then carries the live viewport toward the target.
+    if st.runtime.tuning.physics_enabled
+        && (st.model.pan_vel.x.abs() > PAN_VEL_EPS || st.model.pan_vel.y.abs() > PAN_VEL_EPS)
+    {
+        let friction = pan_decay_rate(st);
+        st.model.camera_target_center.x += st.model.pan_vel.x * dt;
+        st.model.camera_target_center.y += st.model.pan_vel.y * dt;
+        let decay = (-friction * dt).exp();
+        st.model.pan_vel.x *= decay;
+        st.model.pan_vel.y *= decay;
+        if st.model.pan_vel.x.hypot(st.model.pan_vel.y) <= PAN_VEL_EPS {
+            st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+        }
+        changed = true;
+    } else {
+        st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+    }
 
     let next_center = Vec2 {
         x: st.model.viewport.center.x
@@ -461,6 +516,43 @@ mod tests {
         let before = state.model.camera_target_view_size;
         camera_controller(&mut state).zoom_by_steps(-1.0);
         assert_eq!(state.model.camera_target_view_size, before);
+    }
+
+    #[test]
+    fn cluster_states_block_pan() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+
+        assert!(!pan_blocked_on_monitor(&state, monitor.as_str()));
+        assert!(state.enter_cluster_mode());
+        assert!(pan_blocked_on_monitor(&state, monitor.as_str()));
+        assert!(state.exit_cluster_mode());
+
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 260.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![a, b])
+            .expect("cluster");
+        state
+            .model
+            .cluster_state
+            .active_cluster_workspaces
+            .insert(monitor.clone(), cid);
+
+        assert!(pan_blocked_on_monitor(&state, monitor.as_str()));
     }
 
     #[test]

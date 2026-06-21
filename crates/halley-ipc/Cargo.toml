@@ -13,4 +13,5 @@ exclude.workspace = true
 
 [dependencies]
 halley-api.workspace = true
+libc = "0.2"
 postcard.workspace = true

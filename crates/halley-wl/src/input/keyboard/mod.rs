@@ -54,12 +54,8 @@ fn flush_trapped_modal_release(st: &mut Halley, code: u32) {
 
 #[inline]
 fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
-    matches!(
-        action,
-        CompositorBindingAction::ZoomIn
-            | CompositorBindingAction::ZoomOut
-            | CompositorBindingAction::ZoomReset
-    )
+    let _ = action;
+    false
 }
 
 fn handle_focus_cycle_session_input<B: crate::backend::interface::BackendView>(
@@ -290,6 +286,64 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
+    if crate::compositor::portal_chooser::portal_chooser_active(&*st) {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let escape = key_name_to_evdev("escape").map(|value| value + 8);
+            let enter = key_name_to_evdev("return").map(|value| value + 8);
+            let left = key_name_to_evdev("left").map(|value| value + 8);
+            let right = key_name_to_evdev("right").map(|value| value + 8);
+            let phase = st
+                .input
+                .interaction_state
+                .portal_chooser
+                .as_ref()
+                .map(|s| s.phase);
+            let in_menu =
+                phase == Some(crate::compositor::portal_chooser::PortalChooserPhase::Menu);
+            if Some(code) == escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                if in_menu {
+                    let _ = crate::compositor::portal_chooser::cancel_portal_chooser(st);
+                } else {
+                    let _ = crate::compositor::portal_chooser::return_portal_chooser_to_menu(st);
+                }
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter && in_menu {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let _ =
+                    crate::compositor::portal_chooser::activate_portal_chooser(st, Instant::now());
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter
+                && phase == Some(crate::compositor::portal_chooser::PortalChooserPhase::ScreenPick)
+            {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let _ =
+                    crate::compositor::portal_chooser::confirm_portal_screen(st, Instant::now());
+                ctx.backend.request_redraw();
+            } else if (Some(code) == left || Some(code) == right) && in_menu {
+                let delta = if Some(code) == left { -1 } else { 1 };
+                let _ = crate::compositor::portal_chooser::move_portal_chooser_selection(st, delta);
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
+    }
+
     let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
         .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
     if let Some(prompt_monitor) = prompt_monitor {
@@ -430,6 +484,23 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         crate::compositor::monitor::layer_shell::keyboard_focus_is_lift_layer_surface(st);
     let session_lock_active = crate::protocol::wayland::session_lock::session_lock_active(st);
     let compositor_shortcuts_blocked = layer_shell_keyboard_focus || session_lock_active;
+
+    // A layer-shell launcher (Lift) receives Enter/Escape as a *forwarded* key while it
+    // holds keyboard focus. When it launches an app and destroys its surface, focus moves
+    // to the new window, whose `enter` event inherits the still-forwarded key from
+    // Smithay and starts client-side repeat; the physical release lands on the dead
+    // launcher surface, so the window never sees a key-up and repeats forever. Trap the
+    // release so the physical key-up flushes through `flush_trapped_modal_release`, which
+    // forwards a synthetic Released to whatever holds focus then (the new window) and
+    // clears the stale forwarded-pressed key. Persistent layer-shell clients are
+    // unaffected: the synthetic release just goes back to them.
+    if pressed && !is_mod_key && layer_shell_keyboard_focus {
+        let trap_enter = key_name_to_evdev("return").map(|code| code + 8);
+        let trap_escape = key_name_to_evdev("escape").map(|code| code + 8);
+        if Some(code) == trap_enter || Some(code) == trap_escape {
+            crate::compositor::interaction::state::trap_modal_key_release(st, code);
+        }
+    }
     let matched_action = if pressed && !is_mod_key && !compositor_shortcuts_blocked {
         compositor_binding_action(st, code, &mods)
     } else {

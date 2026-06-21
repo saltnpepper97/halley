@@ -1,0 +1,27 @@
+[package]
+name = "halley-portal"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+description = "Native xdg-desktop-portal ScreenCast and Screenshot backend for the Halley compositor."
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+
+[[bin]]
+name = "xdg-desktop-portal-halley"
+path = "src/main.rs"
+
+[dependencies]
+halley-api.workspace = true
+halley-ipc.workspace = true
+
+serde.workspace = true
+zbus = { version = "5.16" }
+eventline = "0.9.0"
+pollster = "0.4.0"
+pipewire = "0.10"
+memmap2 = "0.9"

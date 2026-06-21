@@ -470,6 +470,88 @@ mod tests {
     }
 
     #[test]
+    fn pending_initial_reveal_waits_for_lift_launch_app_identity() {
+        let mut tuning = single_monitor_tuning();
+        tuning.pan_to_new = halley_config::PanToNewMode::Never;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let id = state.model.field.spawn_surface(
+            "pending lift app",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(id, "monitor_a");
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Active);
+        let _ = state.model.field.set_detached(id, true);
+        state.model.spawn_state.pending_initial_reveal.insert(id);
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(id, (0.0, 0.0, 320.0, 240.0));
+        state
+            .model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .insert(
+                "monitor_a".to_string(),
+                crate::compositor::clusters::state::PendingLiftClusterBuildState {
+                    selected_node_ids: std::collections::HashSet::new(),
+                    candidate_node_ids: std::collections::HashSet::from([id]),
+                    staged_node_ids: std::collections::HashSet::from([id]),
+                    app_launches: vec![
+                        crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                            app_id: "kitty.desktop".to_string(),
+                            command: "kitty".to_string(),
+                        },
+                    ],
+                    name_record: crate::compositor::clusters::state::ClusterNameRecord::Generic {
+                        slot: 1,
+                    },
+                    expected_members: 1,
+                    launched: true,
+                },
+            );
+
+        assert!(!surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state,
+            id,
+            false,
+            Instant::now()
+        ));
+        assert!(state.model.spawn_state.pending_initial_reveal.contains(&id));
+        assert!(
+            state
+                .model
+                .field
+                .node(id)
+                .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+        );
+
+        state.model.node_app_ids.insert(id, "other".to_string());
+        assert!(surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state,
+            id,
+            false,
+            Instant::now()
+        ));
+        assert!(!state.model.spawn_state.pending_initial_reveal.contains(&id));
+        assert!(
+            state
+                .model
+                .field
+                .node(id)
+                .is_some_and(|node| !node.visibility.has(Visibility::DETACHED))
+        );
+    }
+
+    #[test]
     fn pending_initial_reveal_clears_for_tiled_insert_after_committed_geometry() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")

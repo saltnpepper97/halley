@@ -162,6 +162,7 @@ pub(super) fn refresh_node_identity_for_surface(
 
     let now = Instant::now();
     maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, now);
+    let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
 }
 
 fn maybe_apply_pending_initial_window_rule(
@@ -366,6 +367,7 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
             .spawn_state
             .pending_rule_rechecks
             .contains(&node_id)
+        || pending_lift_cluster_build_should_hold_unidentified_node(st, node_id)
         || !st
             .ui
             .render_state
@@ -399,6 +401,17 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
     }
     st.request_maintenance();
     true
+}
+
+fn pending_lift_cluster_build_should_hold_unidentified_node(st: &Halley, node_id: NodeId) -> bool {
+    if st.model.node_app_ids.contains_key(&node_id) {
+        return false;
+    }
+    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id) else {
+        return false;
+    };
+    crate::compositor::clusters::system::cluster_system_controller(st)
+        .pending_lift_cluster_build_waits_for_candidate_identity(monitor.as_str(), node_id)
 }
 
 pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -721,7 +734,15 @@ pub(super) fn ensure_node_for_surface_impl(
     };
     st.model.surface_to_node.insert(key, id);
     st.assign_node_to_monitor(id, monitor.as_str());
-    if !spawned_in_active_cluster
+    let lift_cluster_candidate = !spawned_in_active_cluster
+        && crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+            .note_pending_lift_cluster_candidate_node(monitor.as_str(), id);
+    if lift_cluster_candidate {
+        st.model.spawn_state.pending_initial_reveal.insert(id);
+        let _ = st.model.field.set_detached(id, true);
+    }
+    if !lift_cluster_candidate
+        && !spawned_in_active_cluster
         && let Some(record) = st.model.spawn_state.pending_initial_spawn_placement.take()
     {
         st.model
@@ -729,12 +750,12 @@ pub(super) fn ensure_node_for_surface_impl(
             .initial_spawn_placements
             .insert(id, record);
     }
-    if effective_intent.matched_rule {
+    if !lift_cluster_candidate && effective_intent.matched_rule {
         st.model
             .spawn_state
             .applied_window_rules
             .insert(id, effective_intent.applied_rule_for_node());
-    } else if should_defer {
+    } else if !lift_cluster_candidate && should_defer {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
         st.model.spawn_state.pending_initial_reveal.insert(id);
     }
@@ -742,21 +763,23 @@ pub(super) fn ensure_node_for_surface_impl(
         .model
         .field
         .set_state(id, halley_core::field::NodeState::Active);
-    let _ = st.raise_overlap_policy_node(id);
-    if !spawned_in_active_cluster {
+    if !lift_cluster_candidate {
+        let _ = st.raise_overlap_policy_node(id);
+    }
+    if !lift_cluster_candidate && !spawned_in_active_cluster {
         let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
     }
 
     st.ui.render_state.cache.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;
-    if st.runtime.tuning.animations_enabled() {
+    if !lift_cluster_candidate && st.runtime.tuning.animations_enabled() {
         st.ui
             .render_state
             .animator
             .observe_field(&st.model.field, now);
     }
-    if should_defer && !joined_active_cluster {
+    if !lift_cluster_candidate && should_defer && !joined_active_cluster {
         let _ = st.model.field.set_detached(id, true);
     }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {

@@ -51,6 +51,7 @@ fn main() {
             }
         },
         Ok(ParseOutcome::Gamescope(invocation)) => cmd::gamescope::run(invocation),
+        Ok(ParseOutcome::Portal(command)) => cmd::portal::run(command),
         Ok(ParseOutcome::Help(topic)) => print_help(topic),
         Err(err) => exit_usage(err),
     }

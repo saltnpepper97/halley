@@ -8,6 +8,9 @@ mod exit_confirm;
 mod focus_cycle;
 mod fps;
 mod hover_label;
+mod observatory;
+mod portal_chooser;
+mod preview_source;
 mod screenshot;
 mod selection_marker;
 mod state;
@@ -37,6 +40,7 @@ pub(crate) use cluster_overflow::{
     draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
 };
 pub(crate) use hover_label::{draw_overlay_hover_label, draw_overlay_hover_preview_card};
+pub(crate) use portal_chooser::{draw_portal_chooser_overlay, portal_chooser_menu_hit_test};
 pub(crate) use screenshot::{ScreenshotMenuHit, draw_screenshot_overlay, screenshot_menu_hit_test};
 pub(crate) use selection_marker::draw_cluster_selection_markers;
 pub(crate) use state::{
@@ -56,11 +60,13 @@ use banner::draw_persistent_banner;
 pub(crate) use chip::{draw_overlay_backdrop_blur, with_overlay_blur_context};
 use chip::{
     draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
+    draw_overlay_ring,
 };
 use cluster_overflow::draw_overflow_member_chip;
 use exit_confirm::draw_exit_confirmation;
 use focus_cycle::draw_focus_cycle_switcher;
 use fps::draw_debug_fps_overlay;
+pub(crate) use observatory::draw_observatory;
 use text::{truncate_overlay_text, truncate_overlay_text_to_width, visible_overlay_text_window};
 use toast::draw_toast;
 
@@ -138,7 +144,10 @@ pub(crate) fn draw_monitor_hud(
         )?;
         return Ok(());
     }
-    if draw_focus_cycle_switcher(frame, st, screen_w, screen_h, damage)? {
+    if draw_focus_cycle_switcher(frame, st, screen_w, screen_h, damage, now)? {
+        return Ok(());
+    }
+    if draw_observatory(frame, st, screen_w, screen_h, damage, now)? {
         return Ok(());
     }
     if let Some(banner) = st
@@ -173,6 +182,7 @@ pub(crate) fn draw_monitor_hud(
     }
     draw_cluster_naming_dialog(frame, st, screen_w, screen_h, damage)?;
     draw_screenshot_overlay(frame, st, screen_w, screen_h, damage)?;
+    draw_portal_chooser_overlay(frame, st, screen_w, screen_h, damage)?;
     draw_debug_fps_overlay(frame, st, damage, now)?;
     Ok(())
 }

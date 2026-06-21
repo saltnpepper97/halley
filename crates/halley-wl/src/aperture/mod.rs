@@ -120,6 +120,16 @@ pub(crate) fn aperture_status(st: &Halley) -> ApertureStatusResponse {
 }
 
 fn derive_aperture_mode_for_monitor(st: &Halley, monitor: &str) -> ApertureMode {
+    if st
+        .input
+        .interaction_state
+        .apogee_session
+        .as_ref()
+        .is_some_and(|session| session.monitor_session(monitor).is_some())
+    {
+        return ApertureMode::Minimal;
+    }
+
     let now = Instant::now();
     if let Some(mode) = st.aperture.cached_mode(monitor, now) {
         return mode;

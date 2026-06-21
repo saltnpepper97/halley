@@ -97,6 +97,8 @@ impl RuntimeTuning {
 fn migrate_legacy_sections(existing: &mut ParsedScope) -> bool {
     let mut changed = false;
 
+    changed |= migrate_legacy_gesture_bindings(existing);
+
     let Some(decorations) = find_section_mut(existing, "decorations") else {
         return changed;
     };
@@ -133,6 +135,39 @@ fn migrate_legacy_sections(existing: &mut ParsedScope) -> bool {
         }),
     });
 
+    changed
+}
+
+/// 3-finger swipe became the continuous viewport pan, so the old default Apogee
+/// bindings on 3-finger up moved to 4-finger (open) / 4-finger down (close).
+/// Rewrite those specific legacy default keys in place so an existing user keeps
+/// a working Apogee gesture instead of a 3-finger binding shadowed by pan.
+fn migrate_legacy_gesture_bindings(existing: &mut ParsedScope) -> bool {
+    let Some(input) = find_section_mut(existing, "input") else {
+        return false;
+    };
+    let Some(gestures) = find_section_mut(&mut input.body, "gestures") else {
+        return false;
+    };
+
+    let mut changed = false;
+    for item in &mut gestures.body.items {
+        let ScopeItemKind::Scalar(scalar) = &mut item.kind else {
+            continue;
+        };
+        if scalar.key == "swipe-up-3" && scalar.raw_line.contains("apogee-open") {
+            scalar.raw_line = scalar.raw_line.replacen("swipe-up-3", "swipe-up-4", 1);
+            scalar.key = String::from("swipe-up-4");
+            changed = true;
+        } else if scalar.key == "apogee-swipe-up-3" && scalar.raw_line.contains("apogee-close") {
+            scalar.raw_line =
+                scalar
+                    .raw_line
+                    .replacen("apogee-swipe-up-3", "apogee-swipe-down-4", 1);
+            scalar.key = String::from("apogee-swipe-down-4");
+            changed = true;
+        }
+    }
     changed
 }
 
@@ -511,6 +546,36 @@ end
                 "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
             )
         );
+        assert!(updated.contains("  gestures:\n    enabled true"));
+        assert!(updated.contains("    pinch-to-zoom true"));
+        assert!(updated.contains("    pinch-scope \"empty-field\""));
+        assert!(updated.contains("    modifier \"$mod\""));
+        assert!(updated.contains("    scroll-pan \"empty-field\""));
+        assert!(updated.contains("    swipe-up-4 \"apogee-open\""));
+        assert!(updated.contains("    apogee-swipe-down-4 \"apogee-close\""));
+        assert!(updated.contains("    pan-fingers 3"));
+    }
+
+    #[test]
+    fn migrates_legacy_3finger_apogee_swipe_to_4finger() {
+        let raw = r#"input:
+  gestures:
+    enabled true
+    swipe-up-3 "apogee-open"
+    apogee-swipe-up-3 "apogee-close"
+  end
+end
+"#;
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("swipe-up-4 \"apogee-open\""));
+        assert!(updated.contains("apogee-swipe-down-4 \"apogee-close\""));
+        assert!(!updated.contains("swipe-up-3 \"apogee-open\""));
+        assert!(!updated.contains("apogee-swipe-up-3"));
+        // New pan defaults are backfilled by the template merge.
+        assert!(updated.contains("pan-fingers 3"));
     }
 
     #[test]
@@ -534,6 +599,9 @@ end
 
         // Existing keyboard values are preserved; new sub-sections are appended.
         assert!(updated.contains("  keyboard:\n    layout \"us\""));
+        assert!(updated.contains("  gestures:\n    enabled true"));
+        assert!(updated.contains("    compositor-scope \"global\""));
+        assert!(updated.contains("    swipe-threshold-px 120"));
         assert!(updated.contains("  touchpad:\n    tap true"));
         assert!(updated.contains("  mouse:\n    natural-scroll false"));
         assert!(updated.contains("    model \"\""));
@@ -607,6 +675,24 @@ end
         assert!(updated.contains("  pins:\n    corner \"top-right\"\n    colour \"auto\""));
         assert!(updated.contains("    background-colour \"auto\""));
         assert!(updated.contains("    size 1.0"));
+    }
+
+    #[test]
+    fn updater_adds_missing_parallax_defaults() {
+        let raw = r#"
+field:
+  gap 20.0
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(
+            updated.contains("  parallax:\n    enabled true\n    strength 0.035\n    tau-ms 90")
+        );
+        assert!(RuntimeTuning::from_rune_str(&updated).is_some());
     }
 
     #[test]

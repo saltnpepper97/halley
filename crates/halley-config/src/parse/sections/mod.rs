@@ -1,4 +1,5 @@
 mod animations;
+mod apogee;
 mod autostart;
 mod bearings;
 mod clusters;
@@ -25,6 +26,7 @@ mod trail;
 mod viewport;
 
 pub(crate) use animations::*;
+pub(crate) use apogee::*;
 pub(crate) use autostart::*;
 pub(crate) use bearings::*;
 pub(crate) use clusters::*;

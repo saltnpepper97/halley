@@ -4,12 +4,14 @@ mod node;
 mod trail;
 mod view;
 
+use std::os::fd::OwnedFd;
 use std::time::Instant;
 
 use halley_api::{
     ApiError, BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse,
-    CompositorRequest, GamescopeTargetResponse, HALLEY_API_VERSION, NodeMoveDirection, Request,
-    Response, StackCycleDirection, StackRequest, TileRequest, VersionInfo,
+    CompositorRequest, GamescopeTargetResponse, HALLEY_API_VERSION, NodeMoveDirection,
+    PortalOutput, PortalScreenCastRequest, PortalScreenCastResponse, Request, Response,
+    StackCycleDirection, StackRequest, TileRequest, VersionInfo,
 };
 
 use crate::compositor::root::Halley;
@@ -29,6 +31,14 @@ use self::monitor::adjacent_monitor;
 use self::node::resolve_node_selector;
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
+    handle_request_with_fds(st, request, Vec::new())
+}
+
+pub(crate) fn handle_request_with_fds(
+    st: &mut Halley,
+    request: Request,
+    fds: Vec<OwnedFd>,
+) -> Response {
     match request {
         Request::Capture(request) => handle_capture_request(st, request),
         Request::Node(request) => handle_node_request(st, request),
@@ -38,6 +48,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Stack(request) => handle_stack_request(st, request),
         Request::Tile(request) => handle_tile_request(st, request),
         Request::Cluster(request) => handle_cluster_request(st, request),
+        Request::PortalScreenCast(request) => handle_portal_screencast_request(st, request, fds),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(ApiError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -57,6 +68,278 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
             ApiError::Unsupported("backend request not handled here".into()),
         ),
     }
+}
+
+fn handle_portal_screencast_request(
+    st: &mut Halley,
+    request: PortalScreenCastRequest,
+    fds: Vec<OwnedFd>,
+) -> Response {
+    match request {
+        PortalScreenCastRequest::ListOutputs => {
+            Response::PortalScreenCast(PortalScreenCastResponse::Outputs(portal_outputs(st)))
+        }
+        PortalScreenCastRequest::SelectOutput { session_handle: _ } => Response::PortalScreenCast(
+            PortalScreenCastResponse::SelectedOutput(select_portal_output(st)),
+        ),
+        PortalScreenCastRequest::StartSourceChooser {
+            session_handle,
+            source_types,
+        } => {
+            let started = crate::compositor::portal_chooser::start_portal_chooser(
+                st,
+                &session_handle,
+                source_types,
+                Instant::now(),
+            );
+            if started {
+                Response::PortalScreenCast(PortalScreenCastResponse::SourceChooserStarted)
+            } else {
+                Response::PortalScreenCast(PortalScreenCastResponse::Error(
+                    "source chooser already active or no source types accepted".into(),
+                ))
+            }
+        }
+        PortalScreenCastRequest::PollSourceChooser { session_handle } => {
+            let resp = crate::compositor::portal_chooser::poll_portal_chooser(st, &session_handle);
+            Response::PortalScreenCast(resp)
+        }
+        PortalScreenCastRequest::CancelSourceChooser { session_handle } => {
+            let _ = crate::compositor::portal_chooser::cancel_portal_chooser_for_handle(
+                st,
+                &session_handle,
+            );
+            Response::PortalScreenCast(PortalScreenCastResponse::SourceChooserCancelled)
+        }
+        PortalScreenCastRequest::Start {
+            session_handle,
+            output,
+            cursor_mode,
+        } => {
+            let cursor_mode = crate::portal::ScreencastCursorMode::from_portal_mode(cursor_mode);
+            let (width, height) = st
+                .model
+                .monitor_state
+                .outputs
+                .get(output.as_str())
+                .and_then(|o| o.current_mode())
+                .map(|m| (m.size.w, m.size.h))
+                .unwrap_or_else(|| {
+                    st.model
+                        .monitor_state
+                        .monitors
+                        .get(output.as_str())
+                        .map(|m| (m.width, m.height))
+                        .unwrap_or((1920, 1080))
+                });
+
+            let (offset_x, offset_y) = st
+                .model
+                .monitor_state
+                .monitors
+                .get(output.as_str())
+                .map(|m| (m.offset_x, m.offset_y))
+                .unwrap_or((0, 0));
+
+            match st
+                .screencast
+                .start_output(&session_handle, &output, width, height, cursor_mode)
+            {
+                Ok(shm_path) => Response::PortalScreenCast(PortalScreenCastResponse::Started {
+                    node_id: 0,
+                    width,
+                    height,
+                    offset_x,
+                    offset_y,
+                    source_type: halley_api::PORTAL_SOURCE_TYPE_MONITOR,
+                    mapping_id: output,
+                    shm_path: shm_path.to_string_lossy().to_string(),
+                }),
+                Err(e) => Response::PortalScreenCast(PortalScreenCastResponse::Error(format!(
+                    "failed to start screencast: {e}"
+                ))),
+            }
+        }
+        PortalScreenCastRequest::StartWindow {
+            session_handle,
+            node_id,
+            cursor_mode,
+        } => start_window_screencast(
+            st,
+            session_handle,
+            node_id,
+            crate::portal::ScreencastCursorMode::from_portal_mode(cursor_mode),
+        ),
+        PortalScreenCastRequest::Stop { session_handle } => {
+            st.screencast.stop(&session_handle);
+            Response::PortalScreenCast(PortalScreenCastResponse::Stopped)
+        }
+        PortalScreenCastRequest::SetActive {
+            session_handle,
+            active,
+        } => {
+            st.screencast.set_active(&session_handle, active);
+            Response::PortalScreenCast(PortalScreenCastResponse::ActiveSet)
+        }
+        PortalScreenCastRequest::AddDmabufBuffer {
+            session_handle,
+            buffer_id,
+            width,
+            height,
+            format,
+            modifier,
+            flags,
+            planes,
+        } => match st.screencast.add_dmabuf_buffer(
+            &session_handle,
+            buffer_id,
+            fds,
+            width,
+            height,
+            format,
+            modifier,
+            flags,
+            planes,
+        ) {
+            Ok(()) => Response::PortalScreenCast(PortalScreenCastResponse::DmabufBufferAdded),
+            Err(err) => Response::PortalScreenCast(PortalScreenCastResponse::Error(err)),
+        },
+        PortalScreenCastRequest::RemoveDmabufBuffer {
+            session_handle,
+            buffer_id,
+        } => {
+            st.screencast
+                .remove_dmabuf_buffer(&session_handle, buffer_id);
+            Response::PortalScreenCast(PortalScreenCastResponse::DmabufBufferRemoved)
+        }
+        PortalScreenCastRequest::RenderDmabufBuffer {
+            session_handle,
+            buffer_id,
+        } => match crate::portal::render_screencast_dmabuf_buffer(st, &session_handle, buffer_id) {
+            Ok(()) => Response::PortalScreenCast(PortalScreenCastResponse::DmabufFrameRendered),
+            Err(err) => Response::PortalScreenCast(PortalScreenCastResponse::Error(err)),
+        },
+    }
+}
+
+fn start_window_screencast(
+    st: &mut Halley,
+    session_handle: String,
+    node_id_u64: u64,
+    cursor_mode: crate::portal::ScreencastCursorMode,
+) -> Response {
+    use halley_api::PORTAL_SOURCE_TYPE_WINDOW;
+    use halley_core::field::NodeId;
+
+    let node_id = NodeId::new(node_id_u64);
+    let Some(monitor) = st
+        .model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .or_else(|| {
+            st.model
+                .field
+                .node(node_id)
+                .is_some()
+                .then(|| st.model.monitor_state.current_monitor.clone())
+        })
+    else {
+        return Response::PortalScreenCast(PortalScreenCastResponse::Error(format!(
+            "window node {} has no monitor",
+            node_id.as_u64()
+        )));
+    };
+    let (width, height) = st
+        .model
+        .field
+        .node(node_id)
+        .map(|node| {
+            let size = crate::compositor::surface::current_surface_size_for_node(st, node_id)
+                .unwrap_or(node.intrinsic_size);
+            (size.x.max(1.0) as i32, size.y.max(1.0) as i32)
+        })
+        .unwrap_or((640, 480));
+    let (offset_x, offset_y) = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor.as_str())
+        .map(|m| (m.offset_x, m.offset_y))
+        .unwrap_or((0, 0));
+    match st.screencast.start_window(
+        &session_handle,
+        node_id,
+        &monitor,
+        width,
+        height,
+        cursor_mode,
+    ) {
+        Ok(shm_path) => Response::PortalScreenCast(PortalScreenCastResponse::Started {
+            node_id: 0,
+            width,
+            height,
+            offset_x,
+            offset_y,
+            source_type: PORTAL_SOURCE_TYPE_WINDOW,
+            mapping_id: format!("window:{}", node_id.as_u64()),
+            shm_path: shm_path.to_string_lossy().to_string(),
+        }),
+        Err(e) => Response::PortalScreenCast(PortalScreenCastResponse::Error(format!(
+            "failed to start window screencast: {e}"
+        ))),
+    }
+}
+
+fn portal_outputs(st: &Halley) -> Vec<PortalOutput> {
+    let focused = st.focused_monitor().to_string();
+    let mut outputs: Vec<_> = st
+        .model
+        .monitor_state
+        .monitors
+        .iter()
+        .map(|(name, monitor)| {
+            let mode_size = st
+                .model
+                .monitor_state
+                .outputs
+                .get(name.as_str())
+                .and_then(|output| output.current_mode())
+                .map(|mode| (mode.size.w, mode.size.h));
+            let (width, height) = mode_size.unwrap_or((monitor.width, monitor.height));
+            PortalOutput {
+                name: name.clone(),
+                width,
+                height,
+                offset_x: monitor.offset_x,
+                offset_y: monitor.offset_y,
+                focused: name == &focused,
+            }
+        })
+        .collect();
+    outputs.sort_by(|a, b| {
+        a.offset_x
+            .cmp(&b.offset_x)
+            .then(a.offset_y.cmp(&b.offset_y))
+            .then(a.name.cmp(&b.name))
+    });
+    outputs
+}
+
+fn select_portal_output(st: &Halley) -> Option<PortalOutput> {
+    let outputs = portal_outputs(st);
+    outputs
+        .iter()
+        .find(|output| output.focused)
+        .cloned()
+        .or_else(|| {
+            outputs
+                .iter()
+                .find(|output| output.offset_x == 0 && output.offset_y == 0)
+                .cloned()
+        })
+        .or_else(|| outputs.first().cloned())
 }
 
 /// Resolve a gamescope monitor selector to that monitor's current dimensions,

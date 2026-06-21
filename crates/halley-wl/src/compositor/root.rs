@@ -8,6 +8,7 @@ use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use smithay::utils::{Logical, Point};
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
@@ -22,6 +23,7 @@ use smithay::{
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
+        pointer_gestures::PointerGesturesState,
         relative_pointer::RelativePointerManagerState,
         selection::{
             data_device::DataDeviceState, primary_selection::PrimarySelectionState,
@@ -61,10 +63,20 @@ pub(crate) struct ModelState {
     /// Inertial zoom velocity in log(view-size) units per second. Repeated zoom
     /// input accumulates this (accelerating ramp); friction decays it to a stop.
     pub(crate) zoom_log_vel: f32,
+    /// Inertial pan velocity in world units per second. A flick at the end of a
+    /// pan gesture seeds this; friction decays it to a stop (see `camera.rs`).
+    pub(crate) pan_vel: Vec2,
     pub(crate) camera_target_center: Vec2,
     pub(crate) camera_target_view_size: Vec2,
     pub(crate) surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
+    /// For window-parented popups that should render pinned to the screen (e.g.
+    /// Steam's install-complete notification), the frozen configure-time anchor
+    /// `target.loc` (= `-(parent_tl - viewport_tl)` against the fixed monitor
+    /// frame), keyed by the popup surface. Lets the render path reproject the
+    /// popup onto the monitor output immune to camera zoom/pan. See
+    /// `configure_popup_position`.
+    pub(crate) pinned_popup_anchor: HashMap<ObjectId, Point<i32, Logical>>,
 }
 
 pub(crate) struct UiState {
@@ -85,6 +97,7 @@ pub struct Halley {
     pub(crate) aperture: crate::aperture::ApertureState,
     pub(crate) input: InputState,
     pub(crate) portal: crate::protocol::wayland::portal::PortalState,
+    pub(crate) screencast: crate::portal::ScreencastState,
     pub(crate) runtime: RuntimeState,
 }
 
@@ -151,6 +164,7 @@ impl Halley {
                     usable_viewport: view,
                     zoom_ref_size: view.size,
                     zoom_log_vel: 0.0,
+                    pan_vel: Vec2 { x: 0.0, y: 0.0 },
                     camera_target_center: view.center,
                     camera_target_view_size: view.size,
                 },
@@ -170,6 +184,7 @@ impl Halley {
                     usable_viewport: view,
                     zoom_ref_size: tuning.viewport_size,
                     zoom_log_vel: 0.0,
+                    pan_vel: Vec2 { x: 0.0, y: 0.0 },
                     camera_target_center: tuning.viewport_center,
                     camera_target_view_size: tuning.viewport_size,
                 },
@@ -206,6 +221,7 @@ impl Halley {
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
                 pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),
+                pointer_gestures_state: PointerGesturesState::new::<Halley>(dh),
                 presentation_state: smithay::wayland::presentation::PresentationState::new::<Halley>(
                     dh,
                     <smithay::utils::Monotonic as smithay::utils::ClockSource>::ID as u32,
@@ -315,6 +331,7 @@ impl Halley {
                     fullscreen_restore: HashMap::new(),
                     fullscreen_motion: HashMap::new(),
                     fullscreen_scale_anim: HashMap::new(),
+                    fullscreen_camera_restore: HashMap::new(),
                     direct_scanout: HashMap::new(),
                 },
                 spawn_state: SpawnState {
@@ -337,10 +354,12 @@ impl Halley {
                 viewport: primary_viewport,
                 zoom_ref_size: primary_zoom_ref,
                 zoom_log_vel: 0.0,
+                pan_vel: Vec2 { x: 0.0, y: 0.0 },
                 camera_target_center: primary_viewport.center,
                 camera_target_view_size: primary_zoom_ref,
                 surface_to_node: HashMap::new(),
                 node_app_ids: HashMap::new(),
+                pinned_popup_anchor: HashMap::new(),
             },
             ui: UiState {
                 render_state: RenderState {
@@ -396,6 +415,8 @@ impl Halley {
                     physics_velocity: HashMap::new(),
                     physics_last_tick: now,
                     smoothed_render_pos: HashMap::new(),
+                    cursor_parallax: HashMap::new(),
+                    cursor_parallax_last_tick: now,
                     viewport_pan_anim: None,
                     pan_dominant_until_ms: 0,
                     pending_maximize: None,
@@ -411,9 +432,14 @@ impl Halley {
                     inflight_screenshot_capture: None,
                     screenshot_next_serial: 1,
                     last_screenshot_result: None,
+                    portal_chooser: None,
                     modal_release_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
+                    active_gesture_route: None,
+                    apogee_session: None,
+                    apogee_live_preview_node: None,
+                    apogee_live_preview_last_at: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,
@@ -433,6 +459,7 @@ impl Halley {
                 devices: Vec::new(),
             },
             portal: crate::protocol::wayland::portal::PortalState::default(),
+            screencast: crate::portal::ScreencastState::default(),
             runtime: RuntimeState {
                 tuning,
                 surface_activity: HashMap::new(),
@@ -592,6 +619,7 @@ impl Halley {
             || entry.pinned
     }
 
+    #[allow(dead_code)]
     pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {
         self.aperture.config()
     }
@@ -1388,7 +1416,6 @@ impl Halley {
             })
     }
 
-    #[cfg(test)]
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self)
             .soft_suspend_xdg_fullscreen(node_id, now)

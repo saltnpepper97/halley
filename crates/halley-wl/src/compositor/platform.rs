@@ -26,6 +26,7 @@ use smithay::{
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
+        pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         selection::{
@@ -66,6 +67,7 @@ pub(crate) struct PlatformState {
     pub(crate) popup_manager: PopupManager,
     pub(crate) wlr_layer_shell_state: WlrLayerShellState,
     pub(crate) pointer_constraints_state: PointerConstraintsState,
+    pub(crate) pointer_gestures_state: PointerGesturesState,
     pub(crate) presentation_state: PresentationState,
     pub(crate) relative_pointer_manager_state: RelativePointerManagerState,
     pub(crate) fractional_scale_manager_state: FractionalScaleManagerState,
@@ -192,6 +194,15 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         if locked {
             return CursorImageStatus::Hidden;
         }
+    }
+
+    if st.input.interaction_state.apogee_session.is_some() {
+        return CursorImageStatus::Named(
+            st.input
+                .interaction_state
+                .cursor_override_icon
+                .unwrap_or(smithay::input::pointer::CursorIcon::Default),
+        );
     }
 
     if st.input.interaction_state.cursor_hidden_by_typing {

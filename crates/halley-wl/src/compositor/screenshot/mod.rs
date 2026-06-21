@@ -10,6 +10,7 @@ use halley_api::CaptureMode;
 use halley_capit::{capture_crop_to_png, default_output_path_in};
 
 use super::root::Halley;
+pub(crate) use region::has_screenshot_window_target_for_monitor;
 use region::{
     initial_screenshot_selection, screenshot_desktop_bounds, screenshot_menu_index,
     screenshot_menu_modes, screenshot_region_apply_drag, screenshot_region_hit_test,
@@ -94,8 +95,26 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         if session.mode != CaptureMode::Menu {
             return false;
         }
-        let len = screenshot_menu_modes().len() as i32;
-        let next = (session.menu_selected as i32 + delta).rem_euclid(len) as usize;
+        let start = session.menu_selected as i32;
+        let modes = screenshot_menu_modes();
+        let len = modes.len() as i32;
+        let step = if delta >= 0 { 1 } else { -1 };
+        let session_monitor = session.monitor.clone();
+        // Step over any disabled (blanked) entries, e.g. Window with no targets.
+        let mut next = start;
+        for _ in 0..len {
+            next = (next + step).rem_euclid(len);
+            let mode = modes[next as usize];
+            let enabled = mode != CaptureMode::Window
+                || has_screenshot_window_target_for_monitor(self, session_monitor.as_str());
+            if enabled {
+                break;
+            }
+        }
+        let next = next as usize;
+        let Some(session) = self.input.interaction_state.screenshot_session.as_mut() else {
+            return false;
+        };
         session.menu_selected = next;
         session.menu_hovered = Some(next);
         self.request_maintenance();
@@ -103,9 +122,18 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
     }
 
     pub(crate) fn hover_screenshot_menu_item(&mut self, index: Option<usize>) {
-        if let Some(session) = self.input.interaction_state.screenshot_session.as_mut()
-            && session.mode == CaptureMode::Menu
-        {
+        let monitor = match self.input.interaction_state.screenshot_session.as_ref() {
+            Some(session) if session.mode == CaptureMode::Menu => session.monitor.clone(),
+            _ => return,
+        };
+        // Ignore hover on a blanked (disabled) entry, e.g. Window with no targets.
+        let index = index.filter(|&idx| {
+            screenshot_menu_modes().get(idx).is_some_and(|&mode| {
+                mode != CaptureMode::Window
+                    || has_screenshot_window_target_for_monitor(self, monitor.as_str())
+            })
+        });
+        if let Some(session) = self.input.interaction_state.screenshot_session.as_mut() {
             session.menu_hovered = index;
             if let Some(index) = index {
                 session.menu_selected = index;
@@ -129,6 +157,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         let Some(&mode) = modes.get(index) else {
             return false;
         };
+        // Window capture is disabled (blanked) when there is nothing to target.
+        if mode == CaptureMode::Window
+            && !has_screenshot_window_target_for_monitor(self, monitor.as_str())
+        {
+            return false;
+        }
         let (selected_window, initial_selection) =
             initial_screenshot_selection(self, mode, monitor.as_str());
         let Some(session) = self.input.interaction_state.screenshot_session.as_mut() else {

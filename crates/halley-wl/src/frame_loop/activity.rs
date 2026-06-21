@@ -57,12 +57,14 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .get(monitor)
             .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
+        || crate::compositor::overview::apogee_render_pending(st)
         || st
             .model
             .cluster_state
             .cluster_name_prompt
             .contains_key(monitor)
         || screenshot_controller(st).screenshot_session_active()
+        || crate::compositor::portal_chooser::portal_chooser_active(st)
         || st
             .ui
             .render_state
@@ -112,6 +114,7 @@ fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) 
             .get(monitor)
             .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
+        || crate::compositor::overview::apogee_render_pending(st)
         || cluster_name_prompt_hover_animating(st, monitor)
         || screenshot_controller(st).screenshot_session_active()
         || st
@@ -260,6 +263,8 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
+    let cursor_parallax_active =
+        crate::presentation::cursor_parallax_active_for_monitor(st, monitor);
     let overlay_active = monitor_overlay_animation_active_at(st, monitor, now_ms)
         || node_hover_ui_animating(st, monitor)
         || st
@@ -291,6 +296,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         || landmark_slide_active
         || viewport_pan_active
         || camera_smoothing_active
+        || cursor_parallax_active
         || overlay_active;
 
     TtyOutputAnimationRedrawState {

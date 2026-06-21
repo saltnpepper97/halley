@@ -330,7 +330,7 @@ impl Field {
             } else {
                 self.nodes.remove(&id)?
             };
-            if cluster_len <= 2 {
+            if cluster_len <= 1 {
                 self.finish_dissolve_cluster(cid);
                 return Some((
                     removed,
@@ -686,7 +686,7 @@ impl Field {
         &mut self,
         members: Vec<NodeId>,
     ) -> Result<ClusterId, ClusterCreateError> {
-        if members.len() < 2 {
+        if members.is_empty() {
             return Err(ClusterCreateError::TooFewMembers);
         }
 
@@ -1142,24 +1142,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cluster_create_rejects_missing_nodes() {
+    fn cluster_create_rejects_empty_members() {
         let mut f = Field::new();
-        let missing = NodeId::new(999);
+
         assert_eq!(
-            f.create_cluster(vec![missing]),
+            f.create_cluster(Vec::new()),
             Err(ClusterCreateError::TooFewMembers)
         );
     }
 
     #[test]
-    fn cluster_create_rejects_singletons() {
+    fn cluster_create_rejects_missing_nodes() {
+        let mut f = Field::new();
+        let missing = NodeId::new(999);
+
+        assert_eq!(
+            f.create_cluster(vec![missing]),
+            Err(ClusterCreateError::MissingNode(missing))
+        );
+    }
+
+    #[test]
+    fn cluster_create_allows_singletons() {
         let mut f = Field::new();
         let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
 
-        assert_eq!(
-            f.create_cluster(vec![a]),
-            Err(ClusterCreateError::TooFewMembers)
-        );
+        let cid = f.create_cluster(vec![a]).unwrap();
+        assert_eq!(f.cluster(cid).unwrap().members(), &[a]);
     }
 
     #[test]
@@ -1448,7 +1457,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_member_requires_explicit_dissolve_for_two_member_cluster() {
+    fn remove_member_allows_two_member_cluster_to_become_singleton() {
         let mut f = Field::new();
         let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         let b = f.spawn_surface("B", Vec2 { x: 10.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
@@ -1457,15 +1466,15 @@ mod tests {
 
         assert_eq!(
             f.remove_member_from_cluster(cid, a),
-            Some(ClusterRemoveMemberOutcome::RequiresDissolve)
+            Some(ClusterRemoveMemberOutcome::Removed)
         );
         let cluster = f.cluster(cid).unwrap();
-        assert_eq!(cluster.members(), &[a, b]);
-        assert_eq!(cluster.master(), a);
+        assert_eq!(cluster.members(), &[b]);
+        assert_eq!(cluster.master(), b);
     }
 
     #[test]
-    fn raw_member_removal_dissolves_two_member_cluster_without_leaking_singleton() {
+    fn raw_member_removal_keeps_two_member_cluster_as_singleton() {
         let mut f = Field::new();
         let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         let b = f.spawn_surface("B", Vec2 { x: 10.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
@@ -1475,12 +1484,12 @@ mod tests {
 
         let (_, effect) = f.remove_node_cluster_safe(a).unwrap();
 
-        assert_eq!(effect, Some(RemoveNodeClusterEffect::DissolvedCluster(cid)));
-        assert!(f.cluster(cid).is_none());
-        assert!(f.node(core).is_none());
+        assert_eq!(effect, Some(RemoveNodeClusterEffect::RemovedMember(cid)));
+        assert_eq!(f.cluster(cid).unwrap().members(), &[b]);
+        assert!(f.node(core).is_some());
         assert!(f.node(a).is_none());
         assert!(f.node(b).is_some());
-        assert!(f.is_visible(b));
+        assert!(!f.is_visible(b));
     }
 
     #[test]

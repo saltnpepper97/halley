@@ -79,6 +79,7 @@ pub(crate) struct PendingMaximize {
 pub(crate) struct ActiveDragState {
     pub(crate) node_id: NodeId,
     pub(crate) parallax_origin: Vec2,
+    pub(crate) parallax_start_offset: Vec2,
     pub(crate) allow_monitor_transfer: bool,
     pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: Vec2,
@@ -137,6 +138,69 @@ pub(crate) struct OverlayHoverTarget {
     pub(crate) monitor: String,
     pub(crate) screen_anchor: (i32, i32),
     pub(crate) prefer_left: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ActiveCompositorPinchMode {
+    Pending { delta: Vec2 },
+    Pan,
+    Zoom,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorPinch {
+    pub(crate) monitor: String,
+    pub(crate) start_view_size: Vec2,
+    pub(crate) mode: ActiveCompositorPinchMode,
+    /// Recent pan velocity in screen px/sec (EMA), used to fling pan on release.
+    pub(crate) vel: Vec2,
+    /// Timestamp (ms) of the last update, for velocity sampling.
+    pub(crate) last_time_msec: u32,
+}
+
+/// Whether a compositor swipe drives a continuous viewport pan or a discrete
+/// (direction → action) binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SwipeMode {
+    Pan,
+    Action,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorSwipe {
+    pub(crate) monitor: String,
+    pub(crate) fingers: u32,
+    pub(crate) delta: Vec2,
+    pub(crate) apogee_context: bool,
+    pub(crate) mode: SwipeMode,
+    /// Recent velocity in screen px/sec (EMA): flings pan, or commits an action
+    /// gesture by flick even when it didn't travel past the distance threshold.
+    pub(crate) vel: Vec2,
+    /// Timestamp (ms) of the last update, for velocity sampling.
+    pub(crate) last_time_msec: u32,
+    /// For `Action` swipes: the direction latched the first time the gesture
+    /// crossed the distance threshold (robust to curved / returning paths).
+    pub(crate) latched: Option<halley_config::GestureSwipeDirection>,
+    /// True once this swipe began scrubbing a gesture-driven Apogee open, so the
+    /// overview tracks the finger and commits/cancels on release instead of the
+    /// normal discrete binding fire.
+    pub(crate) drives_apogee_open: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActiveCompositorHold {
+    pub(crate) monitor: String,
+    pub(crate) fingers: u32,
+    pub(crate) action: halley_config::GestureBindingAction,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ActiveGestureRoute {
+    Client,
+    CompositorPinch(ActiveCompositorPinch),
+    CompositorSwipe(ActiveCompositorSwipe),
+    CompositorHold(ActiveCompositorHold),
+    Ignored,
 }
 
 #[derive(Clone)]
@@ -217,6 +281,11 @@ pub(crate) struct FocusCycleImmersiveOrigin {
 pub(crate) struct FocusCycleSession {
     pub(crate) candidates: Vec<NodeId>,
     pub(crate) preview_index: usize,
+    pub(crate) opened_at: Instant,
+    pub(crate) step_from_visual_index: f32,
+    pub(crate) step_to_visual_index: f32,
+    pub(crate) step_started_at: Instant,
+    pub(crate) closing_started_at: Option<Instant>,
     pub(crate) origin_focus: Option<NodeId>,
     pub(crate) immersive_origin: Option<FocusCycleImmersiveOrigin>,
     pub(crate) immersive_lock_released: bool,
@@ -256,6 +325,21 @@ pub(crate) struct PointerContents {
     pub(crate) is_session_lock_surface: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CursorParallaxState {
+    pub(crate) current: Vec2,
+    pub(crate) target: Vec2,
+}
+
+impl Default for CursorParallaxState {
+    fn default() -> Self {
+        Self {
+            current: Vec2 { x: 0.0, y: 0.0 },
+            target: Vec2 { x: 0.0, y: 0.0 },
+        }
+    }
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -275,6 +359,8 @@ pub(crate) struct InteractionState {
     pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
     pub(crate) physics_last_tick: Instant,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
+    pub(crate) cursor_parallax: HashMap<String, CursorParallaxState>,
+    pub(crate) cursor_parallax_last_tick: Instant,
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
     /// Maximize requested mid-trail; deferred until `viewport_pan_anim` finishes so the pan
@@ -292,9 +378,15 @@ pub(crate) struct InteractionState {
     pub(crate) inflight_screenshot_capture: Option<InflightScreenshotCapture>,
     pub(crate) screenshot_next_serial: u64,
     pub(crate) last_screenshot_result: Option<ScreenshotCaptureResult>,
+    /// Active xdg-desktop-portal source chooser overlay (screen vs window pick).
+    pub(crate) portal_chooser: Option<crate::compositor::portal_chooser::PortalChooserState>,
     pub(crate) modal_release_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
+    pub(crate) active_gesture_route: Option<ActiveGestureRoute>,
+    pub(crate) apogee_session: Option<crate::compositor::overview::ApogeeSession>,
+    pub(crate) apogee_live_preview_node: Option<NodeId>,
+    pub(crate) apogee_live_preview_last_at: Option<Instant>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,

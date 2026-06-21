@@ -20,6 +20,7 @@ use smithay::utils::SERIAL_COUNTER;
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
 };
+use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
@@ -80,6 +81,30 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         ps.world = frame.world_now;
         drop(ps);
         dispatch_pointer_button(st, frame, resize, button_code, button_state);
+        return;
+    }
+    if st.input.interaction_state.apogee_session.is_some() {
+        let now = Instant::now();
+        let hit = if matches!(button_state, ButtonState::Pressed) && left {
+            crate::compositor::overview::apogee_tile_at(
+                st,
+                target_monitor.as_str(),
+                local_sx,
+                local_sy,
+                now,
+            )
+        } else {
+            None
+        };
+        drop(ps);
+        if matches!(button_state, ButtonState::Pressed) && left {
+            if let Some(node_id) = hit {
+                crate::compositor::overview::select_apogee_target(st, node_id, now);
+            } else {
+                st.close_apogee(now);
+            }
+            ctx.backend.request_redraw();
+        }
         return;
     }
     if matches!(button_state, ButtonState::Pressed)
@@ -157,6 +182,23 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
         .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
     if handle_screenshot_pointer_button(
+        st,
+        ctx,
+        &mut ps,
+        button_code,
+        button_state,
+        left,
+        frame,
+        target_monitor.as_str(),
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        world_now,
+    ) {
+        return;
+    }
+    if handle_portal_chooser_pointer_button(
         st,
         ctx,
         &mut ps,

@@ -32,6 +32,7 @@ pub(crate) struct MonitorSpace {
     pub usable_viewport: Viewport,
     pub zoom_ref_size: Vec2,
     pub zoom_log_vel: f32,
+    pub pan_vel: Vec2,
     pub camera_target_center: Vec2,
     pub camera_target_view_size: Vec2,
 }
@@ -120,6 +121,7 @@ pub(crate) fn load_monitor_state(st: &mut Halley, name: &str) -> bool {
     st.model.viewport = space.viewport;
     st.model.zoom_ref_size = space.zoom_ref_size;
     st.model.zoom_log_vel = space.zoom_log_vel;
+    st.model.pan_vel = space.pan_vel;
     st.model.camera_target_center = space.camera_target_center;
     st.model.camera_target_view_size = space.camera_target_view_size;
     true
@@ -135,6 +137,7 @@ pub(crate) fn sync_current_monitor_state(st: &mut Halley) {
         space.viewport = st.model.viewport;
         space.zoom_ref_size = st.model.zoom_ref_size;
         space.zoom_log_vel = st.model.zoom_log_vel;
+        space.pan_vel = st.model.pan_vel;
         space.camera_target_center = st.model.camera_target_center;
         space.camera_target_view_size = st.model.camera_target_view_size;
     }
@@ -319,6 +322,7 @@ pub(crate) fn reconfigure_active_tty_monitors(
                     .map(|m| m.zoom_ref_size)
                     .unwrap_or(default_view.size),
                 zoom_log_vel: 0.0,
+                pan_vel: Vec2 { x: 0.0, y: 0.0 },
                 camera_target_center: restored
                     .map(|m| m.camera_target_center)
                     .unwrap_or(default_view.center),
@@ -343,6 +347,7 @@ pub(crate) fn reconfigure_active_tty_monitors(
                 usable_viewport: view,
                 zoom_ref_size: st.runtime.tuning.viewport_size,
                 zoom_log_vel: 0.0,
+                pan_vel: Vec2 { x: 0.0, y: 0.0 },
                 camera_target_center: st.runtime.tuning.viewport_center,
                 camera_target_view_size: st.runtime.tuning.viewport_size,
             },

@@ -22,6 +22,8 @@ pub(crate) struct ClusterFinalizeDraftState {
 #[derive(Clone, Debug)]
 pub(crate) struct PendingLiftClusterBuildState {
     pub(crate) selected_node_ids: HashSet<NodeId>,
+    pub(crate) candidate_node_ids: HashSet<NodeId>,
+    pub(crate) staged_node_ids: HashSet<NodeId>,
     pub(crate) app_launches: Vec<ClusterFinalizeAppLaunch>,
     pub(crate) name_record: ClusterNameRecord,
     pub(crate) expected_members: usize,

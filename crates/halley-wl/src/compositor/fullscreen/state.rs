@@ -54,6 +54,11 @@ pub(crate) struct FullscreenState {
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
     pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
+    /// Per-monitor camera (zoom + center) captured when fullscreen reset the monitor
+    /// zoom to 1.0 on entry, restored on exit so leaving fullscreen returns to the
+    /// pre-fullscreen zoom instead of plopping at 1.0.
+    pub(crate) fullscreen_camera_restore:
+        HashMap<String, crate::compositor::workspace::state::MaximizeCameraSnapshot>,
     pub(crate) direct_scanout: HashMap<String, FullscreenDirectScanoutState>,
 }
 

@@ -91,6 +91,10 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
                 Ok(())
             }
         }
+        Response::PortalScreenCast(response) => {
+            println!("{response:?}");
+            Ok(())
+        }
         Response::Error(err) => Err(format_ipc_error(&err)),
     }
 }

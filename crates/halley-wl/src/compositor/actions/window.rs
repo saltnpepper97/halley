@@ -188,12 +188,9 @@ pub(crate) fn focus_from_presentation_navigation(
     }
 
     let target_visible = st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id);
-    if node.state == halley_core::field::NodeState::Active
-        && target_visible
-        && fullscreen_on_target.is_none()
-    {
-        st.set_interaction_focus(Some(node_id), 30_000, now);
+    if node.state == halley_core::field::NodeState::Active && target_visible {
         let _ = st.raise_overlap_policy_node(node_id);
+        st.set_interaction_focus(Some(node_id), 30_000, now);
         return true;
     }
 
@@ -215,7 +212,7 @@ pub(crate) fn focus_from_presentation_navigation(
         .get(target_monitor.as_str())
         .copied()
     {
-        st.exit_xdg_fullscreen(fullscreen_id, now);
+        st.soft_suspend_xdg_fullscreen(fullscreen_id, now);
     }
 
     if st.focused_monitor() != target_monitor {

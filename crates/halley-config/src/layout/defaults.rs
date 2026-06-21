@@ -10,11 +10,12 @@ use crate::keybinds::{
 };
 
 use super::{
-    AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig, InputConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
+    AnimationsConfig, ApogeeConfig, BearingsConfig, ClickCollapsedOutsideFocusMode,
+    ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
+    CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig,
+    InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    OverlayStyleConfig, PanToNewMode, ParallaxConfig, PinsConfig, PlacementConfig, RuntimeTuning,
+    ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -77,6 +78,7 @@ impl Default for RuntimeTuning {
             pan_to_new: PanToNewMode::IfNeeded,
             placement: PlacementConfig::default(),
             pins: PinsConfig::default(),
+            parallax: ParallaxConfig::default(),
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,
             zoom_enabled: true,
@@ -106,6 +108,7 @@ impl Default for RuntimeTuning {
             cursor: CursorConfig::default(),
             font: FontConfig::default(),
             debug: DebugConfig::default(),
+            apogee: ApogeeConfig::default(),
             animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
             screenshot: ScreenshotConfig::default(),
@@ -152,6 +155,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             modifiers: modifier,
             key: key("return"),
             action: CompositorBindingAction::OpenTerminal,
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("space"),
+            action: CompositorBindingAction::Apogee,
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,
