@@ -282,6 +282,33 @@ mod tests {
     }
 
     #[test]
+    fn client_request_on_user_fullscreen_updates_origin() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let window = state.model.field.spawn_surface(
+            "window",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(window, "monitor_a");
+        let now = Instant::now();
+
+        state.enter_user_fullscreen(window, None, now);
+        assert_eq!(
+            state.model.fullscreen_state.fullscreen_origin.get(&window),
+            Some(&crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind)
+        );
+
+        state.enter_xdg_fullscreen(window, None, now + std::time::Duration::from_millis(1));
+
+        assert!(state.is_fullscreen_active(window));
+        assert_eq!(
+            state.model.fullscreen_state.fullscreen_origin.get(&window),
+            Some(&crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest)
+        );
+    }
+
+    #[test]
     fn fullscreen_enter_starts_visual_animation() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -898,53 +925,6 @@ fn fullscreen_animation_rect(
     (pos, size)
 }
 
-/// Continuous parallax weight for a node mid fullscreen transition: `0.0` at the
-/// fullscreen extent (no parallax), `1.0` at the windowed extent (full parallax). Used
-/// to blend parallax in/out across the animation so there is no snap when the visual
-/// rect hands off to the resting (parallax-offset) position. `None` when the node has no
-/// fullscreen visual on the current monitor.
-pub(crate) fn fullscreen_parallax_restore_weight_for_node_on_current_monitor_at(
-    st: &Halley,
-    node_id: NodeId,
-    now: Instant,
-) -> Option<f32> {
-    let monitor = st.model.monitor_state.current_monitor.as_str();
-    if let Some(anim) = st
-        .model
-        .fullscreen_state
-        .fullscreen_scale_anim
-        .get(&node_id)
-        .filter(|anim| anim.monitor == monitor)
-    {
-        let e = fullscreen_animation_progress(anim.start_ms, anim.duration_ms, st.now_ms(now));
-        return Some(transition_restore_weight(
-            anim.from_size.x,
-            anim.to_size.x,
-            e,
-        ));
-    }
-    (st.model
-        .fullscreen_state
-        .fullscreen_active_node
-        .get(monitor)
-        .copied()
-        == Some(node_id))
-    .then_some(0.0)
-}
-
-/// Weight (0 at the larger/fullscreen extent, 1 at the smaller/windowed extent) for an
-/// eased interpolation `e` between `from`/`to` widths. Guards equal extents by falling
-/// back to `e` (treated as exit progress).
-pub(crate) fn transition_restore_weight(from: f32, to: f32, e: f32) -> f32 {
-    let big = from.max(to);
-    let small = from.min(to);
-    if (big - small).abs() < 1.0 {
-        return e.clamp(0.0, 1.0);
-    }
-    let current = from + (to - from) * e;
-    ((big - current) / (big - small)).clamp(0.0, 1.0)
-}
-
 pub(crate) fn fullscreen_entry_scale(_st: &Halley, _node_id: NodeId, _now_ms: u64) -> f32 {
     1.0
 }
@@ -1444,6 +1424,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 .fullscreen_state
                 .fullscreen_origin
                 .insert(node_id, origin);
+            if origin == crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest {
+                let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
+                self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
+            }
             return;
         }
 

@@ -311,14 +311,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         let closing_monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
         let closing_node_snapshot = st.model.field.node(id).and_then(|node| {
             matches!(node.state, halley_core::field::NodeState::Node).then(|| {
-                let pos = closing_monitor
-                    .as_deref()
-                    .map(|monitor| {
-                        crate::presentation::cursor_parallax_position_for_monitor(
-                            st, monitor, id, node.pos,
-                        )
-                    })
-                    .unwrap_or(node.pos);
+                let pos = node.pos;
                 (pos, node.label.clone(), node.state.clone())
             })
         });

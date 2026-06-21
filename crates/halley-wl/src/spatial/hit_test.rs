@@ -8,7 +8,7 @@ use crate::compositor::spawn::state::{is_persistent_rule_top, node_floats_over_a
 use crate::compositor::surface::active_stacking_visible_members_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::input::active_node_screen_rect;
-use crate::presentation::{cursor_parallax_position, node_marker_metrics, world_to_screen};
+use crate::presentation::{node_marker_metrics, world_to_screen};
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::{FocusRing, FocusZone};
 
@@ -181,7 +181,7 @@ pub(crate) fn hit_nodes_at(
                 }
             }
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
-                let pos = cursor_parallax_position(st, id, n.pos);
+                let pos = n.pos;
                 let (cx, cy) = world_to_screen(st, w, h, pos.x, pos.y);
                 let (dot_half, _, _, _) = node_marker_metrics(st, n.label.len(), anim.scale);
                 let radius = if n.state == halley_core::field::NodeState::Core {

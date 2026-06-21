@@ -12,7 +12,7 @@ use crate::compositor::surface::{
     active_stacking_render_order_for_monitor, node_allows_interactive_resize,
 };
 use crate::frame_loop::anim_style_for;
-use crate::presentation::{cursor_parallax_position, world_to_screen};
+use crate::presentation::world_to_screen;
 use crate::window::active_window_frame_pad_px;
 
 use super::handles::{pick_resize_handle_from_screen, press_is_near_edge};
@@ -228,7 +228,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             1.0f32,
         )
     } else {
-        let p = cursor_parallax_position(st, node_id, n.pos);
+        let p = n.pos;
         let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
         let bbox_lx = st

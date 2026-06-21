@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
-- Add `field.parallax` config for zoomed-out window-drag depth (`enabled`, `strength`, `tau-ms`),
-  with eased parallax while moving windows and no background drift from ordinary cursor motion.
+- Add Halley Lift config-editing actions for both Lift config and Halley compositor config;
+  config actions now open files with `$EDITOR` in Lift's configured terminal instead of `xdg-open`.
 - Add the Halley Discord community/support invite to the README.
 - Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
   fill) so markers recede into the field; the border ring and app icon stay fully opaque.
@@ -36,7 +36,7 @@ All notable changes to this project will be documented in this file.
   use configured translucent backgrounds.
 - Add configurable Halley Lift caret settings for visibility, width, blink timing, and
   stop-blink timing.
-- Add a Halley Lift `term`/`/term`/`/t` search mode that runs the typed command line in the
+- Add a Halley Lift `term` search mode that runs the typed command line in the
   configured `terminal` through the user's interactive `$SHELL` (so aliases, pipes, `&&`, and
   quoting work), keeps a shell open afterward, and then closes Lift.
 - Add a configurable Halley Lift `border:` block (`enabled`, `width`, `style`). `outline`
@@ -165,8 +165,7 @@ All notable changes to this project will be documented in this file.
   `input.gestures`, reusing existing compositor gesture action names. Hold bindings are routed
   through libinput's hold gesture and respect the same `compositor-scope` and gesture modifier
   rules as swipe bindings. Client passthrough is preserved when no matching hold binding exists.
-- Restore the pre-fullscreen camera zoom/center on genuine fullscreen exit, and blend parallax back
-  in during fullscreen and maximize exit animations to avoid a visual snap as windows return.
+- Restore the pre-fullscreen camera zoom/center on genuine fullscreen exit.
 - Improve resize-by-border interaction with a minimum edge grab band, hover resize handles, and
   plain left-press edge resize/release behavior.
 - Polish Apogee hovered live-preview feedback with an accent label and transparent focus ring.
@@ -177,7 +176,16 @@ All notable changes to this project will be documented in this file.
   displace when selected from the overview: the close animation flies back to the actual
   presentation visual rect instead of the stale windowed field position.
 
+### Removed
+- Remove field parallax entirely, including `field.parallax` config parsing and generated-config
+  bootstrap defaults, so backgrounds and windows no longer drift or expose cleared framebuffer.
+
 ### Fixed
+- Ensure client-side fullscreen requests still send the xdg fullscreen configure when the window
+  was already fullscreened by a Halley keybind, so client fullscreen buttons map cleanly onto
+  Halley's fullscreen state.
+- Remove the oversized pale proxy marker during collapsed-node field drags, and snap released
+  collapsed nodes back to marker animation state to avoid a large white flash.
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window
   rendering, keep background/bottom layer surfaces visible behind the dim, and draw Aperture above
   Apogee in minimal mode.
@@ -192,12 +200,6 @@ All notable changes to this project will be documented in this file.
   and remap rounded-texture shader coordinates for cropped sources, avoiding square Firefox/GTK
   thumbnails or square preview corners when their surface-tree cache is padded.
 - Capture collapsed surface-node previews for Apogee instead of leaving their card bodies black.
-- Keep same-monitor drag parallax held after releasing a moved window; only disabled/Apogee/cross-monitor
-  cases return the temporary parallax offset home.
-- Preserve the released window's visual position when ending a drag under held parallax, avoiding a
-  small snap as the dragged window rejoins the parallaxed field.
-- Preserve resized windows' visual position when releasing under held parallax, and use the
-  parallax-adjusted position for close-animation captures and collapsed-node hit testing.
 - Keep a dropped window fixed at its exact release point while overlap resolution pushes neighboring
   windows aside, avoiding a post-drop snap of the window being moved.
 - Render collapsed surface nodes in Apogee using the original window preview aspect/weight instead
@@ -277,7 +279,7 @@ All notable changes to this project will be documented in this file.
 - Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
 - Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
-- Add Halley Lift, a standalone command palette for apps, nodes, clusters, actions, and config search, with slash modes, configurable UI, and cluster draft handoff support.
+- Add Halley Lift, a standalone command palette for apps, nodes, clusters, actions, and config search, with mode prefixes, configurable UI, and cluster draft handoff support.
 - Add a Halley Lift `terminal` config key for launching `.desktop` apps that require a terminal.
 - Add first-class Gamescope integration through a top-level `gamescope:` config section, including global defaults, repeated per-game profiles, and per-game opt-outs, wired through `halleyctl gamescope run -- <command>` for use in Steam launch options.
 - Add automatic Gamescope resolution selection from the selected Halley viewport (`monitor` selector `focused`/`cursor`/`primary`/connector), so matching games launch with monitor-sized output and game dimensions by default.
@@ -307,7 +309,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Make Halley Lift startup and general search responsive by removing synchronous icon indexing, caching live IPC snapshots outside keystroke search, and precomputing app search text.
-- Restore broader Halley Lift icon coverage with background indexing, support live provider prefixes such as `action open` without badges, show all apps for an empty Apps search, keep cluster draft staging explicit to `cluster`/`/cluster` searches, and ellipsize overlong search text from the left so the latest input remains visible.
+- Restore broader Halley Lift icon coverage with background indexing, support live provider prefixes such as `action open` without badges, show all apps for an empty Apps search, keep cluster draft staging explicit to `cluster` searches, and ellipsize overlong search text from the left so the latest input remains visible.
 - Avoid spatial-camera input remapping for Gamescope-managed pointer surfaces (config-gated via `gamescope.bypass-spatial-camera`) so the nested game receives a 1:1 pointer mapping while normal output and buffer scale handling are preserved.
 - Avoid auto-creating `~/.config/halley/halley.rune` when `/etc/halley/halley.rune` exists, preventing system configs from being shadowed on first startup.
 - Treat empty or whitespace-only `HALLEY_WL_CONFIG` as unset.

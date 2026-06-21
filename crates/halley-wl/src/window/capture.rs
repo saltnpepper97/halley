@@ -10,7 +10,6 @@ use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Re
 use smithay::utils::{Buffer, Rectangle, Transform};
 
 use crate::compositor::spawn::state::{node_rule_opacity, node_wants_blur};
-use crate::presentation::cursor_parallax_position_for_monitor;
 use crate::render::{
     draw_offscreen_textures, draw_window_borders, ensure_node_circle_resources,
     ensure_window_texture_program,
@@ -149,9 +148,7 @@ pub(crate) fn capture_closing_window_animation(
         crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
             st, node_id, monitor, now,
         );
-    let visual_pos = maximized_visual
-        .map(|(pos, _)| pos)
-        .unwrap_or_else(|| cursor_parallax_position_for_monitor(st, monitor, node_id, node.pos));
+    let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
     let (cx, cy) = world_to_screen_for_view(
         view_center,
         view_size,

@@ -463,3 +463,53 @@ pub fn default_config_path() -> PathBuf {
     }
     PathBuf::from("lift.rune")
 }
+
+pub fn resolved_halley_config_path() -> PathBuf {
+    if let Ok(path) = std::env::var("HALLEY_WL_CONFIG") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return absolutize_path(trimmed);
+        }
+    }
+
+    let user_path = default_halley_user_config_path();
+    if user_path.exists() {
+        return user_path;
+    }
+
+    let system_path = PathBuf::from("/etc/halley/halley.rune");
+    if system_path.exists() {
+        return system_path;
+    }
+
+    user_path
+}
+
+fn default_halley_user_config_path() -> PathBuf {
+    if let Ok(home) = std::env::var("XDG_CONFIG_HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            return Path::new(trimmed).join("halley/halley.rune");
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            return Path::new(trimmed).join(".config/halley/halley.rune");
+        }
+    }
+
+    PathBuf::from("halley.rune")
+}
+
+fn absolutize_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&path))
+            .unwrap_or(path)
+    }
+}

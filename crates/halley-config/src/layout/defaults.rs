@@ -14,8 +14,8 @@ use super::{
     ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
     CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig,
     InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayStyleConfig, PanToNewMode, ParallaxConfig, PinsConfig, PlacementConfig, RuntimeTuning,
-    ScreenshotConfig, ShapeStyle,
+    OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RuntimeTuning, ScreenshotConfig,
+    ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -78,7 +78,6 @@ impl Default for RuntimeTuning {
             pan_to_new: PanToNewMode::IfNeeded,
             placement: PlacementConfig::default(),
             pins: PinsConfig::default(),
-            parallax: ParallaxConfig::default(),
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,
             zoom_enabled: true,
