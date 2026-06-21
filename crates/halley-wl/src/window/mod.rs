@@ -463,7 +463,10 @@ pub(crate) fn collect_active_surfaces(
             let key = wl.id();
             let node_id = st.model.surface_to_node.get(&key).copied()?;
             let node = st.model.field.node(node_id)?;
-            if !st.model.field.is_visible(node_id) || !st.node_assigned_to_current_monitor(node_id)
+            if crate::compositor::clusters::system::cluster_system_controller(&*st)
+                .pending_lift_cluster_node_staged(node_id)
+                || !st.model.field.is_visible(node_id)
+                || !st.node_assigned_to_current_monitor(node_id)
             {
                 return None;
             }

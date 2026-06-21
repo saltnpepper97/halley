@@ -54,12 +54,8 @@ fn flush_trapped_modal_release(st: &mut Halley, code: u32) {
 
 #[inline]
 fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
-    matches!(
-        action,
-        CompositorBindingAction::ZoomIn
-            | CompositorBindingAction::ZoomOut
-            | CompositorBindingAction::ZoomReset
-    )
+    let _ = action;
+    false
 }
 
 fn handle_focus_cycle_session_input<B: crate::backend::interface::BackendView>(

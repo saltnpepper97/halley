@@ -1384,14 +1384,14 @@ dependencies = [
 
 [[package]]
 name = "halley"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "halley-wl",
 ]
 
 [[package]]
 name = "halley-aperture"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "fontdb",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "halley-capit"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "image",
  "memmap2",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "halley-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "halley-api",
  "halley-config",
@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "halley-config"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "halley-core",
  "regex",
@@ -1450,7 +1450,7 @@ version = "0.4.0"
 
 [[package]]
 name = "halley-ipc"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "halley-api",
  "postcard",
@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "halley-lift"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "calloop 0.14.4",
  "calloop-wayland-source 0.4.1",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "halley-portal"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "eventline",
  "halley-api",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "halley-wl"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "calloop 0.14.4",
  "chrono",

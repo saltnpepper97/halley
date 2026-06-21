@@ -140,6 +140,10 @@ All notable changes to this project will be documented in this file.
 - Make `halley-session` start and wait on the systemd user `halley.service` when available,
   so `graphical-session.target`, desktop autostart, and portal services come up correctly
   under display managers.
+- Start the compositor-side package track at `0.5.0` for the main compositor, Wayland backend,
+  config, IPC, CLI, and capture crates, while keeping `halley-api` on its independent track,
+  pinning `halley-core` at `0.4.0`, and leaving `halley-lift`, `halley-aperture`, and
+  `halley-portal` on their existing `0.1.0` package tracks.
 
 ### Fixed
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window
@@ -204,6 +208,21 @@ All notable changes to this project will be documented in this file.
   live frames instead of black previews.
 - Tighten the portal source chooser visuals by removing excess mode-bar padding and matching
   the screenshot overlay's single hovered-window highlight behavior during window selection.
+- Fix Halley Lift cluster creation so the cluster-mode search text is only used for filtering,
+  not as the cluster name; Lift-created clusters now keep the compositor's default cluster naming
+  behavior unless a real name is submitted.
+- Stage app windows launched for a Halley Lift cluster inside the pending cluster build instead of
+  letting them enter the normal field lifecycle first. Staged windows skip normal reveal, raise,
+  overlap, spawn animation, and render collection paths until they are either absorbed into the
+  final cluster or intentionally released.
+- Prevent already-open matching apps such as Firefox from being mistaken for newly launched Lift
+  cluster members when their app identity refreshes; only windows created as staged candidates for
+  the pending Lift build can satisfy app-launch slots.
+- Keep Lift-launched cluster members hidden through final cluster creation and collapse, removing
+  the standalone field-window flash before the collapsed cluster core appears.
+- Block compositor pan/zoom gestures and keyboard zoom actions while cluster mode or an active
+  cluster workspace is in control, keeping cluster interactions from moving the field underneath
+  the cluster UI.
 
 ## [v0.4.0] - 2026-06-12
 

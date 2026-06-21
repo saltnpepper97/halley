@@ -36,8 +36,14 @@ input:
     modifier "$mod"
     scroll-pan "empty-field"
     swipe-threshold-px 120
-    swipe-up-3 "apogee-open"
-    apogee-swipe-up-3 "apogee-close"
+    # 3-finger swipe pans the canvas (continuous, with flick momentum).
+    pan-fingers 3
+    pan-momentum true
+    pan-decay-rate 6
+    flick-min-px-per-s 200
+    # Apogee on 4-finger: up opens, down closes.
+    swipe-up-4 "apogee-open"
+    apogee-swipe-down-4 "apogee-close"
   end
 
   # libinput touchpad settings (omitted keys keep libinput defaults).

@@ -63,6 +63,9 @@ pub(crate) struct ModelState {
     /// Inertial zoom velocity in log(view-size) units per second. Repeated zoom
     /// input accumulates this (accelerating ramp); friction decays it to a stop.
     pub(crate) zoom_log_vel: f32,
+    /// Inertial pan velocity in world units per second. A flick at the end of a
+    /// pan gesture seeds this; friction decays it to a stop (see `camera.rs`).
+    pub(crate) pan_vel: Vec2,
     pub(crate) camera_target_center: Vec2,
     pub(crate) camera_target_view_size: Vec2,
     pub(crate) surface_to_node: HashMap<ObjectId, NodeId>,
@@ -161,6 +164,7 @@ impl Halley {
                     usable_viewport: view,
                     zoom_ref_size: view.size,
                     zoom_log_vel: 0.0,
+                    pan_vel: Vec2 { x: 0.0, y: 0.0 },
                     camera_target_center: view.center,
                     camera_target_view_size: view.size,
                 },
@@ -180,6 +184,7 @@ impl Halley {
                     usable_viewport: view,
                     zoom_ref_size: tuning.viewport_size,
                     zoom_log_vel: 0.0,
+                    pan_vel: Vec2 { x: 0.0, y: 0.0 },
                     camera_target_center: tuning.viewport_center,
                     camera_target_view_size: tuning.viewport_size,
                 },
@@ -348,6 +353,7 @@ impl Halley {
                 viewport: primary_viewport,
                 zoom_ref_size: primary_zoom_ref,
                 zoom_log_vel: 0.0,
+                pan_vel: Vec2 { x: 0.0, y: 0.0 },
                 camera_target_center: primary_viewport.center,
                 camera_target_view_size: primary_zoom_ref,
                 surface_to_node: HashMap::new(),

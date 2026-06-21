@@ -185,6 +185,30 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
             .flatten()
     }
 
+    pub(crate) fn pending_lift_cluster_build_waits_for_candidate_identity(
+        &self,
+        monitor: &str,
+        node_id: NodeId,
+    ) -> bool {
+        self.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .get(monitor)
+            .is_some_and(|build| {
+                build.candidate_node_ids.contains(&node_id)
+                    && !build.app_launches.is_empty()
+                    && build.selected_node_ids.len() < build.expected_members
+            })
+    }
+
+    pub(crate) fn pending_lift_cluster_node_staged(&self, node_id: NodeId) -> bool {
+        self.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .values()
+            .any(|build| build.staged_node_ids.contains(&node_id))
+    }
+
     pub(crate) fn cluster_name_record(&self, cid: ClusterId) -> Option<&ClusterNameRecord> {
         self.model.cluster_state.cluster_names.get(&cid)
     }
@@ -251,6 +275,27 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    pub(crate) fn note_pending_lift_cluster_candidate_node(
+        &mut self,
+        monitor: &str,
+        node_id: NodeId,
+    ) -> bool {
+        let Some(build) = self
+            .model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .get_mut(monitor)
+        else {
+            return false;
+        };
+        if build.app_launches.is_empty() || build.selected_node_ids.len() >= build.expected_members
+        {
+            return false;
+        }
+        build.staged_node_ids.insert(node_id);
+        build.candidate_node_ids.insert(node_id)
+    }
+
     fn open_cluster_name_prompt_for_monitor(
         &mut self,
         monitor: &str,
@@ -384,17 +429,23 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .pending_lift_cluster_builds
             .get_mut(monitor)
         {
+            if !build.candidate_node_ids.contains(&node_id) {
+                return false;
+            }
             let app_ids = build
                 .app_launches
                 .iter()
                 .map(|launch| launch.app_id.clone())
                 .collect::<Vec<_>>();
             if !draft_app_ids_match(&app_ids, app_id) {
+                build.candidate_node_ids.remove(&node_id);
+                build.staged_node_ids.remove(&node_id);
                 return false;
             }
             if !build.selected_node_ids.insert(node_id) {
                 return false;
             }
+            build.candidate_node_ids.remove(&node_id);
             self.model
                 .spawn_state
                 .pending_initial_reveal
@@ -873,6 +924,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             monitor.to_string(),
             PendingLiftClusterBuildState {
                 selected_node_ids: draft.selected_node_ids,
+                candidate_node_ids: std::collections::HashSet::new(),
+                staged_node_ids: std::collections::HashSet::new(),
                 app_launches: draft.app_launches,
                 name_record,
                 expected_members,
@@ -968,14 +1021,44 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         let members =
             self.order_cluster_creation_members(build.selected_node_ids.iter().copied().collect());
-        for member in &members {
-            let _ = self.model.field.set_detached(*member, false);
-        }
-        let created = self.create_cluster(members).ok().and_then(|cid| {
+        let created = self.create_cluster(members.clone()).ok().and_then(|cid| {
             self.finish_lift_finalized_cluster(cid, monitor, build.name_record.clone(), now)
         });
         if created.is_none() {
+            for node_id in &build.staged_node_ids {
+                self.model
+                    .spawn_state
+                    .pending_initial_reveal
+                    .remove(node_id);
+                if self
+                    .model
+                    .field
+                    .cluster_id_for_member_public(*node_id)
+                    .is_none()
+                {
+                    let _ = self.model.field.set_detached(*node_id, false);
+                }
+            }
+            self.model
+                .cluster_state
+                .pending_lift_cluster_builds
+                .remove(monitor);
             return false;
+        }
+        for member in &members {
+            self.model.spawn_state.pending_initial_reveal.remove(member);
+            let _ = self.model.field.set_detached(*member, false);
+        }
+        for node_id in build
+            .staged_node_ids
+            .iter()
+            .filter(|node_id| !build.selected_node_ids.contains(node_id))
+        {
+            self.model
+                .spawn_state
+                .pending_initial_reveal
+                .remove(node_id);
+            let _ = self.model.field.set_detached(*node_id, false);
         }
         self.model
             .cluster_state

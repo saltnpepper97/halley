@@ -13,6 +13,7 @@ use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::{
     ActiveCompositorPinch, ActiveCompositorPinchMode, ActiveCompositorSwipe, ActiveGestureRoute,
+    SwipeMode,
 };
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
@@ -28,6 +29,53 @@ const PINCH_ZOOM_NOISE_LOG_DELTA: f32 = 0.04;
 const PINCH_ZOOM_STRONG_LOG_DELTA: f32 = 0.18;
 const PINCH_PAN_LOCK_PX: f32 = 4.0;
 const PINCH_PAN_DEFINITE_LOCK_PX: f32 = 16.0;
+
+/// Smoothing for release-velocity sampling (EMA weight on the newest sample).
+const GESTURE_VEL_EMA: f32 = 0.35;
+
+/// Upward travel (screen px) that fully opens Apogee when scrubbing it open with a
+/// swipe; progress is `up_travel / this`, clamped to 1.0.
+const APOGEE_GESTURE_OPEN_TRAVEL_PX: f32 = 320.0;
+/// Upward travel before a swipe starts scrubbing Apogee open (ignores tiny drift).
+const APOGEE_GESTURE_START_DEADZONE_PX: f32 = 8.0;
+/// Release progress at/above which a scrubbed Apogee open commits (a flick also
+/// commits below this).
+const APOGEE_GESTURE_COMMIT_PROGRESS: f32 = 0.4;
+
+/// Whether a swipe of `fingers` going up is bound to open Apogee.
+fn swipe_up_opens_apogee(st: &Halley, fingers: u32) -> bool {
+    st.runtime
+        .tuning
+        .input
+        .gestures
+        .swipe_bindings
+        .iter()
+        .any(|binding| {
+            binding.fingers == fingers
+                && binding.direction == GestureSwipeDirection::Up
+                && binding.action == GestureBindingAction::ApogeeOpen
+        })
+}
+
+/// Fold a fresh per-event delta into an exponential-moving-average velocity in
+/// screen px/sec. `last_msec`/`now_msec` are wrapping millisecond stamps.
+fn sample_velocity(prev: Vec2, last_msec: u32, now_msec: u32, dx: f64, dy: f64) -> Vec2 {
+    let dt_ms = now_msec.wrapping_sub(last_msec).max(1) as f32;
+    let dt = (dt_ms / 1000.0).clamp(1.0 / 1000.0, 0.1);
+    let inst = Vec2 {
+        x: dx as f32 / dt,
+        y: dy as f32 / dt,
+    };
+    Vec2 {
+        x: prev.x + (inst.x - prev.x) * GESTURE_VEL_EMA,
+        y: prev.y + (inst.y - prev.y) * GESTURE_VEL_EMA,
+    }
+}
+
+#[inline]
+fn vec_len(v: Vec2) -> f32 {
+    v.x.hypot(v.y)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingPinchIntent {
@@ -167,6 +215,7 @@ fn begin_pinch_route<B: BackendView>(st: &mut Halley, ctx: &InputCtx<'_, B>) -> 
 
     st.activate_monitor(target.monitor.as_str());
     st.model.zoom_log_vel = 0.0;
+    st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
     debug!("gesture pinch route: compositor zoom");
     ActiveGestureRoute::CompositorPinch(ActiveCompositorPinch {
         monitor: target.monitor,
@@ -174,6 +223,8 @@ fn begin_pinch_route<B: BackendView>(st: &mut Halley, ctx: &InputCtx<'_, B>) -> 
         mode: ActiveCompositorPinchMode::Pending {
             delta: Vec2 { x: 0.0, y: 0.0 },
         },
+        vel: Vec2 { x: 0.0, y: 0.0 },
+        last_time_msec: 0,
     })
 }
 
@@ -188,13 +239,8 @@ fn begin_swipe_route<B: BackendView>(
 
     let target = gesture_target_at_pointer(st, ctx);
     let apogee_context = st.input.interaction_state.apogee_session.is_some();
-    let gestures = &st.runtime.tuning.input.gestures;
     let global_override = gesture_global_override_active(st, ctx);
-    let candidate_bindings = if apogee_context {
-        &gestures.apogee_swipe_bindings
-    } else {
-        &gestures.swipe_bindings
-    };
+
     if crate::compositor::interaction::pointer::active_constrained_pointer_surface(st).is_some() {
         return if begin_client_route(st, &target) {
             ActiveGestureRoute::Client
@@ -202,6 +248,49 @@ fn begin_swipe_route<B: BackendView>(
             ActiveGestureRoute::Ignored
         };
     }
+
+    // Small-trackpad alias: gesture-modifier + pan-finger swipe acts as the
+    // (pan_fingers + 1) action set (e.g. Mod+3 == 4-finger Apogee), but only when
+    // such a binding actually exists.
+    let gestures = &st.runtime.tuning.input.gestures;
+    let pan_fingers = gestures.pan_fingers;
+
+    // Continuous viewport pan: the dedicated pan finger-count (not in Apogee). The
+    // gesture modifier doesn't remap finger counts — it only forces compositor
+    // scope (see `global_override`), so e.g. mod+4-finger is still the 4-finger
+    // Apogee action. Falls back to client/ignored when panning is blocked or a
+    // client should own the gesture.
+    let want_pan = !apogee_context && pan_fingers > 0 && fingers == pan_fingers;
+    if want_pan {
+        if camera_controller(&*st).pan_blocked_on_monitor(target.monitor.as_str())
+            || (target.focus.is_some()
+                && (gestures.compositor_scope != CompositorGestureScope::Global
+                    && !global_override
+                    || target_is_session_lock(st, &target)))
+        {
+            return begin_client_or_ignored_route(st, ctx);
+        }
+        st.activate_monitor(target.monitor.as_str());
+        st.model.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+        debug!("gesture swipe route: compositor pan");
+        return ActiveGestureRoute::CompositorSwipe(ActiveCompositorSwipe {
+            monitor: target.monitor,
+            fingers,
+            delta: Vec2 { x: 0.0, y: 0.0 },
+            apogee_context: false,
+            mode: SwipeMode::Pan,
+            vel: Vec2 { x: 0.0, y: 0.0 },
+            last_time_msec: 0,
+            latched: None,
+            drives_apogee_open: false,
+        });
+    }
+
+    let candidate_bindings = if apogee_context {
+        &gestures.apogee_swipe_bindings
+    } else {
+        &gestures.swipe_bindings
+    };
 
     if target.focus.is_some()
         && !apogee_context
@@ -235,6 +324,11 @@ fn begin_swipe_route<B: BackendView>(
         fingers,
         delta: Vec2 { x: 0.0, y: 0.0 },
         apogee_context,
+        mode: SwipeMode::Action,
+        vel: Vec2 { x: 0.0, y: 0.0 },
+        last_time_msec: 0,
+        latched: None,
+        drives_apogee_open: false,
     })
 }
 
@@ -393,20 +487,34 @@ fn apply_gesture_binding_action<B: BackendView>(
     }
 }
 
-fn apply_compositor_swipe<B: BackendView>(
+fn commit_swipe_action<B: BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
-    swipe: ActiveCompositorSwipe,
+    swipe: &ActiveCompositorSwipe,
 ) {
     if !st.activate_monitor(swipe.monitor.as_str()) {
         return;
     }
-    let Some(direction) = classify_swipe_direction(
-        swipe.delta,
-        st.runtime.tuning.input.gestures.swipe_threshold_px,
-    ) else {
+    let threshold = st.runtime.tuning.input.gestures.swipe_threshold_px;
+    let flick_min = st.runtime.tuning.input.gestures.flick_min_px_per_s;
+
+    // Direction priority: the latched direction (set when the gesture first crossed
+    // the distance threshold) wins; otherwise a fast release flick commits even on a
+    // short gesture; otherwise fall back to the net-delta classification. If none of
+    // these yields a direction the gesture is treated as accidental and ignored.
+    let flick_dir = if vec_len(swipe.vel) >= flick_min {
+        classify_swipe_direction(swipe.vel, 1.0)
+    } else {
+        None
+    };
+    let direction = swipe
+        .latched
+        .or(flick_dir)
+        .or_else(|| classify_swipe_direction(swipe.delta, threshold));
+    let Some(direction) = direction else {
         return;
     };
+
     let bindings = if swipe.apogee_context {
         &st.runtime.tuning.input.gestures.apogee_swipe_bindings
     } else {
@@ -428,7 +536,10 @@ pub(crate) fn handle_gesture_swipe_begin<B: BackendView>(
     fingers: u32,
     time_msec: u32,
 ) {
-    let route = begin_swipe_route(st, ctx, fingers);
+    let mut route = begin_swipe_route(st, ctx, fingers);
+    if let ActiveGestureRoute::CompositorSwipe(swipe) = &mut route {
+        swipe.last_time_msec = time_msec;
+    }
     st.input.interaction_state.active_gesture_route = Some(route.clone());
     if !matches!(route, ActiveGestureRoute::Client) {
         return;
@@ -449,7 +560,7 @@ pub(crate) fn handle_gesture_swipe_begin<B: BackendView>(
 
 pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
     st: &mut Halley,
-    _ctx: &InputCtx<'_, B>,
+    ctx: &InputCtx<'_, B>,
     delta_x: f64,
     delta_y: f64,
     time_msec: u32,
@@ -468,8 +579,43 @@ pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
             );
         }
         ActiveGestureRoute::CompositorSwipe(mut swipe) => {
-            swipe.delta.x += delta_x as f32;
-            swipe.delta.y += delta_y as f32;
+            swipe.vel =
+                sample_velocity(swipe.vel, swipe.last_time_msec, time_msec, delta_x, delta_y);
+            swipe.last_time_msec = time_msec;
+            match swipe.mode {
+                SwipeMode::Pan => {
+                    apply_pinch_pan(st, ctx, &swipe.monitor.clone(), delta_x, delta_y);
+                }
+                SwipeMode::Action => {
+                    swipe.delta.x += delta_x as f32;
+                    swipe.delta.y += delta_y as f32;
+                    let up_travel = -swipe.delta.y;
+
+                    // Once the gesture is clearly an upward 4-finger swipe bound to
+                    // ApogeeOpen, build the overview and scrub it open with the
+                    // finger instead of waiting for release.
+                    if !swipe.drives_apogee_open
+                        && !swipe.apogee_context
+                        && st.input.interaction_state.apogee_session.is_none()
+                        && up_travel > APOGEE_GESTURE_START_DEADZONE_PX
+                        && up_travel >= swipe.delta.x.abs()
+                        && swipe_up_opens_apogee(st, swipe.fingers)
+                    {
+                        st.begin_apogee_open_gesture(Instant::now());
+                        swipe.drives_apogee_open = true;
+                    }
+
+                    if swipe.drives_apogee_open {
+                        let progress = (up_travel / APOGEE_GESTURE_OPEN_TRAVEL_PX).clamp(0.0, 1.0);
+                        st.set_apogee_open_gesture_progress(progress);
+                    } else if swipe.latched.is_none() {
+                        swipe.latched = classify_swipe_direction(
+                            swipe.delta,
+                            st.runtime.tuning.input.gestures.swipe_threshold_px,
+                        );
+                    }
+                }
+            }
             st.input.interaction_state.active_gesture_route =
                 Some(ActiveGestureRoute::CompositorSwipe(swipe));
         }
@@ -479,15 +625,42 @@ pub(crate) fn handle_gesture_swipe_update<B: BackendView>(
 
 pub(crate) fn handle_gesture_swipe_end<B: BackendView>(
     st: &mut Halley,
-    _ctx: &InputCtx<'_, B>,
+    ctx: &InputCtx<'_, B>,
     cancelled: bool,
     time_msec: u32,
 ) {
     let route = active_route(st);
     clear_active_route(st);
     if let ActiveGestureRoute::CompositorSwipe(swipe) = route.clone() {
-        if !cancelled {
-            apply_compositor_swipe(st, _ctx, swipe);
+        // A scrubbed Apogee open always needs resolving — even on cancel — so it
+        // doesn't get stuck partway open.
+        if swipe.drives_apogee_open {
+            let up_travel = -swipe.delta.y;
+            let progress = (up_travel / APOGEE_GESTURE_OPEN_TRAVEL_PX).clamp(0.0, 1.0);
+            let flick_up = swipe.vel.y < 0.0
+                && vec_len(swipe.vel) >= st.runtime.tuning.input.gestures.flick_min_px_per_s;
+            if !cancelled && (progress >= APOGEE_GESTURE_COMMIT_PROGRESS || flick_up) {
+                st.commit_apogee_open_gesture(Instant::now());
+            } else {
+                st.cancel_apogee_open_gesture(Instant::now());
+            }
+            return;
+        }
+        if cancelled {
+            return;
+        }
+        match swipe.mode {
+            SwipeMode::Pan => {
+                let gestures = &st.runtime.tuning.input.gestures;
+                if gestures.pan_momentum && vec_len(swipe.vel) >= gestures.flick_min_px_per_s {
+                    let world =
+                        pinch_pan_delta(st, &swipe.monitor, swipe.vel.x as f64, swipe.vel.y as f64);
+                    crate::compositor::monitor::camera::fling_pan(st, world);
+                }
+            }
+            SwipeMode::Action => {
+                commit_swipe_action(st, ctx, &swipe);
+            }
         }
         return;
     }
@@ -557,49 +730,50 @@ pub(crate) fn handle_gesture_pinch_update<B: BackendView>(
                 },
             );
         }
-        ActiveGestureRoute::CompositorPinch(mut pinch) => match pinch.mode.clone() {
-            ActiveCompositorPinchMode::Pending { mut delta } => {
-                delta.x += delta_x as f32;
-                delta.y += delta_y as f32;
-                match classify_pending_pinch(delta, scale as f32) {
-                    Some(PendingPinchIntent::Pan) => {
-                        pinch.mode = ActiveCompositorPinchMode::Pan;
-                        st.input.interaction_state.active_gesture_route =
-                            Some(ActiveGestureRoute::CompositorPinch(pinch.clone()));
-                        apply_pinch_pan(st, ctx, pinch.monitor.as_str(), delta_x, delta_y);
-                    }
-                    Some(PendingPinchIntent::Zoom) => {
-                        pinch.mode = ActiveCompositorPinchMode::Zoom;
-                        st.input.interaction_state.active_gesture_route =
-                            Some(ActiveGestureRoute::CompositorPinch(pinch.clone()));
-                        apply_pinch_zoom(
-                            st,
-                            ctx,
-                            pinch.monitor.as_str(),
-                            pinch.start_view_size,
-                            scale,
-                        );
-                    }
-                    None => {
-                        pinch.mode = ActiveCompositorPinchMode::Pending { delta };
-                        st.input.interaction_state.active_gesture_route =
-                            Some(ActiveGestureRoute::CompositorPinch(pinch));
+        ActiveGestureRoute::CompositorPinch(mut pinch) => {
+            pinch.vel =
+                sample_velocity(pinch.vel, pinch.last_time_msec, time_msec, delta_x, delta_y);
+            pinch.last_time_msec = time_msec;
+            match pinch.mode.clone() {
+                ActiveCompositorPinchMode::Pending { mut delta } => {
+                    delta.x += delta_x as f32;
+                    delta.y += delta_y as f32;
+                    match classify_pending_pinch(delta, scale as f32) {
+                        Some(PendingPinchIntent::Pan) => {
+                            pinch.mode = ActiveCompositorPinchMode::Pan;
+                            apply_pinch_pan(st, ctx, pinch.monitor.as_str(), delta_x, delta_y);
+                        }
+                        Some(PendingPinchIntent::Zoom) => {
+                            pinch.mode = ActiveCompositorPinchMode::Zoom;
+                            apply_pinch_zoom(
+                                st,
+                                ctx,
+                                pinch.monitor.as_str(),
+                                pinch.start_view_size,
+                                scale,
+                            );
+                        }
+                        None => {
+                            pinch.mode = ActiveCompositorPinchMode::Pending { delta };
+                        }
                     }
                 }
+                ActiveCompositorPinchMode::Pan => {
+                    apply_pinch_pan(st, ctx, pinch.monitor.as_str(), delta_x, delta_y);
+                }
+                ActiveCompositorPinchMode::Zoom => {
+                    apply_pinch_zoom(
+                        st,
+                        ctx,
+                        pinch.monitor.as_str(),
+                        pinch.start_view_size,
+                        scale,
+                    );
+                }
             }
-            ActiveCompositorPinchMode::Pan => {
-                apply_pinch_pan(st, ctx, pinch.monitor.as_str(), delta_x, delta_y);
-            }
-            ActiveCompositorPinchMode::Zoom => {
-                apply_pinch_zoom(
-                    st,
-                    ctx,
-                    pinch.monitor.as_str(),
-                    pinch.start_view_size,
-                    scale,
-                );
-            }
-        },
+            st.input.interaction_state.active_gesture_route =
+                Some(ActiveGestureRoute::CompositorPinch(pinch));
+        }
         ActiveGestureRoute::CompositorSwipe(_) | ActiveGestureRoute::Ignored => {}
     }
 }
@@ -612,6 +786,17 @@ pub(crate) fn handle_gesture_pinch_end<B: BackendView>(
 ) {
     let route = active_route(st);
     clear_active_route(st);
+    if let ActiveGestureRoute::CompositorPinch(pinch) = route.clone() {
+        if !cancelled && matches!(pinch.mode, ActiveCompositorPinchMode::Pan) {
+            let gestures = &st.runtime.tuning.input.gestures;
+            if gestures.pan_momentum && vec_len(pinch.vel) >= gestures.flick_min_px_per_s {
+                let world =
+                    pinch_pan_delta(st, &pinch.monitor, pinch.vel.x as f64, pinch.vel.y as f64);
+                crate::compositor::monitor::camera::fling_pan(st, world);
+            }
+        }
+        return;
+    }
     if !matches!(route, ActiveGestureRoute::Client) {
         return;
     }

@@ -77,6 +77,10 @@ pub(crate) struct ApogeeSession {
     pub(crate) started_at: Instant,
     pub(crate) duration: Duration,
     pub(crate) monitors: Vec<ApogeeMonitorSession>,
+    /// When set, the open transition follows a gesture instead of the clock:
+    /// `progress()` returns this value directly so the overview tracks the finger.
+    /// Cleared on commit/cancel, handing back to the timed `started_at` animation.
+    pub(crate) manual_progress: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,8 +90,13 @@ pub(crate) enum ApogeeInteractionRegion {
 }
 
 impl ApogeeSession {
-    /// Linear transition progress in `0.0..=1.0`.
+    /// Linear transition progress in `0.0..=1.0`. While a gesture is driving the
+    /// open (`manual_progress`), that value is returned verbatim so the overview
+    /// follows the finger; otherwise progress is time-based off `started_at`.
     pub(crate) fn progress(&self, now: Instant) -> f32 {
+        if let Some(manual) = self.manual_progress {
+            return manual.clamp(0.0, 1.0);
+        }
         let elapsed = now.saturating_duration_since(self.started_at).as_secs_f32();
         let duration = self.duration.as_secs_f32().max(0.001);
         (elapsed / duration).clamp(0.0, 1.0)
@@ -179,7 +188,70 @@ impl Halley {
             started_at: now,
             duration,
             monitors,
+            manual_progress: None,
         });
+    }
+
+    /// Begin a gesture-driven open: build the overview but hold it at progress 0
+    /// under `manual_progress` so the swipe can scrub it open frame by frame.
+    pub(crate) fn begin_apogee_open_gesture(&mut self, now: Instant) {
+        if self.input.interaction_state.apogee_session.is_some() {
+            return;
+        }
+        self.open_apogee(now);
+        if let Some(session) = self.input.interaction_state.apogee_session.as_mut() {
+            session.phase = ApogeePhase::Opening;
+            session.manual_progress = Some(0.0);
+        }
+    }
+
+    /// Scrub the gesture-driven open to `progress` (0..=1).
+    pub(crate) fn set_apogee_open_gesture_progress(&mut self, progress: f32) {
+        let drives = self
+            .input
+            .interaction_state
+            .apogee_session
+            .as_mut()
+            .filter(|session| {
+                session.manual_progress.is_some() && session.phase == ApogeePhase::Opening
+            });
+        if let Some(session) = drives {
+            session.manual_progress = Some(progress.clamp(0.0, 1.0));
+            self.request_maintenance();
+        }
+    }
+
+    /// Release a gesture-driven open as committed: hand back to the timed Opening
+    /// animation, continuing from the current progress through to fully open.
+    pub(crate) fn commit_apogee_open_gesture(&mut self, now: Instant) {
+        if let Some(session) = self.input.interaction_state.apogee_session.as_mut()
+            && let Some(progress) = session.manual_progress.take()
+        {
+            let dur = session.duration.as_secs_f32().max(0.001);
+            let elapsed = Duration::from_secs_f32(dur * progress.clamp(0.0, 1.0));
+            session.started_at = now.checked_sub(elapsed).unwrap_or(now);
+            session.phase = ApogeePhase::Opening;
+            self.request_maintenance();
+        }
+    }
+
+    /// Release a gesture-driven open as cancelled: fly the partly-opened overview
+    /// back to the desktop and close it.
+    pub(crate) fn cancel_apogee_open_gesture(&mut self, now: Instant) {
+        let driving = self
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .is_some_and(|session| session.manual_progress.is_some());
+        if !driving {
+            return;
+        }
+        self.close_apogee(now);
+        if let Some(session) = self.input.interaction_state.apogee_session.as_mut() {
+            session.manual_progress = None;
+        }
+        self.request_maintenance();
     }
 
     pub(crate) fn close_apogee(&mut self, now: Instant) {
@@ -457,6 +529,22 @@ pub(crate) fn apogee_region_for_point(screen_h: i32, sy: f32) -> ApogeeInteracti
 /// Fly the camera to a picked overview tile and focus/activate it. Reuses the same
 /// reveal path as clicking a node on the Field, so you land *at* the window.
 pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Instant) {
+    // Raise the selected window's tile to the top of its monitor's draw order so
+    // the close fly-back shows it coming forward, instead of animating back behind
+    // its neighbours and only popping in front once the live (raised) window
+    // renders after the transition ends.
+    if let Some(session) = st.input.interaction_state.apogee_session.as_mut() {
+        for monitor_session in &mut session.monitors {
+            if let Some(idx) = monitor_session.tiles.iter().position(|tile| {
+                tile.node_id == node_id && matches!(tile.kind, ApogeeTileKind::Window)
+            }) {
+                let tile = monitor_session.tiles.remove(idx);
+                monitor_session.tiles.push(tile);
+                break;
+            }
+        }
+    }
+
     if crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now) {
         return;
     }

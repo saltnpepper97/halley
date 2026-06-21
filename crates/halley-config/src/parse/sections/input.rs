@@ -119,6 +119,35 @@ pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.input.gestures.swipe_threshold_px,
     )
     .max(1.0);
+    if let Some(fingers) = opt_u32(
+        cfg,
+        &["input.gestures.pan-fingers", "input.gestures.pan_fingers"],
+    ) {
+        out.input.gestures.pan_fingers = fingers;
+    }
+    out.input.gestures.pan_momentum = pick_bool(
+        cfg,
+        &["input.gestures.pan-momentum", "input.gestures.pan_momentum"],
+        out.input.gestures.pan_momentum,
+    );
+    out.input.gestures.pan_decay_rate = pick_f32(
+        cfg,
+        &[
+            "input.gestures.pan-decay-rate",
+            "input.gestures.pan_decay_rate",
+        ],
+        out.input.gestures.pan_decay_rate,
+    )
+    .clamp(0.5, 30.0);
+    out.input.gestures.flick_min_px_per_s = pick_f32(
+        cfg,
+        &[
+            "input.gestures.flick-min-px-per-s",
+            "input.gestures.flick_min_px_per_s",
+        ],
+        out.input.gestures.flick_min_px_per_s,
+    )
+    .max(0.0);
     out.input.gestures.swipe_bindings = load_gesture_swipe_bindings(cfg, false);
     out.input.gestures.apogee_swipe_bindings = load_gesture_swipe_bindings(cfg, true);
 
@@ -524,9 +553,12 @@ end
             }
         );
         assert_eq!(tuning.input.gestures.swipe_threshold_px, 120.0);
+        assert_eq!(tuning.input.gestures.pan_fingers, 3);
+        assert!(tuning.input.gestures.pan_momentum);
+        // 3-finger swipe pans, so Apogee defaults to 4-finger: up opens, down closes.
         assert!(tuning.input.gestures.swipe_bindings.iter().any(|binding| {
             binding.direction == GestureSwipeDirection::Up
-                && binding.fingers == 3
+                && binding.fingers == 4
                 && binding.action == GestureBindingAction::ApogeeOpen
         }));
         assert!(
@@ -536,10 +568,19 @@ end
                 .apogee_swipe_bindings
                 .iter()
                 .any(|binding| {
-                    binding.direction == GestureSwipeDirection::Up
-                        && binding.fingers == 3
+                    binding.direction == GestureSwipeDirection::Down
+                        && binding.fingers == 4
                         && binding.action == GestureBindingAction::ApogeeClose
                 })
+        );
+        // 3-finger must NOT close Apogee any more (it pans / is free).
+        assert!(
+            !tuning
+                .input
+                .gestures
+                .apogee_swipe_bindings
+                .iter()
+                .any(|binding| binding.fingers == 3)
         );
     }
 

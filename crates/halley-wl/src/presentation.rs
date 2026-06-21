@@ -497,6 +497,7 @@ mod tests {
                 tiles: Vec::new(),
                 core_tiles: Vec::new(),
             }],
+            manual_progress: None,
         });
         assert_eq!(cursor_parallax_position(&st, background, pos), pos);
     }

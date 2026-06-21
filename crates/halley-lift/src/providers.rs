@@ -357,12 +357,8 @@ fn load_clusters() -> Vec<CachedCluster> {
     clusters
 }
 
-fn create_cluster_result(query: &str) -> LiftResult {
-    let title = if query.trim().is_empty() {
-        "Create cluster".into()
-    } else {
-        format!("Create cluster: {}", query.trim())
-    };
+fn create_cluster_result(_query: &str) -> LiftResult {
+    let title = "Create cluster".into();
     LiftResult {
         section: "Create".into(),
         title,
@@ -505,9 +501,9 @@ fn user_shell() -> String {
 pub fn materialize_cluster_draft(
     index: &ProviderIndex,
     draft: &ClusterDraft,
-    query: &str,
+    _query: &str,
 ) -> Result<(), String> {
-    let request = build_cluster_draft_request(index, draft, query);
+    let request = build_cluster_draft_request(index, draft);
     expect_ok(halley_ipc::send_request(&Request::Cluster(
         ClusterRequest::OpenFinalizeDraft {
             draft: request,
@@ -517,14 +513,9 @@ pub fn materialize_cluster_draft(
     Ok(())
 }
 
-fn build_cluster_draft_request(
-    index: &ProviderIndex,
-    draft: &ClusterDraft,
-    query: &str,
-) -> ClusterDraftRequest {
-    let name_hint = query.trim();
+fn build_cluster_draft_request(index: &ProviderIndex, draft: &ClusterDraft) -> ClusterDraftRequest {
     ClusterDraftRequest {
-        name_hint: (!name_hint.is_empty()).then(|| name_hint.to_string()),
+        name_hint: None,
         app_ids: Vec::new(),
         app_launches: index.draft_app_launches(&draft.app_ids),
         running_node_ids: draft.running_node_ids.clone(),
@@ -955,13 +946,13 @@ exec '\''/bin/zsh'\'' -i'"#
             terminal_icon_name: None,
         };
         let draft = ClusterDraft {
-            name_hint: None,
             app_ids: vec!["kitty".into()],
             running_node_ids: vec![42],
         };
 
-        let request = build_cluster_draft_request(&index, &draft, "dev");
+        let request = build_cluster_draft_request(&index, &draft);
 
+        assert_eq!(request.name_hint, None);
         assert!(request.app_ids.is_empty());
         assert_eq!(request.app_launches.len(), 1);
         assert_eq!(request.app_launches[0].app_id, "kitty");

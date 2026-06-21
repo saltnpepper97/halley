@@ -237,26 +237,33 @@ impl XdgShellHandler for Halley {
         let now = Instant::now();
         let _ = crate::protocol::wayland::activation::consume_pending_surface_activation(self, &wl);
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
-        let handled_by_active_cluster = self
-            .model
-            .field
-            .cluster_id_for_member_public(id)
-            .zip(node_monitor.as_deref())
-            .is_some_and(|(cid, monitor)| {
-                self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
-            });
-        if !is_transient && !handled_by_active_cluster {
+        let node_cluster = self.model.field.cluster_id_for_member_public(id);
+        let handled_by_active_cluster =
+            node_cluster
+                .zip(node_monitor.as_deref())
+                .is_some_and(|(cid, monitor)| {
+                    self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
+                });
+        let handled_by_cluster = node_cluster.is_some();
+        let handled_by_lift_staging =
+            crate::compositor::clusters::system::cluster_system_controller(&*self)
+                .pending_lift_cluster_node_staged(id);
+        if !is_transient && !handled_by_cluster && !handled_by_lift_staging {
             self.model.spawn_state.pending_initial_reveal.insert(id);
             let _ = self.model.field.set_detached(id, true);
         }
-        if !handled_by_active_cluster {
+        if !handled_by_cluster && !handled_by_lift_staging {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
-        spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
-        if !handled_by_active_cluster {
+        if !handled_by_lift_staging && (!handled_by_cluster || handled_by_active_cluster) {
+            spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
+        }
+        if !handled_by_cluster && !handled_by_lift_staging {
             if !self.model.spawn_state.pending_initial_reveal.contains(&id) {
                 self.resolve_surface_overlap();
             }
+            self.request_maintenance();
+        } else if handled_by_lift_staging {
             self.request_maintenance();
         }
     }

@@ -400,6 +400,8 @@ pub struct IconCache {
     search_icon: Option<(u32, IconRaster)>,
     app_search_icon: Option<(u32, IconRaster)>,
     cluster_search_icon: Option<(u32, IconRaster)>,
+    action_search_icon: Option<(u32, IconRaster)>,
+    action_icon: Option<(u32, IconRaster)>,
     term_icon: Option<(u32, IconRaster)>,
 }
 
@@ -407,6 +409,7 @@ pub struct IconCache {
 /// tinted at draw time.
 const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
 const APP_SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/apps.svg");
+const ACTION_ICON_SVG: &[u8] = include_bytes!("../assets/spark.svg");
 const TERM_ICON_SVG: &[u8] = include_bytes!("../assets/term.svg");
 const CLUSTER_SEARCH_ICON_SVG: &[u8] =
     include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
@@ -474,6 +477,8 @@ impl IconCache {
             search_icon: None,
             app_search_icon: None,
             cluster_search_icon: None,
+            action_search_icon: None,
+            action_icon: None,
             term_icon: None,
         }
     }
@@ -485,6 +490,7 @@ impl IconCache {
         let (slot, svg) = match mode {
             LiftMode::Apps => (&mut self.app_search_icon, APP_SEARCH_ICON_SVG),
             LiftMode::Clusters => (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG),
+            LiftMode::Actions => (&mut self.action_search_icon, ACTION_ICON_SVG),
             LiftMode::Term => (&mut self.term_icon, TERM_ICON_SVG),
             _ => (&mut self.search_icon, SEARCH_ICON_SVG),
         };
@@ -502,6 +508,15 @@ impl IconCache {
             self.term_icon = Some((size, raster));
         }
         self.term_icon.as_ref().map(|(_, raster)| raster)
+    }
+
+    fn action_glyph(&mut self, size: u32) -> Option<&IconRaster> {
+        let size = size.max(1);
+        if self.action_icon.as_ref().map(|(s, _)| *s) != Some(size) {
+            let raster = render_svg_data(ACTION_ICON_SVG, None, size)?;
+            self.action_icon = Some((size, raster));
+        }
+        self.action_icon.as_ref().map(|(_, raster)| raster)
     }
 
     pub fn needs_index(&self) -> bool {
@@ -1277,6 +1292,21 @@ fn draw_result_icon(
         }
         LiftResultKind::Term => {
             if let Some(raster) = icon_cache.term_glyph(config.icon_size) {
+                draw_raster_tinted(
+                    canvas,
+                    width,
+                    height,
+                    raster,
+                    x,
+                    y,
+                    size,
+                    size,
+                    colors.accent,
+                );
+            }
+        }
+        LiftResultKind::Action => {
+            if let Some(raster) = icon_cache.action_glyph(config.icon_size) {
                 draw_raster_tinted(
                     canvas,
                     width,
@@ -2076,5 +2106,25 @@ mod tests {
             .clone();
 
         assert_ne!(loupe, term);
+    }
+
+    #[test]
+    fn actions_mode_uses_action_search_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let action = cache
+            .search_glyph(24, LiftMode::Actions)
+            .expect("action glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, action);
     }
 }

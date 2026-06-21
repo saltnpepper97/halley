@@ -530,8 +530,14 @@ input:
     modifier "$mod"
     scroll-pan "empty-field"
     swipe-threshold-px 120
-    swipe-up-3 "apogee-open"
-    apogee-swipe-up-3 "apogee-close"
+    # 3-finger swipe pans the canvas (continuous, with flick momentum).
+    pan-fingers 3
+    pan-momentum true
+    pan-decay-rate 6
+    flick-min-px-per-s 200
+    # Apogee lives on 4-finger: up opens, down closes.
+    swipe-up-4 "apogee-open"
+    apogee-swipe-down-4 "apogee-close"
   end
   # Touchpad libinput settings. Unset keys keep libinput's own defaults.
   touchpad:
@@ -1291,8 +1297,11 @@ mod tests {
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
         ));
         assert!(rendered.contains(
-            "  gestures:\n    enabled true\n    client-passthrough true\n    touch-passthrough true\n    pinch-to-zoom true\n    pinch-scope \"empty-field\"\n    compositor-scope \"global\"\n    modifier \"$mod\"\n    scroll-pan \"empty-field\"\n    swipe-threshold-px 120\n    swipe-up-3 \"apogee-open\"\n    apogee-swipe-up-3 \"apogee-close\"\n  end"
+            "  gestures:\n    enabled true\n    client-passthrough true\n    touch-passthrough true\n    pinch-to-zoom true\n    pinch-scope \"empty-field\"\n    compositor-scope \"global\"\n    modifier \"$mod\"\n    scroll-pan \"empty-field\"\n    swipe-threshold-px 120\n"
         ));
+        assert!(rendered.contains("    pan-fingers 3\n    pan-momentum true"));
+        assert!(rendered.contains("    swipe-up-4 \"apogee-open\""));
+        assert!(rendered.contains("    apogee-swipe-down-4 \"apogee-close\""));
         assert!(rendered.contains("  touchpad:\n    tap true\n    natural-scroll true"));
         assert!(rendered.contains("  mouse:\n    natural-scroll false"));
         // The compositor template must never absorb standalone companion-app configs.

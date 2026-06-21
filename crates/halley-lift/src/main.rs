@@ -349,10 +349,6 @@ impl LiftApp {
     fn refresh_results(&mut self) {
         let start = Instant::now();
         let (mode, query) = self.effective_search();
-        if mode == LiftMode::Clusters {
-            let hint = query.trim();
-            self.draft.name_hint = (!hint.is_empty()).then(|| hint.to_string());
-        }
         self.ensure_live_snapshot();
         let ctx = SearchContext {
             mode,

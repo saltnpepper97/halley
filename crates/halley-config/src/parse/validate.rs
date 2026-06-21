@@ -380,6 +380,14 @@ impl ConfigSchema {
             "input.gestures.scroll_pan_modifier",
             "input.gestures.swipe-threshold-px",
             "input.gestures.swipe_threshold_px",
+            "input.gestures.pan-fingers",
+            "input.gestures.pan_fingers",
+            "input.gestures.pan-momentum",
+            "input.gestures.pan_momentum",
+            "input.gestures.pan-decay-rate",
+            "input.gestures.pan_decay_rate",
+            "input.gestures.flick-min-px-per-s",
+            "input.gestures.flick_min_px_per_s",
             "nodes.primary-to-node-ms",
             "nodes.node-delay",
             "nodes.primary-to-preview-ms",
@@ -651,6 +659,12 @@ fn numeric_scalar(path: &str) -> bool {
                 | "focus-ring.offset-y"
                 | "input.gestures.swipe-threshold-px"
                 | "input.gestures.swipe_threshold_px"
+                | "input.gestures.pan-fingers"
+                | "input.gestures.pan_fingers"
+                | "input.gestures.pan-decay-rate"
+                | "input.gestures.pan_decay_rate"
+                | "input.gestures.flick-min-px-per-s"
+                | "input.gestures.flick_min_px_per_s"
         )
     }) || input_device_setting_key(path)
         .is_some_and(|key| matches!(key, "accel-speed" | "scroll-button"))
@@ -703,6 +717,8 @@ fn bool_scalar(path: &str) -> bool {
             | "input.gestures.touch_passthrough"
             | "input.gestures.pinch-to-zoom"
             | "input.gestures.pinch_to_zoom"
+            | "input.gestures.pan-momentum"
+            | "input.gestures.pan_momentum"
             | "overlays.borders"
             | "placement.reveal.enabled"
             | "physics.enabled"

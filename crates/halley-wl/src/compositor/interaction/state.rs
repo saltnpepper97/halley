@@ -152,6 +152,18 @@ pub(crate) struct ActiveCompositorPinch {
     pub(crate) monitor: String,
     pub(crate) start_view_size: Vec2,
     pub(crate) mode: ActiveCompositorPinchMode,
+    /// Recent pan velocity in screen px/sec (EMA), used to fling pan on release.
+    pub(crate) vel: Vec2,
+    /// Timestamp (ms) of the last update, for velocity sampling.
+    pub(crate) last_time_msec: u32,
+}
+
+/// Whether a compositor swipe drives a continuous viewport pan or a discrete
+/// (direction → action) binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SwipeMode {
+    Pan,
+    Action,
 }
 
 #[derive(Clone, Debug)]
@@ -160,6 +172,19 @@ pub(crate) struct ActiveCompositorSwipe {
     pub(crate) fingers: u32,
     pub(crate) delta: Vec2,
     pub(crate) apogee_context: bool,
+    pub(crate) mode: SwipeMode,
+    /// Recent velocity in screen px/sec (EMA): flings pan, or commits an action
+    /// gesture by flick even when it didn't travel past the distance threshold.
+    pub(crate) vel: Vec2,
+    /// Timestamp (ms) of the last update, for velocity sampling.
+    pub(crate) last_time_msec: u32,
+    /// For `Action` swipes: the direction latched the first time the gesture
+    /// crossed the distance threshold (robust to curved / returning paths).
+    pub(crate) latched: Option<halley_config::GestureSwipeDirection>,
+    /// True once this swipe began scrubbing a gesture-driven Apogee open, so the
+    /// overview tracks the finger and commits/cancels on release instead of the
+    /// normal discrete binding fire.
+    pub(crate) drives_apogee_open: bool,
 }
 
 #[derive(Clone, Debug)]

@@ -927,6 +927,16 @@ pub struct GestureInputConfig {
     pub modifier: crate::keybinds::KeyModifiers,
     pub scroll_pan: GestureScrollPanMode,
     pub swipe_threshold_px: f32,
+    /// Finger count whose swipe is a continuous 2D viewport pan (0 = disabled).
+    /// Other finger counts run the discrete/interactive `swipe_bindings`.
+    pub pan_fingers: u32,
+    /// Whether a flick at the end of a pan coasts with inertia.
+    pub pan_momentum: bool,
+    /// Friction for inertial pan: higher decays the coast faster (per second).
+    pub pan_decay_rate: f32,
+    /// Minimum release speed (screen px/sec) to fling a pan, or to commit a
+    /// discrete action gesture by velocity even if it didn't reach the threshold.
+    pub flick_min_px_per_s: f32,
     pub swipe_bindings: Vec<GestureBinding>,
     pub apogee_swipe_bindings: Vec<GestureBinding>,
 }
@@ -943,14 +953,21 @@ impl Default for GestureInputConfig {
             modifier: crate::keybinds::Keybinds::default().modifier,
             scroll_pan: GestureScrollPanMode::EmptyField,
             swipe_threshold_px: 120.0,
+            pan_fingers: 3,
+            pan_momentum: true,
+            pan_decay_rate: 6.0,
+            flick_min_px_per_s: 200.0,
+            // 3-finger swipe is reserved for continuous pan (`pan_fingers`), so
+            // Apogee lives on 4-finger: up opens, down closes. (The gesture
+            // modifier only forces compositor scope; it never remaps finger count.)
             swipe_bindings: vec![GestureBinding {
                 direction: GestureSwipeDirection::Up,
-                fingers: 3,
+                fingers: 4,
                 action: GestureBindingAction::ApogeeOpen,
             }],
             apogee_swipe_bindings: vec![GestureBinding {
-                direction: GestureSwipeDirection::Up,
-                fingers: 3,
+                direction: GestureSwipeDirection::Down,
+                fingers: 4,
                 action: GestureBindingAction::ApogeeClose,
             }],
         }
