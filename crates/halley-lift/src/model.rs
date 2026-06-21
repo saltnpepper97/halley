@@ -18,7 +18,7 @@ pub enum LiftAction {
     FocusNode { id: u64 },
     CreateCluster,
     ReloadConfig,
-    OpenPath { path: String },
+    OpenConfig { path: String },
     RunInTerminal { command: String },
 }
 

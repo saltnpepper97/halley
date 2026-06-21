@@ -21,9 +21,8 @@ use super::log_rounded_shader_failure;
 use crate::animation::ease_in_out_cubic;
 use crate::frame_loop::anim_style_for;
 use crate::presentation::{
-    node_marker_bounds, node_marker_metrics, node_render_diameter_px, themed_node_fill_color,
-    themed_node_label_fill_color, themed_node_label_text_color, themed_node_ring_color,
-    world_to_screen,
+    node_marker_bounds, node_marker_metrics, themed_node_fill_color, themed_node_label_fill_color,
+    themed_node_label_text_color, themed_node_ring_color, world_to_screen,
 };
 use crate::render::pin_icon::{PinBadgeLayout, draw_pin_badge};
 use crate::render::shadow::draw_shadow_rect;
@@ -50,7 +49,6 @@ pub(crate) struct NodeSnapshot {
     pub id: halley_core::field::NodeId,
     pub state: halley_core::field::NodeState,
     pub pos: halley_core::field::Vec2,
-    pub intrinsic_size: halley_core::field::Vec2,
     pub label: String,
 }
 
@@ -599,13 +597,11 @@ pub(crate) fn draw_node_markers(
         id,
         state: node_state,
         pos: node_pos,
-        intrinsic_size,
         label: node_label,
     } in render_nodes
     {
         let id = *id;
         let node_pos = *node_pos;
-        let intrinsic_size = *intrinsic_size;
         let node_op = st.runtime.tuning.node_opacity;
 
         let anim = anim_style_for(st, id, node_state.clone(), now);
@@ -628,7 +624,6 @@ pub(crate) fn draw_node_markers(
             / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
             .clamp(0.0, 1.0);
         let marker_mix = ease_in_out_cubic(marker_mix_lin);
-        let proxy_mix = 1.0 - marker_mix;
 
         let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
         let hovered = hover_node == Some(id);
@@ -656,13 +651,6 @@ pub(crate) fn draw_node_markers(
         } else {
             (dot_half as f32 * 1.5).round() as i32
         };
-        let proxy_radius = if is_core {
-            render_radius.max(dot_half)
-        } else {
-            let diameter = node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale)
-                .round() as i32;
-            (diameter / 2).max(dot_half)
-        };
         let round_shape = if is_core {
             NodeRoundShape::Circle
         } else {
@@ -671,25 +659,6 @@ pub(crate) fn draw_node_markers(
                 ShapeStyle::Squircle => NodeRoundShape::Squircle,
             }
         };
-
-        if proxy_mix > 0.01 && border_mix < 0.99 {
-            let proxy_col = Color32F::new(0.84, 0.89, 0.95, 0.0);
-            draw_shader_circle(
-                frame,
-                st,
-                sx,
-                sy,
-                proxy_radius,
-                round_shape,
-                1.0 - border_mix,
-                node_op,
-                proxy_col,
-                proxy_col,
-                false,
-                false,
-                damage,
-            )?;
-        }
 
         let dot_alpha = (anim.alpha * marker_mix).clamp(0.0, 1.0);
         if dot_alpha <= 0.01 {

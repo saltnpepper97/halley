@@ -123,23 +123,6 @@ pub struct ApogeeConfig {
     pub background_dim: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ParallaxConfig {
-    pub enabled: bool,
-    pub strength: f32,
-    pub tau_ms: u64,
-}
-
-impl Default for ParallaxConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            strength: 0.035,
-            tau_ms: 90,
-        }
-    }
-}
-
 impl Default for ApogeeConfig {
     fn default() -> Self {
         Self {

@@ -10,7 +10,7 @@ use halley_api::{
     ClusterTarget, CompositorRequest, NodeKind, NodeRequest, NodeSelector, Request, Response,
 };
 
-use crate::config::{LiftConfig, default_config_path};
+use crate::config::{LiftConfig, default_config_path, resolved_halley_config_path};
 use crate::mode::LiftMode;
 use crate::model::{ClusterDraft, LiftAction, LiftResult, LiftResultKind, mode_allows};
 
@@ -384,8 +384,16 @@ fn search_actions(ctx: &SearchContext) -> Vec<LiftResult> {
             "open-lift-config",
             "Open Lift config",
             "Config file",
-            LiftAction::OpenPath {
+            LiftAction::OpenConfig {
                 path: default_config_path().display().to_string(),
+            },
+        ),
+        (
+            "open-halley-config",
+            "Open Halley config",
+            "Config file",
+            LiftAction::OpenConfig {
+                path: resolved_halley_config_path().display().to_string(),
             },
         ),
     ];
@@ -412,22 +420,34 @@ fn search_actions(ctx: &SearchContext) -> Vec<LiftResult> {
 }
 
 fn search_config(ctx: &SearchContext) -> Vec<LiftResult> {
-    let path = default_config_path();
-    match_score(ctx.query_lower.as_str(), "lift config").map_or_else(Vec::new, |score| {
-        vec![LiftResult {
-            section: "Config".into(),
-            title: "Lift config".into(),
-            subtitle: Some(path.display().to_string()),
-            icon_name: None,
-            kind: LiftResultKind::Config,
-            score,
-            is_field_pinned: false,
-            shortcut_hint: Some("Enter open".into()),
-            action: LiftAction::OpenPath {
-                path: path.display().to_string(),
-            },
-        }]
-    })
+    let configs = [
+        (
+            "lift config",
+            "Lift config",
+            default_config_path().display().to_string(),
+        ),
+        (
+            "halley config compositor config",
+            "Halley config",
+            resolved_halley_config_path().display().to_string(),
+        ),
+    ];
+    configs
+        .into_iter()
+        .filter_map(|(haystack, title, path)| {
+            match_score(ctx.query_lower.as_str(), haystack).map(|score| LiftResult {
+                section: "Config".into(),
+                title: title.into(),
+                subtitle: Some(path.clone()),
+                icon_name: None,
+                kind: LiftResultKind::Config,
+                score,
+                is_field_pinned: false,
+                shortcut_hint: Some("Enter edit".into()),
+                action: LiftAction::OpenConfig { path },
+            })
+        })
+        .collect()
 }
 
 pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(), String> {
@@ -448,11 +468,7 @@ pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(),
         LiftAction::ReloadConfig => expect_ok(halley_ipc::send_request(&Request::Compositor(
             CompositorRequest::Reload,
         ))),
-        LiftAction::OpenPath { path } => launch_exec(
-            format!("xdg-open {}", shell_quote(path)).as_str(),
-            false,
-            index.terminal.as_str(),
-        ),
+        LiftAction::OpenConfig { path } => launch_editor(path, index.terminal.as_str()),
         LiftAction::CreateCluster => Ok(()),
         LiftAction::RunInTerminal { command } => {
             // Run through the user's interactive shell so aliases/functions are loaded,
@@ -798,6 +814,23 @@ fn launch_exec(command: &str, terminal: bool, terminal_command: &str) -> Result<
         .map_err(|err| err.to_string())
 }
 
+fn launch_editor(path: &str, terminal_command: &str) -> Result<(), String> {
+    let editor = std::env::var("EDITOR")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "EDITOR is not set".to_string())?;
+    launch_exec(
+        editor_command(editor.as_str(), path).as_str(),
+        true,
+        terminal_command,
+    )
+}
+
+fn editor_command(editor: &str, path: &str) -> String {
+    format!("{} {}", editor.trim(), shell_quote(path))
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -826,6 +859,26 @@ exec '\''/bin/zsh'\'' -i'"#
             terminal_launch_command_with_shell("kitty -e", "printf 'hi' && true", "/bin/zsh"),
             r#"kitty -e '/bin/zsh' -ic 'printf '\''hi'\'' && true
 exec '\''/bin/zsh'\'' -i'"#
+        );
+    }
+
+    #[test]
+    fn editor_command_uses_editor_and_quotes_path() {
+        assert_eq!(
+            editor_command("code --wait", "/tmp/halley's config.rune"),
+            "code --wait '/tmp/halley'\\''s config.rune'"
+        );
+    }
+
+    #[test]
+    fn terminal_launch_command_can_wrap_editor_command() {
+        assert_eq!(
+            format!(
+                "{} {}",
+                "kitty -e",
+                editor_command("nvim", "/tmp/halley config.rune")
+            ),
+            "kitty -e nvim '/tmp/halley config.rune'"
         );
     }
 

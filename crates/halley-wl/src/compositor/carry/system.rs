@@ -166,6 +166,7 @@ pub(crate) fn begin_carry_state_tracking(st: &mut Halley, id: NodeId) {
 }
 
 pub(crate) fn end_carry_state_tracking(st: &mut Halley, id: NodeId) {
+    let held_state = st.model.carry_state.carry_state_hold.get(&id).cloned();
     if st.input.interaction_state.drag_authority_node == Some(id) {
         st.input.interaction_state.drag_authority_node = None;
     }
@@ -182,6 +183,19 @@ pub(crate) fn end_carry_state_tracking(st: &mut Halley, id: NodeId) {
         .model
         .field
         .set_pinned(id, st.node_user_pinned(id) || st.node_session_pinned(id));
+    if matches!(held_state, Some(halley_core::field::NodeState::Node))
+        && st
+            .model
+            .field
+            .node(id)
+            .is_some_and(|node| node.state == halley_core::field::NodeState::Node)
+    {
+        st.ui.render_state.animator.snap_to_state(
+            id,
+            halley_core::field::NodeState::Node,
+            Instant::now(),
+        );
+    }
     clear_direct_carry_nodes(st);
     st.request_maintenance();
 }

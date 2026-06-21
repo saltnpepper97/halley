@@ -11,7 +11,7 @@ halley-lift
 You can also seed an initial query:
 
 ```bash
-halley-lift /cluster release
+halley-lift cluster release
 ```
 
 ## Search Prefixes
@@ -21,12 +21,12 @@ Lift searches everything by default. Prefixing the query with a provider name fi
 Supported modes:
 
 ```text
-app /app /apps /a
-cluster /cluster /clusters /c
-node /node /nodes /n
-action /actions
-config /config
-term /term /t
+app apps
+cluster clusters
+node nodes
+action actions
+config
+term
 ```
 
 Example:
@@ -37,7 +37,7 @@ cluster release
 
 searches clusters for `release` while leaving the full text visible in the search field.
 
-`term`/`/term`/`/t` runs the typed command line in the configured `terminal` through your
+`term` runs the typed command line in the configured `terminal` through your
 interactive `$SHELL` (so aliases, pipes, and `&&` work), keeps a shell open afterward, and then
 closes Lift:
 
@@ -47,7 +47,7 @@ term journalctl -f | grep halley
 
 ## Cluster Drafts
 
-In `cluster`/`/cluster` searches, `Space` stages or unstages the selected app or running node. This is side-effect-free. Outside cluster searches, Space is normal search text.
+In `cluster` searches, `Space` stages or unstages the selected app or running node. This is side-effect-free. Outside cluster searches, Space is normal search text.
 
 After at least one item is staged in cluster mode, `Ctrl+Enter` or activating `Create cluster: <query>` materializes the draft:
 
@@ -164,4 +164,4 @@ App icons are read from `.desktop` `Icon=` entries and resolved lazily from comm
 
 `terminal` is prepended to `.desktop` apps with `Terminal=true`, so terminal apps such as `micro` or `nvim` open in the configured terminal.
 
-Mouse support includes hover selection, row click activation, and wheel navigation inside the Lift panel. Empty general search shows only the rounded search bar; typing or entering a slash mode expands a connected results body below it. Keyboard navigation supports held direction keys, Left/Right, PageUp/PageDown, Home/End, and Alt+1 through Alt+0 visible-row activation.
+Mouse support includes hover selection, row click activation, and wheel navigation inside the Lift panel. Empty general search shows only the rounded search bar; typing or entering a mode prefix expands a connected results body below it. Keyboard navigation supports held direction keys, Left/Right, PageUp/PageDown, Home/End, and Alt+1 through Alt+0 visible-row activation.

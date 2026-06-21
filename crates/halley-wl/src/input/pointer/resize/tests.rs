@@ -245,66 +245,6 @@ fn interactive_resize_does_not_move_pinned_landmark() {
 }
 
 #[test]
-fn finalize_resize_keeps_parallax_visual_position() {
-    let dh = Display::<Halley>::new().expect("display").handle();
-    let mut tuning = single_monitor_tiling_tuning();
-    tuning.animations.smooth_resize.enabled = false;
-    let mut st = Halley::new_for_test(&dh, tuning);
-    let backend = TtyBackendHandle::new(800, 600);
-
-    let window = st.model.field.spawn_surface(
-        "window",
-        halley_core::field::Vec2 { x: 300.0, y: 220.0 },
-        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
-    );
-    st.assign_node_to_monitor(window, "monitor_a");
-    st.input.interaction_state.cursor_parallax.insert(
-        "monitor_a".to_string(),
-        crate::compositor::interaction::state::CursorParallaxState {
-            current: halley_core::field::Vec2 { x: 24.0, y: -10.0 },
-            target: halley_core::field::Vec2 { x: 24.0, y: -10.0 },
-        },
-    );
-
-    let rect =
-        active_node_screen_rect(&st, 800, 600, window, Instant::now(), None).expect("window rect");
-    let center_y = (rect.1 + rect.3) * 0.5;
-    let mut ps = PointerState::default();
-    begin_resize(
-        &mut st,
-        &mut ps,
-        &backend,
-        HitNode {
-            node_id: window,
-            move_surface: false,
-            is_core: false,
-        },
-        resize_button_frame_at(rect.2 - 2.0, center_y),
-    );
-    assert!(handle_resize_motion(
-        &mut st,
-        &mut ps,
-        800,
-        600,
-        rect.2 + 160.0,
-        center_y,
-        &backend,
-    ));
-    let release = ps.resize.expect("resize in progress");
-    let release_center_sx = (release.preview_left_px + release.preview_right_px) * 0.5;
-    let release_center_sy = (release.preview_top_px + release.preview_bottom_px) * 0.5;
-    let release_center_world =
-        crate::spatial::screen_to_world(&st, 800, 600, release_center_sx, release_center_sy);
-
-    finalize_resize(&mut st, &mut ps, &backend);
-
-    let node_pos = st.model.field.node(window).expect("window").pos;
-    let visual_pos = crate::presentation::cursor_parallax_position(&st, window, node_pos);
-    assert!((visual_pos.x - release_center_world.x).abs() <= 0.01);
-    assert!((visual_pos.y - release_center_world.y).abs() <= 0.01);
-}
-
-#[test]
 fn smooth_resize_continues_advancing_across_quick_pointer_updates() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut tuning = single_monitor_tiling_tuning();

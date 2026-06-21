@@ -57,25 +57,6 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.pins.background_color,
     );
     out.pins.size = pick_f32(cfg, &["field.pins.size"], out.pins.size);
-    out.parallax.enabled = pick_bool(
-        cfg,
-        &["field.parallax.enabled", "field.parallax_enabled"],
-        out.parallax.enabled,
-    );
-    out.parallax.strength = pick_f32(
-        cfg,
-        &["field.parallax.strength", "field.parallax_strength"],
-        out.parallax.strength,
-    );
-    out.parallax.tau_ms = pick_u64(
-        cfg,
-        &[
-            "field.parallax.tau-ms",
-            "field.parallax.tau_ms",
-            "field.parallax_tau_ms",
-        ],
-        out.parallax.tau_ms,
-    );
     out.close_restore_focus = pick_bool(
         cfg,
         &["field.close-restore-focus", "field.close_restore_focus"],
@@ -169,28 +150,5 @@ end
         );
         assert_eq!(out.pins.background_color, OverlayColorMode::Dark);
         assert_eq!(out.pins.size, 1.35);
-    }
-
-    #[test]
-    fn field_section_parses_nested_parallax_config() {
-        let cfg = RuneConfig::from_str(
-            r##"
-field:
-  parallax:
-    enabled false
-    strength 0.02
-    tau-ms 140
-  end
-end
-"##,
-        )
-        .expect("field config should parse");
-
-        let mut out = RuntimeTuning::default();
-        load_field_section(&cfg, &mut out);
-
-        assert!(!out.parallax.enabled);
-        assert_eq!(out.parallax.strength, 0.02);
-        assert_eq!(out.parallax.tau_ms, 140);
     }
 }

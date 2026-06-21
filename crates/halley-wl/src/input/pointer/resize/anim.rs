@@ -204,25 +204,6 @@ fn keep_resized_window_forward(st: &mut Halley, node_id: halley_core::field::Nod
     }
 }
 
-fn commit_resize_parallax_release_position(st: &mut Halley, node_id: halley_core::field::NodeId) {
-    if !st.runtime.tuning.parallax.enabled || st.input.interaction_state.apogee_session.is_some() {
-        return;
-    }
-    let monitor = st.monitor_for_node_or_current(node_id);
-    let offset = crate::presentation::cursor_parallax_offset_for_monitor(st, monitor.as_str());
-    if offset.x.abs() <= 0.01 && offset.y.abs() <= 0.01 {
-        return;
-    }
-    let Some(node) = st.model.field.node_mut(node_id) else {
-        return;
-    };
-    if node.pinned || !matches!(node.kind, halley_core::field::NodeKind::Surface) {
-        return;
-    }
-    node.pos.x += offset.x;
-    node.pos.y += offset.y;
-}
-
 fn finish_resize_interaction(
     st: &mut Halley,
     ps: &mut PointerState,
@@ -275,7 +256,6 @@ fn finish_resize_interaction(
             y: final_bbox_h,
         },
     );
-    commit_resize_parallax_release_position(st, resize.node_id);
     keep_resized_window_forward(st, resize.node_id, now);
     st.end_resize_interaction(now);
     st.resolve_landmarks_overlapped_by_active_window(resize.node_id);

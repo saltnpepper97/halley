@@ -12,12 +12,12 @@ pub enum LiftMode {
 
 fn prefix_mode_from_token(token: &str) -> Option<LiftMode> {
     match token.trim().to_ascii_lowercase().as_str() {
-        "app" | "apps" | "/app" | "/apps" | "/a" => Some(LiftMode::Apps),
-        "cluster" | "clusters" | "/cluster" | "/clusters" | "/c" => Some(LiftMode::Clusters),
-        "node" | "nodes" | "/node" | "/nodes" | "/n" => Some(LiftMode::Nodes),
-        "action" | "actions" | "/action" | "/actions" => Some(LiftMode::Actions),
-        "config" | "/config" => Some(LiftMode::Config),
-        "term" | "/term" | "/t" => Some(LiftMode::Term),
+        "app" | "apps" => Some(LiftMode::Apps),
+        "cluster" | "clusters" => Some(LiftMode::Clusters),
+        "node" | "nodes" => Some(LiftMode::Nodes),
+        "action" | "actions" => Some(LiftMode::Actions),
+        "config" => Some(LiftMode::Config),
+        "term" => Some(LiftMode::Term),
         _ => None,
     }
 }
@@ -75,18 +75,10 @@ mod tests {
     fn parses_required_modes() {
         let cases = [
             ("release", LiftMode::General, "release"),
-            ("/cluster release", LiftMode::General, "/cluster release"),
-            ("/clusters release", LiftMode::General, "/clusters release"),
-            ("/c release", LiftMode::General, "/c release"),
-            ("/node systemd", LiftMode::General, "/node systemd"),
-            ("/n systemd", LiftMode::General, "/n systemd"),
-            ("/app firefox", LiftMode::General, "/app firefox"),
-            ("/app", LiftMode::General, "/app"),
-            ("/a firefox", LiftMode::General, "/a firefox"),
-            ("/a", LiftMode::General, "/a"),
-            ("/c", LiftMode::General, "/c"),
-            ("/n", LiftMode::General, "/n"),
-            ("/config lift", LiftMode::General, "/config lift"),
+            ("cluster release", LiftMode::General, "cluster release"),
+            ("nodes systemd", LiftMode::General, "nodes systemd"),
+            ("apps firefox", LiftMode::General, "apps firefox"),
+            ("config lift", LiftMode::General, "config lift"),
         ];
         for (raw, mode, query) in cases {
             assert_eq!(parse_initial_mode(raw), (mode, query.to_string()));
@@ -115,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn entering_new_slash_mode_replaces_existing_mode() {
+    fn entering_slash_text_keeps_existing_mode() {
         let mut state = ModeInputState {
             mode: LiftMode::Nodes,
             query: String::new(),
@@ -143,10 +135,6 @@ mod tests {
             (LiftMode::Term, "echo hi".into())
         );
         assert_eq!(
-            effective_mode_query(LiftMode::General, "/t ls -la"),
-            (LiftMode::Term, "ls -la".into())
-        );
-        assert_eq!(
             effective_mode_query(LiftMode::General, "term"),
             (LiftMode::Term, String::new())
         );
@@ -167,8 +155,8 @@ mod tests {
     #[test]
     fn unknown_slash_command_stays_general_text() {
         assert_eq!(
-            parse_initial_mode("/wat test"),
-            (LiftMode::General, "/wat test".into())
+            effective_mode_query(LiftMode::General, "/cluster test"),
+            (LiftMode::General, "/cluster test".into())
         );
     }
 }
