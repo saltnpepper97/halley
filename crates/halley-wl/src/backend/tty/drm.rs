@@ -47,6 +47,7 @@ render_elements! {
     HalleyDirectScanoutElement<=GlesRenderer>;
     Surface=SurfaceElement,
     Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
+    Texture=TextureRenderElement<GlesTexture>,
 }
 
 trait AsGlesFrame<'frame, 'buffer>
@@ -1590,6 +1591,9 @@ pub(crate) fn queue_tty_drm_frame(
         let force_overlay_full_repaint =
             crate::frame_loop::monitor_overlay_requires_full_repaint(st, output_name);
         let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
+        let use_hw_cursor = tty_hw_cursor_enabled()
+            && primary_render_node == output_render_node
+            && st.output_transform_for(output_name) == Transform::Normal;
         let texture_buffer = {
             let mut gpu_manager = gpu_manager.borrow_mut();
             let mut renderer =
@@ -1626,6 +1630,7 @@ pub(crate) fn queue_tty_drm_frame(
                     local_cursor,
                     cursor_image,
                     st.output_transform_for(output_name),
+                    !use_hw_cursor,
                 )?;
             }
 
@@ -1638,92 +1643,193 @@ pub(crate) fn queue_tty_drm_frame(
             )
         };
 
-        let element = PrimaryGpuTextureElement(TextureRenderElement::from_texture_buffer(
-            (0.0, 0.0),
-            &texture_buffer,
-            Some(1.0),
-            None,
-            None,
-            Kind::Unspecified,
-        ));
+        if primary_render_node == output_render_node {
+            let mut gpu_manager = gpu_manager.borrow_mut();
+            let mut renderer =
+                gpu_manager
+                    .single_renderer(&primary_render_node)
+                    .map_err(|err| {
+                        io::Error::other(format!(
+                            "failed to create primary renderer for {} scanout: {:?}",
+                            output_name, err
+                        ))
+                    })?;
+            let renderer_ref = renderer.as_mut();
 
-        let elements = [element];
-        if force_full_repaint {
-            compositor.reset_buffers();
-        }
-        let mut gpu_manager = gpu_manager.borrow_mut();
-        let mut renderer = gpu_manager
-            .renderer(
-                &primary_render_node,
-                &output_render_node,
-                compositor.format(),
-            )
-            .map_err(|err| {
-                io::Error::other(format!(
-                    "failed to create multi-gpu renderer for {}: {:?}",
-                    output_name, err
-                ))
-            })?;
-        let render_res = compositor
-            .render_frame(
-                &mut renderer,
-                &elements,
-                [0.0, 0.0, 0.0, 1.0],
-                FrameFlags::empty(),
-            )
-            .map_err(|err| {
-                io::Error::other(format!("render_frame failed for {}: {}", output_name, err))
-            })?;
+            let primary_element = TextureRenderElement::from_texture_buffer(
+                (0.0, 0.0),
+                &texture_buffer,
+                Some(1.0),
+                None,
+                None,
+                Kind::Unspecified,
+            );
+            let mut elements: Vec<HalleyDirectScanoutElement> =
+                vec![HalleyDirectScanoutElement::Texture(primary_element)];
 
-        let mut sync_wait = None;
-        let queued = if !render_res.is_empty {
-            if render_res.needs_sync()
-                && let PrimaryPlaneElement::Swapchain(element) = &render_res.primary_element
-            {
-                let wait_started = Instant::now();
-                let wait_result = element.sync.wait();
-                let wait_duration = wait_started.elapsed();
-                sync_wait = Some(wait_duration);
-                if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
-                    warn!(
-                        "slow tty drm sync wait: output={} path=composed duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                        output_name,
-                        wait_duration,
-                        output_device_node,
-                        primary_render_node,
-                        output_render_node
-                    );
-                }
-                if let Err(err) = wait_result {
-                    warn!(
-                        "failed to wait for tty drm composed frame completion on {}: {:?}",
-                        output_name, err
-                    );
-                }
+            if use_hw_cursor {
+                let cursor_elements = direct_scanout_cursor_elements(
+                    renderer_ref,
+                    local_cursor,
+                    cursor_image,
+                    &st.runtime.tuning.cursor,
+                )?;
+                elements.extend(cursor_elements);
             }
-            let feedback = crate::frame_loop::take_presentation_feedback_for_output_with_states(
-                st,
-                output_name,
-                &render_res.states,
-            )
-            .ok_or_else(|| {
-                io::Error::other(format!(
-                    "missing presentation feedback output {output_name}"
-                ))
-            })?;
-            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name, feedback)?;
-            true
-        } else {
-            false
-        };
 
-        Ok(TtyFrameQueueReport {
-            queued,
-            animation_redraw_active: animation_redraw.active,
-            direct_scanout_active: false,
-            composed: true,
-            sync_wait,
-        })
+            if force_full_repaint {
+                compositor.reset_buffers();
+            }
+            let flags = if use_hw_cursor {
+                tty_cursor_frame_flags()
+            } else {
+                FrameFlags::empty()
+            };
+            let render_res = compositor
+                .render_frame(renderer_ref, &elements, [0.0, 0.0, 0.0, 1.0], flags)
+                .map_err(|err| {
+                    io::Error::other(format!("render_frame failed for {}: {}", output_name, err))
+                })?;
+
+            let mut sync_wait = None;
+            let queued = if !render_res.is_empty {
+                if render_res.needs_sync()
+                    && let PrimaryPlaneElement::Swapchain(element) = &render_res.primary_element
+                {
+                    let wait_started = Instant::now();
+                    let wait_result = element.sync.wait();
+                    let wait_duration = wait_started.elapsed();
+                    sync_wait = Some(wait_duration);
+                    if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
+                        warn!(
+                            "slow tty drm sync wait: output={} path=composed-hwcursor duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                            output_name,
+                            wait_duration,
+                            output_device_node,
+                            primary_render_node,
+                            output_render_node
+                        );
+                    }
+                    if let Err(err) = wait_result {
+                        warn!(
+                            "failed to wait for tty drm composed frame completion on {}: {:?}",
+                            output_name, err
+                        );
+                    }
+                }
+                let feedback =
+                    crate::frame_loop::take_presentation_feedback_for_output_with_states(
+                        st,
+                        output_name,
+                        &render_res.states,
+                    )
+                    .ok_or_else(|| {
+                        io::Error::other(format!(
+                            "missing presentation feedback output {output_name}"
+                        ))
+                    })?;
+                queue_tty_frame_or_clear_on_failure(&mut compositor, output_name, feedback)?;
+                true
+            } else {
+                false
+            };
+
+            Ok(TtyFrameQueueReport {
+                queued,
+                animation_redraw_active: animation_redraw.active,
+                direct_scanout_active: false,
+                composed: true,
+                sync_wait,
+            })
+        } else {
+            let element = PrimaryGpuTextureElement(TextureRenderElement::from_texture_buffer(
+                (0.0, 0.0),
+                &texture_buffer,
+                Some(1.0),
+                None,
+                None,
+                Kind::Unspecified,
+            ));
+
+            let elements = [element];
+            if force_full_repaint {
+                compositor.reset_buffers();
+            }
+            let mut gpu_manager = gpu_manager.borrow_mut();
+            let mut renderer = gpu_manager
+                .renderer(
+                    &primary_render_node,
+                    &output_render_node,
+                    compositor.format(),
+                )
+                .map_err(|err| {
+                    io::Error::other(format!(
+                        "failed to create multi-gpu renderer for {}: {:?}",
+                        output_name, err
+                    ))
+                })?;
+            let render_res = compositor
+                .render_frame(
+                    &mut renderer,
+                    &elements,
+                    [0.0, 0.0, 0.0, 1.0],
+                    FrameFlags::empty(),
+                )
+                .map_err(|err| {
+                    io::Error::other(format!("render_frame failed for {}: {}", output_name, err))
+                })?;
+
+            let mut sync_wait = None;
+            let queued = if !render_res.is_empty {
+                if render_res.needs_sync()
+                    && let PrimaryPlaneElement::Swapchain(element) = &render_res.primary_element
+                {
+                    let wait_started = Instant::now();
+                    let wait_result = element.sync.wait();
+                    let wait_duration = wait_started.elapsed();
+                    sync_wait = Some(wait_duration);
+                    if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
+                        warn!(
+                            "slow tty drm sync wait: output={} path=composed duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                            output_name,
+                            wait_duration,
+                            output_device_node,
+                            primary_render_node,
+                            output_render_node
+                        );
+                    }
+                    if let Err(err) = wait_result {
+                        warn!(
+                            "failed to wait for tty drm composed frame completion on {}: {:?}",
+                            output_name, err
+                        );
+                    }
+                }
+                let feedback =
+                    crate::frame_loop::take_presentation_feedback_for_output_with_states(
+                        st,
+                        output_name,
+                        &render_res.states,
+                    )
+                    .ok_or_else(|| {
+                        io::Error::other(format!(
+                            "missing presentation feedback output {output_name}"
+                        ))
+                    })?;
+                queue_tty_frame_or_clear_on_failure(&mut compositor, output_name, feedback)?;
+                true
+            } else {
+                false
+            };
+
+            Ok(TtyFrameQueueReport {
+                queued,
+                animation_redraw_active: animation_redraw.active,
+                direct_scanout_active: false,
+                composed: true,
+                sync_wait,
+            })
+        }
     })();
 
     st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
@@ -1808,6 +1914,14 @@ struct FullscreenDirectScanoutCandidate {
 
 fn tty_direct_frame_flags() -> FrameFlags {
     FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY | FrameFlags::ALLOW_CURSOR_PLANE_SCANOUT
+}
+
+fn tty_cursor_frame_flags() -> FrameFlags {
+    FrameFlags::ALLOW_CURSOR_PLANE_SCANOUT
+}
+
+fn tty_hw_cursor_enabled() -> bool {
+    !tty_env_flag("HALLEY_DISABLE_CURSOR_PLANE")
 }
 
 fn render_tty_direct_elements(

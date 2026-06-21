@@ -144,6 +144,11 @@ All notable changes to this project will be documented in this file.
   config, IPC, CLI, and capture crates, while keeping `halley-api` on its independent track,
   pinning `halley-core` at `0.4.0`, and leaving `halley-lift`, `halley-aperture`, and
   `halley-portal` on their existing `0.1.0` package tracks.
+- Use DRM cursor-plane scanout for TTY composed frames on single-GPU, untransformed outputs when
+  available, keeping software cursor rendering for winit, portal captures, transformed outputs,
+  multi-GPU outputs, or `HALLEY_DISABLE_CURSOR_PLANE=1`. Cursor elements are submitted as
+  `Kind::Cursor` so Smithay can use hardware cursor planes and fall back to primary-plane
+  composition if the plane rejects the cursor.
 
 ### Fixed
 - Use an Apogee-specific render fast path while the overview is active: skip hidden field window

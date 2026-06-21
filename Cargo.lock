@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "halley-aperture"
-version = "0.4.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "fontdb",
@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "halley-lift"
-version = "0.4.0"
+version = "0.1.0"
 dependencies = [
  "calloop 0.14.4",
  "calloop-wayland-source 0.4.1",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "halley-portal"
-version = "0.4.0"
+version = "0.1.0"
 dependencies = [
  "eventline",
  "halley-api",

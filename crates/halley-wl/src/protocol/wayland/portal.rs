@@ -257,6 +257,7 @@ pub(crate) fn capture_output_via_renderer(
                 local_cursor,
                 cursor_status.as_ref(),
                 frame_transform,
+                true,
             )?;
         }
 
@@ -328,6 +329,7 @@ pub(crate) fn capture_output_into_dmabuf_via_renderer(
             local_cursor,
             cursor_status.as_ref(),
             frame_transform,
+            true,
         )?;
         Ok(crate::backend::interface::CaptureDmabufResult {
             captured_at: SystemTime::now(),

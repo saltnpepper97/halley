@@ -254,6 +254,7 @@ pub(crate) fn draw_debug_frame(
             None,
             None,
             Transform::Flipped180,
+            true,
         )?;
     }
     backend.submit(Some(&[damage]))?;
@@ -272,6 +273,7 @@ pub(crate) fn draw_debug_frame_to_target(
     cursor_screen: Option<(f32, f32)>,
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
     frame_transform: Transform,
+    draw_software_cursor: bool,
 ) -> Result<(), Box<dyn Error>> {
     let prepared = prepare_debug_frame_state(st, size);
 
@@ -285,19 +287,22 @@ pub(crate) fn draw_debug_frame_to_target(
             preview_hover_node,
             prepared.now,
         );
-        let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+        let cursor = draw_software_cursor
+            .then(|| collect_cursor_scene(renderer, cursor_screen, cursor_image));
         let mut frame = renderer.render(framebuffer, size, frame_transform)?;
         frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
         draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
-        let cursor_config = st.runtime.tuning.cursor.clone();
-        draw_cursor_layer(
-            &mut frame,
-            prepared.damage,
-            cursor_screen,
-            &cursor,
-            &mut st.platform.cursor_manager,
-            &cursor_config,
-        )?;
+        if let Some(cursor) = cursor.as_ref() {
+            let cursor_config = st.runtime.tuning.cursor.clone();
+            draw_cursor_layer(
+                &mut frame,
+                prepared.damage,
+                cursor_screen,
+                cursor,
+                &mut st.platform.cursor_manager,
+                &cursor_config,
+            )?;
+        }
         let _ = frame.finish()?;
         return Ok(());
     }
@@ -327,7 +332,8 @@ pub(crate) fn draw_debug_frame_to_target(
         prewarm_apogee_previews(renderer, st, prepared.now);
         let (layer_background, layer_bottom, layer_top, layer_overlay) =
             collect_layer_surfaces(renderer, st, size, prepared.now);
-        let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+        let cursor = draw_software_cursor
+            .then(|| collect_cursor_scene(renderer, cursor_screen, cursor_image));
         let mut frame = renderer.render(framebuffer, size, frame_transform)?;
         frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
         draw_apogee_background_layers(
@@ -348,15 +354,17 @@ pub(crate) fn draw_debug_frame_to_target(
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_bottom)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_top)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_overlay)?;
-        let cursor_config = st.runtime.tuning.cursor.clone();
-        draw_cursor_layer(
-            &mut frame,
-            prepared.damage,
-            cursor_screen,
-            &cursor,
-            &mut st.platform.cursor_manager,
-            &cursor_config,
-        )?;
+        if let Some(cursor) = cursor.as_ref() {
+            let cursor_config = st.runtime.tuning.cursor.clone();
+            draw_cursor_layer(
+                &mut frame,
+                prepared.damage,
+                cursor_screen,
+                cursor,
+                &mut st.platform.cursor_manager,
+                &cursor_config,
+            )?;
+        }
         let _ = frame.finish()?;
         return Ok(());
     }
@@ -441,7 +449,8 @@ pub(crate) fn draw_debug_frame_to_target(
     prime_cluster_naming_dialog_text_resources(st, size.w, size.h);
     ensure_ui_text_resources(renderer, st)?;
     let resources_ms = resources_start.map(crate::perf::elapsed_ms);
-    let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+    let cursor =
+        draw_software_cursor.then(|| collect_cursor_scene(renderer, cursor_screen, cursor_image));
     let draw_start = crate::perf::start();
     let clear_color = Color32F::new(0.04, 0.05, 0.06, 1.0);
 
@@ -546,15 +555,17 @@ pub(crate) fn draw_debug_frame_to_target(
         draw_scene_below_windows(&mut frame, st, size, &prepared, &scene, hover_node, None)?;
         draw_scene_windows_and_hud(&mut frame, st, size, &prepared, &scene, hover_node, None)?;
     }
-    let cursor_config = st.runtime.tuning.cursor.clone();
-    draw_cursor_layer(
-        &mut frame,
-        prepared.damage,
-        cursor_screen,
-        &cursor,
-        &mut st.platform.cursor_manager,
-        &cursor_config,
-    )?;
+    if let Some(cursor) = cursor.as_ref() {
+        let cursor_config = st.runtime.tuning.cursor.clone();
+        draw_cursor_layer(
+            &mut frame,
+            prepared.damage,
+            cursor_screen,
+            cursor,
+            &mut st.platform.cursor_manager,
+            &cursor_config,
+        )?;
+    }
 
     let _ = frame.finish()?;
     if let Some(blur_textures) = blur_textures {
