@@ -256,7 +256,12 @@ impl XdgShellHandler for Halley {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
         if !handled_by_lift_staging && (!handled_by_cluster || handled_by_active_cluster) {
-            spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
+            spawn::reveal::reveal_new_toplevel_node_via_ctx(
+                &mut self.spawn_ctx(),
+                id,
+                is_transient,
+                now,
+            );
         }
         if !handled_by_cluster && !handled_by_lift_staging {
             if !self.model.spawn_state.pending_initial_reveal.contains(&id) {

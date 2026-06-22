@@ -1439,18 +1439,18 @@ impl Halley {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        super::spawn::reveal::spawn_reveal_controller(self).viewport_center_for_monitor(monitor)
+        super::spawn::reveal::placement::viewport_center_for_monitor(self, monitor)
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
-        super::spawn::reveal::spawn_reveal_controller(self).resolve_spawn_target_monitor()
+        super::spawn::reveal::placement::resolve_spawn_target_monitor(self)
     }
 
     #[cfg(test)]
     pub(crate) fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
-        super::spawn::reveal::spawn_reveal_controller(self).current_spawn_focus(monitor)
+        super::spawn::reveal::placement::current_spawn_focus(self, monitor)
     }
 
     #[cfg(test)]
@@ -1460,29 +1460,29 @@ impl Halley {
         monitor: &str,
         id: NodeId,
     ) -> bool {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .viewport_fully_contains_surface_on_monitor(monitor, id)
+        super::spawn::reveal::placement::viewport_fully_contains_surface_on_monitor(
+            self, monitor, id,
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .right_spawn_candidate_for_focus(id, size)
+        super::spawn::reveal::placement::right_spawn_candidate_for_focus(self, id, size)
     }
 
     #[cfg(test)]
     pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self).star_candidate_offsets(size)
+        super::spawn::reveal::placement::star_candidate_offsets(self, size)
     }
 
     #[cfg(test)]
     pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_x(size)
+        super::spawn::reveal::placement::spawn_star_step_x(self, size)
     }
 
     #[cfg(test)]
     pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_y(size)
+        super::spawn::reveal::placement::spawn_star_step_y(self, size)
     }
 
     #[cfg(test)]
@@ -1492,8 +1492,7 @@ impl Halley {
         size: Vec2,
         dir: Vec2,
     ) -> Option<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .spawn_candidate_for_focus_dir(id, size, dir)
+        super::spawn::reveal::placement::spawn_candidate_for_focus_dir(self, id, size, dir)
     }
 
     #[cfg(test)]
@@ -1505,20 +1504,21 @@ impl Halley {
         focus_pos: Vec2,
         growth_dir: Vec2,
     ) {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .update_spawn_patch(monitor, anchor, focus_node, focus_pos, growth_dir)
+        super::spawn::reveal::placement::update_spawn_patch(
+            self, monitor, anchor, focus_node, focus_pos, growth_dir,
+        )
     }
 
     #[allow(dead_code)]
     pub(crate) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
-        super::spawn::reveal::spawn_reveal_controller(self).pick_spawn_position(size)
+        super::spawn::reveal::placement::pick_spawn_position(self, size)
     }
 
     pub(crate) fn spawn_target_monitor_for_intent(
         &self,
         intent: &super::spawn::rules::InitialWindowIntent,
     ) -> String {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_target_monitor_for_intent(intent)
+        super::spawn::reveal::placement::spawn_target_monitor_for_intent(self, intent)
     }
 
     pub(crate) fn pick_spawn_position_with_intent(
@@ -1526,22 +1526,20 @@ impl Halley {
         size: Vec2,
         intent: &super::spawn::rules::InitialWindowIntent,
     ) -> (String, Vec2, bool) {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .pick_spawn_position_with_intent(size, intent)
+        super::spawn::reveal::placement::pick_spawn_position_with_intent(self, size, intent)
     }
 
     pub(crate) fn finalize_initial_spawn_position(&mut self, id: NodeId, size: Vec2) -> bool {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .finalize_initial_spawn_position(id, size)
+        super::spawn::reveal::placement::finalize_initial_spawn_position(self, id, size)
     }
 
     #[allow(dead_code)]
     pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
-        super::spawn::reveal::spawn_reveal_controller(self).maybe_start_pending_spawn_pan(now)
+        super::spawn::reveal::maybe_start_pending_spawn_pan(self, now)
     }
 
     pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
-        super::spawn::reveal::spawn_reveal_controller(self).tick_pending_spawn_pan(now, now_ms)
+        super::spawn::reveal::tick_pending_spawn_pan(self, now, now_ms)
     }
 
     pub(crate) fn reveal_new_toplevel_node(
@@ -1550,11 +1548,7 @@ impl Halley {
         is_transient: bool,
         now: Instant,
     ) {
-        super::spawn::reveal::spawn_reveal_controller(self).reveal_new_toplevel_node(
-            id,
-            is_transient,
-            now,
-        )
+        super::spawn::reveal::reveal_new_toplevel_node(self, id, is_transient, now)
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
