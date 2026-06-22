@@ -1012,28 +1012,28 @@ impl Halley {
     }
 
     pub fn now_ms(&self, now: Instant) -> u64 {
-        super::runtime::runtime_controller(self).now_ms(now)
+        super::runtime::now_ms(self, now)
     }
 
     #[allow(dead_code)]
     pub(crate) fn debug_dump(&self) {
-        super::runtime::runtime_controller(self).debug_dump()
+        super::runtime::debug_dump(self)
     }
 
     pub fn apply_tuning(&mut self, tuning: RuntimeTuning) {
-        super::runtime::runtime_controller(self).apply_tuning(tuning)
+        super::runtime::apply_tuning(self, tuning)
     }
 
     pub fn request_exit(&mut self) {
-        super::runtime::runtime_controller(self).request_exit()
+        super::runtime::request_exit(self)
     }
 
     pub fn exit_requested(&self) -> bool {
-        super::runtime::runtime_controller(self).exit_requested()
+        super::runtime::exit_requested(self)
     }
 
     pub fn request_maintenance(&mut self) {
-        super::runtime::runtime_controller(self).request_maintenance()
+        super::runtime::request_maintenance(self)
     }
 
     pub fn request_tty_redraw_for_monitor(&mut self, monitor: &str) {
@@ -1063,16 +1063,16 @@ impl Halley {
 
     #[allow(dead_code)]
     pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
-        super::runtime::runtime_controller(self).next_maintenance_deadline(now)
+        super::runtime::next_maintenance_deadline(self, now)
     }
 
     pub fn run_maintenance_if_needed(&mut self, now: Instant) {
-        super::runtime::runtime_controller(self).run_maintenance_if_needed(now)
+        super::runtime::run_maintenance_if_needed(self, now)
     }
 
     #[allow(dead_code)]
     pub fn run_maintenance(&mut self, now: Instant) {
-        super::runtime::runtime_controller(self).run_maintenance(now)
+        super::runtime::run_maintenance(self, now)
     }
 
     pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {

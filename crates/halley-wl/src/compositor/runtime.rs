@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -35,60 +34,36 @@ pub(crate) struct RuntimeState {
     pub(crate) wayland_display: Option<String>,
 }
 
-pub(crate) struct RuntimeController<T> {
-    st: T,
+pub fn now_ms(st: &Halley, now: Instant) -> u64 {
+    now.duration_since(st.runtime.started_at).as_millis() as u64
 }
 
-pub(crate) fn runtime_controller<T>(st: T) -> RuntimeController<T> {
-    RuntimeController { st }
+pub(crate) fn debug_dump(_st: &Halley) {}
+
+pub fn exit_requested(st: &Halley) -> bool {
+    st.runtime.exit_requested
 }
 
-impl<T: Deref<Target = Halley>> Deref for RuntimeController<T> {
-    type Target = Halley;
-
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
-    }
-}
-
-impl<T: DerefMut<Target = Halley>> DerefMut for RuntimeController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
-}
-
-impl<T: Deref<Target = Halley>> RuntimeController<T> {
-    pub fn now_ms(&self, now: Instant) -> u64 {
-        now.duration_since(self.runtime.started_at).as_millis() as u64
+pub fn next_maintenance_deadline(st: &Halley, now: Instant) -> Option<Instant> {
+    if !st.model.focus_state.app_focused {
+        return None;
     }
 
-    pub(crate) fn debug_dump(&self) {}
-
-    pub fn exit_requested(&self) -> bool {
-        self.runtime.exit_requested
-    }
-
-    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
-        if !self.model.focus_state.app_focused {
-            return None;
-        }
-
-        let now_ms = self.now_ms(now);
-        let next_ms = min_optional_deadlines([
-            focus_deadline_ms(self, now_ms),
-            resize_deadline_ms(self, now_ms),
-            spawn_deadline_ms(self, now_ms),
-            workspace_deadline_ms(self, now_ms),
-            interaction_deadline_ms(self, now_ms),
-            animation_deadline_ms(self, now_ms),
-        ]);
-        next_ms.map(|at_ms| {
-            now.checked_add(std::time::Duration::from_millis(
-                at_ms.saturating_sub(now_ms),
-            ))
-            .unwrap_or(now)
-        })
-    }
+    let now_ms = now_ms(st, now);
+    let next_ms = min_optional_deadlines([
+        focus_deadline_ms(st, now_ms),
+        resize_deadline_ms(st, now_ms),
+        spawn_deadline_ms(st, now_ms),
+        workspace_deadline_ms(st, now_ms),
+        interaction_deadline_ms(st, now_ms),
+        animation_deadline_ms(st, now_ms),
+    ]);
+    next_ms.map(|at_ms| {
+        now.checked_add(std::time::Duration::from_millis(
+            at_ms.saturating_sub(now_ms),
+        ))
+        .unwrap_or(now)
+    })
 }
 
 fn min_optional_deadlines<const N: usize>(deadlines: [Option<u64>; N]) -> Option<u64> {
@@ -262,409 +237,406 @@ fn animation_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
     ])
 }
 
-impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
-    pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
-        let prev_runtime_viewport = self.model.viewport;
-        let prev_config_viewport = self.runtime.tuning.viewport();
-        let prev_decorations = self.runtime.tuning.decorations;
-        let prev_font = self.runtime.tuning.font.clone();
-        let prev_input = self.runtime.tuning.input.clone();
-        let prev_physics_enabled = self.runtime.tuning.physics_enabled;
-        let prev_focus = self.last_input_surface_node();
-        let previous_output_names: std::collections::HashSet<String> = self
-            .model
-            .monitor_state
-            .monitors
-            .keys()
-            .cloned()
-            .chain(
-                self.runtime
-                    .tuning
-                    .tty_viewports
-                    .iter()
-                    .map(|v| v.connector.clone()),
-            )
-            .collect();
+pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
+    let prev_runtime_viewport = st.model.viewport;
+    let prev_config_viewport = st.runtime.tuning.viewport();
+    let prev_decorations = st.runtime.tuning.decorations;
+    let prev_font = st.runtime.tuning.font.clone();
+    let prev_input = st.runtime.tuning.input.clone();
+    let prev_physics_enabled = st.runtime.tuning.physics_enabled;
+    let prev_focus = st.last_input_surface_node();
+    let previous_output_names: std::collections::HashSet<String> = st
+        .model
+        .monitor_state
+        .monitors
+        .keys()
+        .cloned()
+        .chain(
+            st.runtime
+                .tuning
+                .tty_viewports
+                .iter()
+                .map(|v| v.connector.clone()),
+        )
+        .collect();
 
-        tuning.enforce_guards();
-        tuning.apply_process_env();
+    tuning.enforce_guards();
+    tuning.apply_process_env();
 
-        let next_viewport = tuning.viewport();
-        let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
-            || prev_config_viewport.size != next_viewport.size;
-        if logical_viewport_changed {
-            self.model.viewport = next_viewport;
-            self.model.zoom_ref_size = tuning.viewport_size;
-            self.model.camera_target_center = self.model.viewport.center;
-            self.model.camera_target_view_size = self.model.zoom_ref_size;
-            if prev_runtime_viewport.center != next_viewport.center
-                || prev_runtime_viewport.size != next_viewport.size
+    let next_viewport = tuning.viewport();
+    let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
+        || prev_config_viewport.size != next_viewport.size;
+    if logical_viewport_changed {
+        st.model.viewport = next_viewport;
+        st.model.zoom_ref_size = tuning.viewport_size;
+        st.model.camera_target_center = st.model.viewport.center;
+        st.model.camera_target_view_size = st.model.zoom_ref_size;
+        if prev_runtime_viewport.center != next_viewport.center
+            || prev_runtime_viewport.size != next_viewport.size
+        {
+            st.input.interaction_state.viewport_pan_anim = None;
+        }
+    }
+
+    st.ui.render_state.animator.set_spec(AnimSpec {
+        state_change_ms: FIXED_ANIM_STATE_CHANGE_MS,
+        bounce: FIXED_ANIM_BOUNCE,
+    });
+
+    if prev_physics_enabled && !tuning.physics_enabled {
+        st.input.interaction_state.drag_authority_node = None;
+        st.input.interaction_state.physics_velocity.clear();
+        st.input.interaction_state.smoothed_render_pos.clear();
+        st.model.camera_target_center = st.model.viewport.center;
+        st.model.camera_target_view_size = st.model.zoom_ref_size;
+    }
+
+    let next_output_names: std::collections::HashSet<String> = previous_output_names
+        .iter()
+        .cloned()
+        .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+        .collect();
+    let now = Instant::now();
+    let now_ms = now_ms(st, now);
+    if tuning.debug.show_ring_when_resizing {
+        for output_name in next_output_names {
+            if st
+                .runtime
+                .tuning
+                .focus_ring_for_output(output_name.as_str())
+                != tuning.focus_ring_for_output(output_name.as_str())
             {
-                self.input.interaction_state.viewport_pan_anim = None;
-            }
-        }
-
-        self.ui.render_state.animator.set_spec(AnimSpec {
-            state_change_ms: FIXED_ANIM_STATE_CHANGE_MS,
-            bounce: FIXED_ANIM_BOUNCE,
-        });
-
-        if prev_physics_enabled && !tuning.physics_enabled {
-            self.input.interaction_state.drag_authority_node = None;
-            self.input.interaction_state.physics_velocity.clear();
-            self.input.interaction_state.smoothed_render_pos.clear();
-            self.model.camera_target_center = self.model.viewport.center;
-            self.model.camera_target_view_size = self.model.zoom_ref_size;
-        }
-
-        let next_output_names: std::collections::HashSet<String> = previous_output_names
-            .iter()
-            .cloned()
-            .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
-            .collect();
-        let now = Instant::now();
-        let now_ms = self.now_ms(now);
-        if tuning.debug.show_ring_when_resizing {
-            for output_name in next_output_names {
-                if self
-                    .runtime
-                    .tuning
-                    .focus_ring_for_output(output_name.as_str())
-                    != tuning.focus_ring_for_output(output_name.as_str())
-                {
-                    self.model.focus_state.focus_ring_preview_until_ms.insert(
-                        output_name,
-                        now_ms
-                            .saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
-                    );
-                }
-            }
-        } else {
-            self.model.focus_state.focus_ring_preview_until_ms.clear();
-        }
-
-        self.runtime.tuning = tuning;
-        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(&mut **self);
-        let repeat_changed = self.runtime.tuning.input.repeat_rate != prev_input.repeat_rate
-            || self.runtime.tuning.input.repeat_delay != prev_input.repeat_delay;
-        let keyboard_config_changed = self.runtime.tuning.input.keyboard != prev_input.keyboard;
-        if let Some(keyboard) = self.platform.seat.get_keyboard() {
-            if repeat_changed {
-                keyboard.change_repeat_info(
-                    self.runtime.tuning.input.repeat_rate,
-                    self.runtime.tuning.input.repeat_delay,
+                st.model.focus_state.focus_ring_preview_until_ms.insert(
+                    output_name,
+                    now_ms.saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
                 );
             }
-            if keyboard_config_changed {
-                let xkb_config =
-                    crate::backend::ResolvedXkbConfig::from_input(&self.runtime.tuning.input);
-                if let Err(err) = keyboard.set_xkb_config(self, xkb_config.as_smithay()) {
-                    warn!(
-                        "failed to apply keyboard layout='{}' variant='{}' options='{}' on reload: {}",
-                        self.runtime.tuning.input.keyboard.layout,
-                        self.runtime.tuning.input.keyboard.variant,
-                        self.runtime.tuning.input.keyboard.options,
-                        err
-                    );
-                }
-            }
         }
-        let device_config_changed = self.runtime.tuning.input.touchpad != prev_input.touchpad
-            || self.runtime.tuning.input.mouse != prev_input.mouse
-            || self.runtime.tuning.input.devices != prev_input.devices;
-        if device_config_changed {
-            // Clone so the device loop borrows `self.input` mutably without holding a
-            // borrow on `self.runtime` (which deref splitting can't prove disjoint here).
-            let input_cfg = self.runtime.tuning.input.clone();
-            for device in self.input.devices.iter_mut() {
-                crate::input::device_config::apply_device_config(device, &input_cfg);
-            }
-        }
-        if self.runtime.tuning.font != prev_font {
-            self.ui.render_state.invalidate_ui_text_cache();
-        }
-        if self.runtime.tuning.decorations != prev_decorations {
-            self.ui.render_state.clear_window_offscreen_caches();
-        }
-        if !self.runtime.tuning.cursor.hide_while_typing {
-            self.input.interaction_state.cursor_hidden_by_typing = false;
-        }
-        self.refresh_xdg_decoration_mode();
-        self.request_maintenance();
-
-        if let Some(id) = prev_focus {
-            self.set_interaction_focus(Some(id), 30_000, now);
-        }
+    } else {
+        st.model.focus_state.focus_ring_preview_until_ms.clear();
     }
 
-    pub fn request_exit(&mut self) {
-        self.runtime.exit_requested = true;
-    }
-
-    #[inline]
-    pub fn request_maintenance(&mut self) {
-        self.runtime.maintenance_dirty = true;
-        self.runtime.tty_redraw_all = true;
-        if let Some(ping) = &self.runtime.maintenance_ping {
-            ping.ping();
-        }
-    }
-
-    #[inline]
-    pub fn run_maintenance_if_needed(&mut self, now: Instant) {
-        let due = self
-            .next_maintenance_deadline(now)
-            .is_some_and(|deadline| deadline <= now);
-        if self.runtime.maintenance_dirty || due {
-            self.run_maintenance(now);
-        }
-    }
-
-    #[inline]
-    pub fn run_maintenance(&mut self, now: Instant) {
-        self.runtime.maintenance_dirty = false;
-        if !self.model.focus_state.app_focused {
-            return;
-        }
-        crate::compositor::workspace::lifecycle::reconcile_surface_bindings(self);
-        let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
-        crate::protocol::wayland::activation::prune_expired(self, now, now_ms);
-        let _ = self.recent_top_node_active(now);
-        let pointer_contents_changed =
-            crate::compositor::interaction::pointer::update_pointer_contents_at_last_screen(
-                self, None, now,
+    st.runtime.tuning = tuning;
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    let repeat_changed = st.runtime.tuning.input.repeat_rate != prev_input.repeat_rate
+        || st.runtime.tuning.input.repeat_delay != prev_input.repeat_delay;
+    let keyboard_config_changed = st.runtime.tuning.input.keyboard != prev_input.keyboard;
+    if let Some(keyboard) = st.platform.seat.get_keyboard() {
+        if repeat_changed {
+            keyboard.change_repeat_info(
+                st.runtime.tuning.input.repeat_rate,
+                st.runtime.tuning.input.repeat_delay,
             );
-        if pointer_contents_changed {
-            if let Some((sx, sy)) = self.input.interaction_state.last_pointer_screen_global
-                && let Some(output_name) = self.monitor_for_screen(sx, sy)
-            {
-                self.request_tty_redraw_for_monitor(output_name.as_str());
-            } else {
-                self.runtime.tty_redraw_all = true;
+        }
+        if keyboard_config_changed {
+            let xkb_config =
+                crate::backend::ResolvedXkbConfig::from_input(&st.runtime.tuning.input);
+            if let Err(err) = keyboard.set_xkb_config(st, xkb_config.as_smithay()) {
+                warn!(
+                    "failed to apply keyboard layout='{}' variant='{}' options='{}' on reload: {}",
+                    st.runtime.tuning.input.keyboard.layout,
+                    st.runtime.tuning.input.keyboard.variant,
+                    st.runtime.tuning.input.keyboard.options,
+                    err
+                );
             }
         }
-        if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
-            && now_ms >= pending.deadline_ms
+    }
+    let device_config_changed = st.runtime.tuning.input.touchpad != prev_input.touchpad
+        || st.runtime.tuning.input.mouse != prev_input.mouse
+        || st.runtime.tuning.input.devices != prev_input.devices;
+    if device_config_changed {
+        // Clone so the device loop borrows `st.input` mutably without holding a
+        // borrow on `st.runtime` (which deref splitting can't prove disjoint here).
+        let input_cfg = st.runtime.tuning.input.clone();
+        for device in st.input.devices.iter_mut() {
+            crate::input::device_config::apply_device_config(device, &input_cfg);
+        }
+    }
+    if st.runtime.tuning.font != prev_font {
+        st.ui.render_state.invalidate_ui_text_cache();
+    }
+    if st.runtime.tuning.decorations != prev_decorations {
+        st.ui.render_state.clear_window_offscreen_caches();
+    }
+    if !st.runtime.tuning.cursor.hide_while_typing {
+        st.input.interaction_state.cursor_hidden_by_typing = false;
+    }
+    st.refresh_xdg_decoration_mode();
+    request_maintenance(st);
+
+    if let Some(id) = prev_focus {
+        st.set_interaction_focus(Some(id), 30_000, now);
+    }
+}
+
+pub fn request_exit(st: &mut Halley) {
+    st.runtime.exit_requested = true;
+}
+
+#[inline]
+pub fn request_maintenance(st: &mut Halley) {
+    st.runtime.maintenance_dirty = true;
+    st.runtime.tty_redraw_all = true;
+    if let Some(ping) = &st.runtime.maintenance_ping {
+        ping.ping();
+    }
+}
+
+#[inline]
+pub fn run_maintenance_if_needed(st: &mut Halley, now: Instant) {
+    let due = next_maintenance_deadline(st, now).is_some_and(|deadline| deadline <= now);
+    if st.runtime.maintenance_dirty || due {
+        run_maintenance(st, now);
+    }
+}
+
+#[inline]
+pub fn run_maintenance(st: &mut Halley, now: Instant) {
+    st.runtime.maintenance_dirty = false;
+    if !st.model.focus_state.app_focused {
+        return;
+    }
+    crate::compositor::workspace::lifecycle::reconcile_surface_bindings(st);
+    let now_ms = now.duration_since(st.runtime.started_at).as_millis() as u64;
+    crate::protocol::wayland::activation::prune_expired(st, now, now_ms);
+    let _ = st.recent_top_node_active(now);
+    let pointer_contents_changed =
+        crate::compositor::interaction::pointer::update_pointer_contents_at_last_screen(
+            st, None, now,
+        );
+    if pointer_contents_changed {
+        if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+            && let Some(output_name) = st.monitor_for_screen(sx, sy)
         {
-            self.input.interaction_state.pending_core_click = None;
+            st.request_tty_redraw_for_monitor(output_name.as_str());
+        } else {
+            st.runtime.tty_redraw_all = true;
         }
-        if let Some(pending) = self
-            .input
-            .interaction_state
-            .pending_collapsed_node_click
-            .clone()
-            && now_ms >= pending.deadline_ms
-        {
-            self.input.interaction_state.pending_collapsed_node_click = None;
-        }
-        let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
-            .repeat_cluster_name_prompt_input_if_due(now_ms);
-        screenshot_controller(&mut **self).run_pending_screenshot_capture_if_due(now_ms);
-        if let Some(pending) = self
-            .input
-            .interaction_state
-            .pending_modal_focus_restore
-            .clone()
-            && now_ms >= pending.restore_at_ms
-        {
-            self.input.interaction_state.pending_modal_focus_restore = None;
-            self.apply_wayland_focus_state(pending.target);
-        }
-        if self
-            .input
-            .interaction_state
-            .cursor_override_until_ms
-            .is_some_and(|until_ms| now_ms >= until_ms)
-        {
-            self.input.interaction_state.cursor_override_until_ms = None;
-            self.input.interaction_state.cursor_override_icon = None;
-        }
-        if self.has_any_active_cluster_workspace() {
-            let active_monitors = self
-                .model
-                .cluster_state
-                .active_cluster_workspaces
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>();
-            for monitor in active_monitors {
-                self.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
-            }
-        }
-        // Flush any aperture work-area change deferred while a layout session was
-        // active. `refresh` re-checks each monitor: a monitor whose session has
-        // ended applies its true reservation, while a still-locked one stays
-        // frozen for the whole session (so no end-of-slide snap). Only run when a
-        // pending monitor is actually unlocked — otherwise the refresh would
-        // re-defer every entry and needlessly invalidate the aperture mode cache
-        // each tick for the whole session.
-        if crate::compositor::monitor::layer_shell::any_pending_workarea_unlocked(self) {
-            crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
-        }
-        if let Some(fid) = self.model.focus_state.primary_interaction_focus
-            && now_ms >= self.model.focus_state.interaction_focus_until_ms
-        {
-            let keep = self.model.field.node(fid).is_some_and(|n| {
-                self.model.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
-            });
-            if keep {
-                self.model.focus_state.interaction_focus_until_ms = now_ms.saturating_add(30_000);
-            } else {
-                self.set_interaction_focus(None, 0, now);
-            }
-        }
-        if crate::protocol::wayland::session_lock::session_lock_active(self) {
-            crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(self);
-        } else if self.model.focus_state.primary_interaction_focus.is_none()
-            && self.model.monitor_state.layer_keyboard_focus.is_some()
-        {
-            crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);
-        }
-        self.model
-            .workspace_state
-            .active_transitions
-            .retain(|_, transition| transition.is_active(now_ms));
-        self.model
-            .workspace_state
-            .primary_promote_cooldown_until_ms
-            .retain(|_, &mut until| until > now_ms);
-        let expired_silent_close = self
+    }
+    if let Some(pending) = st.input.interaction_state.pending_core_click.clone()
+        && now_ms >= pending.deadline_ms
+    {
+        st.input.interaction_state.pending_core_click = None;
+    }
+    if let Some(pending) = st
+        .input
+        .interaction_state
+        .pending_collapsed_node_click
+        .clone()
+        && now_ms >= pending.deadline_ms
+    {
+        st.input.interaction_state.pending_collapsed_node_click = None;
+    }
+    let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+        .repeat_cluster_name_prompt_input_if_due(now_ms);
+    screenshot_controller(&mut *st).run_pending_screenshot_capture_if_due(now_ms);
+    if let Some(pending) = st
+        .input
+        .interaction_state
+        .pending_modal_focus_restore
+        .clone()
+        && now_ms >= pending.restore_at_ms
+    {
+        st.input.interaction_state.pending_modal_focus_restore = None;
+        st.apply_wayland_focus_state(pending.target);
+    }
+    if st
+        .input
+        .interaction_state
+        .cursor_override_until_ms
+        .is_some_and(|until_ms| now_ms >= until_ms)
+    {
+        st.input.interaction_state.cursor_override_until_ms = None;
+        st.input.interaction_state.cursor_override_icon = None;
+    }
+    if st.has_any_active_cluster_workspace() {
+        let active_monitors = st
             .model
+            .cluster_state
+            .active_cluster_workspaces
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for monitor in active_monitors {
+            st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
+        }
+    }
+    // Flush any aperture work-area change deferred while a layout session was
+    // active. `refresh` re-checks each monitor: a monitor whose session has
+    // ended applies its true reservation, while a still-locked one stays
+    // frozen for the whole session (so no end-of-slide snap). Only run when a
+    // pending monitor is actually unlocked — otherwise the refresh would
+    // re-defer every entry and needlessly invalidate the aperture mode cache
+    // each tick for the whole session.
+    if crate::compositor::monitor::layer_shell::any_pending_workarea_unlocked(st) {
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    }
+    if let Some(fid) = st.model.focus_state.primary_interaction_focus
+        && now_ms >= st.model.focus_state.interaction_focus_until_ms
+    {
+        let keep = st.model.field.node(fid).is_some_and(|n| {
+            st.model.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
+        });
+        if keep {
+            st.model.focus_state.interaction_focus_until_ms = now_ms.saturating_add(30_000);
+        } else {
+            st.set_interaction_focus(None, 0, now);
+        }
+    }
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(st);
+    } else if st.model.focus_state.primary_interaction_focus.is_none()
+        && st.model.monitor_state.layer_keyboard_focus.is_some()
+    {
+        crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(
+            st,
+        );
+    }
+    st.model
+        .workspace_state
+        .active_transitions
+        .retain(|_, transition| transition.is_active(now_ms));
+    st.model
+        .workspace_state
+        .primary_promote_cooldown_until_ms
+        .retain(|_, &mut until| until > now_ms);
+    let expired_silent_close = st
+        .model
+        .workspace_state
+        .pending_silent_close_until_ms
+        .iter()
+        .filter_map(|(&id, &until)| (until <= now_ms).then_some(id))
+        .collect::<Vec<_>>();
+    for id in expired_silent_close {
+        st.model
             .workspace_state
             .pending_silent_close_until_ms
-            .iter()
-            .filter_map(|(&id, &until)| (until <= now_ms).then_some(id))
-            .collect::<Vec<_>>();
-        for id in expired_silent_close {
-            self.model
-                .workspace_state
-                .pending_silent_close_until_ms
-                .remove(&id);
-            if !self.model.field.is_cluster_member(id)
-                && let Some(node) = self.model.field.node_mut(id)
-            {
-                node.visibility
-                    .clear(halley_core::field::Visibility::HIDDEN_BY_CLUSTER);
-            }
+            .remove(&id);
+        if !st.model.field.is_cluster_member(id)
+            && let Some(node) = st.model.field.node_mut(id)
+        {
+            node.visibility
+                .clear(halley_core::field::Visibility::HIDDEN_BY_CLUSTER);
         }
-        let alive_ids: std::collections::HashSet<_> =
-            self.model.field.node_ids_all().into_iter().collect();
-        self.model
-            .carry_state
-            .carry_zone_hint
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .carry_state
-            .carry_zone_last_change_ms
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .carry_state
-            .carry_zone_pending
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .carry_state
-            .carry_zone_pending_since_ms
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .carry_state
-            .carry_activation_anim_armed
-            .retain(|id| alive_ids.contains(id));
-        self.model
-            .carry_state
-            .carry_state_hold
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .focus_state
-            .last_surface_focus_ms
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .focus_state
-            .overlap_raise_order
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .workspace_state
-            .manual_collapsed_nodes
-            .retain(|id| alive_ids.contains(id));
-        self.model
-            .spawn_state
-            .pending_tiled_insert_reveal_at_ms
-            .retain(|id, _| alive_ids.contains(id));
-        self.model
-            .spawn_state
-            .pending_tiled_insert_preserve_focus
-            .retain(|id| alive_ids.contains(id));
-        self.model
-            .cluster_state
-            .cluster_overflow_promotion_anim
-            .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);
+    }
+    let alive_ids: std::collections::HashSet<_> =
+        st.model.field.node_ids_all().into_iter().collect();
+    st.model
+        .carry_state
+        .carry_zone_hint
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .carry_state
+        .carry_zone_last_change_ms
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .carry_state
+        .carry_zone_pending
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .carry_state
+        .carry_zone_pending_since_ms
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .carry_state
+        .carry_activation_anim_armed
+        .retain(|id| alive_ids.contains(id));
+    st.model
+        .carry_state
+        .carry_state_hold
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .focus_state
+        .last_surface_focus_ms
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .focus_state
+        .overlap_raise_order
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .workspace_state
+        .manual_collapsed_nodes
+        .retain(|id| alive_ids.contains(id));
+    st.model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .retain(|id, _| alive_ids.contains(id));
+    st.model
+        .spawn_state
+        .pending_tiled_insert_preserve_focus
+        .retain(|id| alive_ids.contains(id));
+    st.model
+        .cluster_state
+        .cluster_overflow_promotion_anim
+        .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);
 
-        self.process_pending_spawn_activations(now, now_ms);
-        let resize_settling = self
-            .input
-            .interaction_state
-            .resize_static_node
-            .is_some_and(|_| now_ms < self.input.interaction_state.resize_static_until_ms);
-        if resize_settling
-            && let (Some(id), Some(lock_pos)) = (
-                self.input.interaction_state.resize_static_node,
-                self.input.interaction_state.resize_static_lock_pos,
-            )
-            && let Some(n) = self.model.field.node(id)
-            && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
-        {
-            let _ = self.model.field.carry(id, lock_pos);
-        }
-        if self
-            .input
-            .interaction_state
-            .resize_static_node
-            .is_some_and(|_| now_ms >= self.input.interaction_state.resize_static_until_ms)
-        {
-            self.input.interaction_state.resize_static_node = None;
-            self.input.interaction_state.resize_static_lock_pos = None;
-            self.input.interaction_state.resize_static_until_ms = 0;
-        }
-        if !self.input.interaction_state.suspend_state_checks {
-            crate::compositor::interaction::state::enforce_pan_dominant_zone_states(self, now_ms);
-            crate::compositor::carry::state::enforce_carry_zone_states(self);
-        }
-        if let Some(id) = self.input.interaction_state.resize_active {
-            let _ = self.model.field.touch(id, now_ms);
-            let _ = self
-                .model
-                .field
-                .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
-        }
-        if self.input.interaction_state.resize_active.is_none()
-            && !(self.input.interaction_state.resize_static_node.is_some()
-                && now_ms < self.input.interaction_state.resize_static_until_ms)
-        {
-            camera_controller(&mut **self).update_zoom_live_surface_sizes();
-        }
-        let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
-            enabled: false,
-            distance_px: self.runtime.tuning.cluster_distance_px,
-            dwell_ms: self.runtime.tuning.cluster_dwell_ms,
-            ..Default::default()
-        };
-        let model = &mut self.model;
-        let _ = halley_core::cluster_policy::tick_cluster_formation(
-            &mut model.field,
-            now_ms,
-            cluster_policy,
-            &mut model.cluster_state.cluster_form_state,
-        );
-        self.enforce_single_primary_active_unit();
-        if !self.input.interaction_state.suspend_state_checks
-            && self.input.interaction_state.resize_active.is_none()
-        {
-            self.resolve_surface_overlap();
-        }
-        self.restore_pan_return_active_focus(now);
-        let animations_enabled = self.runtime.tuning.animations_enabled();
-        let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
-        if animations_enabled {
-            ui.render_state.animator.observe_field(&model.field, now);
-        }
+    st.process_pending_spawn_activations(now, now_ms);
+    let resize_settling = st
+        .input
+        .interaction_state
+        .resize_static_node
+        .is_some_and(|_| now_ms < st.input.interaction_state.resize_static_until_ms);
+    if resize_settling
+        && let (Some(id), Some(lock_pos)) = (
+            st.input.interaction_state.resize_static_node,
+            st.input.interaction_state.resize_static_lock_pos,
+        )
+        && let Some(n) = st.model.field.node(id)
+        && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
+    {
+        let _ = st.model.field.carry(id, lock_pos);
+    }
+    if st
+        .input
+        .interaction_state
+        .resize_static_node
+        .is_some_and(|_| now_ms >= st.input.interaction_state.resize_static_until_ms)
+    {
+        st.input.interaction_state.resize_static_node = None;
+        st.input.interaction_state.resize_static_lock_pos = None;
+        st.input.interaction_state.resize_static_until_ms = 0;
+    }
+    if !st.input.interaction_state.suspend_state_checks {
+        crate::compositor::interaction::state::enforce_pan_dominant_zone_states(st, now_ms);
+        crate::compositor::carry::state::enforce_carry_zone_states(st);
+    }
+    if let Some(id) = st.input.interaction_state.resize_active {
+        let _ = st.model.field.touch(id, now_ms);
+        let _ = st
+            .model
+            .field
+            .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+    }
+    if st.input.interaction_state.resize_active.is_none()
+        && !(st.input.interaction_state.resize_static_node.is_some()
+            && now_ms < st.input.interaction_state.resize_static_until_ms)
+    {
+        camera_controller(&mut *st).update_zoom_live_surface_sizes();
+    }
+    let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
+        enabled: false,
+        distance_px: st.runtime.tuning.cluster_distance_px,
+        dwell_ms: st.runtime.tuning.cluster_dwell_ms,
+        ..Default::default()
+    };
+    let model = &mut st.model;
+    let _ = halley_core::cluster_policy::tick_cluster_formation(
+        &mut model.field,
+        now_ms,
+        cluster_policy,
+        &mut model.cluster_state.cluster_form_state,
+    );
+    st.enforce_single_primary_active_unit();
+    if !st.input.interaction_state.suspend_state_checks
+        && st.input.interaction_state.resize_active.is_none()
+    {
+        st.resolve_surface_overlap();
+    }
+    st.restore_pan_return_active_focus(now);
+    let animations_enabled = st.runtime.tuning.animations_enabled();
+    let crate::compositor::root::Halley { model, ui, .. } = st;
+    if animations_enabled {
+        ui.render_state.animator.observe_field(&model.field, now);
     }
 }
