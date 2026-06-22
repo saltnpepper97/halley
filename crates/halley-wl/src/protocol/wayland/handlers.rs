@@ -51,7 +51,7 @@ impl SeatHandler for Halley {
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let now = Instant::now();
-        fullscreen::system::on_seat_focus_changed(&mut self.fullscreen_ctx(), focused, now);
+        fullscreen::system::on_seat_focus_changed(self, focused, now);
         focus::system::on_seat_focus_changed(&self.focus_ctx(), seat, focused);
     }
 

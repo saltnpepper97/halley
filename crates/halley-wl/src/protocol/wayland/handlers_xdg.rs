@@ -359,12 +359,7 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        fullscreen::system::enter_xdg_fullscreen(
-            &mut self.fullscreen_ctx(),
-            node_id,
-            output,
-            Instant::now(),
-        );
+        fullscreen::system::enter_xdg_fullscreen(self, node_id, output, Instant::now());
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
@@ -373,11 +368,7 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        fullscreen::system::exit_xdg_fullscreen(
-            &mut self.fullscreen_ctx(),
-            node_id,
-            Instant::now(),
-        );
+        fullscreen::system::exit_xdg_fullscreen(self, node_id, Instant::now());
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {

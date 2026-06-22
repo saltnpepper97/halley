@@ -1410,8 +1410,7 @@ impl Halley {
     }
 
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .soft_suspend_xdg_fullscreen(node_id, now)
+        super::fullscreen::system::soft_suspend_xdg_fullscreen(self, node_id, now)
     }
 
     pub(crate) fn enter_xdg_fullscreen(
@@ -1420,8 +1419,7 @@ impl Halley {
         output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
         now: Instant,
     ) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .enter_xdg_fullscreen(node_id, output, now)
+        super::fullscreen::system::enter_xdg_fullscreen(self, node_id, output, now)
     }
 
     pub(crate) fn enter_user_fullscreen(
@@ -1430,20 +1428,19 @@ impl Halley {
         output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
         now: Instant,
     ) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .enter_user_fullscreen(node_id, output, now)
+        super::fullscreen::system::enter_user_fullscreen(self, node_id, output, now)
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).exit_xdg_fullscreen(node_id, now)
+        super::fullscreen::system::exit_xdg_fullscreen(self, node_id, now)
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).drop_fullscreen_surface(id, now)
+        super::fullscreen::system::drop_fullscreen_surface(self, id, now)
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).tick_fullscreen_motion(now)
+        super::fullscreen::system::tick_fullscreen_motion(self, now)
     }
 
     #[cfg(test)]
