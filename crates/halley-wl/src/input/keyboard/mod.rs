@@ -2,7 +2,7 @@ pub(crate) mod bindings;
 pub(crate) mod modkeys;
 pub(crate) mod spawn;
 
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
@@ -236,7 +236,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
-    let exit_confirm_active = exit_confirm_controller(&*st).active();
+    let exit_confirm_active = exit_confirm::active(&*st);
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
     if !pressed
         && st
@@ -269,11 +269,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         if pressed {
             if Some(code) == exit_escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                exit_confirm_controller(&mut *st).clear();
+                exit_confirm::clear(&mut *st);
                 ctx.backend.request_redraw();
             } else if Some(code) == exit_return {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                exit_confirm_controller(&mut *st).clear();
+                exit_confirm::clear(&mut *st);
                 st.request_exit();
                 ctx.backend.request_redraw();
             }

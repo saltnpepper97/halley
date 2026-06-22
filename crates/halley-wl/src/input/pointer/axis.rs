@@ -4,7 +4,7 @@ use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::screenshot_controller;
@@ -161,7 +161,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
     if screenshot_controller(&mut *st).screenshot_session_active() {

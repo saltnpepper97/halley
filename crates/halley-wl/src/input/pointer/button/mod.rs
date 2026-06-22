@@ -51,7 +51,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     button_code: u32,
     button_state: ButtonState,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
@@ -816,4 +816,4 @@ pub(super) fn dispatch_pointer_button(
     pointer.frame(st);
 }
 
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;

@@ -6,7 +6,7 @@ use crate::compositor::actions::window::{
     toggle_focused_fullscreen_node_state, toggle_focused_maximize_node_state,
     toggle_focused_pin_state,
 };
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::interaction::ModState;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
@@ -175,7 +175,7 @@ pub(crate) fn apply_compositor_action_press(
 
     match action {
         CompositorBindingAction::Quit { .. } => {
-            exit_confirm_controller(st).show();
+            exit_confirm::show(st);
             info!("quit requested via keybind");
             true
         }

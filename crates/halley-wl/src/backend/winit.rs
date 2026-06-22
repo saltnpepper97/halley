@@ -6,7 +6,7 @@ use crate::protocol::wayland::portal;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::monitor::camera::camera_controller;
 use halley_api::{
@@ -860,7 +860,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands_with_fds(|request, fds| match request {
                     Request::Compositor(CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        exit_confirm_controller(&mut *st).show();
+                        exit_confirm::show(&mut *st);
                         Response::Ok
                     }
                     Request::Compositor(CompositorRequest::Reload) => {

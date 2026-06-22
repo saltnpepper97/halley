@@ -4,7 +4,7 @@ use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
@@ -59,7 +59,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     delta_unaccel: (f64, f64),
     time_usec: u64,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
 
