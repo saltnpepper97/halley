@@ -266,6 +266,16 @@ All notable changes to this project will be documented in this file.
 - Block compositor pan/zoom gestures and keyboard zoom actions while cluster mode or an active
   cluster workspace is in control, keeping cluster interactions from moving the field underneath
   the cluster UI.
+- Preserve the node icon fade timer when re-snapping an animation track to its current state (as
+  drag release does), so the node icon no longer flashes off and back on at the release point.
+- Stop raising the just-dropped window on drag release and clear hover state at release, removing
+  the residual marker flash; collapsed-node drags no longer borrow the active-window static lock,
+  so they do not push neighbouring windows aside on drop.
+- Flush stale forwarded (non-modifier) keys on every keyboard focus change through a single
+  `set_keyboard_focus` choke point, so the newly focused surface can no longer inherit a stuck key
+  from a dead layer-shell launcher, dismissed screenshot/portal overlay, or session-lock transition
+  and start repeating it forever. Modifiers are preserved so held Ctrl/Alt/Shift/Super carry across
+  the handoff.
 
 ## [v0.4.0] - 2026-06-12
 

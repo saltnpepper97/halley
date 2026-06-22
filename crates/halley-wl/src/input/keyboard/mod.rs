@@ -50,6 +50,61 @@ fn flush_trapped_modal_release(st: &mut Halley, code: u32) {
         mods_changed,
     );
     st.input.interaction_state.modal_release_keys.remove(&code);
+    st.input.interaction_state.forwarded_pressed_keys.remove(&code);
+}
+
+/// Clear any non-modifier keys we have forwarded to a client as *pressed* but not
+/// yet released, by forwarding a synthetic `Released` for each. Call this right
+/// before a keyboard focus change to a different surface (see
+/// `crate::compositor::focus::system::set_keyboard_focus`).
+///
+/// This is the general, choke-point fix for the "stuck key repeats forever" bug:
+/// smithay replays its `forwarded_pressed_keys` to a newly focused surface on
+/// `enter`, so any key whose release was swallowed (intercepted by a modal, or
+/// lost because the focused surface died) would otherwise be delivered to the
+/// next window as if held, starting client-side key repeat. Emptying the set here
+/// closes that window for every cause without enumerating modals/launchers.
+///
+/// Modifiers are intentionally preserved so a held Ctrl/Alt/Shift/Super still
+/// carries across the focus change.
+pub(crate) fn flush_stuck_forwarded_keys(st: &mut Halley) {
+    let codes: Vec<u32> = st
+        .input
+        .interaction_state
+        .forwarded_pressed_keys
+        .iter()
+        .copied()
+        .filter(|code| !is_modifier_keycode(*code))
+        .collect();
+    if codes.is_empty() {
+        return;
+    }
+    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+        for code in &codes {
+            st.input
+                .interaction_state
+                .forwarded_pressed_keys
+                .remove(code);
+        }
+        return;
+    };
+    for code in codes {
+        let (_, mods_changed) =
+            keyboard.input_intercept::<(), _>(st, code.into(), KeyState::Released, |_, _, _| ());
+        keyboard.input_forward(
+            st,
+            code.into(),
+            KeyState::Released,
+            SERIAL_COUNTER.next_serial(),
+            now_millis_u32(),
+            mods_changed,
+        );
+        st.input
+            .interaction_state
+            .forwarded_pressed_keys
+            .remove(&code);
+        st.input.interaction_state.modal_release_keys.remove(&code);
+    }
 }
 
 #[inline]
@@ -485,6 +540,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     let session_lock_active = crate::protocol::wayland::session_lock::session_lock_active(st);
     let compositor_shortcuts_blocked = layer_shell_keyboard_focus || session_lock_active;
 
+    // NOTE: this per-case trap is now belt-and-suspenders. The general fix is
+    // `flush_stuck_forwarded_keys`, run from `set_keyboard_focus` on every focus
+    // change, which clears stale forwarded keys regardless of which path caused
+    // them. Kept for now; safe to remove once the general path is verified.
+    //
     // A layer-shell launcher (Lift) receives Enter/Escape as a *forwarded* key while it
     // holds keyboard focus. When it launches an app and destroys its surface, focus moves
     // to the new window, whose `enter` event inherits the still-forwarded key from
@@ -629,6 +689,20 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 }
             },
         );
+    }
+
+    // Mirror smithay's `forwarded_pressed_keys` for the keys we actually forward
+    // to a client, so `flush_stuck_forwarded_keys` can clear stale ones on a
+    // focus change. Intercepted keys are never forwarded, so they stay out.
+    if !intercept {
+        if pressed {
+            st.input.interaction_state.forwarded_pressed_keys.insert(code);
+        } else {
+            st.input
+                .interaction_state
+                .forwarded_pressed_keys
+                .remove(&code);
+        }
     }
 
     log_keyboard_binding_resolution(

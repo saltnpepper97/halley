@@ -5,7 +5,7 @@ use crate::compositor::surface::stack_focus_target_for_node;
 use eventline::debug;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{SERIAL_COUNTER, Serial};
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 
@@ -49,6 +49,27 @@ impl<T: DerefMut<Target = Halley>> DerefMut for FocusSystemController<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.st.deref_mut()
     }
+}
+
+/// Single choke point for every keyboard focus change. When focus actually moves
+/// to a *different* surface, it first flushes any stale non-modifier forwarded
+/// keys (see `crate::input::keyboard::flush_stuck_forwarded_keys`) so the newly
+/// focused surface can never inherit a stuck key that repeats forever. All
+/// `keyboard.set_focus(...)` calls in the compositor should go through this.
+pub(crate) fn set_keyboard_focus(st: &mut Halley, focus: Option<WlSurface>, serial: Serial) {
+    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+        return;
+    };
+    let current = keyboard.current_focus();
+    let changed = match (&current, &focus) {
+        (Some(c), Some(n)) => c.id() != n.id(),
+        (None, None) => false,
+        _ => true,
+    };
+    if changed {
+        crate::input::keyboard::flush_stuck_forwarded_keys(st);
+    }
+    keyboard.set_focus(st, focus, serial);
 }
 
 pub fn wl_surface_for_node(st: &Halley, id: NodeId) -> Option<WlSurface> {
@@ -148,10 +169,7 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     }
 
     pub(crate) fn clear_keyboard_focus(&mut self) {
-        let Some(keyboard) = self.platform.seat.get_keyboard() else {
-            return;
-        };
-        keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+        set_keyboard_focus(self, None, SERIAL_COUNTER.next_serial());
         self.update_selection_focus_from_surface(None);
     }
 }
@@ -223,9 +241,7 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
         {
             crate::compositor::interaction::pointer::release_active_pointer_constraint(self);
         }
-        if let Some(keyboard) = self.platform.seat.get_keyboard() {
-            keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
-        }
+        set_keyboard_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
         self.update_selection_focus_from_surface(focus_surface.as_ref());
 
         for top in self.platform.xdg_shell_state.toplevel_surfaces() {

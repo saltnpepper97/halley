@@ -180,10 +180,14 @@ pub(crate) fn focus_surface(st: &mut Halley, surface: &WlSurface) -> bool {
 
     st.model.monitor_state.layer_keyboard_focus = None;
     st.platform.session_lock.keyboard_focus = Some(root.id());
-    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+    if st.platform.seat.get_keyboard().is_none() {
         return false;
-    };
-    keyboard.set_focus(st, Some(root.clone()), SERIAL_COUNTER.next_serial());
+    }
+    crate::compositor::focus::system::set_keyboard_focus(
+        st,
+        Some(root.clone()),
+        SERIAL_COUNTER.next_serial(),
+    );
     st.update_selection_focus_from_surface(Some(&root));
     true
 }
@@ -267,7 +271,7 @@ pub(crate) fn reassert_keyboard_focus_if_drifted(st: &mut Halley) {
         return;
     }
 
-    keyboard.set_focus(
+    crate::compositor::focus::system::set_keyboard_focus(
         st,
         Some(desired_focus.clone()),
         SERIAL_COUNTER.next_serial(),
