@@ -1232,15 +1232,15 @@ impl Halley {
         direction: halley_config::FocusCycleBindingAction,
         now: Instant,
     ) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).start_or_step_focus_cycle(direction, now)
+        super::focus::cycle::start_or_step_focus_cycle(self, direction, now)
     }
 
     pub(crate) fn cancel_focus_cycle(&mut self) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).cancel_focus_cycle()
+        super::focus::cycle::cancel_focus_cycle(self)
     }
 
     pub(crate) fn commit_focus_cycle(&mut self, now: Instant) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).commit_focus_cycle(now)
+        super::focus::cycle::commit_focus_cycle(self, now)
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {
