@@ -897,6 +897,11 @@ pub(crate) fn finish_lift_finalized_cluster(
     let now_ms = st.now_ms(now);
     let _ = st.model.field.touch(core_id, now_ms);
     st.set_interaction_focus(Some(core_id), 30_000, now);
+    // The core is dropped at the view centre and may land on top of a window;
+    // resolve overlap immediately so it slides clear like a freshly spawned node
+    // (mirrors the spawn path), instead of only correcting on the next interaction.
+    st.resolve_overlap_now();
+    st.request_maintenance();
     Some(core_id)
 }
 

@@ -154,7 +154,20 @@ pub(crate) fn focus_or_reveal_surface_node(
                     st,
                     target_monitor.as_str(),
                 ) == Some(node_id);
-            if !is_maximize_target && !is_pending_tiled && !is_pending_reveal {
+            // An active cluster workspace owns the camera/layout the same way a
+            // maximize session does, so panning to a member's reveal centre would
+            // shift the whole cluster off-centre. Mirror close_restore_pan_plan and
+            // leave the camera put in both cases.
+            let cluster_workspace_active = st
+                .model
+                .cluster_state
+                .active_cluster_workspaces
+                .contains_key(target_monitor.as_str());
+            if !is_maximize_target
+                && !cluster_workspace_active
+                && !is_pending_tiled
+                && !is_pending_reveal
+            {
                 let _ = st
                     .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
                     .map(|target| st.animate_viewport_center_to(target, now));
