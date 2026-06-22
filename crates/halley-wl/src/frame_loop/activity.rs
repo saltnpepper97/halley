@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct TtyOutputAnimationRedrawState {
@@ -63,7 +63,7 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .cluster_state
             .cluster_name_prompt
             .contains_key(monitor)
-        || screenshot_controller(st).screenshot_session_active()
+        || screenshot::screenshot_session_active(st)
         || crate::compositor::portal_chooser::portal_chooser_active(st)
         || st
             .ui
@@ -116,7 +116,7 @@ fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) 
         || st.input.interaction_state.focus_cycle_session.is_some()
         || crate::compositor::overview::apogee_render_pending(st)
         || cluster_name_prompt_hover_animating(st, monitor)
-        || screenshot_controller(st).screenshot_session_active()
+        || screenshot::screenshot_session_active(st)
         || st
             .ui
             .render_state

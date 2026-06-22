@@ -38,7 +38,7 @@ pub(crate) use frame::{
 };
 #[cfg(test)]
 pub(crate) use press::{handle_core_left_press, handle_workspace_left_press};
-pub(crate) use release::handle_button_release;
+pub(crate) use release::{collapse_bloom_for_core_if_open, handle_button_release};
 
 use press::{
     begin_bloom_pull_preview, handle_left_press, handle_move_binding_press,
@@ -51,7 +51,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     button_code: u32,
     button_state: ButtonState,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
@@ -179,8 +179,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     ) || ps.drag.is_some()
         || ps.resize.is_some();
-    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    let prompt_monitor = crate::compositor::clusters::system::active_cluster_name_prompt_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
     if handle_screenshot_pointer_button(
         st,
         ctx,
@@ -229,16 +231,14 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                     match hit {
                         crate::overlay::ClusterNamingDialogHit::ConfirmButton => {
                             let _ =
-                                crate::compositor::clusters::system::cluster_system_controller(st)
-                                    .confirm_cluster_name_prompt_for_monitor(
+                                crate::compositor::clusters::system::confirm_cluster_name_prompt_for_monitor(st,
                                         prompt_monitor.as_str(),
                                         Instant::now(),
                                     );
                         }
                         crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char) => {
                             let _ =
-                                crate::compositor::clusters::system::cluster_system_controller(st)
-                                    .begin_cluster_name_prompt_drag_for_monitor(
+                                crate::compositor::clusters::system::begin_cluster_name_prompt_drag_for_monitor(st,
                                         prompt_monitor.as_str(),
                                         caret_char,
                                     );
@@ -249,8 +249,11 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 return;
             }
             ButtonState::Released if left || right => {
-                let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .end_cluster_name_prompt_drag_for_monitor(prompt_monitor.as_str());
+                let _ =
+                    crate::compositor::clusters::system::end_cluster_name_prompt_drag_for_monitor(
+                        &mut *st,
+                        prompt_monitor.as_str(),
+                    );
                 handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
                 return;
             }
@@ -289,9 +292,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 let now = Instant::now();
                 let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
                 st.focus_monitor_view(monitor.as_str(), now);
-                if !crate::compositor::monitor::camera::camera_controller(&*st)
-                    .pan_blocked_on_monitor(monitor.as_str())
-                {
+                if !crate::compositor::monitor::camera::pan_blocked_on_monitor(
+                    &*st,
+                    monitor.as_str(),
+                ) {
                     ps.panning = true;
                     ps.pan_monitor = Some(monitor);
                     ps.pan_last_screen = (frame.global_sx, frame.global_sy);
@@ -816,4 +820,4 @@ pub(super) fn dispatch_pointer_button(
     pointer.frame(st);
 }
 
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;

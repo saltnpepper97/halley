@@ -20,7 +20,6 @@ use super::super::node::{draw_closing_node_markers, draw_node_hover_labels, draw
 use super::super::pin_icon::draw_pin_badges;
 use super::super::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use super::scene::{CursorScene, PreparedFrameState, SceneCollections};
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
@@ -510,8 +509,11 @@ pub(super) fn draw_scene_windows_and_hud(
         let ring_world_cx = st.model.viewport.center.x + focus_ring.offset_x;
         let ring_world_cy = st.model.viewport.center.y + focus_ring.offset_y;
         let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
-        let (screen_rx, screen_ry) =
-            focus_ring_screen_radii(camera_controller(&*st).view_size(), size, focus_ring);
+        let (screen_rx, screen_ry) = focus_ring_screen_radii(
+            crate::compositor::monitor::camera::camera_view_size(&*st),
+            size,
+            focus_ring,
+        );
         draw_ring(
             frame,
             ring_sx as f32,

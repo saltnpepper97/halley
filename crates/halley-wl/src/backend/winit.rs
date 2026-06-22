@@ -6,9 +6,8 @@ use crate::protocol::wayland::portal;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::interaction::PointerState;
-use crate::compositor::monitor::camera::camera_controller;
 use halley_api::{
     ApiError, CompositorRequest, LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, Request,
     Response,
@@ -423,7 +422,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
-                camera_controller(&mut state).snap_targets_to_live();
+                crate::compositor::monitor::camera::snap_camera_targets_to_live(&mut state);
                 state.advertise_output(
                     "winit-0",
                     smithay::output::Mode {
@@ -526,7 +525,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
-                        camera_controller(&mut *st).snap_targets_to_live();
+                        crate::compositor::monitor::camera::snap_camera_targets_to_live(&mut *st);
                         st.advertise_output(
                             "winit-0",
                             smithay::output::Mode {
@@ -587,7 +586,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     WinitEvent::CloseRequested => {
                         debug!("winit event: {:?}", event);
-                        st.request_exit();
+                        crate::compositor::runtime::request_exit(st);
                     }
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
                         let code: u32 = event.key_code().into();
@@ -841,7 +840,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
                 }
                 let now = Instant::now();
-                st.drain_drm_syncobj_blockers();
+                crate::compositor::platform::drain_drm_syncobj_blockers(st);
 
                 st.runtime.spawned_children.retain_mut(|child| {
                     match child.try_wait() {
@@ -860,7 +859,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands_with_fds(|request, fds| match request {
                     Request::Compositor(CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        exit_confirm_controller(&mut *st).show();
+                        exit_confirm::show(&mut *st);
                         Response::Ok
                     }
                     Request::Compositor(CompositorRequest::Reload) => {

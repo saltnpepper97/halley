@@ -43,7 +43,7 @@ use crate::backend::tty::stats::{
     TtyFrameStats, maybe_log_tty_frame_stats, record_tty_frame_queue,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::ping::make_ping;
 use smithay::backend::drm::DrmNode;
@@ -319,7 +319,7 @@ fn advance_tty_redraw_frame(
     now: Instant,
     include_maintenance: bool,
 ) {
-    st.drain_drm_syncobj_blockers();
+    crate::compositor::platform::drain_drm_syncobj_blockers(st);
 
     let resize_active = {
         let ps = pointer_state.borrow();
@@ -1924,7 +1924,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands_with_fds(|request, fds| match request {
                     halley_api::Request::Compositor(halley_api::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        exit_confirm_controller(&mut *st).show();
+                        exit_confirm::show(&mut *st);
                         halley_api::Response::Ok
                     }
                     halley_api::Request::Compositor(halley_api::CompositorRequest::Reload) => {

@@ -15,7 +15,7 @@ use halley_api::{
 };
 
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 
 use self::cluster::handle_cluster_request;
 use self::monitor::handle_monitor_request;
@@ -399,7 +399,8 @@ fn gamescope_target_response(st: &Halley, selector: &str) -> Response {
 fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response {
     match request {
         CaptureRequest::Start { mode, output } => {
-            if screenshot_controller(&mut *st).start_screenshot_session(
+            if screenshot::start_screenshot_session(
+                &mut *st,
                 mode,
                 output.as_deref(),
                 Instant::now(),
@@ -418,7 +419,7 @@ fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response 
 fn capture_status_response(st: &Halley) -> CaptureStatusResponse {
     let last = st.input.interaction_state.last_screenshot_result.as_ref();
     CaptureStatusResponse {
-        active: screenshot_controller(st).screenshot_session_active()
+        active: screenshot::screenshot_session_active(st)
             || st
                 .input
                 .interaction_state

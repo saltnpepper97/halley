@@ -6,9 +6,8 @@ use crate::compositor::actions::window::{
     toggle_focused_fullscreen_node_state, toggle_focused_maximize_node_state,
     toggle_focused_pin_state,
 };
-use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::interaction::ModState;
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::surface::request_close_focused_toplevel;
 use halley_api::{
@@ -175,7 +174,7 @@ pub(crate) fn apply_compositor_action_press(
 
     match action {
         CompositorBindingAction::Quit { .. } => {
-            exit_confirm_controller(st).show();
+            exit_confirm::show(st);
             info!("quit requested via keybind");
             true
         }
@@ -301,24 +300,24 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::ZoomIn => {
-            if camera_controller(&*st).zoom_blocked_by_interaction() {
+            if crate::compositor::monitor::camera::zoom_blocked_by_interaction(&*st) {
                 return false;
             }
-            camera_controller(st).zoom_by_steps(1.0);
+            crate::compositor::monitor::camera::zoom_by_steps(st, 1.0);
             true
         }
         CompositorBindingAction::ZoomOut => {
-            if camera_controller(&*st).zoom_blocked_by_interaction() {
+            if crate::compositor::monitor::camera::zoom_blocked_by_interaction(&*st) {
                 return false;
             }
-            camera_controller(st).zoom_by_steps(-1.0);
+            crate::compositor::monitor::camera::zoom_by_steps(st, -1.0);
             true
         }
         CompositorBindingAction::ZoomReset => {
-            if camera_controller(&*st).zoom_blocked_by_interaction() {
+            if crate::compositor::monitor::camera::zoom_blocked_by_interaction(&*st) {
                 return false;
             }
-            camera_controller(st).reset_zoom();
+            crate::compositor::monitor::camera::reset_zoom(st);
             true
         }
     }

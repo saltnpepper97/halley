@@ -4,8 +4,7 @@ use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::exit_confirm::exit_confirm_controller;
-use crate::compositor::monitor::camera::camera_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
 use crate::input::pointer::focus;
@@ -59,7 +58,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     delta_unaccel: (f64, f64),
     time_usec: u64,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
 
@@ -107,6 +106,12 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             st.input.interaction_state.apogee_live_preview_node = live_preview;
             st.input.interaction_state.apogee_live_preview_last_at = None;
         }
+        // Track the hovered tile (window or core) so the overview can ring core
+        // tiles too, not just window previews.
+        let hover_changed = st.input.interaction_state.apogee_hover_node != hit;
+        if hover_changed {
+            st.input.interaction_state.apogee_hover_node = hit;
+        }
         let icon = if hit.is_some() {
             Some(smithay::input::pointer::CursorIcon::Pointer)
         } else {
@@ -116,7 +121,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
         }
         request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
-        if live_preview_changed {
+        if live_preview_changed || hover_changed {
             ctx.backend.request_output_redraw(target_monitor.as_str());
         }
         return;
@@ -201,7 +206,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     // Keep the Xwayland RandR primary on the monitor under the cursor so XWayland
     // games (which read the X primary at startup) get the resolution of the monitor
     // they are launched on. Debounced internally; only acts on monitor changes.
-    st.sync_xwayland_primary(routing.monitor.as_str());
+    crate::compositor::monitor::state::sync_xwayland_primary(st, routing.monitor.as_str());
 
     let (_, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();
@@ -286,8 +291,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         return;
     }
 
-    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    let prompt_monitor = crate::compositor::clusters::system::active_cluster_name_prompt_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
     if let Some(prompt_monitor) = prompt_monitor {
         let prompt_hit = if routing.monitor == prompt_monitor {
             crate::overlay::cluster_naming_dialog_hit_test(
@@ -305,8 +312,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         ps.hover_node = None;
         ps.hover_started_at = None;
         if let Some(crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char)) = prompt_hit {
-            let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                .drag_cluster_name_prompt_selection_for_monitor(
+            let _ =
+                crate::compositor::clusters::system::drag_cluster_name_prompt_selection_for_monitor(
+                    &mut *st,
                     prompt_monitor.as_str(),
                     caret_char,
                 );
@@ -484,15 +492,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = routing.global_sx - lsx;
         let dy_px = routing.global_sy - lsy;
-        let camera = camera_controller(&*st).view_size();
+        let camera = crate::compositor::monitor::camera::camera_view_size(&*st);
         let dx_world = dx_px * camera.x.max(1.0) / (routing.ws_w as f32).max(1.0);
         let dy_world = dy_px * camera.y.max(1.0) / (routing.ws_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
-        camera_controller(&mut *st).pan_target(halley_core::field::Vec2 {
-            x: -dx_world,
-            y: -dy_world,
-        });
+        crate::compositor::monitor::camera::pan_camera_target(
+            &mut *st,
+            halley_core::field::Vec2 {
+                x: -dx_world,
+                y: -dy_world,
+            },
+        );
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (routing.global_sx, routing.global_sy);
         ctx.backend.request_output_redraw(routing.monitor.as_str());

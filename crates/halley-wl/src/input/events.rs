@@ -100,7 +100,7 @@ pub(crate) fn handle_backend_input_event<B: BackendView>(
     ctx: &InputCtx<'_, B>,
     event: BackendInputEventData,
 ) {
-    st.note_input_activity();
+    crate::compositor::platform::note_input_activity(st);
 
     match event {
         BackendInputEventData::Keyboard { code, pressed } => {

@@ -27,7 +27,7 @@ pub(super) fn initial_toplevel_size(
     toplevel: &ToplevelSurface,
     intent: &spawn::rules::InitialWindowIntent,
 ) -> spawn::reveal::InitialToplevelSize {
-    let mut ctx = st.spawn_ctx();
+    let mut ctx = crate::compositor::ctx::spawn_ctx(st);
     spawn::reveal::initial_toplevel_size(&mut ctx, toplevel, intent)
 }
 
@@ -51,8 +51,12 @@ impl SeatHandler for Halley {
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let now = Instant::now();
-        fullscreen::system::on_seat_focus_changed(&mut self.fullscreen_ctx(), focused, now);
-        focus::system::on_seat_focus_changed(&self.focus_ctx(), seat, focused);
+        fullscreen::system::on_seat_focus_changed(self, focused, now);
+        focus::system::on_seat_focus_changed(
+            &crate::compositor::ctx::focus_ctx(self),
+            seat,
+            focused,
+        );
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
@@ -114,7 +118,7 @@ impl CompositorHandler for Halley {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
-        self.install_drm_syncobj_blocker(surface);
+        crate::compositor::platform::install_drm_syncobj_blocker(self, surface);
         self.platform.popup_manager.commit(surface);
         if crate::render::handle_cursor_surface_commit(
             self.platform.cursor_manager.cursor_image(),
@@ -238,7 +242,7 @@ impl PointerConstraintsHandler for Halley {
         location: smithay::utils::Point<f64, smithay::utils::Logical>,
     ) {
         interaction::pointer::cursor_position_hint(
-            &mut self.pointer_ctx(),
+            &mut crate::compositor::ctx::pointer_ctx(self),
             surface,
             pointer,
             location,

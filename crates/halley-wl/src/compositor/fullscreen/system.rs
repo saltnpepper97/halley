@@ -1,45 +1,11 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
-use std::ops::{Deref, DerefMut};
 
 use super::*;
-use crate::compositor::ctx::FullscreenCtx;
 
-impl FullscreenCtx<'_> {
-    pub(crate) fn enter_xdg_fullscreen(
-        &mut self,
-        node_id: NodeId,
-        output: Option<WlOutput>,
-        now: Instant,
-    ) {
-        self.st.enter_xdg_fullscreen(node_id, output, now);
-    }
-
-    pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        self.st.exit_xdg_fullscreen(node_id, now);
-    }
-}
-
-pub(crate) fn enter_xdg_fullscreen(
-    ctx: &mut FullscreenCtx<'_>,
-    node_id: NodeId,
-    output: Option<WlOutput>,
-    now: Instant,
-) {
-    ctx.enter_xdg_fullscreen(node_id, output, now);
-}
-
-pub(crate) fn exit_xdg_fullscreen(ctx: &mut FullscreenCtx<'_>, node_id: NodeId, now: Instant) {
-    ctx.exit_xdg_fullscreen(node_id, now);
-}
-
-pub(crate) fn on_seat_focus_changed(
-    ctx: &mut FullscreenCtx<'_>,
-    focused: Option<&WlSurface>,
-    now: Instant,
-) {
-    let _ = (ctx, focused, now);
+pub(crate) fn on_seat_focus_changed(st: &mut Halley, focused: Option<&WlSurface>, now: Instant) {
+    let _ = (st, focused, now);
 }
 
 #[cfg(test)]
@@ -875,28 +841,6 @@ mod tests {
     }
 }
 
-pub(crate) struct FullscreenController<T> {
-    st: T,
-}
-
-pub(crate) fn fullscreen_controller<T>(st: T) -> FullscreenController<T> {
-    FullscreenController { st }
-}
-
-impl<T: Deref<Target = Halley>> Deref for FullscreenController<T> {
-    type Target = Halley;
-
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
-    }
-}
-
-impl<T: DerefMut<Target = Halley>> DerefMut for FullscreenController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
-}
-
 fn fullscreen_animation_progress(start_ms: u64, duration_ms: u64, now_ms: u64) -> f32 {
     let elapsed = now_ms.saturating_sub(start_ms);
     let t = (elapsed as f32 / duration_ms.max(1) as f32).clamp(0.0, 1.0);
@@ -1018,738 +962,719 @@ pub(crate) fn is_fullscreen_session_node(st: &Halley, node_id: NodeId) -> bool {
             .any(|&id| id == node_id)
 }
 
-impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
-    fn fullscreen_monitor_name(&self, node_id: NodeId, output: Option<&WlOutput>) -> String {
-        output
-            .and_then(|requested_output| {
-                self.model
-                    .monitor_state
-                    .outputs
-                    .iter()
-                    .find_map(|(name, output)| {
-                        output.owns(requested_output).then_some(name.clone())
-                    })
-            })
-            .or_else(|| self.model.monitor_state.node_monitor.get(&node_id).cloned())
-            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone())
-    }
+fn fullscreen_monitor_name(st: &Halley, node_id: NodeId, output: Option<&WlOutput>) -> String {
+    output
+        .and_then(|requested_output| {
+            st.model
+                .monitor_state
+                .outputs
+                .iter()
+                .find_map(|(name, output)| output.owns(requested_output).then_some(name.clone()))
+        })
+        .or_else(|| st.model.monitor_state.node_monitor.get(&node_id).cloned())
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
 
-    fn fullscreen_monitor_view(&self, monitor_name: &str) -> (Vec2, Vec2) {
-        self.model
-            .monitor_state
-            .monitors
-            .get(monitor_name)
-            .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
-            .unwrap_or((self.model.viewport.center, self.model.viewport.size))
-    }
+fn fullscreen_monitor_view(st: &Halley, monitor_name: &str) -> (Vec2, Vec2) {
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor_name)
+        .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
+        .unwrap_or((st.model.viewport.center, st.model.viewport.size))
+}
 
-    fn reset_monitor_zoom_once(&mut self, monitor_name: &str) {
-        if let Some(monitor) = self.model.monitor_state.monitors.get_mut(monitor_name) {
-            monitor.zoom_ref_size = monitor.viewport.size;
-            monitor.camera_target_view_size = monitor.viewport.size;
+fn reset_monitor_zoom_once(st: &mut Halley, monitor_name: &str) {
+    if let Some(monitor) = st.model.monitor_state.monitors.get_mut(monitor_name) {
+        monitor.zoom_ref_size = monitor.viewport.size;
+        monitor.camera_target_view_size = monitor.viewport.size;
+    }
+    if st.model.monitor_state.current_monitor == monitor_name {
+        st.model.zoom_ref_size = st.model.viewport.size;
+        st.model.camera_target_view_size = st.model.viewport.size;
+    }
+}
+
+fn fullscreen_target_size_for(st: &Halley, monitor_name: &str) -> (i32, i32) {
+    st.model
+        .monitor_state
+        .outputs
+        .get(monitor_name)
+        .and_then(|output| output.current_mode())
+        .map(|mode| (mode.size.w, mode.size.h))
+        .unwrap_or_else(|| {
+            let (_, size) = fullscreen_monitor_view(st, monitor_name);
+            (
+                size.x.round().max(96.0) as i32,
+                size.y.round().max(72.0) as i32,
+            )
+        })
+}
+
+fn fullscreen_suspended_monitor_for_node(st: &Halley, node_id: NodeId) -> Option<&str> {
+    st.model
+        .fullscreen_state
+        .fullscreen_suspended_node
+        .iter()
+        .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
+}
+
+fn fullscreen_restore_entries_for_monitor(
+    st: &Halley,
+    monitor_name: &str,
+    exclude_node: Option<NodeId>,
+) -> Vec<(
+    NodeId,
+    crate::compositor::fullscreen::state::FullscreenSessionEntry,
+)> {
+    let (monitor_viewport_center, _) = fullscreen_monitor_view(st, monitor_name);
+    st.model
+        .fullscreen_state
+        .fullscreen_restore
+        .iter()
+        .filter(|&(&id, entry)| {
+            if exclude_node == Some(id) {
+                return false;
+            }
+            let matches_saved_viewport =
+                (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
+                    && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0;
+            let matches_assigned_monitor = st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .is_some_and(|node_monitor| node_monitor == monitor_name);
+            matches_saved_viewport || matches_assigned_monitor
+        })
+        .map(|(&id, &entry)| (id, entry))
+        .collect()
+}
+
+fn clear_non_target_fullscreen_restore_entries(
+    st: &mut Halley,
+    monitor_name: &str,
+    target: NodeId,
+) {
+    let stale = fullscreen_restore_entries_for_monitor(st, monitor_name, Some(target))
+        .into_iter()
+        .collect::<Vec<_>>();
+    for (id, entry) in stale {
+        let _ = st.model.field.set_pinned(id, entry.pinned);
+        st.input.interaction_state.physics_velocity.remove(&id);
+        st.model.fullscreen_state.fullscreen_restore.remove(&id);
+        st.model.fullscreen_state.fullscreen_motion.remove(&id);
+        st.model.fullscreen_state.fullscreen_scale_anim.remove(&id);
+    }
+}
+
+fn request_toplevel_fullscreen_state(
+    st: &mut Halley,
+    node_id: NodeId,
+    fullscreen: bool,
+    output: Option<WlOutput>,
+    size: Option<(i32, i32)>,
+) {
+    let monitor_name = if fullscreen {
+        fullscreen_monitor_name(st, node_id, output.as_ref())
+    } else {
+        fullscreen_monitor_for_node(st, node_id)
+            .map(str::to_string)
+            .or_else(|| st.model.monitor_state.node_monitor.get(&node_id).cloned())
+            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+    };
+    let focused_node = st
+        .last_input_surface_node_for_monitor(monitor_name.as_str())
+        .or_else(|| st.last_input_surface_node());
+    let bounds_size = if fullscreen {
+        size.unwrap_or_else(|| fullscreen_target_size_for(st, monitor_name.as_str()))
+    } else {
+        let view = st.usable_viewport_for_monitor(&monitor_name);
+        (view.size.x as i32, view.size.y as i32)
+    };
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        let key = wl.id();
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
+            continue;
         }
-        if self.model.monitor_state.current_monitor == monitor_name {
-            self.model.zoom_ref_size = self.model.viewport.size;
-            self.model.camera_target_view_size = self.model.viewport.size;
-        }
+        let (min_w, min_h) = crate::compositor::surface::toplevel_min_size_for_node(st, node_id);
+        top.with_pending_state(|s| {
+            s.size = size.map(|(w, h)| (w.max(min_w).max(96), h.max(min_h).max(72)).into());
+            s.bounds = Some((bounds_size.0.max(96), bounds_size.1.max(72)).into());
+            if focused_node == Some(node_id) {
+                s.states.set(xdg_toplevel::State::Activated);
+            } else {
+                s.states.unset(xdg_toplevel::State::Activated);
+            }
+            if fullscreen {
+                s.states.set(xdg_toplevel::State::Fullscreen);
+                s.fullscreen_output = output;
+            } else {
+                s.states.unset(xdg_toplevel::State::Fullscreen);
+                s.fullscreen_output = None;
+            }
+            st.apply_toplevel_tiled_hint(s);
+        });
+        top.send_configure();
+        break;
     }
+}
 
-    fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
-        self.model
-            .monitor_state
-            .outputs
-            .get(monitor_name)
-            .and_then(|output| output.current_mode())
-            .map(|mode| (mode.size.w, mode.size.h))
-            .unwrap_or_else(|| {
-                let (_, size) = self.fullscreen_monitor_view(monitor_name);
-                (
-                    size.x.round().max(96.0) as i32,
-                    size.y.round().max(72.0) as i32,
-                )
-            })
-    }
+/// Returns the monitor name that `node_id` is currently fullscreened on, if any.
+fn exit_xdg_fullscreen_inner(
+    st: &mut Halley,
+    node_id: NodeId,
+    now: Instant,
+    suspend: bool,
+    preserve_client_fullscreen: bool,
+) {
+    // Find which monitor this node is fullscreened on.
+    let monitor_name = match fullscreen_monitor_for_node(st, node_id) {
+        Some(m) => m.to_owned(),
+        None => return, // not active fullscreen on any monitor
+    };
 
-    fn fullscreen_suspended_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
-        self.model
+    st.model
+        .fullscreen_state
+        .clear_direct_scanout_for_monitor(&monitor_name);
+
+    st.input.interaction_state.reset_input_state_requested = true;
+
+    if suspend {
+        st.model
             .fullscreen_state
             .fullscreen_suspended_node
-            .iter()
-            .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
-    }
-
-    fn fullscreen_restore_entries_for_monitor(
-        &self,
-        monitor_name: &str,
-        exclude_node: Option<NodeId>,
-    ) -> Vec<(
-        NodeId,
-        crate::compositor::fullscreen::state::FullscreenSessionEntry,
-    )> {
-        let (monitor_viewport_center, _) = self.fullscreen_monitor_view(monitor_name);
-        self.model
-            .fullscreen_state
-            .fullscreen_restore
-            .iter()
-            .filter(|&(&id, entry)| {
-                if exclude_node == Some(id) {
-                    return false;
-                }
-                let matches_saved_viewport =
-                    (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
-                        && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0;
-                let matches_assigned_monitor = self
-                    .model
-                    .monitor_state
-                    .node_monitor
-                    .get(&id)
-                    .is_some_and(|node_monitor| node_monitor == monitor_name);
-                matches_saved_viewport || matches_assigned_monitor
-            })
-            .map(|(&id, &entry)| (id, entry))
-            .collect()
-    }
-
-    fn clear_non_target_fullscreen_restore_entries(&mut self, monitor_name: &str, target: NodeId) {
-        let stale = self
-            .fullscreen_restore_entries_for_monitor(monitor_name, Some(target))
-            .into_iter()
-            .collect::<Vec<_>>();
-        for (id, entry) in stale {
-            let _ = self.model.field.set_pinned(id, entry.pinned);
-            self.input.interaction_state.physics_velocity.remove(&id);
-            self.model.fullscreen_state.fullscreen_restore.remove(&id);
-            self.model.fullscreen_state.fullscreen_motion.remove(&id);
-            self.model
+            .insert(monitor_name.clone(), node_id);
+        if preserve_client_fullscreen {
+            st.model
                 .fullscreen_state
-                .fullscreen_scale_anim
-                .remove(&id);
-        }
-    }
-
-    fn request_toplevel_fullscreen_state(
-        &mut self,
-        node_id: NodeId,
-        fullscreen: bool,
-        output: Option<WlOutput>,
-        size: Option<(i32, i32)>,
-    ) {
-        let monitor_name = if fullscreen {
-            self.fullscreen_monitor_name(node_id, output.as_ref())
-        } else {
-            self.fullscreen_monitor_for_node(node_id)
-                .map(str::to_string)
-                .or_else(|| self.model.monitor_state.node_monitor.get(&node_id).cloned())
-                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone())
-        };
-        let focused_node = self
-            .last_input_surface_node_for_monitor(monitor_name.as_str())
-            .or_else(|| self.last_input_surface_node());
-        let bounds_size = if fullscreen {
-            size.unwrap_or_else(|| self.fullscreen_target_size_for(monitor_name.as_str()))
-        } else {
-            let view = self.usable_viewport_for_monitor(&monitor_name);
-            (view.size.x as i32, view.size.y as i32)
-        };
-        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
-            let wl = top.wl_surface();
-            let key = wl.id();
-            if self.model.surface_to_node.get(&key).copied() != Some(node_id) {
-                continue;
-            }
-            let (min_w, min_h) =
-                crate::compositor::surface::toplevel_min_size_for_node(self, node_id);
-            top.with_pending_state(|s| {
-                s.size = size.map(|(w, h)| (w.max(min_w).max(96), h.max(min_h).max(72)).into());
-                s.bounds = Some((bounds_size.0.max(96), bounds_size.1.max(72)).into());
-                if focused_node == Some(node_id) {
-                    s.states.set(xdg_toplevel::State::Activated);
-                } else {
-                    s.states.unset(xdg_toplevel::State::Activated);
-                }
-                if fullscreen {
-                    s.states.set(xdg_toplevel::State::Fullscreen);
-                    s.fullscreen_output = output;
-                } else {
-                    s.states.unset(xdg_toplevel::State::Fullscreen);
-                    s.fullscreen_output = None;
-                }
-                self.apply_toplevel_tiled_hint(s);
-            });
-            top.send_configure();
-            break;
-        }
-    }
-
-    /// Returns the monitor name that `node_id` is currently fullscreened on, if any.
-    fn exit_xdg_fullscreen_inner(
-        &mut self,
-        node_id: NodeId,
-        now: Instant,
-        suspend: bool,
-        preserve_client_fullscreen: bool,
-    ) {
-        // Find which monitor this node is fullscreened on.
-        let monitor_name = match self.fullscreen_monitor_for_node(node_id) {
-            Some(m) => m.to_owned(),
-            None => return, // not active fullscreen on any monitor
-        };
-
-        self.model
-            .fullscreen_state
-            .clear_direct_scanout_for_monitor(&monitor_name);
-
-        self.input.interaction_state.reset_input_state_requested = true;
-
-        if suspend {
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
+                .fullscreen_soft_suspended_node
                 .insert(monitor_name.clone(), node_id);
-            if preserve_client_fullscreen {
-                self.model
-                    .fullscreen_state
-                    .fullscreen_soft_suspended_node
-                    .insert(monitor_name.clone(), node_id);
-            } else {
-                self.model
-                    .fullscreen_state
-                    .fullscreen_soft_suspended_node
-                    .remove(&monitor_name);
-            }
         } else {
-            // If we're doing a hard exit, clear any suspended state for this monitor too.
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
-                .remove(&monitor_name);
-            self.model
+            st.model
                 .fullscreen_state
                 .fullscreen_soft_suspended_node
                 .remove(&monitor_name);
         }
-
-        // Genuine exit (not a suspend or client-fullscreen release): ease the monitor
-        // camera back to the zoom/center captured on entry, matching the window's
-        // shrink animation, so we don't stay plopped at 1.0 zoom.
-        if !suspend && !preserve_client_fullscreen {
-            if let Some(camera) = self
-                .model
-                .fullscreen_state
-                .fullscreen_camera_restore
-                .remove(&monitor_name)
-            {
-                crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
-                    self,
-                    &monitor_name,
-                    camera,
-                );
-            }
-        }
-
-        self.clear_non_target_fullscreen_restore_entries(&monitor_name, node_id);
-
-        // A hard exit on the current monitor animates the window shrinking back
-        // to its restored geometry. Capture the current full visual rect now,
-        // while the node is still the active fullscreen node, so the anim can
-        // ease from it (the node leaves active state below).
-        let should_animate = !suspend
-            && !preserve_client_fullscreen
-            && self.runtime.tuning.fullscreen_animation_enabled()
-            && self.model.monitor_state.current_monitor == monitor_name;
-        let exit_anim_from = should_animate.then(|| {
-            fullscreen_visual_for_node_on_current_monitor_at(self, node_id, now)
-                .unwrap_or_else(|| self.fullscreen_monitor_view(&monitor_name))
-        });
-
-        let restore_entry = self
-            .model
+    } else {
+        // If we're doing a hard exit, clear any suspended state for this monitor too.
+        st.model
             .fullscreen_state
-            .fullscreen_restore
-            .get(&node_id)
-            .copied();
-        if let Some(entry) = restore_entry {
-            self.restore_fullscreen_snapshot(node_id, entry);
-        }
-
-        if preserve_client_fullscreen {
-            // Keep the xdg-toplevel protocol fullscreen state intact while the
-            // compositor releases its local fullscreen layout lock.
-        } else if let Some(entry) = self
-            .model
-            .fullscreen_state
-            .fullscreen_restore
-            .get(&node_id)
-            .copied()
-        {
-            let (min_w, min_h) =
-                crate::compositor::surface::toplevel_min_size_for_node(self, node_id);
-            self.request_toplevel_fullscreen_state(
-                node_id,
-                false,
-                None,
-                Some((
-                    entry.size.x.round().max(min_w as f32).max(96.0) as i32,
-                    entry.size.y.round().max(min_h as f32).max(72.0) as i32,
-                )),
-            );
-        } else {
-            self.request_toplevel_fullscreen_state(node_id, false, None, None);
-        }
-
-        self.model
-            .fullscreen_state
-            .fullscreen_active_node
+            .fullscreen_suspended_node
             .remove(&monitor_name);
-        if let Some(from) = exit_anim_from {
-            // Reverse anim: shrink from the full rect back to the restored
-            // geometry. The node is no longer active, but the lingering
-            // scale anim keeps driving `fullscreen_visual_*` as a pure visual
-            // overlay until it expires in `tick_fullscreen_motion`.
-            let to = crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
-                self, node_id, now,
+        st.model
+            .fullscreen_state
+            .fullscreen_soft_suspended_node
+            .remove(&monitor_name);
+    }
+
+    // Genuine exit (not a suspend or client-fullscreen release): ease the monitor
+    // camera back to the zoom/center captured on entry, matching the window's
+    // shrink animation, so we don't stay plopped at 1.0 zoom.
+    if !suspend && !preserve_client_fullscreen {
+        if let Some(camera) = st
+            .model
+            .fullscreen_state
+            .fullscreen_camera_restore
+            .remove(&monitor_name)
+        {
+            crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
+                st,
+                &monitor_name,
+                camera,
+            );
+        }
+    }
+
+    clear_non_target_fullscreen_restore_entries(st, &monitor_name, node_id);
+
+    // A hard exit on the current monitor animates the window shrinking back
+    // to its restored geometry. Capture the current full visual rect now,
+    // while the node is still the active fullscreen node, so the anim can
+    // ease from it (the node leaves active state below).
+    let should_animate = !suspend
+        && !preserve_client_fullscreen
+        && st.runtime.tuning.fullscreen_animation_enabled()
+        && st.model.monitor_state.current_monitor == monitor_name;
+    let exit_anim_from = should_animate.then(|| {
+        fullscreen_visual_for_node_on_current_monitor_at(st, node_id, now)
+            .unwrap_or_else(|| fullscreen_monitor_view(st, &monitor_name))
+    });
+
+    let restore_entry = st
+        .model
+        .fullscreen_state
+        .fullscreen_restore
+        .get(&node_id)
+        .copied();
+    if let Some(entry) = restore_entry {
+        restore_fullscreen_snapshot(st, node_id, entry);
+    }
+
+    if preserve_client_fullscreen {
+        // Keep the xdg-toplevel protocol fullscreen state intact while the
+        // compositor releases its local fullscreen layout lock.
+    } else if let Some(entry) = st
+        .model
+        .fullscreen_state
+        .fullscreen_restore
+        .get(&node_id)
+        .copied()
+    {
+        let (min_w, min_h) = crate::compositor::surface::toplevel_min_size_for_node(st, node_id);
+        request_toplevel_fullscreen_state(
+            st,
+            node_id,
+            false,
+            None,
+            Some((
+                entry.size.x.round().max(min_w as f32).max(96.0) as i32,
+                entry.size.y.round().max(min_h as f32).max(72.0) as i32,
+            )),
+        );
+    } else {
+        request_toplevel_fullscreen_state(st, node_id, false, None, None);
+    }
+
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .remove(&monitor_name);
+    if let Some(from) = exit_anim_from {
+        // Reverse anim: shrink from the full rect back to the restored
+        // geometry. The node is no longer active, but the lingering
+        // scale anim keeps driving `fullscreen_visual_*` as a pure visual
+        // overlay until it expires in `tick_fullscreen_motion`.
+        let to =
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
             )
             .or_else(|| restore_entry.map(|entry| (entry.pos, entry.size)))
             .unwrap_or(from);
-            let start_ms = self.now_ms(now);
-            let duration_ms = self.runtime.tuning.fullscreen_animation_duration_ms();
-            self.model.fullscreen_state.fullscreen_scale_anim.insert(
-                node_id,
-                crate::compositor::fullscreen::state::FullscreenScaleAnim {
-                    monitor: monitor_name.clone(),
-                    from_pos: from.0,
-                    to_pos: to.0,
-                    from_size: from.1,
-                    to_size: to.1,
-                    start_ms,
-                    duration_ms,
-                },
-            );
-        } else {
-            self.model
-                .fullscreen_state
-                .fullscreen_scale_anim
-                .remove(&node_id);
-        }
-        self.model
-            .fullscreen_state
-            .fullscreen_origin
-            .remove(&node_id);
-        if !suspend {
-            self.model
-                .fullscreen_state
-                .fullscreen_restore
-                .remove(&node_id);
-        }
-        self.request_maintenance();
-    }
-
-    pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        self.exit_xdg_fullscreen_inner(node_id, now, true, true);
-    }
-
-    fn restore_fullscreen_snapshot(
-        &mut self,
-        id: NodeId,
-        entry: crate::compositor::fullscreen::state::FullscreenSessionEntry,
-    ) {
-        if let Some(node) = self.model.field.node_mut(id) {
-            node.pos = entry.pos;
-            node.intrinsic_size = entry.intrinsic_size;
-        }
-        let _ = self.model.field.sync_active_footprint_to_intrinsic(id);
-        if let Some(loc) = entry.bbox_loc {
-            self.ui.render_state.cache.bbox_loc.insert(id, loc);
-        } else {
-            self.ui.render_state.cache.bbox_loc.remove(&id);
-        }
-        if let Some(geo) = entry.window_geometry {
-            self.ui.render_state.cache.window_geometry.insert(id, geo);
-        } else {
-            self.ui.render_state.cache.window_geometry.remove(&id);
-        }
-        self.set_last_active_size_now(id, entry.intrinsic_size);
-    }
-
-    pub(crate) fn enter_xdg_fullscreen(
-        &mut self,
-        node_id: NodeId,
-        output: Option<WlOutput>,
-        now: Instant,
-    ) {
-        self.enter_fullscreen(
+        let start_ms = st.now_ms(now);
+        let duration_ms = st.runtime.tuning.fullscreen_animation_duration_ms();
+        st.model.fullscreen_state.fullscreen_scale_anim.insert(
             node_id,
-            output,
-            now,
-            crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest,
-        )
-    }
-
-    pub(crate) fn enter_user_fullscreen(
-        &mut self,
-        node_id: NodeId,
-        output: Option<WlOutput>,
-        now: Instant,
-    ) {
-        self.enter_fullscreen(
-            node_id,
-            output,
-            now,
-            crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind,
-        )
-    }
-
-    fn enter_fullscreen(
-        &mut self,
-        node_id: NodeId,
-        output: Option<WlOutput>,
-        now: Instant,
-        origin: crate::compositor::fullscreen::state::FullscreenOrigin,
-    ) {
-        let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
-
-        self.model
-            .fullscreen_state
-            .clear_direct_scanout_for_monitor(&monitor_name);
-
-        // Already fullscreen on this monitor — no-op.
-        if self
-            .model
-            .fullscreen_state
-            .fullscreen_active_node
-            .get(&monitor_name)
-            == Some(&node_id)
-        {
-            self.model
-                .fullscreen_state
-                .fullscreen_origin
-                .insert(node_id, origin);
-            if origin == crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest {
-                let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
-                self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
-            }
-            return;
-        }
-
-        let soft_resume = self
-            .model
-            .fullscreen_state
-            .fullscreen_soft_suspended_node
-            .get(&monitor_name)
-            == Some(&node_id);
-
-        if soft_resume {
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
-                .remove(&monitor_name);
-            self.model
-                .fullscreen_state
-                .fullscreen_soft_suspended_node
-                .remove(&monitor_name);
-        } else {
-            // Clear any suspended state for this monitor.
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
-                .remove(&monitor_name);
-            self.model
-                .fullscreen_state
-                .fullscreen_soft_suspended_node
-                .remove(&monitor_name);
-        }
-
-        // If another window is fullscreened on the same monitor, exit it first.
-        if let Some(existing) = self
-            .model
-            .fullscreen_state
-            .fullscreen_active_node
-            .get(&monitor_name)
-            .copied()
-        {
-            self.exit_xdg_fullscreen(existing, now);
-        }
-
-        let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
-        let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
-        self.clear_non_target_fullscreen_restore_entries(&monitor_name, node_id);
-
-        // Capture the pre-fullscreen camera (zoom + center) once per monitor so exiting
-        // fullscreen returns to it instead of staying at 1.0. `or_insert` keeps the
-        // original across fullscreen→fullscreen swaps and soft suspend/resume.
-        let pre_fullscreen_camera = crate::compositor::workspace::state::snapshot_monitor_camera(
-            self,
-            monitor_name.as_str(),
-        );
-        self.model
-            .fullscreen_state
-            .fullscreen_camera_restore
-            .entry(monitor_name.clone())
-            .or_insert(pre_fullscreen_camera);
-
-        // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
-        self.reset_monitor_zoom_once(monitor_name.as_str());
-
-        let Some(node) = self.model.field.node(node_id).cloned() else {
-            return;
-        };
-
-        let soft_resume_entry = soft_resume
-            .then(|| {
-                self.model
-                    .fullscreen_state
-                    .fullscreen_restore
-                    .get(&node_id)
-                    .copied()
-            })
-            .flatten();
-        let saved_size = soft_resume_entry
-            .map(|entry| entry.size)
-            .unwrap_or_else(|| {
-                crate::compositor::surface::current_surface_size_for_node(self, node_id)
-                    .unwrap_or(node.intrinsic_size)
-            });
-        let saved_bbox_loc = soft_resume_entry
-            .and_then(|entry| entry.bbox_loc)
-            .or_else(|| self.ui.render_state.cache.bbox_loc.get(&node_id).copied());
-        let saved_window_geometry = soft_resume_entry
-            .and_then(|entry| entry.window_geometry)
-            .or_else(|| {
-                self.ui
-                    .render_state
-                    .cache
-                    .window_geometry
-                    .get(&node_id)
-                    .copied()
-            });
-        let saved_pos = soft_resume_entry.map(|entry| entry.pos).unwrap_or(node.pos);
-        let saved_intrinsic_size = soft_resume_entry
-            .map(|entry| entry.intrinsic_size)
-            .unwrap_or(node.intrinsic_size);
-        let saved_pinned = soft_resume_entry
-            .map(|entry| entry.pinned)
-            .unwrap_or(node.pinned);
-
-        self.model.fullscreen_state.fullscreen_restore.insert(
-            node_id,
-            crate::compositor::fullscreen::state::FullscreenSessionEntry {
-                pos: saved_pos,
-                size: saved_size,
-                viewport_center,
-                intrinsic_size: saved_intrinsic_size,
-                bbox_loc: saved_bbox_loc,
-                window_geometry: saved_window_geometry,
-                pinned: saved_pinned,
+            crate::compositor::fullscreen::state::FullscreenScaleAnim {
+                monitor: monitor_name.clone(),
+                from_pos: from.0,
+                to_pos: to.0,
+                from_size: from.1,
+                to_size: to.1,
+                start_ms,
+                duration_ms,
             },
         );
-        if self.runtime.tuning.fullscreen_animation_enabled() && !soft_resume {
-            self.request_window_animation_prewarm(node_id, now);
-            let from = (self.model.monitor_state.current_monitor == monitor_name)
-                .then(|| {
-                    crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
-                        self,
-                        node_id,
-                        now,
-                    )
-                })
-                .flatten()
-                .unwrap_or((saved_pos, saved_size));
-            let start_ms = self.now_ms(now);
-            let duration_ms = self.runtime.tuning.fullscreen_animation_duration_ms();
-            self.model.fullscreen_state.fullscreen_scale_anim.insert(
-                node_id,
-                crate::compositor::fullscreen::state::FullscreenScaleAnim {
-                    monitor: monitor_name.clone(),
-                    from_pos: from.0,
-                    to_pos: viewport_center,
-                    from_size: from.1,
-                    to_size: viewport_size,
-                    start_ms,
-                    duration_ms,
-                },
-            );
-        } else {
-            self.model
-                .fullscreen_state
-                .fullscreen_scale_anim
-                .remove(&node_id);
-        }
-        if !soft_resume {
-            self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
-        }
-        self.assign_node_to_monitor(node_id, monitor_name.as_str());
-        self.model
+    } else {
+        st.model
             .fullscreen_state
-            .fullscreen_active_node
-            .insert(monitor_name, node_id);
-        self.model
+            .fullscreen_scale_anim
+            .remove(&node_id);
+    }
+    st.model.fullscreen_state.fullscreen_origin.remove(&node_id);
+    if !suspend {
+        st.model
+            .fullscreen_state
+            .fullscreen_restore
+            .remove(&node_id);
+    }
+    st.request_maintenance();
+}
+
+pub(crate) fn soft_suspend_xdg_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+    exit_xdg_fullscreen_inner(st, node_id, now, true, true);
+}
+
+fn restore_fullscreen_snapshot(
+    st: &mut Halley,
+    id: NodeId,
+    entry: crate::compositor::fullscreen::state::FullscreenSessionEntry,
+) {
+    if let Some(node) = st.model.field.node_mut(id) {
+        node.pos = entry.pos;
+        node.intrinsic_size = entry.intrinsic_size;
+    }
+    let _ = st.model.field.sync_active_footprint_to_intrinsic(id);
+    if let Some(loc) = entry.bbox_loc {
+        st.ui.render_state.cache.bbox_loc.insert(id, loc);
+    } else {
+        st.ui.render_state.cache.bbox_loc.remove(&id);
+    }
+    if let Some(geo) = entry.window_geometry {
+        st.ui.render_state.cache.window_geometry.insert(id, geo);
+    } else {
+        st.ui.render_state.cache.window_geometry.remove(&id);
+    }
+    st.set_last_active_size_now(id, entry.intrinsic_size);
+}
+
+pub(crate) fn enter_xdg_fullscreen(
+    st: &mut Halley,
+    node_id: NodeId,
+    output: Option<WlOutput>,
+    now: Instant,
+) {
+    enter_fullscreen(
+        st,
+        node_id,
+        output,
+        now,
+        crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest,
+    )
+}
+
+pub(crate) fn enter_user_fullscreen(
+    st: &mut Halley,
+    node_id: NodeId,
+    output: Option<WlOutput>,
+    now: Instant,
+) {
+    enter_fullscreen(
+        st,
+        node_id,
+        output,
+        now,
+        crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind,
+    )
+}
+
+fn enter_fullscreen(
+    st: &mut Halley,
+    node_id: NodeId,
+    output: Option<WlOutput>,
+    now: Instant,
+    origin: crate::compositor::fullscreen::state::FullscreenOrigin,
+) {
+    let monitor_name = fullscreen_monitor_name(st, node_id, output.as_ref());
+
+    st.model
+        .fullscreen_state
+        .clear_direct_scanout_for_monitor(&monitor_name);
+
+    // Already fullscreen on this monitor — no-op.
+    if st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(&monitor_name)
+        == Some(&node_id)
+    {
+        st.model
             .fullscreen_state
             .fullscreen_origin
             .insert(node_id, origin);
-        self.set_interaction_focus(Some(node_id), 30_000, now);
-        let _ = self.raise_overlap_policy_node(node_id);
-        self.request_maintenance();
+        if origin == crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest {
+            let target_size = fullscreen_target_size_for(st, monitor_name.as_str());
+            request_toplevel_fullscreen_state(st, node_id, true, output, Some(target_size));
+        }
+        return;
     }
 
-    pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        if !self.is_fullscreen_active(node_id)
-            && let Some(monitor) = self
-                .fullscreen_suspended_monitor_for_node(node_id)
-                .map(str::to_string)
-        {
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
-                .remove(&monitor);
-            self.model
-                .fullscreen_state
-                .fullscreen_active_node
-                .insert(monitor, node_id);
-        }
-        // Clear suspended state on whatever monitor this node is on.
-        if let Some(monitor) = self
-            .fullscreen_monitor_for_node(node_id)
-            .map(|s| s.to_owned())
-        {
-            self.model
-                .fullscreen_state
-                .fullscreen_suspended_node
-                .remove(&monitor);
-        }
-        self.exit_xdg_fullscreen_inner(node_id, now, false, false);
-    }
+    let soft_resume = st
+        .model
+        .fullscreen_state
+        .fullscreen_soft_suspended_node
+        .get(&monitor_name)
+        == Some(&node_id);
 
-    pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, _now: Instant) {
-        if !self.is_fullscreen_active(id)
-            && let Some(monitor) = self
-                .fullscreen_suspended_monitor_for_node(id)
-                .map(str::to_string)
-        {
-            self.model
-                .fullscreen_state
-                .fullscreen_active_node
-                .insert(monitor, id);
-        }
-
-        // Clear suspended state if this node was suspended on any monitor.
-        self.model
+    if soft_resume {
+        st.model
             .fullscreen_state
             .fullscreen_suspended_node
-            .retain(|_, &mut nid| nid != id);
-        self.model
+            .remove(&monitor_name);
+        st.model
             .fullscreen_state
             .fullscreen_soft_suspended_node
-            .retain(|_, &mut nid| nid != id);
-
-        if self.is_fullscreen_active(id) {
-            let monitor_name = self
-                .fullscreen_monitor_for_node(id)
-                .map(|s| s.to_owned())
-                .unwrap(); // safe: is_fullscreen_active just confirmed it
-
-            self.input.interaction_state.reset_input_state_requested = true;
-            self.model
-                .fullscreen_state
-                .fullscreen_active_node
-                .remove(&monitor_name);
-
-            self.clear_non_target_fullscreen_restore_entries(&monitor_name, id);
-        }
-
-        self.model.fullscreen_state.fullscreen_restore.remove(&id);
-        self.model.fullscreen_state.fullscreen_origin.remove(&id);
-        self.model.fullscreen_state.fullscreen_motion.remove(&id);
-        self.model
+            .remove(&monitor_name);
+    } else {
+        // Clear any suspended state for this monitor.
+        st.model
             .fullscreen_state
-            .fullscreen_scale_anim
-            .remove(&id);
-        self.model
+            .fullscreen_suspended_node
+            .remove(&monitor_name);
+        st.model
             .fullscreen_state
-            .clear_direct_scanout_for_node(id);
+            .fullscreen_soft_suspended_node
+            .remove(&monitor_name);
     }
 
-    pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        if self.model.fullscreen_state.fullscreen_motion.is_empty()
-            && self.model.fullscreen_state.fullscreen_scale_anim.is_empty()
-        {
-            return;
-        }
+    // If another window is fullscreened on the same monitor, exit it first.
+    if let Some(existing) = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(&monitor_name)
+        .copied()
+    {
+        exit_xdg_fullscreen(st, existing, now);
+    }
 
-        let now_ms = self.now_ms(now);
-        let motions: Vec<(
-            NodeId,
-            crate::compositor::fullscreen::state::FullscreenMotion,
-        )> = self
-            .model
-            .fullscreen_state
-            .fullscreen_motion
-            .iter()
-            .map(|(&id, &motion)| (id, motion))
-            .collect();
-        let mut finished = Vec::new();
+    let target_size = fullscreen_target_size_for(st, monitor_name.as_str());
+    let (viewport_center, viewport_size) = fullscreen_monitor_view(st, monitor_name.as_str());
+    clear_non_target_fullscreen_restore_entries(st, &monitor_name, node_id);
 
-        for (id, motion) in motions {
-            let elapsed = now_ms.saturating_sub(motion.start_ms);
-            let t = (elapsed as f32 / motion.duration_ms.max(1) as f32).clamp(0.0, 1.0);
-            let e = if t < 0.5 {
-                4.0 * t * t * t
-            } else {
-                1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
-            };
-            let pos = Vec2 {
-                x: motion.from.x + (motion.to.x - motion.from.x) * e,
-                y: motion.from.y + (motion.to.y - motion.from.y) * e,
-            };
-            let _ = self.model.field.carry(id, pos);
-            if t >= 1.0 {
-                finished.push((id, motion));
-            }
-        }
+    // Capture the pre-fullscreen camera (zoom + center) once per monitor so exiting
+    // fullscreen returns to it instead of staying at 1.0. `or_insert` keeps the
+    // original across fullscreen→fullscreen swaps and soft suspend/resume.
+    let pre_fullscreen_camera =
+        crate::compositor::workspace::state::snapshot_monitor_camera(st, monitor_name.as_str());
+    st.model
+        .fullscreen_state
+        .fullscreen_camera_restore
+        .entry(monitor_name.clone())
+        .or_insert(pre_fullscreen_camera);
 
-        for (id, motion) in finished {
-            self.model.fullscreen_state.fullscreen_motion.remove(&id);
-            if let Some(node) = self.model.field.node_mut(id) {
-                node.pos = motion.to;
-            }
-            self.input.interaction_state.physics_velocity.remove(&id);
-            if let Some(entry) = self
-                .model
+    // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
+    reset_monitor_zoom_once(st, monitor_name.as_str());
+
+    let Some(node) = st.model.field.node(node_id).cloned() else {
+        return;
+    };
+
+    let soft_resume_entry = soft_resume
+        .then(|| {
+            st.model
                 .fullscreen_state
                 .fullscreen_restore
-                .get(&id)
+                .get(&node_id)
                 .copied()
-            {
-                // A node finishing its motion should be pinned only if the fullscreen
-                // it was displaced for is still active — i.e. the monitor it belongs
-                // to still has an active fullscreen session.
-                let node_monitor = self
-                    .model
-                    .monitor_state
-                    .node_monitor
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
-                let displaced_for_active = self
-                    .model
-                    .fullscreen_state
-                    .fullscreen_active_node
-                    .contains_key(&node_monitor);
+        })
+        .flatten();
+    let saved_size = soft_resume_entry
+        .map(|entry| entry.size)
+        .unwrap_or_else(|| {
+            crate::compositor::surface::current_surface_size_for_node(st, node_id)
+                .unwrap_or(node.intrinsic_size)
+        });
+    let saved_bbox_loc = soft_resume_entry
+        .and_then(|entry| entry.bbox_loc)
+        .or_else(|| st.ui.render_state.cache.bbox_loc.get(&node_id).copied());
+    let saved_window_geometry = soft_resume_entry
+        .and_then(|entry| entry.window_geometry)
+        .or_else(|| {
+            st.ui
+                .render_state
+                .cache
+                .window_geometry
+                .get(&node_id)
+                .copied()
+        });
+    let saved_pos = soft_resume_entry.map(|entry| entry.pos).unwrap_or(node.pos);
+    let saved_intrinsic_size = soft_resume_entry
+        .map(|entry| entry.intrinsic_size)
+        .unwrap_or(node.intrinsic_size);
+    let saved_pinned = soft_resume_entry
+        .map(|entry| entry.pinned)
+        .unwrap_or(node.pinned);
 
-                if displaced_for_active {
-                    let _ = self.model.field.set_pinned(id, true);
-                } else {
-                    let _ = self.model.field.set_pinned(id, entry.pinned);
-                    self.model.fullscreen_state.fullscreen_restore.remove(&id);
-                }
-            }
-        }
-
-        self.model
+    st.model.fullscreen_state.fullscreen_restore.insert(
+        node_id,
+        crate::compositor::fullscreen::state::FullscreenSessionEntry {
+            pos: saved_pos,
+            size: saved_size,
+            viewport_center,
+            intrinsic_size: saved_intrinsic_size,
+            bbox_loc: saved_bbox_loc,
+            window_geometry: saved_window_geometry,
+            pinned: saved_pinned,
+        },
+    );
+    if st.runtime.tuning.fullscreen_animation_enabled() && !soft_resume {
+        st.request_window_animation_prewarm(node_id, now);
+        let from = (st.model.monitor_state.current_monitor == monitor_name)
+            .then(|| {
+                crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                    st,
+                    node_id,
+                    now,
+                )
+            })
+            .flatten()
+            .unwrap_or((saved_pos, saved_size));
+        let start_ms = st.now_ms(now);
+        let duration_ms = st.runtime.tuning.fullscreen_animation_duration_ms();
+        st.model.fullscreen_state.fullscreen_scale_anim.insert(
+            node_id,
+            crate::compositor::fullscreen::state::FullscreenScaleAnim {
+                monitor: monitor_name.clone(),
+                from_pos: from.0,
+                to_pos: viewport_center,
+                from_size: from.1,
+                to_size: viewport_size,
+                start_ms,
+                duration_ms,
+            },
+        );
+    } else {
+        st.model
             .fullscreen_state
             .fullscreen_scale_anim
-            .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
-        if !self.model.fullscreen_state.fullscreen_scale_anim.is_empty() {
-            self.request_maintenance();
+            .remove(&node_id);
+    }
+    if !soft_resume {
+        request_toplevel_fullscreen_state(st, node_id, true, output, Some(target_size));
+    }
+    st.assign_node_to_monitor(node_id, monitor_name.as_str());
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .insert(monitor_name, node_id);
+    st.model
+        .fullscreen_state
+        .fullscreen_origin
+        .insert(node_id, origin);
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    let _ = st.raise_overlap_policy_node(node_id);
+    st.request_maintenance();
+}
+
+pub(crate) fn exit_xdg_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+    if !is_fullscreen_active(st, node_id)
+        && let Some(monitor) =
+            fullscreen_suspended_monitor_for_node(st, node_id).map(str::to_string)
+    {
+        st.model
+            .fullscreen_state
+            .fullscreen_suspended_node
+            .remove(&monitor);
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, node_id);
+    }
+    // Clear suspended state on whatever monitor this node is on.
+    if let Some(monitor) = fullscreen_monitor_for_node(st, node_id).map(|s| s.to_owned()) {
+        st.model
+            .fullscreen_state
+            .fullscreen_suspended_node
+            .remove(&monitor);
+    }
+    exit_xdg_fullscreen_inner(st, node_id, now, false, false);
+}
+
+pub(crate) fn drop_fullscreen_surface(st: &mut Halley, id: NodeId, _now: Instant) {
+    if !is_fullscreen_active(st, id)
+        && let Some(monitor) = fullscreen_suspended_monitor_for_node(st, id).map(str::to_string)
+    {
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, id);
+    }
+
+    // Clear suspended state if this node was suspended on any monitor.
+    st.model
+        .fullscreen_state
+        .fullscreen_suspended_node
+        .retain(|_, &mut nid| nid != id);
+    st.model
+        .fullscreen_state
+        .fullscreen_soft_suspended_node
+        .retain(|_, &mut nid| nid != id);
+
+    if is_fullscreen_active(st, id) {
+        let monitor_name = fullscreen_monitor_for_node(st, id)
+            .map(|s| s.to_owned())
+            .unwrap(); // safe: is_fullscreen_active just confirmed it
+
+        st.input.interaction_state.reset_input_state_requested = true;
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .remove(&monitor_name);
+
+        clear_non_target_fullscreen_restore_entries(st, &monitor_name, id);
+    }
+
+    st.model.fullscreen_state.fullscreen_restore.remove(&id);
+    st.model.fullscreen_state.fullscreen_origin.remove(&id);
+    st.model.fullscreen_state.fullscreen_motion.remove(&id);
+    st.model.fullscreen_state.fullscreen_scale_anim.remove(&id);
+    st.model.fullscreen_state.clear_direct_scanout_for_node(id);
+}
+
+pub(crate) fn tick_fullscreen_motion(st: &mut Halley, now: Instant) {
+    if st.model.fullscreen_state.fullscreen_motion.is_empty()
+        && st.model.fullscreen_state.fullscreen_scale_anim.is_empty()
+    {
+        return;
+    }
+
+    let now_ms = st.now_ms(now);
+    let motions: Vec<(
+        NodeId,
+        crate::compositor::fullscreen::state::FullscreenMotion,
+    )> = st
+        .model
+        .fullscreen_state
+        .fullscreen_motion
+        .iter()
+        .map(|(&id, &motion)| (id, motion))
+        .collect();
+    let mut finished = Vec::new();
+
+    for (id, motion) in motions {
+        let elapsed = now_ms.saturating_sub(motion.start_ms);
+        let t = (elapsed as f32 / motion.duration_ms.max(1) as f32).clamp(0.0, 1.0);
+        let e = if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
+        };
+        let pos = Vec2 {
+            x: motion.from.x + (motion.to.x - motion.from.x) * e,
+            y: motion.from.y + (motion.to.y - motion.from.y) * e,
+        };
+        let _ = st.model.field.carry(id, pos);
+        if t >= 1.0 {
+            finished.push((id, motion));
         }
+    }
+
+    for (id, motion) in finished {
+        st.model.fullscreen_state.fullscreen_motion.remove(&id);
+        if let Some(node) = st.model.field.node_mut(id) {
+            node.pos = motion.to;
+        }
+        st.input.interaction_state.physics_velocity.remove(&id);
+        if let Some(entry) = st
+            .model
+            .fullscreen_state
+            .fullscreen_restore
+            .get(&id)
+            .copied()
+        {
+            // A node finishing its motion should be pinned only if the fullscreen
+            // it was displaced for is still active — i.e. the monitor it belongs
+            // to still has an active fullscreen session.
+            let node_monitor = st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+            let displaced_for_active = st
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key(&node_monitor);
+
+            if displaced_for_active {
+                let _ = st.model.field.set_pinned(id, true);
+            } else {
+                let _ = st.model.field.set_pinned(id, entry.pinned);
+                st.model.fullscreen_state.fullscreen_restore.remove(&id);
+            }
+        }
+    }
+
+    st.model
+        .fullscreen_state
+        .fullscreen_scale_anim
+        .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
+    if !st.model.fullscreen_state.fullscreen_scale_anim.is_empty() {
+        st.request_maintenance();
     }
 }

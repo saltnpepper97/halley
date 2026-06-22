@@ -243,6 +243,8 @@ impl ConfigSchema {
             "apogee.show_collapsed_as_nodes",
             "apogee.background-dim",
             "apogee.background_dim",
+            "apogee.open-cluster-on-select",
+            "apogee.open_cluster_on_select",
             "bearings.show-distance",
             "bearings.show-icons",
             "bearings.show-pinned",
@@ -676,6 +678,8 @@ fn bool_scalar(path: &str) -> bool {
             | "apogee.live_previews"
             | "apogee.show-collapsed-as-nodes"
             | "apogee.show_collapsed_as_nodes"
+            | "apogee.open-cluster-on-select"
+            | "apogee.open_cluster_on_select"
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"

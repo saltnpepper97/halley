@@ -21,10 +21,6 @@ pub(crate) struct PointerCtx<'a> {
     pub(in crate::compositor) st: &'a mut Halley,
 }
 
-pub(crate) struct FullscreenCtx<'a> {
-    pub(in crate::compositor) st: &'a mut Halley,
-}
-
 pub(crate) fn focus_ctx(st: &Halley) -> FocusCtx<'_> {
     FocusCtx {
         display_handle: &st.platform.display_handle,
@@ -45,8 +41,4 @@ pub(crate) fn layer_shell_ctx(st: &mut Halley) -> LayerShellCtx<'_> {
 
 pub(crate) fn pointer_ctx(st: &mut Halley) -> PointerCtx<'_> {
     PointerCtx { st }
-}
-
-pub(crate) fn fullscreen_ctx(st: &mut Halley) -> FullscreenCtx<'_> {
-    FullscreenCtx { st }
 }

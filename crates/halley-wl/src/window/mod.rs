@@ -225,7 +225,7 @@ fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physica
         && rect.1 + rect.3 >= output.loc.y + output.size.h - tolerance
 }
 
-fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
+pub(crate) fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
     let (rank, tie) = st.overlap_policy_stack_rank(node_id);
     if node_floats_over_active_cluster(st, node_id) {
         (rank.saturating_add(1_u64 << 62), tie)
@@ -463,8 +463,7 @@ pub(crate) fn collect_active_surfaces(
             let key = wl.id();
             let node_id = st.model.surface_to_node.get(&key).copied()?;
             let node = st.model.field.node(node_id)?;
-            if crate::compositor::clusters::system::cluster_system_controller(&*st)
-                .pending_lift_cluster_node_staged(node_id)
+            if crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*st, node_id)
                 || !st.model.field.is_visible(node_id)
                 || !st.node_assigned_to_current_monitor(node_id)
             {

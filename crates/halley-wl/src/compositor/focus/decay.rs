@@ -1,350 +1,303 @@
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use super::*;
 use crate::compositor::overlap::system::CollisionExtents;
 use halley_core::viewport::{FocusRing, FocusZone};
 
-pub(crate) struct FocusDecayController<T> {
-    st: T,
+const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
+
+fn focus_ring_center_for_node(st: &Halley, id: NodeId) -> Vec2 {
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&id)
+        .and_then(|monitor| st.model.monitor_state.monitors.get(monitor))
+        .map(|monitor| monitor.viewport.center)
+        .unwrap_or(st.model.viewport.center)
 }
 
-pub(crate) fn focus_decay_controller<T>(st: T) -> FocusDecayController<T> {
-    FocusDecayController { st }
+fn focus_ring_for_node(st: &Halley, id: NodeId) -> FocusRing {
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&id)
+        .map(|monitor| st.runtime.tuning.focus_ring_for_output(monitor.as_str()))
+        .unwrap_or_else(|| st.active_focus_ring())
 }
 
-impl<T: Deref<Target = Halley>> Deref for FocusDecayController<T> {
-    type Target = Halley;
+fn focus_ring_coverage_for_extents(
+    _st: &Halley,
+    pos: Vec2,
+    ext: CollisionExtents,
+    focus_center: Vec2,
+    focus_ring: FocusRing,
+) -> (f32, f32) {
+    let samples = 9usize;
+    let width = (ext.left + ext.right).max(1.0);
+    let height = (ext.top + ext.bottom).max(1.0);
+    let left = pos.x - ext.left;
+    let top = pos.y - ext.top;
+    let mut inside = 0usize;
+    let mut total = 0usize;
 
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
-    }
-}
-
-impl<T: DerefMut<Target = Halley>> DerefMut for FocusDecayController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
-}
-
-impl<T: Deref<Target = Halley>> FocusDecayController<T> {
-    const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
-
-    fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
-        self.model
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .and_then(|monitor| self.model.monitor_state.monitors.get(monitor))
-            .map(|monitor| monitor.viewport.center)
-            .unwrap_or(self.model.viewport.center)
-    }
-
-    fn focus_ring_for_node(&self, id: NodeId) -> FocusRing {
-        self.model
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .map(|monitor| self.runtime.tuning.focus_ring_for_output(monitor.as_str()))
-            .unwrap_or_else(|| self.active_focus_ring())
-    }
-
-    fn focus_ring_coverage_for_extents(
-        &self,
-        pos: Vec2,
-        ext: CollisionExtents,
-        focus_center: Vec2,
-        focus_ring: FocusRing,
-    ) -> (f32, f32) {
-        let samples = 9usize;
-        let width = (ext.left + ext.right).max(1.0);
-        let height = (ext.top + ext.bottom).max(1.0);
-        let left = pos.x - ext.left;
-        let top = pos.y - ext.top;
-        let mut inside = 0usize;
-        let mut total = 0usize;
-
-        for ix in 0..samples {
-            for iy in 0..samples {
-                let fx = ix as f32 / (samples - 1) as f32;
-                let fy = iy as f32 / (samples - 1) as f32;
-                let sample = Vec2 {
-                    x: left + fx * width,
-                    y: top + fy * height,
-                };
-                if focus_ring.zone(focus_center, sample) == FocusZone::Inside {
-                    inside += 1;
-                }
-                total += 1;
+    for ix in 0..samples {
+        for iy in 0..samples {
+            let fx = ix as f32 / (samples - 1) as f32;
+            let fy = iy as f32 / (samples - 1) as f32;
+            let sample = Vec2 {
+                x: left + fx * width,
+                y: top + fy * height,
+            };
+            if focus_ring.zone(focus_center, sample) == FocusZone::Inside {
+                inside += 1;
             }
+            total += 1;
         }
-
-        if total == 0 {
-            return (0.0, 1.0);
-        }
-
-        let inside_frac = inside as f32 / total as f32;
-        (inside_frac, (1.0 - inside_frac).max(0.0))
     }
 
-    fn surface_ring_coverage(&self, id: NodeId) -> (f32, f32) {
-        let Some(node) = self.model.field.node(id) else {
-            return (0.0, 1.0);
-        };
-        let focus_center = self.focus_ring_center_for_node(id);
-        let focus_ring = self.focus_ring_for_node(id);
-
-        let ext = match node.state {
-            halley_core::field::NodeState::Active => self.surface_window_collision_extents(node),
-            _ => self.collision_extents_for_node(node),
-        };
-
-        self.focus_ring_coverage_for_extents(node.pos, ext, focus_center, focus_ring)
+    if total == 0 {
+        return (0.0, 1.0);
     }
 
-    pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
-        let (_, outside_frac) = self.surface_ring_coverage(id);
-        outside_frac >= Self::ACTIVE_RING_OUTSIDE_DECAY_FRAC
-    }
+    let inside_frac = inside as f32 / total as f32;
+    (inside_frac, (1.0 - inside_frac).max(0.0))
 }
 
-impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
-    pub(crate) fn enforce_single_primary_active_unit(&mut self) {
-        let now_ms = self.now_ms(Instant::now());
-        let active_windows_allowed = self.runtime.tuning.field_active_windows_allowed;
-        if active_windows_allowed == 0 {
-            return;
-        }
-        if self.spawn_placement_transition_active(now_ms) {
-            return;
-        }
-        let companion = self.companion_surface_node(now_ms);
-        let preferred_surface = self.last_input_surface_node();
+fn surface_ring_coverage(st: &Halley, id: NodeId) -> (f32, f32) {
+    let Some(node) = st.model.field.node(id) else {
+        return (0.0, 1.0);
+    };
+    let focus_center = focus_ring_center_for_node(st, id);
+    let focus_ring = focus_ring_for_node(st, id);
 
-        let active_ids: Vec<NodeId> = self
-            .model
-            .field
-            .nodes()
+    let ext = match node.state {
+        halley_core::field::NodeState::Active => st.surface_window_collision_extents(node),
+        _ => st.collision_extents_for_node(node),
+    };
+
+    focus_ring_coverage_for_extents(st, node.pos, ext, focus_center, focus_ring)
+}
+
+pub(crate) fn surface_is_definitively_outside_focus_ring(st: &Halley, id: NodeId) -> bool {
+    let (_, outside_frac) = surface_ring_coverage(st, id);
+    outside_frac >= ACTIVE_RING_OUTSIDE_DECAY_FRAC
+}
+
+pub(crate) fn enforce_single_primary_active_unit(st: &mut Halley) {
+    let now_ms = st.now_ms(Instant::now());
+    let active_windows_allowed = st.runtime.tuning.field_active_windows_allowed;
+    if active_windows_allowed == 0 {
+        return;
+    }
+    if spawn_placement_transition_active(st, now_ms) {
+        return;
+    }
+    let companion = crate::compositor::focus::state::companion_surface_node(st, now_ms);
+    let preferred_surface = st.last_input_surface_node();
+
+    let active_ids: Vec<NodeId> = st
+        .model
+        .field
+        .nodes()
+        .iter()
+        .filter_map(|(&id, n)| {
+            (st.model.field.participates_in_field_activity(id)
+                && st.model.field.is_visible(id)
+                && n.kind == halley_core::field::NodeKind::Surface
+                && n.state == halley_core::field::NodeState::Active)
+                .then_some(id)
+        })
+        .collect();
+
+    let mut active_ids_by_monitor: HashMap<Option<String>, Vec<NodeId>> = HashMap::new();
+    for id in active_ids {
+        let monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
+        active_ids_by_monitor.entry(monitor).or_default().push(id);
+    }
+
+    for active_ids in active_ids_by_monitor.into_values() {
+        if active_ids.len() <= active_windows_allowed {
+            continue;
+        }
+
+        let mut keep_set: HashSet<NodeId> = HashSet::new();
+
+        let focused_breakout: Option<NodeId> = active_ids
             .iter()
-            .filter_map(|(&id, n)| {
-                (self.model.field.participates_in_field_activity(id)
-                    && self.model.field.is_visible(id)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && n.state == halley_core::field::NodeState::Active)
-                    .then_some(id)
+            .copied()
+            .find(|&id| {
+                let monitor = st.model.monitor_state.node_monitor.get(&id);
+                monitor
+                    .and_then(|m| st.model.focus_state.monitor_focus.get(m))
+                    .copied()
+                    == Some(id)
             })
-            .collect();
-
-        let mut active_ids_by_monitor: HashMap<Option<String>, Vec<NodeId>> = HashMap::new();
-        for id in active_ids {
-            let monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
-            active_ids_by_monitor.entry(monitor).or_default().push(id);
-        }
-
-        for active_ids in active_ids_by_monitor.into_values() {
-            if active_ids.len() <= active_windows_allowed {
-                continue;
-            }
-
-            let mut keep_set: HashSet<NodeId> = HashSet::new();
-
-            let focused_breakout: Option<NodeId> = active_ids
-                .iter()
-                .copied()
-                .find(|&id| {
-                    let monitor = self.model.monitor_state.node_monitor.get(&id);
-                    monitor
-                        .and_then(|m| self.model.focus_state.monitor_focus.get(m))
-                        .copied()
-                        == Some(id)
-                })
-                .or_else(|| {
-                    active_ids.iter().copied().max_by_key(|id| {
-                        self.model
-                            .focus_state
-                            .last_surface_focus_ms
-                            .get(id)
-                            .copied()
-                            .unwrap_or(0)
-                    })
-                });
-
-            if let Some(fid) = focused_breakout {
-                keep_set.insert(fid);
-            }
-
-            if keep_set.len() < active_windows_allowed {
-                let mut ranked = active_ids.clone();
-                ranked.sort_by_key(|id| {
-                    let preferred_rank = u8::from(preferred_surface == Some(*id));
-                    let focus_rank = u8::from({
-                        let monitor = self.model.monitor_state.node_monitor.get(id);
-                        monitor
-                            .and_then(|m| self.model.focus_state.monitor_focus.get(m))
-                            .copied()
-                            == Some(*id)
-                    });
-                    let companion_rank = u8::from(companion == Some(*id));
-                    let inside_rank =
-                        u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
-                    let latest_focus = self
-                        .model
+            .or_else(|| {
+                active_ids.iter().copied().max_by_key(|id| {
+                    st.model
                         .focus_state
                         .last_surface_focus_ms
                         .get(id)
                         .copied()
-                        .unwrap_or(0);
-                    (
-                        preferred_rank,
-                        focus_rank,
-                        companion_rank,
-                        inside_rank,
-                        latest_focus,
-                        id.as_u64(),
-                    )
+                        .unwrap_or(0)
+                })
+            });
+
+        if let Some(fid) = focused_breakout {
+            keep_set.insert(fid);
+        }
+
+        if keep_set.len() < active_windows_allowed {
+            let mut ranked = active_ids.clone();
+            ranked.sort_by_key(|id| {
+                let preferred_rank = u8::from(preferred_surface == Some(*id));
+                let focus_rank = u8::from({
+                    let monitor = st.model.monitor_state.node_monitor.get(id);
+                    monitor
+                        .and_then(|m| st.model.focus_state.monitor_focus.get(m))
+                        .copied()
+                        == Some(*id)
                 });
+                let companion_rank = u8::from(companion == Some(*id));
+                let inside_rank = u8::from(!surface_is_definitively_outside_focus_ring(st, *id));
+                let latest_focus = st
+                    .model
+                    .focus_state
+                    .last_surface_focus_ms
+                    .get(id)
+                    .copied()
+                    .unwrap_or(0);
+                (
+                    preferred_rank,
+                    focus_rank,
+                    companion_rank,
+                    inside_rank,
+                    latest_focus,
+                    id.as_u64(),
+                )
+            });
 
-                for id in ranked.iter().rev().copied() {
-                    keep_set.insert(id);
-                    if keep_set.len() >= active_windows_allowed {
-                        break;
-                    }
+            for id in ranked.iter().rev().copied() {
+                keep_set.insert(id);
+                if keep_set.len() >= active_windows_allowed {
+                    break;
                 }
             }
+        }
 
-            for id in active_ids {
-                if keep_set.contains(&id) {
-                    continue;
-                }
-                if self.is_fullscreen_session_node(id) {
-                    let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-                    continue;
-                }
-                let now = Instant::now();
-                crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(
-                    self, id, now,
-                );
+        for id in active_ids {
+            if keep_set.contains(&id) {
+                continue;
             }
-        }
-    }
-
-    fn spawn_placement_transition_active(&self, now_ms: u64) -> bool {
-        self.model.spawn_state.active_spawn_pan.is_some()
-            || !self.model.spawn_state.pending_spawn_pan_queue.is_empty()
-            || self.model.spawn_state.pending_pan_activate.is_some()
-            || self
-                .model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .values()
-                .any(|&at_ms| at_ms > now_ms)
-            || self
-                .model
-                .spawn_state
-                .pending_tiled_insert_reveal_at_ms
-                .values()
-                .any(|&at_ms| at_ms > now_ms)
-    }
-
-    pub fn apply_single_surface_decay_policy(
-        &mut self,
-        id: NodeId,
-        now_ms: u64,
-        active_delay_ms: u64,
-        inactive_delay_ms: u64,
-    ) {
-        let Some(n) = self.model.field.node(id) else {
-            return;
-        };
-        if !self.model.field.participates_in_field_activity(id)
-            || !self.model.field.is_visible(id)
-            || n.kind != halley_core::field::NodeKind::Surface
-        {
-            return;
-        }
-
-        if self.runtime.tuning.field_active_windows_allowed == 0 {
-            self.model
-                .focus_state
-                .outside_focus_ring_since_ms
-                .remove(&id);
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-            return;
-        }
-
-        if self.is_fullscreen_session_node(id) {
-            self.model
-                .focus_state
-                .outside_focus_ring_since_ms
-                .remove(&id);
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-            return;
-        }
-
-        if crate::compositor::workspace::state::preserve_collapsed_surface(&**self, id) {
-            self.model
-                .focus_state
-                .outside_focus_ring_since_ms
-                .remove(&id);
-            return;
-        }
-
-        if self.is_hard_decay_protected(id, now_ms) {
-            self.model
-                .focus_state
-                .outside_focus_ring_since_ms
-                .remove(&id);
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-            return;
-        }
-
-        let outside_ring = self.surface_is_definitively_outside_focus_ring(id);
-        if !outside_ring {
-            self.model
-                .focus_state
-                .outside_focus_ring_since_ms
-                .remove(&id);
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-            return;
-        }
-
-        let is_primary = self.model.focus_state.primary_interaction_focus == Some(id);
-        let delay_ms = if is_primary {
-            active_delay_ms
-        } else {
-            inactive_delay_ms
-        };
-
-        let outside_since_ms = *self
-            .model
-            .focus_state
-            .outside_focus_ring_since_ms
-            .entry(id)
-            .or_insert(now_ms);
-
-        if now_ms.saturating_sub(outside_since_ms) >= delay_ms {
+            if st.is_fullscreen_session_node(id) {
+                let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+                continue;
+            }
             let now = Instant::now();
-            crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(
-                self, id, now,
-            );
-        } else {
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+            crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(st, id, now);
         }
     }
+}
 
-    fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
-        self.model.focus_state.primary_interaction_focus == Some(id)
-            || self.is_fullscreen_session_node(id)
-            || self.input.interaction_state.resize_active == Some(id)
-            || crate::compositor::interaction::state::is_recently_resized_node(self, id, now_ms)
-            || self.model.carry_state.carry_zone_hint.contains_key(&id)
-            || self
-                .model
-                .workspace_state
-                .active_transitions
-                .contains_key(&id)
+fn spawn_placement_transition_active(st: &Halley, now_ms: u64) -> bool {
+    st.model.spawn_state.active_spawn_pan.is_some()
+        || !st.model.spawn_state.pending_spawn_pan_queue.is_empty()
+        || st.model.spawn_state.pending_pan_activate.is_some()
+        || st
+            .model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .values()
+            .any(|&at_ms| at_ms > now_ms)
+        || st
+            .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .values()
+            .any(|&at_ms| at_ms > now_ms)
+}
+
+pub fn apply_single_surface_decay_policy(
+    st: &mut Halley,
+    id: NodeId,
+    now_ms: u64,
+    active_delay_ms: u64,
+    inactive_delay_ms: u64,
+) {
+    let Some(n) = st.model.field.node(id) else {
+        return;
+    };
+    if !st.model.field.participates_in_field_activity(id)
+        || !st.model.field.is_visible(id)
+        || n.kind != halley_core::field::NodeKind::Surface
+    {
+        return;
     }
+
+    if st.runtime.tuning.field_active_windows_allowed == 0 {
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+        return;
+    }
+
+    if st.is_fullscreen_session_node(id) {
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+        return;
+    }
+
+    if crate::compositor::workspace::state::preserve_collapsed_surface(st, id) {
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+        return;
+    }
+
+    if is_hard_decay_protected(st, id, now_ms) {
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+        return;
+    }
+
+    let outside_ring = surface_is_definitively_outside_focus_ring(st, id);
+    if !outside_ring {
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+        return;
+    }
+
+    let is_primary = st.model.focus_state.primary_interaction_focus == Some(id);
+    let delay_ms = if is_primary {
+        active_delay_ms
+    } else {
+        inactive_delay_ms
+    };
+
+    let outside_since_ms = *st
+        .model
+        .focus_state
+        .outside_focus_ring_since_ms
+        .entry(id)
+        .or_insert(now_ms);
+
+    if now_ms.saturating_sub(outside_since_ms) >= delay_ms {
+        let now = Instant::now();
+        crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(st, id, now);
+    } else {
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+    }
+}
+
+fn is_hard_decay_protected(st: &Halley, id: NodeId, now_ms: u64) -> bool {
+    st.model.focus_state.primary_interaction_focus == Some(id)
+        || st.is_fullscreen_session_node(id)
+        || st.input.interaction_state.resize_active == Some(id)
+        || crate::compositor::interaction::state::is_recently_resized_node(st, id, now_ms)
+        || st.model.carry_state.carry_zone_hint.contains_key(&id)
+        || st
+            .model
+            .workspace_state
+            .active_transitions
+            .contains_key(&id)
 }
 
 #[cfg(test)]

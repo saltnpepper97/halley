@@ -20,7 +20,6 @@ use smithay::wayland::compositor::{
 use smithay::wayland::presentation::Refresh;
 
 use crate::animation::AnimStyle;
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 
 mod activity;
@@ -145,7 +144,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     st.tick_viewport_pan_animation(now_ms);
     crate::compositor::actions::window::tick_pending_maximize(st, now);
     let _ = st.process_pending_cluster_slot_transition_for_current_monitor(now);
-    st.tick_pending_spawn_pan(now, now_ms);
+    crate::compositor::spawn::reveal::tick_pending_spawn_pan(st, now, now_ms);
     crate::compositor::workspace::state::tick_maximize_animation(st, now);
     tick_active_drag(st, now);
     crate::compositor::focus::cycle::tick_focus_cycle_session(st, now);
@@ -153,7 +152,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     tick_pending_core_hover_bloom(st, now_ms);
     st.tick_apogee(now);
-    camera_controller(&mut *st).tick_smoothing(now);
+    crate::compositor::monitor::camera::tick_camera_smoothing(&mut *st, now);
 
     // Also ease the cameras of the other (non-active) monitors so a monitor that
     // is mid-zoom keeps settling into place instead of freezing the moment the
@@ -172,7 +171,8 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     for name in others {
         let previous = st.begin_temporary_render_monitor(&name);
         if previous.is_some() {
-            let moved = camera_controller(&mut *st).tick_smoothing_passive(now);
+            let moved =
+                crate::compositor::monitor::camera::tick_camera_smoothing_passive(&mut *st, now);
             if moved {
                 st.request_tty_redraw_for_monitor(&name);
             }
@@ -223,7 +223,11 @@ fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
         && st.cluster_bloom_for_monitor(pending_hover.monitor.as_str()) != Some(cid)
     {
         st.input.interaction_state.overlay_hover_target = None;
-        let _ = st.open_cluster_bloom_for_monitor(pending_hover.monitor.as_str(), cid);
+        let _ = crate::compositor::clusters::system::open_cluster_bloom_for_monitor(
+            st,
+            pending_hover.monitor.as_str(),
+            cid,
+        );
     }
 }
 
@@ -370,7 +374,7 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
                     * dt,
             };
             st.note_pan_activity(now);
-            camera_controller(&mut *st).pan_target(pan_delta);
+            crate::compositor::monitor::camera::pan_camera_target(&mut *st, pan_delta);
             st.note_pan_viewport_change(now);
         }
         active_drag.last_edge_pan_at = now;

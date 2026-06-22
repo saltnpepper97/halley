@@ -24,9 +24,7 @@ fn begin_pan_if_allowed(
     global_sx: f32,
     global_sy: f32,
 ) {
-    if crate::compositor::monitor::camera::camera_controller(&*st)
-        .pan_blocked_on_monitor(monitor.as_str())
-    {
+    if crate::compositor::monitor::camera::pan_blocked_on_monitor(&*st, monitor.as_str()) {
         backend.request_redraw();
         return;
     }
@@ -394,7 +392,10 @@ pub(crate) fn handle_workspace_left_press(
         if inside {
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), st.now_ms(now));
         } else {
-            st.hide_cluster_overflow_for_monitor(monitor.as_str());
+            crate::compositor::clusters::system::hide_cluster_overflow_for_monitor(
+                st,
+                monitor.as_str(),
+            );
         }
     }
     if hit.move_surface && !hit.is_core {

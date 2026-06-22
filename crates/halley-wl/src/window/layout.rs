@@ -111,18 +111,23 @@ pub(super) fn resolve_window_render_layout(
     now: Instant,
 ) -> Option<WindowRenderLayout> {
     let node = st.model.field.node(node_id)?;
-    if node.state != halley_core::field::NodeState::Active
-        || !st.model.field.is_visible(node_id)
-        || !st.node_assigned_to_current_monitor(node_id)
-    {
-        return None;
-    }
-
     let stack_transition_pose = stack_layout
         .transition_plan
         .as_ref()
         .and_then(|plan| plan.poses.get(&node_id).copied());
     let stack_member_rendered = stack_layout.render_set.contains(&node_id);
+    // A node taking part in the stack-cycle transition keeps rendering even after
+    // the relayout has already moved it out of the visible set (hidden / no longer
+    // Active) — otherwise the outgoing top of a forward cycle vanishes instead of
+    // flying out to the left. The transition pose drives its geometry/alpha.
+    let in_stack_transition = stack_transition_pose.is_some();
+    if !st.node_assigned_to_current_monitor(node_id)
+        || (!in_stack_transition
+            && (node.state != halley_core::field::NodeState::Active
+                || !st.model.field.is_visible(node_id)))
+    {
+        return None;
+    }
     let node_pos = node.pos;
     let node_state = node.state.clone();
     let node_intrinsic = node.intrinsic_size;
@@ -164,11 +169,13 @@ pub(super) fn resolve_window_render_layout(
     let transition_alpha =
         crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
     let anim = crate::frame_loop::anim_style_for(st, node_id, node_state, now);
-    let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
+    let fullscreen_entry_scale =
+        crate::compositor::fullscreen::system::fullscreen_entry_scale(st, node_id, st.now_ms(now));
     let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
     let resizing_this_node = active_resize.is_some();
     let persistent_rule_top = is_persistent_rule_top(st, node_id);
-    let overlap_policy_stack_this_node = st.node_has_overlap_policy(node_id);
+    let overlap_policy_stack_this_node =
+        crate::compositor::spawn::state::node_has_overlap_policy(st, node_id);
     let draw_top_this_node = resizing_this_node
         || dragging_this_node
         || (persistent_rule_top && !overlap_policy_stack_this_node);

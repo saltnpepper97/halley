@@ -37,6 +37,14 @@ pub(crate) fn load_apogee_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.apogee.background_dim,
     )
     .clamp(0.0, 1.0);
+    out.apogee.open_cluster_on_select = pick_bool(
+        cfg,
+        &[
+            "apogee.open-cluster-on-select",
+            "apogee.open_cluster_on_select",
+        ],
+        out.apogee.open_cluster_on_select,
+    );
 }
 
 #[cfg(test)]
@@ -58,6 +66,7 @@ apogee:
   gap 32.0
   max-rows 4
         background-dim 0.6
+  open-cluster-on-select false
 end
 "#,
         )
@@ -72,6 +81,7 @@ end
         assert_eq!(out.apogee.gap, 32.0);
         assert_eq!(out.apogee.max_rows, 4);
         assert_eq!(out.apogee.background_dim, 0.6);
+        assert!(!out.apogee.open_cluster_on_select);
     }
 
     #[test]
@@ -83,6 +93,7 @@ end
         assert_eq!(out.apogee.gap, 24.0);
         assert_eq!(out.apogee.max_rows, 3);
         assert_eq!(out.apogee.background_dim, 0.85);
+        assert!(out.apogee.open_cluster_on_select);
     }
 
     #[test]

@@ -246,8 +246,7 @@ impl XdgShellHandler for Halley {
                 });
         let handled_by_cluster = node_cluster.is_some();
         let handled_by_lift_staging =
-            crate::compositor::clusters::system::cluster_system_controller(&*self)
-                .pending_lift_cluster_node_staged(id);
+            crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*self, id);
         if !is_transient && !handled_by_cluster && !handled_by_lift_staging {
             self.model.spawn_state.pending_initial_reveal.insert(id);
             let _ = self.model.field.set_detached(id, true);
@@ -256,7 +255,12 @@ impl XdgShellHandler for Halley {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
         if !handled_by_lift_staging && (!handled_by_cluster || handled_by_active_cluster) {
-            spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
+            spawn::reveal::reveal_new_toplevel_node_via_ctx(
+                &mut crate::compositor::ctx::spawn_ctx(self),
+                id,
+                is_transient,
+                now,
+            );
         }
         if !handled_by_cluster && !handled_by_lift_staging {
             if !self.model.spawn_state.pending_initial_reveal.contains(&id) {
@@ -359,12 +363,7 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        fullscreen::system::enter_xdg_fullscreen(
-            &mut self.fullscreen_ctx(),
-            node_id,
-            output,
-            Instant::now(),
-        );
+        fullscreen::system::enter_xdg_fullscreen(self, node_id, output, Instant::now());
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
@@ -373,11 +372,7 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        fullscreen::system::exit_xdg_fullscreen(
-            &mut self.fullscreen_ctx(),
-            node_id,
-            Instant::now(),
-        );
+        fullscreen::system::exit_xdg_fullscreen(self, node_id, Instant::now());
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {

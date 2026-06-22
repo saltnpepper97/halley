@@ -87,7 +87,7 @@ pub(crate) fn begin_resize(
         .interaction_state
         .physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
-    st.begin_resize_interaction(hit.node_id, Instant::now());
+    crate::compositor::focus::system::begin_resize_interaction(st, hit.node_id, Instant::now());
 
     let (min_lw, min_lh) = toplevel_min_size_for_node(st, hit.node_id);
     let cam_scale = st.camera_render_scale();

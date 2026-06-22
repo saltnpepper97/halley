@@ -137,6 +137,7 @@ fn apply_reloaded_tuning_state(st: &mut Halley, next: RuntimeTuning) {
     restore_live_camera_state(st, live_camera);
     let opacity_changed = crate::compositor::spawn::state::recompute_all_node_rule_opacities(st);
     st.ui.render_state.clear_window_offscreen_caches();
+    st.runtime.skip_next_cluster_relayout = true;
     st.request_maintenance();
     if opacity_changed {
         st.runtime.tty_redraw_all = true;

@@ -4,10 +4,9 @@ use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::exit_confirm::exit_confirm_controller;
-use crate::compositor::monitor::camera::camera_controller;
+use crate::compositor::exit_confirm;
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 use crate::input::ctx::InputCtx;
 
 use super::context::pointer_screen_context_for_monitor;
@@ -124,7 +123,7 @@ fn handle_touchpad_scroll_pan<B: BackendView>(
     amount_horizontal: Option<f64>,
     amount_vertical: Option<f64>,
 ) -> bool {
-    let camera = camera_controller(&*st).view_size();
+    let camera = crate::compositor::monitor::camera::camera_view_size(&*st);
     let pan = touchpad_pan_delta(
         amount_v120_horizontal,
         amount_v120_vertical,
@@ -137,13 +136,13 @@ fn handle_touchpad_scroll_pan<B: BackendView>(
     if pan.x.abs() < f32::EPSILON && pan.y.abs() < f32::EPSILON {
         return true;
     }
-    if camera_controller(&*st).pan_blocked_on_monitor(context.monitor.as_str()) {
+    if crate::compositor::monitor::camera::pan_blocked_on_monitor(&*st, context.monitor.as_str()) {
         return true;
     }
 
     ctx.pointer_state.borrow_mut().panning = false;
     st.note_pan_activity(now);
-    camera_controller(&mut *st).pan_target(pan);
+    crate::compositor::monitor::camera::pan_camera_target(&mut *st, pan);
     st.note_pan_viewport_change(now);
     ctx.backend.request_output_redraw(context.monitor.as_str());
     true
@@ -161,10 +160,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
-    if exit_confirm_controller(&*st).active() {
+    if exit_confirm::active(&*st) {
         return;
     }
-    if screenshot_controller(&mut *st).screenshot_session_active() {
+    if screenshot::screenshot_session_active(&mut *st) {
         return;
     }
     if crate::compositor::portal_chooser::portal_chooser_active(&*st) {
@@ -535,7 +534,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     }
 
     if touchpad_scroll {
-        let camera = camera_controller(&*st).view_size();
+        let camera = crate::compositor::monitor::camera::camera_view_size(&*st);
         let pan = touchpad_pan_delta(
             amount_v120_horizontal,
             amount_v120_vertical,
@@ -548,7 +547,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         if pan.x.abs() < f32::EPSILON && pan.y.abs() < f32::EPSILON {
             return;
         }
-        if camera_controller(&*st).pan_blocked_on_monitor(context.monitor.as_str()) {
+        if crate::compositor::monitor::camera::pan_blocked_on_monitor(
+            &*st,
+            context.monitor.as_str(),
+        ) {
             return;
         }
         {
@@ -556,7 +558,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             ps.panning = false;
         }
         st.note_pan_activity(now);
-        camera_controller(&mut *st).pan_target(pan);
+        crate::compositor::monitor::camera::pan_camera_target(&mut *st, pan);
         st.note_pan_viewport_change(now);
         ctx.backend.request_output_redraw(context.monitor.as_str());
         return;
@@ -566,21 +568,25 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         return;
     }
 
-    if camera_controller(&*st)
-        .pan_blocked_on_monitor(st.model.monitor_state.current_monitor.as_str())
-    {
+    if crate::compositor::monitor::camera::pan_blocked_on_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    ) {
         return;
     }
 
     let steps = steps.clamp(-4.0, 4.0);
-    let camera = camera_controller(&*st).view_size();
+    let camera = crate::compositor::monitor::camera::camera_view_size(&*st);
     let pan_y = -camera.y * (steps / 18.0);
     {
         let mut ps = ctx.pointer_state.borrow_mut();
         ps.panning = false;
     }
     st.note_pan_activity(now);
-    camera_controller(&mut *st).pan_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    crate::compositor::monitor::camera::pan_camera_target(
+        &mut *st,
+        halley_core::field::Vec2 { x: 0.0, y: pan_y },
+    );
     st.note_pan_viewport_change(now);
     ctx.backend.request_redraw();
 }

@@ -1,4 +1,3 @@
-use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use halley_config::FocusCycleBindingAction;
@@ -8,28 +7,6 @@ use smithay::reexports::wayland_server::Resource;
 
 use crate::compositor::interaction::state::{FocusCycleImmersiveOrigin, FocusCycleSession};
 use crate::compositor::root::Halley;
-
-pub(crate) struct FocusCycleController<T> {
-    st: T,
-}
-
-pub(crate) fn focus_cycle_controller<T>(st: T) -> FocusCycleController<T> {
-    FocusCycleController { st }
-}
-
-impl<T: Deref<Target = Halley>> Deref for FocusCycleController<T> {
-    type Target = Halley;
-
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
-    }
-}
-
-impl<T: DerefMut<Target = Halley>> DerefMut for FocusCycleController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
-}
 
 fn is_focus_cycle_candidate(st: &Halley, id: NodeId) -> bool {
     st.model.field.node(id).is_some_and(|node| {
@@ -115,328 +92,315 @@ pub(crate) fn focus_cycle_releases_fullscreen_lock_for_monitor(st: &Halley, moni
         .is_some()
 }
 
-impl<T: Deref<Target = Halley>> FocusCycleController<T> {
-    fn build_candidates(&self, origin_focus: Option<NodeId>) -> Vec<NodeId> {
-        let mut candidates = self
+fn build_candidates(st: &Halley, origin_focus: Option<NodeId>) -> Vec<NodeId> {
+    let mut candidates = st
+        .model
+        .field
+        .node_ids_all()
+        .into_iter()
+        .filter(|&id| is_focus_cycle_candidate(st, id))
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|a, b| {
+        let a_at = st
             .model
-            .field
-            .node_ids_all()
-            .into_iter()
-            .filter(|&id| is_focus_cycle_candidate(self, id))
-            .collect::<Vec<_>>();
+            .focus_state
+            .last_surface_focus_ms
+            .get(a)
+            .copied()
+            .unwrap_or(0);
+        let b_at = st
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .get(b)
+            .copied()
+            .unwrap_or(0);
 
-        candidates.sort_by(|a, b| {
-            let a_at = self
-                .model
-                .focus_state
-                .last_surface_focus_ms
-                .get(a)
-                .copied()
-                .unwrap_or(0);
-            let b_at = self
-                .model
-                .focus_state
-                .last_surface_focus_ms
-                .get(b)
-                .copied()
-                .unwrap_or(0);
+        b_at.cmp(&a_at).then_with(|| b.as_u64().cmp(&a.as_u64()))
+    });
 
-            b_at.cmp(&a_at).then_with(|| b.as_u64().cmp(&a.as_u64()))
-        });
-
-        if let Some(origin_focus) = origin_focus
-            && let Some(index) = candidates.iter().position(|&id| id == origin_focus)
-        {
-            let origin = candidates.remove(index);
-            candidates.insert(0, origin);
-        }
-
-        candidates
+    if let Some(origin_focus) = origin_focus
+        && let Some(index) = candidates.iter().position(|&id| id == origin_focus)
+    {
+        let origin = candidates.remove(index);
+        candidates.insert(0, origin);
     }
+
+    candidates
 }
 
-impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
-    fn refresh_session_candidates(&mut self, now: Instant) -> bool {
-        let Some(session) = self.input.interaction_state.focus_cycle_session.as_ref() else {
-            return false;
-        };
+fn refresh_session_candidates(st: &mut Halley, now: Instant) -> bool {
+    let Some(session) = st.input.interaction_state.focus_cycle_session.as_ref() else {
+        return false;
+    };
 
-        let preview_index = session.preview_index;
-        let current_preview = session.candidates.get(preview_index).copied();
-        let filtered = session
-            .candidates
-            .iter()
-            .copied()
-            .filter(|&id| is_focus_cycle_candidate(self, id))
-            .collect::<Vec<_>>();
+    let preview_index = session.preview_index;
+    let current_preview = session.candidates.get(preview_index).copied();
+    let filtered = session
+        .candidates
+        .iter()
+        .copied()
+        .filter(|&id| is_focus_cycle_candidate(st, id))
+        .collect::<Vec<_>>();
 
-        let next_index = if filtered.is_empty() {
-            0
-        } else {
-            current_preview
-                .and_then(|current| filtered.iter().position(|&id| id == current))
-                .unwrap_or_else(|| preview_index.min(filtered.len().saturating_sub(1)))
-        };
+    let next_index = if filtered.is_empty() {
+        0
+    } else {
+        current_preview
+            .and_then(|current| filtered.iter().position(|&id| id == current))
+            .unwrap_or_else(|| preview_index.min(filtered.len().saturating_sub(1)))
+    };
 
-        let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() else {
-            return false;
-        };
-        session.candidates = filtered;
+    let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() else {
+        return false;
+    };
+    session.candidates = filtered;
 
-        if session.candidates.is_empty() {
-            self.input.interaction_state.focus_cycle_session = None;
-            self.ui.render_state.clear_focus_cycle_still();
-            return false;
-        }
-
-        session.preview_index = next_index;
-        session.step_from_visual_index = next_index as f32;
-        session.step_to_visual_index = next_index as f32;
-        session.step_started_at = now;
-        true
+    if session.candidates.is_empty() {
+        st.input.interaction_state.focus_cycle_session = None;
+        st.ui.render_state.clear_focus_cycle_still();
+        return false;
     }
 
-    fn preview_step(&mut self, direction: FocusCycleBindingAction, now: Instant) -> bool {
-        if !self.refresh_session_candidates(now) {
+    session.preview_index = next_index;
+    session.step_from_visual_index = next_index as f32;
+    session.step_to_visual_index = next_index as f32;
+    session.step_started_at = now;
+    true
+}
+
+fn preview_step(st: &mut Halley, direction: FocusCycleBindingAction, now: Instant) -> bool {
+    if !refresh_session_candidates(st, now) {
+        return false;
+    }
+
+    let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() else {
+        return false;
+    };
+    if session.candidates.len() < 2 {
+        return false;
+    }
+    if session.closing_started_at.is_some() {
+        return false;
+    }
+
+    let len = session.candidates.len();
+    let from_index = session.preview_index;
+    let to_index = match direction {
+        FocusCycleBindingAction::Forward => (from_index + 1) % len,
+        FocusCycleBindingAction::Backward => (from_index + len - 1) % len,
+    };
+    let to_visual = match direction {
+        FocusCycleBindingAction::Forward if from_index + 1 == len && to_index == 0 => len as f32,
+        FocusCycleBindingAction::Backward if from_index == 0 && to_index + 1 == len => -1.0,
+        _ => to_index as f32,
+    };
+    session.preview_index = to_index;
+    session.step_from_visual_index = from_index as f32;
+    session.step_to_visual_index = to_visual;
+    session.step_started_at = now;
+
+    let preview = session.candidates[session.preview_index];
+    if session
+        .immersive_origin
+        .as_ref()
+        .is_some_and(|origin| preview != origin.node_id)
+    {
+        session.immersive_lock_released = true;
+    }
+    let _ = session;
+    st.request_maintenance();
+    true
+}
+
+pub(crate) fn start_or_step_focus_cycle(
+    st: &mut Halley,
+    direction: FocusCycleBindingAction,
+    now: Instant,
+) -> bool {
+    if st.input.interaction_state.focus_cycle_session.is_none() {
+        let origin_focus = st.last_input_surface_node_for_monitor(st.focused_monitor());
+        let candidates = build_candidates(st, origin_focus);
+        if candidates.len() < 2 {
             return false;
         }
 
-        let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() else {
-            return false;
-        };
-        if session.candidates.len() < 2 {
-            return false;
-        }
-        if session.closing_started_at.is_some() {
-            return false;
-        }
-
-        let len = session.candidates.len();
-        let from_index = session.preview_index;
-        let to_index = match direction {
-            FocusCycleBindingAction::Forward => (from_index + 1) % len,
-            FocusCycleBindingAction::Backward => (from_index + len - 1) % len,
-        };
-        let to_visual = match direction {
-            FocusCycleBindingAction::Forward if from_index + 1 == len && to_index == 0 => {
-                len as f32
+        let immersive_origin = origin_focus.and_then(|node_id| {
+            if !st.is_fullscreen_active(node_id)
+                || !fullscreen_origin_is_immersive_target(st, node_id)
+            {
+                return None;
             }
-            FocusCycleBindingAction::Backward if from_index == 0 && to_index + 1 == len => -1.0,
-            _ => to_index as f32,
-        };
-        session.preview_index = to_index;
-        session.step_from_visual_index = from_index as f32;
-        session.step_to_visual_index = to_visual;
-        session.step_started_at = now;
+            let immersive_monitor = st.fullscreen_monitor_for_node(node_id)?;
+            let space = st.model.monitor_state.monitors.get(immersive_monitor)?;
+            Some(FocusCycleImmersiveOrigin {
+                node_id,
+                monitor: immersive_monitor.to_string(),
+                saved_camera_center: space.camera_target_center,
+                saved_zoom_view_size: space.camera_target_view_size,
+            })
+        });
 
-        let preview = session.candidates[session.preview_index];
-        if session
+        st.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates,
+            preview_index: 0,
+            opened_at: now,
+            step_from_visual_index: 0.0,
+            step_to_visual_index: 0.0,
+            step_started_at: now,
+            closing_started_at: None,
+            origin_focus,
+            immersive_origin,
+            immersive_lock_released: false,
+        });
+    }
+
+    preview_step(st, direction, now)
+}
+
+fn restore_origin_without_tracking(st: &mut Halley, session: &FocusCycleSession) {
+    if let Some(origin) = session.origin_focus
+        && session
             .immersive_origin
             .as_ref()
-            .is_some_and(|origin| preview != origin.node_id)
-        {
-            session.immersive_lock_released = true;
-        }
-        let _ = session;
-        self.request_maintenance();
-        true
+            .is_some_and(|immersive| immersive.node_id == origin)
+        && let Some(immersive) = session.immersive_origin.as_ref()
+    {
+        restore_camera_snapshot(
+            st,
+            immersive.monitor.as_str(),
+            immersive.saved_camera_center,
+            immersive.saved_zoom_view_size,
+        );
+    }
+    st.apply_wayland_focus_state(session.origin_focus);
+}
+
+pub(crate) fn cancel_focus_cycle(st: &mut Halley) -> bool {
+    let Some(session) = st.input.interaction_state.focus_cycle_session.clone() else {
+        return false;
+    };
+    if session.closing_started_at.is_some() {
+        return false;
+    }
+    restore_origin_without_tracking(st, &session);
+    if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
+        session.closing_started_at = Some(Instant::now());
+    }
+    st.request_maintenance();
+    true
+}
+
+pub(crate) fn commit_focus_cycle(st: &mut Halley, now: Instant) -> bool {
+    let Some(session) = st.input.interaction_state.focus_cycle_session.clone() else {
+        return false;
+    };
+    if session.closing_started_at.is_some() {
+        return false;
     }
 
-    pub(crate) fn start_or_step_focus_cycle(
-        &mut self,
-        direction: FocusCycleBindingAction,
-        now: Instant,
-    ) -> bool {
-        if self.input.interaction_state.focus_cycle_session.is_none() {
-            let origin_focus = self.last_input_surface_node_for_monitor(self.focused_monitor());
-            let candidates = self.build_candidates(origin_focus);
-            if candidates.len() < 2 {
-                return false;
-            }
+    let target = session
+        .candidates
+        .get(session.preview_index)
+        .copied()
+        .filter(|&id| is_focus_cycle_candidate(st, id))
+        .or(session
+            .origin_focus
+            .filter(|&id| is_focus_cycle_candidate(st, id)));
 
-            let immersive_origin = origin_focus.and_then(|node_id| {
-                if !self.is_fullscreen_active(node_id)
-                    || !fullscreen_origin_is_immersive_target(self, node_id)
-                {
-                    return None;
-                }
-                let immersive_monitor = self.fullscreen_monitor_for_node(node_id)?;
-                let space = self.model.monitor_state.monitors.get(immersive_monitor)?;
-                Some(FocusCycleImmersiveOrigin {
-                    node_id,
-                    monitor: immersive_monitor.to_string(),
-                    saved_camera_center: space.camera_target_center,
-                    saved_zoom_view_size: space.camera_target_view_size,
-                })
-            });
-
-            self.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
-                candidates,
-                preview_index: 0,
-                opened_at: now,
-                step_from_visual_index: 0.0,
-                step_to_visual_index: 0.0,
-                step_started_at: now,
-                closing_started_at: None,
-                origin_focus,
-                immersive_origin,
-                immersive_lock_released: false,
-            });
+    let Some(target) = target else {
+        st.apply_wayland_focus_state(None);
+        if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
+            session.closing_started_at = Some(now);
         }
-
-        self.preview_step(direction, now)
-    }
-
-    fn restore_origin_without_tracking(&mut self, session: &FocusCycleSession) {
-        if let Some(origin) = session.origin_focus
-            && session
-                .immersive_origin
-                .as_ref()
-                .is_some_and(|immersive| immersive.node_id == origin)
-            && let Some(immersive) = session.immersive_origin.as_ref()
+        st.request_maintenance();
+        return true;
+    };
+    // The alt+tab prewarm captured `target` into the shared offscreen cache, and
+    // the live-window prewarm never refreshes a complete cache entry. Drop it so the
+    // live path rebuilds the picked window at its real geometry next frame instead of
+    // reusing the switcher snapshot.
+    st.ui.render_state.clear_window_offscreen_cache_for(target);
+    if Some(target) == session.origin_focus {
+        if let Some(immersive) = session.immersive_origin.as_ref()
+            && immersive.node_id == target
         {
             restore_camera_snapshot(
-                self,
+                st,
                 immersive.monitor.as_str(),
                 immersive.saved_camera_center,
                 immersive.saved_zoom_view_size,
             );
         }
-        self.apply_wayland_focus_state(session.origin_focus);
-    }
-
-    pub(crate) fn cancel_focus_cycle(&mut self) -> bool {
-        let Some(session) = self.input.interaction_state.focus_cycle_session.clone() else {
-            return false;
-        };
-        if session.closing_started_at.is_some() {
-            return false;
-        }
-        self.restore_origin_without_tracking(&session);
-        if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
-            session.closing_started_at = Some(Instant::now());
-        }
-        self.request_maintenance();
-        true
-    }
-
-    pub(crate) fn commit_focus_cycle(&mut self, now: Instant) -> bool {
-        let Some(session) = self.input.interaction_state.focus_cycle_session.clone() else {
-            return false;
-        };
-        if session.closing_started_at.is_some() {
-            return false;
-        }
-
-        let target = session
-            .candidates
-            .get(session.preview_index)
-            .copied()
-            .filter(|&id| is_focus_cycle_candidate(self, id))
-            .or(session
-                .origin_focus
-                .filter(|&id| is_focus_cycle_candidate(self, id)));
-
-        let Some(target) = target else {
-            self.apply_wayland_focus_state(None);
-            if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
-                session.closing_started_at = Some(now);
-            }
-            self.request_maintenance();
-            return true;
-        };
-        // The alt+tab prewarm captured `target` into the shared offscreen cache, and
-        // the live-window prewarm never refreshes a complete cache entry. Drop it so the
-        // live path rebuilds the picked window at its real geometry next frame instead of
-        // reusing the switcher snapshot.
-        self.ui
-            .render_state
-            .clear_window_offscreen_cache_for(target);
-        if Some(target) == session.origin_focus {
-            if let Some(immersive) = session.immersive_origin.as_ref()
-                && immersive.node_id == target
-            {
-                restore_camera_snapshot(
-                    self,
-                    immersive.monitor.as_str(),
-                    immersive.saved_camera_center,
-                    immersive.saved_zoom_view_size,
-                );
-            }
-            self.apply_wayland_focus_state(Some(target));
-            let _ = self.raise_overlap_policy_node(target);
-            crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
-            if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
-                session.closing_started_at = Some(now);
-            }
-            self.request_maintenance();
-            return true;
-        }
-
-        let changed = if self
-            .model
-            .field
-            .cluster_id_for_member_public(target)
-            .is_some()
-        {
-            let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
-                self, target, now,
-            );
-            let _ = self.raise_overlap_policy_node(target);
-            changed
-        } else {
-            let target_monitor = self.monitor_for_node_or_current(target);
-            if crate::compositor::workspace::state::maximize_session_target_for_monitor(
-                self,
-                target_monitor.as_str(),
-            ) == Some(target)
-            {
-                let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
-                    self, target, now,
-                );
-                let _ = self.raise_overlap_policy_node(target);
-                changed
-            } else if self
-                .model
-                .fullscreen_state
-                .fullscreen_active_node
-                .get(target_monitor.as_str())
-                .copied()
-                .filter(|&fullscreen_id| fullscreen_id != target)
-                .is_some_and(|fullscreen_id| {
-                    !self
-                        .model
-                        .fullscreen_state
-                        .fullscreen_restore
-                        .contains_key(&fullscreen_id)
-                })
-                && self.model.field.node(target).is_some_and(|node| {
-                    node.state == halley_core::field::NodeState::Active
-                        && self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), target)
-                })
-            {
-                let _ = self.raise_overlap_policy_node(target);
-                let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
-                    self, target, now,
-                );
-                changed
-            } else {
-                crate::compositor::actions::window::focus_from_presentation_navigation(
-                    self, target, now,
-                ) || crate::compositor::actions::window::focus_or_reveal_surface_node(
-                    self, target, now,
-                )
-            }
-        };
-        if changed {
-            crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
-        }
-        if let Some(session) = self.input.interaction_state.focus_cycle_session.as_mut() {
+        st.apply_wayland_focus_state(Some(target));
+        let _ = st.raise_overlap_policy_node(target);
+        crate::compositor::interaction::pointer::center_pointer_on_node(st, target, now);
+        if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
             session.closing_started_at = Some(now);
         }
-        self.request_maintenance();
-        changed
+        st.request_maintenance();
+        return true;
     }
+
+    let changed = if st
+        .model
+        .field
+        .cluster_id_for_member_public(target)
+        .is_some()
+    {
+        let changed =
+            crate::compositor::actions::window::focus_surface_node_without_reveal(st, target, now);
+        let _ = st.raise_overlap_policy_node(target);
+        changed
+    } else {
+        let target_monitor = st.monitor_for_node_or_current(target);
+        if crate::compositor::workspace::state::maximize_session_target_for_monitor(
+            st,
+            target_monitor.as_str(),
+        ) == Some(target)
+        {
+            let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
+                st, target, now,
+            );
+            let _ = st.raise_overlap_policy_node(target);
+            changed
+        } else if st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(target_monitor.as_str())
+            .copied()
+            .filter(|&fullscreen_id| fullscreen_id != target)
+            .is_some_and(|fullscreen_id| {
+                !st.model
+                    .fullscreen_state
+                    .fullscreen_restore
+                    .contains_key(&fullscreen_id)
+            })
+            && st.model.field.node(target).is_some_and(|node| {
+                node.state == halley_core::field::NodeState::Active
+                    && st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), target)
+            })
+        {
+            let _ = st.raise_overlap_policy_node(target);
+            let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
+                st, target, now,
+            );
+            changed
+        } else {
+            crate::compositor::actions::window::focus_from_presentation_navigation(st, target, now)
+                || crate::compositor::actions::window::focus_or_reveal_surface_node(st, target, now)
+        }
+    };
+    if changed {
+        crate::compositor::interaction::pointer::center_pointer_on_node(st, target, now);
+    }
+    if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
+        session.closing_started_at = Some(now);
+    }
+    st.request_maintenance();
+    changed
 }
 
 #[cfg(test)]

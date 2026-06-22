@@ -439,6 +439,7 @@ impl Halley {
                     apogee_session: None,
                     apogee_live_preview_node: None,
                     apogee_live_preview_last_at: None,
+                    apogee_hover_node: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,
@@ -465,6 +466,7 @@ impl Halley {
                 exit_requested: false,
                 started_at: now,
                 maintenance_dirty: true,
+                skip_next_cluster_relayout: false,
                 screenshot_full_repaint_until_ms: 0,
                 maintenance_ping: None,
                 tty_redraw_all: true,
@@ -623,33 +625,12 @@ impl Halley {
         self.aperture.config()
     }
 
-    pub(crate) fn focus_ctx(&self) -> super::ctx::FocusCtx<'_> {
-        super::ctx::focus_ctx(self)
-    }
-
-    pub(crate) fn spawn_ctx(&mut self) -> super::ctx::SpawnCtx<'_> {
-        super::ctx::spawn_ctx(self)
-    }
-
     pub(crate) fn surface_lifecycle_ctx(&mut self) -> super::ctx::SurfaceLifecycleCtx<'_> {
         super::ctx::surface_lifecycle_ctx(self)
     }
 
     pub(crate) fn layer_shell_ctx(&mut self) -> super::ctx::LayerShellCtx<'_> {
         super::ctx::layer_shell_ctx(self)
-    }
-
-    pub(crate) fn pointer_ctx(&mut self) -> super::ctx::PointerCtx<'_> {
-        super::ctx::pointer_ctx(self)
-    }
-
-    pub(crate) fn fullscreen_ctx(&mut self) -> super::ctx::FullscreenCtx<'_> {
-        super::ctx::fullscreen_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn default_spawn_view_anchor_for_monitor(&self, monitor: &str) -> Vec2 {
-        super::spawn::state::default_spawn_view_anchor_for_monitor(self, monitor)
     }
 
     pub(crate) fn spawn_monitor_state(
@@ -664,10 +645,6 @@ impl Halley {
         monitor: &str,
     ) -> &mut super::spawn::state::MonitorSpawnState {
         super::spawn::state::spawn_monitor_state_mut(self, monitor)
-    }
-
-    pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
-        super::spawn::state::process_pending_spawn_activations(self, now, now_ms)
     }
 
     pub fn active_zoom_lock_scale(&self) -> f32 {
@@ -692,10 +669,6 @@ impl Halley {
 
     pub(crate) fn activate_monitor(&mut self, name: &str) -> bool {
         super::monitor::state::activate_monitor(self, name)
-    }
-
-    pub(crate) fn sync_xwayland_primary(&mut self, name: &str) {
-        super::monitor::state::sync_xwayland_primary(self, name)
     }
 
     pub(crate) fn begin_temporary_render_monitor(&mut self, name: &str) -> Option<String> {
@@ -781,14 +754,6 @@ impl Halley {
         super::monitor::state::monitor_for_screen_or_interaction(self, sx, sy)
     }
 
-    pub(crate) fn monitor_for_screen_clamped(
-        &self,
-        sx: f32,
-        sy: f32,
-    ) -> Option<(String, f32, f32)> {
-        super::monitor::state::monitor_for_screen_clamped(self, sx, sy)
-    }
-
     pub(crate) fn local_screen_in_monitor(
         &self,
         name: &str,
@@ -815,8 +780,9 @@ impl Halley {
     pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
         let previous_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         super::monitor::state::assign_node_to_monitor(self, id, monitor);
-        super::clusters::system::cluster_system_controller(&mut *self)
-            .sync_cluster_name_for_node_monitor(id, monitor);
+        crate::compositor::clusters::system::sync_cluster_name_for_node_monitor(
+            &mut *self, id, monitor,
+        );
         if previous_monitor.as_deref() != Some(monitor)
             && super::workspace::state::abort_maximize_session_for_external_active_node_on_monitor(
                 self, monitor, id,
@@ -824,14 +790,6 @@ impl Halley {
         {
             self.request_maintenance();
         }
-    }
-
-    pub(crate) fn assign_layer_surface_to_monitor(
-        &mut self,
-        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
-        monitor: String,
-    ) {
-        super::monitor::state::assign_layer_surface_to_monitor(self, surface, monitor)
     }
 
     pub(crate) fn output_transform_for(&self, name: &str) -> smithay::utils::Transform {
@@ -869,25 +827,10 @@ impl Halley {
         super::platform::apply_toplevel_tiled_hint(self, state)
     }
 
-    pub(crate) fn refresh_xdg_decoration_mode(&mut self) {
-        super::platform::refresh_xdg_decoration_mode(self)
-    }
-
     pub(crate) fn effective_cursor_image_status(
         &self,
     ) -> smithay::input::pointer::CursorImageStatus {
         super::platform::effective_cursor_image_status(self)
-    }
-
-    pub(crate) fn install_drm_syncobj_blocker(
-        &mut self,
-        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
-    ) {
-        super::platform::install_drm_syncobj_blocker(self, surface)
-    }
-
-    pub(crate) fn drain_drm_syncobj_blockers(&mut self) {
-        super::platform::drain_drm_syncobj_blockers(self)
     }
 
     pub(crate) fn configure_dmabuf_importer(
@@ -914,10 +857,6 @@ impl Halley {
         >,
     ) {
         super::platform::configure_dmabuf_output_feedbacks(self, output_feedbacks)
-    }
-
-    pub fn note_input_activity(&mut self) {
-        super::platform::note_input_activity(self)
     }
 
     pub(crate) fn non_overlap_gap_world(&self) -> f32 {
@@ -976,10 +915,6 @@ impl Halley {
         super::overlap::system::collision_extents_for_node(self, n)
     }
 
-    pub(crate) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
-        super::overlap::system::collision_size_for_node(self, n)
-    }
-
     pub(crate) fn resolve_surface_overlap(&mut self) {
         super::overlap::system::resolve_surface_overlap(self)
     }
@@ -990,10 +925,6 @@ impl Halley {
 
     pub(crate) fn request_toplevel_resize(&mut self, node_id: NodeId, width: i32, height: i32) {
         super::overlap::system::request_toplevel_resize(self, node_id, width, height)
-    }
-
-    pub(crate) fn node_has_overlap_policy(&self, id: NodeId) -> bool {
-        super::spawn::state::node_has_overlap_policy(self, id)
     }
 
     pub(crate) fn node_draws_above_fullscreen_on_monitor(&self, id: NodeId, monitor: &str) -> bool {
@@ -1007,33 +938,20 @@ impl Halley {
         )
     }
 
-    pub(crate) fn monitor_has_visible_overlap_policy_window(&self, monitor: &str) -> bool {
-        super::spawn::state::monitor_has_visible_overlap_policy_window(self, monitor)
-    }
-
     pub fn now_ms(&self, now: Instant) -> u64 {
-        super::runtime::runtime_controller(self).now_ms(now)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn debug_dump(&self) {
-        super::runtime::runtime_controller(self).debug_dump()
+        super::runtime::now_ms(self, now)
     }
 
     pub fn apply_tuning(&mut self, tuning: RuntimeTuning) {
-        super::runtime::runtime_controller(self).apply_tuning(tuning)
-    }
-
-    pub fn request_exit(&mut self) {
-        super::runtime::runtime_controller(self).request_exit()
+        super::runtime::apply_tuning(self, tuning)
     }
 
     pub fn exit_requested(&self) -> bool {
-        super::runtime::runtime_controller(self).exit_requested()
+        super::runtime::exit_requested(self)
     }
 
     pub fn request_maintenance(&mut self) {
-        super::runtime::runtime_controller(self).request_maintenance()
+        super::runtime::request_maintenance(self)
     }
 
     pub fn request_tty_redraw_for_monitor(&mut self, monitor: &str) {
@@ -1061,22 +979,12 @@ impl Halley {
             .unwrap_or(0)
     }
 
-    #[allow(dead_code)]
-    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
-        super::runtime::runtime_controller(self).next_maintenance_deadline(now)
-    }
-
     pub fn run_maintenance_if_needed(&mut self, now: Instant) {
-        super::runtime::runtime_controller(self).run_maintenance_if_needed(now)
-    }
-
-    #[allow(dead_code)]
-    pub fn run_maintenance(&mut self, now: Instant) {
-        super::runtime::runtime_controller(self).run_maintenance(now)
+        super::runtime::run_maintenance_if_needed(self, now)
     }
 
     pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
-        super::focus::trail::focus_trail_controller(self).record_focus_trail_visit(id)
+        super::focus::trail::record_focus_trail_visit(self, id)
     }
 
     #[cfg(test)]
@@ -1092,7 +1000,7 @@ impl Halley {
         direction: halley_api::TrailDirection,
         now: Instant,
     ) -> bool {
-        super::focus::trail::focus_trail_controller(self).navigate_window_trail(direction, now)
+        super::focus::trail::navigate_window_trail(self, direction, now)
     }
 
     pub(crate) fn previous_window_from_trail_on_close(
@@ -1100,8 +1008,7 @@ impl Halley {
         monitor: &str,
         closing_id: NodeId,
     ) -> Option<NodeId> {
-        super::focus::trail::focus_trail_controller(self)
-            .previous_window_from_trail_on_close(monitor, closing_id)
+        super::focus::trail::previous_window_from_trail_on_close(self, monitor, closing_id)
     }
 
     pub(crate) fn restore_focus_to_node_after_close(
@@ -1111,22 +1018,16 @@ impl Halley {
         now: Instant,
         suppress_pan: bool,
     ) -> bool {
-        super::focus::trail::focus_trail_controller(self).restore_focus_to_node_after_close(
-            monitor,
-            id,
-            now,
-            suppress_pan,
-        )
+        super::focus::trail::restore_focus_to_node_after_close(self, monitor, id, now, suppress_pan)
     }
 
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
-        super::focus::decay::focus_decay_controller(self).enforce_single_primary_active_unit()
+        super::focus::decay::enforce_single_primary_active_unit(self)
     }
 
     #[cfg(test)]
     pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
-        super::focus::decay::focus_decay_controller(self)
-            .surface_is_definitively_outside_focus_ring(id)
+        super::focus::decay::surface_is_definitively_outside_focus_ring(self, id)
     }
 
     pub fn apply_single_surface_decay_policy(
@@ -1136,7 +1037,8 @@ impl Halley {
         active_delay_ms: u64,
         inactive_delay_ms: u64,
     ) {
-        super::focus::decay::focus_decay_controller(self).apply_single_surface_decay_policy(
+        super::focus::decay::apply_single_surface_decay_policy(
+            self,
             id,
             now_ms,
             active_delay_ms,
@@ -1144,65 +1046,41 @@ impl Halley {
         )
     }
 
-    pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).companion_surface_node(now_ms)
-    }
-
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        super::focus::state::focus_state_controller(self).active_focus_ring()
+        super::focus::state::active_focus_ring(self)
     }
 
     pub fn focus_ring_for_monitor(&self, monitor: &str) -> halley_core::viewport::FocusRing {
-        super::focus::state::focus_state_controller(self).focus_ring_for_monitor(monitor)
+        super::focus::state::focus_ring_for_monitor(self, monitor)
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
-        super::focus::state::focus_state_controller(self).should_draw_focus_ring_preview(now)
+        super::focus::state::should_draw_focus_ring_preview(self, now)
     }
 
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
-        super::focus::state::focus_state_controller(self).focus_monitor_view(monitor, now)
+        super::focus::state::focus_monitor_view(self, monitor, now)
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
-        super::focus::state::focus_state_controller(self).set_interaction_focus(id, hold_ms, now)
-    }
-
-    pub(crate) fn restore_pan_return_active_focus(&mut self, now: Instant) {
-        super::focus::state::focus_state_controller(self).restore_pan_return_active_focus(now)
-    }
-
-    #[allow(dead_code)]
-    pub fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
-        super::focus::state::focus_state_controller(self)
-            .reassert_wayland_keyboard_focus_if_drifted(id)
+        super::focus::state::set_interaction_focus(self, id, hold_ms, now)
     }
 
     #[allow(dead_code)]
     pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).focused_node_for_monitor(monitor)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
-        super::focus::state::focus_state_controller(self).focused_monitor_for_node(id)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
-        super::focus::state::focus_state_controller(self).set_monitor_focus(monitor, id)
+        super::focus::state::focused_node_for_monitor(self, monitor)
     }
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
-        super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
+        super::focus::state::set_recent_top_node(self, node_id, until)
     }
 
     pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
-        super::focus::state::focus_state_controller(self).raise_overlap_policy_node(node_id)
+        super::focus::state::raise_overlap_policy_node(self, node_id)
     }
 
     pub fn overlap_policy_stack_rank(&self, node_id: NodeId) -> (u64, u64) {
-        super::focus::state::focus_state_controller(self).overlap_policy_stack_rank(node_id)
+        super::focus::state::overlap_policy_stack_rank(self, node_id)
     }
 
     pub(crate) fn focus_pointer_target(
@@ -1212,10 +1090,6 @@ impl Halley {
         now: Instant,
     ) -> NodeId {
         super::focus::system::focus_pointer_target(self, node_id, hold_ms, now)
-    }
-
-    pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).recent_top_node_active(now)
     }
 
     pub(crate) fn focus_cycle_session_active(&self) -> bool {
@@ -1232,30 +1106,23 @@ impl Halley {
         direction: halley_config::FocusCycleBindingAction,
         now: Instant,
     ) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).start_or_step_focus_cycle(direction, now)
+        super::focus::cycle::start_or_step_focus_cycle(self, direction, now)
     }
 
     pub(crate) fn cancel_focus_cycle(&mut self) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).cancel_focus_cycle()
+        super::focus::cycle::cancel_focus_cycle(self)
     }
 
     pub(crate) fn commit_focus_cycle(&mut self, now: Instant) -> bool {
-        super::focus::cycle::focus_cycle_controller(self).commit_focus_cycle(now)
+        super::focus::cycle::commit_focus_cycle(self, now)
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {
-        super::focus::system::focus_system_controller(self).set_app_focused(focused)
+        super::focus::system::set_app_focused(self, focused)
     }
 
     pub(crate) fn clear_keyboard_focus(&mut self) {
-        super::focus::system::focus_system_controller(self).clear_keyboard_focus()
-    }
-
-    pub fn wl_surface_for_node(
-        &self,
-        id: NodeId,
-    ) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
-        super::focus::system::wl_surface_for_node(self, id)
+        super::focus::system::clear_keyboard_focus(self)
     }
 
     #[cfg(test)]
@@ -1271,29 +1138,27 @@ impl Halley {
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
-        super::focus::system::focus_system_controller(self).apply_wayland_focus_state(id)
+        super::focus::system::apply_wayland_focus_state(self, id)
     }
 
     pub fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
-        super::focus::system::focus_system_controller(self)
-            .update_focus_tracking_for_surface(fid, now_ms)
+        super::focus::system::update_focus_tracking_for_surface(self, fid, now_ms)
     }
 
     pub fn note_pan_activity(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).note_pan_activity(now)
+        super::focus::system::note_pan_activity(self, now)
     }
 
     pub(crate) fn note_pan_viewport_change(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).note_pan_viewport_change(now)
+        super::focus::system::note_pan_viewport_change(self, now)
     }
 
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
-        super::focus::system::focus_system_controller(self).set_pan_restore_focus_target(id)
+        super::focus::system::set_pan_restore_focus_target(self, id)
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
-        super::focus::system::focus_system_controller(self)
-            .animate_viewport_center_to(target_center, now)
+        super::focus::system::animate_viewport_center_to(self, target_center, now)
     }
 
     pub fn animate_viewport_center_to_on_monitor(
@@ -1302,28 +1167,16 @@ impl Halley {
         target_center: Vec2,
         now: Instant,
     ) -> bool {
-        super::focus::system::focus_system_controller(self).animate_viewport_center_to_on_monitor(
+        super::focus::system::animate_viewport_center_to_on_monitor(
+            self,
             monitor,
             target_center,
             now,
         )
     }
 
-    pub fn animate_viewport_center_to_delayed(
-        &mut self,
-        target_center: Vec2,
-        now: Instant,
-        delay_ms: u64,
-    ) -> bool {
-        super::focus::system::focus_system_controller(self).animate_viewport_center_to_delayed(
-            target_center,
-            now,
-            delay_ms,
-        )
-    }
-
     pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
-        super::focus::system::focus_system_controller(self).tick_viewport_pan_animation(now_ms)
+        super::focus::system::tick_viewport_pan_animation(self, now_ms)
     }
 
     pub(crate) fn surface_is_fully_visible_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
@@ -1338,30 +1191,12 @@ impl Halley {
         super::focus::system::minimal_reveal_center_for_surface_on_monitor(self, monitor, id)
     }
 
-    pub(crate) fn maybe_pan_to_restored_focus_on_close(
-        &mut self,
-        monitor: &str,
-        id: NodeId,
-        now: Instant,
-    ) -> bool {
-        super::focus::system::focus_system_controller(self)
-            .maybe_pan_to_restored_focus_on_close(monitor, id, now)
-    }
-
-    pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
-        super::focus::system::focus_system_controller(self).begin_resize_interaction(id, now)
-    }
-
-    pub fn end_resize_interaction(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).end_resize_interaction(now)
-    }
-
     pub fn resolve_overlap_now(&mut self) {
-        super::focus::system::focus_system_controller(self).resolve_overlap_now()
+        super::focus::system::resolve_overlap_now(self)
     }
 
     pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
-        super::focus::system::focus_system_controller(self).set_last_active_size_now(id, size)
+        super::focus::system::set_last_active_size_now(self, id, size)
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
@@ -1378,10 +1213,6 @@ impl Halley {
 
     pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
         super::focus::system::last_input_surface_node_for_monitor(self, monitor)
-    }
-
-    pub(crate) fn fullscreen_entry_scale(&self, node_id: NodeId, now_ms: u64) -> f32 {
-        super::fullscreen::system::fullscreen_entry_scale(self, node_id, now_ms)
     }
 
     pub(crate) fn fullscreen_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
@@ -1416,8 +1247,7 @@ impl Halley {
     }
 
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .soft_suspend_xdg_fullscreen(node_id, now)
+        super::fullscreen::system::soft_suspend_xdg_fullscreen(self, node_id, now)
     }
 
     pub(crate) fn enter_xdg_fullscreen(
@@ -1426,8 +1256,7 @@ impl Halley {
         output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
         now: Instant,
     ) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .enter_xdg_fullscreen(node_id, output, now)
+        super::fullscreen::system::enter_xdg_fullscreen(self, node_id, output, now)
     }
 
     pub(crate) fn enter_user_fullscreen(
@@ -1436,37 +1265,32 @@ impl Halley {
         output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
         now: Instant,
     ) {
-        super::fullscreen::system::fullscreen_controller(self)
-            .enter_user_fullscreen(node_id, output, now)
+        super::fullscreen::system::enter_user_fullscreen(self, node_id, output, now)
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).exit_xdg_fullscreen(node_id, now)
-    }
-
-    pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).drop_fullscreen_surface(id, now)
+        super::fullscreen::system::exit_xdg_fullscreen(self, node_id, now)
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).tick_fullscreen_motion(now)
+        super::fullscreen::system::tick_fullscreen_motion(self, now)
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        super::spawn::reveal::spawn_reveal_controller(self).viewport_center_for_monitor(monitor)
+        super::spawn::reveal::placement::viewport_center_for_monitor(self, monitor)
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
-        super::spawn::reveal::spawn_reveal_controller(self).resolve_spawn_target_monitor()
+        super::spawn::reveal::placement::resolve_spawn_target_monitor(self)
     }
 
     #[cfg(test)]
     pub(crate) fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
-        super::spawn::reveal::spawn_reveal_controller(self).current_spawn_focus(monitor)
+        super::spawn::reveal::placement::current_spawn_focus(self, monitor)
     }
 
     #[cfg(test)]
@@ -1476,29 +1300,29 @@ impl Halley {
         monitor: &str,
         id: NodeId,
     ) -> bool {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .viewport_fully_contains_surface_on_monitor(monitor, id)
+        super::spawn::reveal::placement::viewport_fully_contains_surface_on_monitor(
+            self, monitor, id,
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .right_spawn_candidate_for_focus(id, size)
+        super::spawn::reveal::placement::right_spawn_candidate_for_focus(self, id, size)
     }
 
     #[cfg(test)]
     pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self).star_candidate_offsets(size)
+        super::spawn::reveal::placement::star_candidate_offsets(self, size)
     }
 
     #[cfg(test)]
     pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_x(size)
+        super::spawn::reveal::placement::spawn_star_step_x(self, size)
     }
 
     #[cfg(test)]
     pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_y(size)
+        super::spawn::reveal::placement::spawn_star_step_y(self, size)
     }
 
     #[cfg(test)]
@@ -1508,8 +1332,7 @@ impl Halley {
         size: Vec2,
         dir: Vec2,
     ) -> Option<Vec2> {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .spawn_candidate_for_focus_dir(id, size, dir)
+        super::spawn::reveal::placement::spawn_candidate_for_focus_dir(self, id, size, dir)
     }
 
     #[cfg(test)]
@@ -1521,20 +1344,21 @@ impl Halley {
         focus_pos: Vec2,
         growth_dir: Vec2,
     ) {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .update_spawn_patch(monitor, anchor, focus_node, focus_pos, growth_dir)
+        super::spawn::reveal::placement::update_spawn_patch(
+            self, monitor, anchor, focus_node, focus_pos, growth_dir,
+        )
     }
 
     #[allow(dead_code)]
     pub(crate) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
-        super::spawn::reveal::spawn_reveal_controller(self).pick_spawn_position(size)
+        super::spawn::reveal::placement::pick_spawn_position(self, size)
     }
 
     pub(crate) fn spawn_target_monitor_for_intent(
         &self,
         intent: &super::spawn::rules::InitialWindowIntent,
     ) -> String {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_target_monitor_for_intent(intent)
+        super::spawn::reveal::placement::spawn_target_monitor_for_intent(self, intent)
     }
 
     pub(crate) fn pick_spawn_position_with_intent(
@@ -1542,22 +1366,11 @@ impl Halley {
         size: Vec2,
         intent: &super::spawn::rules::InitialWindowIntent,
     ) -> (String, Vec2, bool) {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .pick_spawn_position_with_intent(size, intent)
+        super::spawn::reveal::placement::pick_spawn_position_with_intent(self, size, intent)
     }
 
     pub(crate) fn finalize_initial_spawn_position(&mut self, id: NodeId, size: Vec2) -> bool {
-        super::spawn::reveal::spawn_reveal_controller(self)
-            .finalize_initial_spawn_position(id, size)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
-        super::spawn::reveal::spawn_reveal_controller(self).maybe_start_pending_spawn_pan(now)
-    }
-
-    pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
-        super::spawn::reveal::spawn_reveal_controller(self).tick_pending_spawn_pan(now, now_ms)
+        super::spawn::reveal::placement::finalize_initial_spawn_position(self, id, size)
     }
 
     pub(crate) fn reveal_new_toplevel_node(
@@ -1566,22 +1379,18 @@ impl Halley {
         is_transient: bool,
         now: Instant,
     ) {
-        super::spawn::reveal::spawn_reveal_controller(self).reveal_new_toplevel_node(
-            id,
-            is_transient,
-            now,
-        )
+        super::spawn::reveal::reveal_new_toplevel_node(self, id, is_transient, now)
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
-        super::clusters::system::cluster_system_controller(self).remove_node_from_field(id, now_ms)
+        crate::compositor::clusters::system::remove_node_from_field(self, id, now_ms)
     }
 
     pub fn cluster_bloom_for_monitor(
         &mut self,
         monitor: &str,
     ) -> Option<halley_core::cluster::ClusterId> {
-        super::clusters::system::cluster_system_controller(self).cluster_bloom_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_bloom_for_monitor(self, monitor)
     }
 
     #[cfg(test)]
@@ -1590,8 +1399,7 @@ impl Halley {
         cid: halley_core::cluster::ClusterId,
         preferred: Option<&str>,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .sync_cluster_monitor(cid, preferred)
+        crate::compositor::clusters::system::sync_cluster_monitor(self, cid, preferred)
     }
 
     #[cfg(test)]
@@ -1601,22 +1409,13 @@ impl Halley {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .enter_cluster_workspace_by_core(core_id, monitor, now)
-    }
-
-    pub fn open_cluster_bloom_for_monitor(
-        &mut self,
-        monitor: &str,
-        cid: halley_core::cluster::ClusterId,
-    ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .open_cluster_bloom_for_monitor(monitor, cid)
+        crate::compositor::clusters::system::enter_cluster_workspace_by_core(
+            self, core_id, monitor, now,
+        )
     }
 
     pub fn close_cluster_bloom_for_monitor(&mut self, monitor: &str) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .close_cluster_bloom_for_monitor(monitor)
+        crate::compositor::clusters::system::close_cluster_bloom_for_monitor(self, monitor)
     }
 
     pub fn detach_member_from_cluster(
@@ -1626,8 +1425,9 @@ impl Halley {
         world_pos: Vec2,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .detach_member_from_cluster(cid, member_id, world_pos, now)
+        crate::compositor::clusters::system::detach_member_from_cluster(
+            self, cid, member_id, world_pos, now,
+        )
     }
 
     #[allow(dead_code)]
@@ -1637,17 +1437,7 @@ impl Halley {
         node_id: NodeId,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .absorb_node_into_cluster(cid, node_id, now)
-    }
-
-    pub(crate) fn commit_ready_cluster_join_for_node(
-        &mut self,
-        node_id: NodeId,
-        now: Instant,
-    ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .commit_ready_cluster_join_for_node(node_id, now)
+        crate::compositor::clusters::system::absorb_node_into_cluster(self, cid, node_id, now)
     }
 
     pub fn active_cluster_workspace_for_monitor(
@@ -1657,30 +1447,17 @@ impl Halley {
         super::clusters::system::active_cluster_workspace_for_monitor(self, monitor)
     }
 
-    pub(crate) fn stack_layout_rects_for_members(
-        &self,
-        monitor: &str,
-        members: &[NodeId],
-    ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
-        super::clusters::system::stack_layout_rects_for_members(self, monitor, members)
-    }
-
     pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64) {
-        super::clusters::system::cluster_system_controller(self)
-            .reveal_cluster_overflow_for_monitor(monitor, now_ms)
-    }
-
-    pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, monitor: &str) {
-        super::clusters::system::cluster_system_controller(self)
-            .hide_cluster_overflow_for_monitor(monitor)
+        crate::compositor::clusters::system::reveal_cluster_overflow_for_monitor(
+            self, monitor, now_ms,
+        )
     }
 
     pub(crate) fn cluster_overflow_rect_for_monitor(
         &self,
         monitor: &str,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_overflow_rect_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_overflow_rect_for_monitor(self, monitor)
     }
 
     pub(crate) fn cluster_overflow_slot_rect_for_monitor(
@@ -1689,8 +1466,12 @@ impl Halley {
         overflow_len: usize,
         slot_index: usize,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_overflow_slot_rect_for_monitor(monitor, overflow_len, slot_index)
+        crate::compositor::clusters::system::cluster_overflow_slot_rect_for_monitor(
+            self,
+            monitor,
+            overflow_len,
+            slot_index,
+        )
     }
 
     pub(crate) fn active_cluster_tile_rect_for_member(
@@ -1698,8 +1479,9 @@ impl Halley {
         monitor: &str,
         member_id: NodeId,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .active_cluster_tile_rect_for_member(monitor, member_id)
+        crate::compositor::clusters::system::active_cluster_tile_rect_for_member(
+            self, monitor, member_id,
+        )
     }
 
     pub(crate) fn adjust_cluster_overflow_scroll_for_monitor(
@@ -1707,8 +1489,9 @@ impl Halley {
         monitor: &str,
         delta: i32,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .adjust_cluster_overflow_scroll_for_monitor(monitor, delta)
+        crate::compositor::clusters::system::adjust_cluster_overflow_scroll_for_monitor(
+            self, monitor, delta,
+        )
     }
 
     pub(crate) fn cluster_spawn_rect_for_new_member(
@@ -1716,12 +1499,7 @@ impl Halley {
         monitor: &str,
         cid: halley_core::cluster::ClusterId,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_spawn_rect_for_new_member(monitor, cid)
-    }
-
-    pub fn has_any_active_cluster_workspace(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).has_any_active_cluster_workspace()
+        crate::compositor::clusters::system::cluster_spawn_rect_for_new_member(self, monitor, cid)
     }
 
     pub(crate) fn swap_cluster_overflow_member_with_visible(
@@ -1732,14 +1510,14 @@ impl Halley {
         visible_member: NodeId,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .swap_cluster_overflow_member_with_visible(
-                monitor,
-                cid,
-                overflow_member,
-                visible_member,
-                now_ms,
-            )
+        crate::compositor::clusters::system::swap_cluster_overflow_member_with_visible(
+            self,
+            monitor,
+            cid,
+            overflow_member,
+            visible_member,
+            now_ms,
+        )
     }
 
     pub(crate) fn reorder_cluster_overflow_member(
@@ -1750,7 +1528,8 @@ impl Halley {
         target_overflow_index: usize,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self).reorder_cluster_overflow_member(
+        crate::compositor::clusters::system::reorder_cluster_overflow_member(
+            self,
             monitor,
             cid,
             member,
@@ -1766,8 +1545,9 @@ impl Halley {
         world_pos: Vec2,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .move_active_cluster_member_to_drop_tile(monitor, member, world_pos, now_ms)
+        crate::compositor::clusters::system::move_active_cluster_member_to_drop_tile(
+            self, monitor, member, world_pos, now_ms,
+        )
     }
 
     pub(crate) fn cycle_active_stack_for_monitor(
@@ -1776,44 +1556,37 @@ impl Halley {
         direction: halley_core::cluster_layout::ClusterCycleDirection,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cycle_active_stack_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::cycle_active_stack_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .collapse_active_cluster_workspace(now)
+        crate::compositor::clusters::system::collapse_active_cluster_workspace(self, now)
     }
 
     pub fn cluster_mode_active(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).cluster_mode_active()
+        crate::compositor::clusters::system::cluster_mode_active(self)
     }
 
     pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_mode_active_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_mode_active_for_monitor(self, monitor)
     }
 
     pub fn enter_cluster_mode(&mut self) -> bool {
-        super::clusters::system::cluster_system_controller(self).enter_cluster_mode()
+        crate::compositor::clusters::system::enter_cluster_mode(self)
     }
 
     pub fn exit_cluster_mode(&mut self) -> bool {
-        super::clusters::system::cluster_system_controller(self).exit_cluster_mode()
+        crate::compositor::clusters::system::exit_cluster_mode(self)
     }
 
     pub fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .toggle_cluster_mode_selection(node_id)
-    }
-
-    pub fn confirm_cluster_mode(&mut self, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self).confirm_cluster_mode(now)
+        crate::compositor::clusters::system::toggle_cluster_mode_selection(self, node_id)
     }
 
     pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .toggle_cluster_workspace_by_core(core_id, now)
+        crate::compositor::clusters::system::toggle_cluster_workspace_by_core(self, core_id, now)
     }
 
     pub(crate) fn activate_cluster_slot_on_current_monitor(
@@ -1821,20 +1594,20 @@ impl Halley {
         slot: u8,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .activate_cluster_slot_on_current_monitor(slot, now)
+        crate::compositor::clusters::system::activate_cluster_slot_on_current_monitor(
+            self, slot, now,
+        )
     }
 
     pub(crate) fn process_pending_cluster_slot_transition_for_current_monitor(
         &mut self,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .process_pending_cluster_slot_transition_for_current_monitor(now)
+        crate::compositor::clusters::system::process_pending_cluster_slot_transition_for_current_monitor(self, now)
     }
 
     pub fn has_active_cluster_workspace(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).has_active_cluster_workspace()
+        crate::compositor::clusters::system::has_active_cluster_workspace(self)
     }
 
     pub(crate) fn layout_active_cluster_workspace_for_monitor(
@@ -1842,8 +1615,9 @@ impl Halley {
         monitor: &str,
         now_ms: u64,
     ) {
-        super::clusters::system::cluster_system_controller(self)
-            .layout_active_cluster_workspace_for_monitor(monitor, now_ms)
+        crate::compositor::clusters::system::layout_active_cluster_workspace_for_monitor(
+            self, monitor, now_ms,
+        )
     }
 
     pub(crate) fn focus_active_tiled_cluster_member_for_monitor(
@@ -1852,8 +1626,12 @@ impl Halley {
         preferred_index: Option<usize>,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .focus_active_tiled_cluster_member_for_monitor(monitor, preferred_index, now)
+        crate::compositor::clusters::system::focus_active_tiled_cluster_member_for_monitor(
+            self,
+            monitor,
+            preferred_index,
+            now,
+        )
     }
 
     pub(crate) fn tile_focus_active_cluster_member_for_monitor(
@@ -1862,8 +1640,9 @@ impl Halley {
         direction: halley_config::DirectionalAction,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .tile_focus_active_cluster_member_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::tile_focus_active_cluster_member_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub(crate) fn tile_swap_active_cluster_member_for_monitor(
@@ -1872,8 +1651,9 @@ impl Halley {
         direction: halley_config::DirectionalAction,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .tile_swap_active_cluster_member_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::tile_swap_active_cluster_member_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub(crate) fn cycle_active_cluster_layout_for_monitor(
@@ -1881,8 +1661,9 @@ impl Halley {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cycle_active_cluster_layout_for_monitor(monitor, now)
+        crate::compositor::clusters::system::cycle_active_cluster_layout_for_monitor(
+            self, monitor, now,
+        )
     }
 }
 

@@ -121,6 +121,9 @@ pub struct ApogeeConfig {
     pub gap: f32,
     pub max_rows: u32,
     pub background_dim: f32,
+    /// When selecting a cluster core in Apogee, open the cluster (enter its
+    /// workspace) instead of just panning to it.
+    pub open_cluster_on_select: bool,
 }
 
 impl Default for ApogeeConfig {
@@ -132,6 +135,7 @@ impl Default for ApogeeConfig {
             gap: 24.0,
             max_rows: 3,
             background_dim: 0.85,
+            open_cluster_on_select: true,
         }
     }
 }
