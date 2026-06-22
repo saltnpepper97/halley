@@ -2,17 +2,7 @@ use super::*;
 use halley_api::TrailDirection;
 use halley_core::decay::DecayLevel;
 use halley_core::trail::Trail;
-use std::ops::{Deref, DerefMut};
 
-pub(crate) struct FocusTrailController<T> {
-    st: T,
-}
-
-pub(crate) fn focus_trail_controller<T>(st: T) -> FocusTrailController<T> {
-    FocusTrailController { st }
-}
-
-#[cfg(test)]
 pub(crate) fn trail_for_monitor_mut<'a>(
     st: &'a mut Halley,
     monitor: &str,
@@ -24,296 +14,257 @@ pub(crate) fn trail_for_monitor_mut<'a>(
         .or_insert_with(Trail::new)
 }
 
-impl<T: Deref<Target = Halley>> Deref for FocusTrailController<T> {
-    type Target = Halley;
-
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
+pub(crate) fn record_focus_trail_visit(st: &mut Halley, id: NodeId) {
+    let monitor = st
+        .model
+        .monitor_state
+        .node_monitor
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| st.focused_monitor().to_string());
+    if st
+        .active_cluster_workspace_for_monitor(monitor.as_str())
+        .is_some()
+    {
+        return;
     }
+    let trail_history_length = st.runtime.tuning.trail_history_length;
+    let trail = trail_for_monitor_mut(st, monitor.as_str());
+    if trail.cursor() == Some(id) {
+        return;
+    }
+    trail.record(id);
+    trail.truncate_to(trail_history_length);
 }
 
-impl<T: DerefMut<Target = Halley>> DerefMut for FocusTrailController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
+fn should_keep_trail_node(st: &Halley, id: NodeId) -> bool {
+    st.model.field.node(id).is_some_and(|n| {
+        st.model.field.is_visible(id)
+            && n.kind == halley_core::field::NodeKind::Surface
+            && matches!(
+                n.state,
+                halley_core::field::NodeState::Active | halley_core::field::NodeState::Node
+            )
+    })
 }
 
-impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
-    pub(crate) fn trail_for_monitor_mut(
-        &mut self,
-        monitor: &str,
-    ) -> &mut halley_core::trail::Trail {
-        self.model
-            .focus_state
-            .focus_trail
-            .entry(monitor.to_string())
-            .or_insert_with(Trail::new)
+fn select_trail_target(st: &mut Halley, id: NodeId, now: Instant) -> bool {
+    let Some(node) = st.model.field.node(id).cloned() else {
+        return false;
+    };
+    if !should_keep_trail_node(st, id) {
+        return false;
     }
 
-    pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
-        let monitor = self
+    st.model.focus_state.suppress_trail_record_once = true;
+    let moved = match node.state {
+        halley_core::field::NodeState::Active => {
+            if crate::compositor::actions::window::focus_from_presentation_navigation(st, id, now) {
+                true
+            } else {
+                let restoring_suspended_fullscreen = st
+                    .model
+                    .fullscreen_state
+                    .fullscreen_suspended_node
+                    .values()
+                    .any(|&nid| nid == id);
+                st.set_interaction_focus(Some(id), 30_000, now);
+                let _ = st.raise_overlap_policy_node(id);
+                if restoring_suspended_fullscreen {
+                    true
+                } else {
+                    st.animate_viewport_center_to(node.pos, now)
+                }
+            }
+        }
+        halley_core::field::NodeState::Node => {
+            if crate::compositor::actions::window::focus_from_presentation_navigation(st, id, now) {
+                true
+            } else {
+                crate::compositor::actions::window::promote_node_level(st, id, now)
+            }
+        }
+        _ => false,
+    };
+
+    if !moved {
+        st.model.focus_state.suppress_trail_record_once = false;
+    }
+
+    if !moved && st.model.field.node(id).is_some() {
+        st.request_maintenance();
+        return true;
+    }
+
+    moved
+}
+
+pub(crate) fn navigate_window_trail(
+    st: &mut Halley,
+    direction: TrailDirection,
+    now: Instant,
+) -> bool {
+    let monitor = st.focused_monitor().to_string();
+    if st
+        .active_cluster_workspace_for_monitor(monitor.as_str())
+        .is_some()
+    {
+        return false;
+    }
+    let trail_wrap = st.runtime.tuning.trail_wrap;
+    let current_focus = st.model.focus_state.primary_interaction_focus;
+    let mut remaining = st
+        .model
+        .focus_state
+        .focus_trail
+        .get(monitor.as_str())
+        .map(|trail| trail.len())
+        .unwrap_or(0)
+        .max(1);
+    loop {
+        if remaining == 0 {
+            return false;
+        }
+        remaining -= 1;
+        let next = {
+            let trail = trail_for_monitor_mut(st, monitor.as_str());
+            match direction {
+                TrailDirection::Prev if trail_wrap => trail.back_wrapping(),
+                TrailDirection::Prev => trail.back(),
+                TrailDirection::Next if trail_wrap => trail.forward_wrapping(),
+                TrailDirection::Next => trail.forward(),
+            }
+        };
+        let Some(id) = next else {
+            return false;
+        };
+        if !should_keep_trail_node(st, id) {
+            trail_for_monitor_mut(st, monitor.as_str()).forget_node(id);
+            continue;
+        }
+        if st
             .model
             .monitor_state
             .node_monitor
             .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.focused_monitor().to_string());
-        if self
-            .active_cluster_workspace_for_monitor(monitor.as_str())
-            .is_some()
+            .map(|m| m.as_str())
+            != Some(monitor.as_str())
         {
-            return;
+            trail_for_monitor_mut(st, monitor.as_str()).forget_node(id);
+            continue;
         }
-        let trail_history_length = self.runtime.tuning.trail_history_length;
-        let trail = self.trail_for_monitor_mut(monitor.as_str());
-        if trail.cursor() == Some(id) {
-            return;
+        if Some(id) == current_focus {
+            continue;
         }
-        trail.record(id);
-        trail.truncate_to(trail_history_length);
+        return select_trail_target(st, id, now);
     }
+}
 
-    fn should_keep_trail_node(&self, id: NodeId) -> bool {
-        self.model.field.node(id).is_some_and(|n| {
-            self.model.field.is_visible(id)
-                && n.kind == halley_core::field::NodeKind::Surface
-                && matches!(
-                    n.state,
-                    halley_core::field::NodeState::Active | halley_core::field::NodeState::Node
-                )
-        })
+pub(crate) fn previous_window_from_trail_on_close(
+    st: &mut Halley,
+    monitor: &str,
+    closing_id: NodeId,
+) -> Option<NodeId> {
+    if st.active_cluster_workspace_for_monitor(monitor).is_some() {
+        return None;
     }
+    let mut remaining = st
+        .model
+        .focus_state
+        .focus_trail
+        .get(monitor)
+        .map(|trail| trail.len())
+        .unwrap_or(0)
+        .max(1);
 
-    fn select_trail_target(&mut self, id: NodeId, now: Instant) -> bool {
-        let Some(node) = self.model.field.node(id).cloned() else {
-            return false;
-        };
-        if !self.should_keep_trail_node(id) {
-            return false;
-        }
-
-        self.model.focus_state.suppress_trail_record_once = true;
-        let moved = match node.state {
-            halley_core::field::NodeState::Active => {
-                if crate::compositor::actions::window::focus_from_presentation_navigation(
-                    self, id, now,
-                ) {
-                    true
-                } else {
-                    let restoring_suspended_fullscreen = self
-                        .model
-                        .fullscreen_state
-                        .fullscreen_suspended_node
-                        .values()
-                        .any(|&nid| nid == id);
-                    self.set_interaction_focus(Some(id), 30_000, now);
-                    let _ = self.raise_overlap_policy_node(id);
-                    if restoring_suspended_fullscreen {
-                        true
-                    } else {
-                        self.animate_viewport_center_to(node.pos, now)
-                    }
-                }
-            }
-            halley_core::field::NodeState::Node => {
-                if crate::compositor::actions::window::focus_from_presentation_navigation(
-                    self, id, now,
-                ) {
-                    true
-                } else {
-                    crate::compositor::actions::window::promote_node_level(self, id, now)
-                }
-            }
-            _ => false,
-        };
-
-        if !moved {
-            self.model.focus_state.suppress_trail_record_once = false;
-        }
-
-        if !moved && self.model.field.node(id).is_some() {
-            self.request_maintenance();
-            return true;
-        }
-
-        moved
-    }
-
-    pub(crate) fn navigate_window_trail(
-        &mut self,
-        direction: TrailDirection,
-        now: Instant,
-    ) -> bool {
-        let monitor = self.focused_monitor().to_string();
-        if self
-            .active_cluster_workspace_for_monitor(monitor.as_str())
-            .is_some()
-        {
-            return false;
-        }
-        let trail_wrap = self.runtime.tuning.trail_wrap;
-        let current_focus = self.model.focus_state.primary_interaction_focus;
-        let mut remaining = self
-            .model
-            .focus_state
-            .focus_trail
-            .get(monitor.as_str())
-            .map(|trail| trail.len())
-            .unwrap_or(0)
-            .max(1);
-        loop {
-            if remaining == 0 {
-                return false;
-            }
-            remaining -= 1;
-            let next = {
-                let trail = self.trail_for_monitor_mut(monitor.as_str());
-                match direction {
-                    TrailDirection::Prev if trail_wrap => trail.back_wrapping(),
-                    TrailDirection::Prev => trail.back(),
-                    TrailDirection::Next if trail_wrap => trail.forward_wrapping(),
-                    TrailDirection::Next => trail.forward(),
-                }
-            };
-            let Some(id) = next else {
-                return false;
-            };
-            if !self.should_keep_trail_node(id) {
-                self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
-                continue;
-            }
-            if self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&id)
-                .map(|m| m.as_str())
-                != Some(monitor.as_str())
-            {
-                self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
-                continue;
-            }
-            if Some(id) == current_focus {
-                continue;
-            }
-            return self.select_trail_target(id, now);
-        }
-    }
-
-    pub(crate) fn previous_window_from_trail_on_close(
-        &mut self,
-        monitor: &str,
-        closing_id: NodeId,
-    ) -> Option<NodeId> {
-        if self.active_cluster_workspace_for_monitor(monitor).is_some() {
+    loop {
+        if remaining == 0 {
             return None;
         }
-        let mut remaining = self
+        remaining -= 1;
+
+        let next = {
+            let trail = trail_for_monitor_mut(st, monitor);
+            if trail.cursor() != Some(closing_id) {
+                trail.forget_node(closing_id);
+            }
+            trail.back()
+        };
+
+        let Some(id) = next else {
+            return None;
+        };
+        if id == closing_id {
+            continue;
+        }
+        if !should_keep_trail_node(st, id) {
+            trail_for_monitor_mut(st, monitor).forget_node(id);
+            continue;
+        }
+        if st
             .model
-            .focus_state
-            .focus_trail
-            .get(monitor)
-            .map(|trail| trail.len())
-            .unwrap_or(0)
-            .max(1);
-
-        loop {
-            if remaining == 0 {
-                return None;
-            }
-            remaining -= 1;
-
-            let next = {
-                let trail = self.trail_for_monitor_mut(monitor);
-                if trail.cursor() != Some(closing_id) {
-                    trail.forget_node(closing_id);
-                }
-                trail.back()
-            };
-
-            let Some(id) = next else {
-                return None;
-            };
-            if id == closing_id {
-                continue;
-            }
-            if !self.should_keep_trail_node(id) {
-                self.trail_for_monitor_mut(monitor).forget_node(id);
-                continue;
-            }
-            if self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&id)
-                .map(|m| m.as_str())
-                != Some(monitor)
-            {
-                self.trail_for_monitor_mut(monitor).forget_node(id);
-                continue;
-            }
-            return Some(id);
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .map(|m| m.as_str())
+            != Some(monitor)
+        {
+            trail_for_monitor_mut(st, monitor).forget_node(id);
+            continue;
         }
+        return Some(id);
+    }
+}
+
+pub(crate) fn restore_focus_to_node_after_close(
+    st: &mut Halley,
+    monitor: &str,
+    id: NodeId,
+    now: Instant,
+    suppress_pan: bool,
+) -> bool {
+    if st.active_cluster_workspace_for_monitor(monitor).is_some() {
+        return false;
+    }
+    let Some(node) = st.model.field.node(id).cloned() else {
+        return false;
+    };
+    if !should_keep_trail_node(st, id) {
+        return false;
     }
 
-    pub(crate) fn restore_focus_to_node_after_close(
-        &mut self,
-        monitor: &str,
-        id: NodeId,
-        now: Instant,
-        suppress_pan: bool,
-    ) -> bool {
-        if self.active_cluster_workspace_for_monitor(monitor).is_some() {
-            return false;
-        }
-        let Some(node) = self.model.field.node(id).cloned() else {
-            return false;
-        };
-        if !self.should_keep_trail_node(id) {
-            return false;
-        }
-
-        self.model.focus_state.suppress_trail_record_once = true;
-        let cluster_local = self.active_cluster_workspace_for_monitor(monitor).is_some();
-        let restored = match node.state {
-            halley_core::field::NodeState::Active => {
-                self.set_interaction_focus(Some(id), 30_000, now);
-                if !cluster_local && !suppress_pan {
-                    self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
-                }
-                true
+    st.model.focus_state.suppress_trail_record_once = true;
+    let cluster_local = st.active_cluster_workspace_for_monitor(monitor).is_some();
+    let restored = match node.state {
+        halley_core::field::NodeState::Active => {
+            st.set_interaction_focus(Some(id), 30_000, now);
+            if !cluster_local && !suppress_pan {
+                st.maybe_pan_to_restored_focus_on_close(monitor, id, now);
             }
-            halley_core::field::NodeState::Node => {
-                self.model
-                    .workspace_state
-                    .manual_collapsed_nodes
-                    .remove(&id);
-                let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-                self.model
-                    .spawn_state
-                    .pending_spawn_activate_at_ms
-                    .remove(&id);
-                crate::compositor::workspace::state::mark_active_transition(
-                    &mut **self,
-                    id,
-                    now,
-                    360,
-                );
-                self.set_interaction_focus(Some(id), 30_000, now);
-                if !cluster_local && !suppress_pan {
-                    self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
-                }
-                true
-            }
-            _ => false,
-        };
-
-        if !restored {
-            self.model.focus_state.suppress_trail_record_once = false;
+            true
         }
+        halley_core::field::NodeState::Node => {
+            st.model.workspace_state.manual_collapsed_nodes.remove(&id);
+            let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+            st.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
+            st.set_interaction_focus(Some(id), 30_000, now);
+            if !cluster_local && !suppress_pan {
+                st.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+            }
+            true
+        }
+        _ => false,
+    };
 
-        restored
+    if !restored {
+        st.model.focus_state.suppress_trail_record_once = false;
     }
+
+    restored
 }
 
 #[cfg(test)]

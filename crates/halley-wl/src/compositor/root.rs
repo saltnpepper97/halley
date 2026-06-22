@@ -1076,7 +1076,7 @@ impl Halley {
     }
 
     pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
-        super::focus::trail::focus_trail_controller(self).record_focus_trail_visit(id)
+        super::focus::trail::record_focus_trail_visit(self, id)
     }
 
     #[cfg(test)]
@@ -1092,7 +1092,7 @@ impl Halley {
         direction: halley_api::TrailDirection,
         now: Instant,
     ) -> bool {
-        super::focus::trail::focus_trail_controller(self).navigate_window_trail(direction, now)
+        super::focus::trail::navigate_window_trail(self, direction, now)
     }
 
     pub(crate) fn previous_window_from_trail_on_close(
@@ -1100,8 +1100,7 @@ impl Halley {
         monitor: &str,
         closing_id: NodeId,
     ) -> Option<NodeId> {
-        super::focus::trail::focus_trail_controller(self)
-            .previous_window_from_trail_on_close(monitor, closing_id)
+        super::focus::trail::previous_window_from_trail_on_close(self, monitor, closing_id)
     }
 
     pub(crate) fn restore_focus_to_node_after_close(
@@ -1111,12 +1110,7 @@ impl Halley {
         now: Instant,
         suppress_pan: bool,
     ) -> bool {
-        super::focus::trail::focus_trail_controller(self).restore_focus_to_node_after_close(
-            monitor,
-            id,
-            now,
-            suppress_pan,
-        )
+        super::focus::trail::restore_focus_to_node_after_close(self, monitor, id, now, suppress_pan)
     }
 
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
