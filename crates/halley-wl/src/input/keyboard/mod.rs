@@ -50,7 +50,10 @@ fn flush_trapped_modal_release(st: &mut Halley, code: u32) {
         mods_changed,
     );
     st.input.interaction_state.modal_release_keys.remove(&code);
-    st.input.interaction_state.forwarded_pressed_keys.remove(&code);
+    st.input
+        .interaction_state
+        .forwarded_pressed_keys
+        .remove(&code);
 }
 
 /// Clear any non-modifier keys we have forwarded to a client as *pressed* but not
@@ -696,7 +699,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     // focus change. Intercepted keys are never forwarded, so they stay out.
     if !intercept {
         if pressed {
-            st.input.interaction_state.forwarded_pressed_keys.insert(code);
+            st.input
+                .interaction_state
+                .forwarded_pressed_keys
+                .insert(code);
         } else {
             st.input
                 .interaction_state

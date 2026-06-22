@@ -175,6 +175,10 @@ All notable changes to this project will be documented in this file.
   mutate underneath the fading overlay. Maximized and fullscreen windows no longer flash or
   displace when selected from the overview: the close animation flies back to the actual
   presentation visual rect instead of the stale windowed field position.
+- Move the "Open Lift config" and "Open Halley config" entries out of the Halley Lift Actions
+  mode and into the Config mode only (where they already existed). Actions now exposes just
+  "Reload Halley config"; both open-config entries remain reachable from the default General
+  search via the Config provider.
 
 ### Removed
 - Remove field parallax entirely, including `field.parallax` config parsing and generated-config

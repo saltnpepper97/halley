@@ -373,30 +373,12 @@ fn create_cluster_result(_query: &str) -> LiftResult {
 }
 
 fn search_actions(ctx: &SearchContext) -> Vec<LiftResult> {
-    let actions = [
-        (
-            "reload-config",
-            "Reload Halley config",
-            "Compositor action",
-            LiftAction::ReloadConfig,
-        ),
-        (
-            "open-lift-config",
-            "Open Lift config",
-            "Config file",
-            LiftAction::OpenConfig {
-                path: default_config_path().display().to_string(),
-            },
-        ),
-        (
-            "open-halley-config",
-            "Open Halley config",
-            "Config file",
-            LiftAction::OpenConfig {
-                path: resolved_halley_config_path().display().to_string(),
-            },
-        ),
-    ];
+    let actions = [(
+        "reload-config",
+        "Reload Halley config",
+        "Compositor action",
+        LiftAction::ReloadConfig,
+    )];
     actions
         .into_iter()
         .filter_map(|(_id, title, subtitle, action)| {
