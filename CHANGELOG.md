@@ -192,10 +192,6 @@ All notable changes to this project will be documented in this file.
   code (unused `FullscreenCtx`, empty `debug_dump`) and clearing workspace-wide warnings. Pure
   mechanical transform; no behavior changes.
 
-### Removed
-- Remove field parallax entirely, including `field.parallax` config parsing and generated-config
-  bootstrap defaults, so backgrounds and windows no longer drift or expose cleared framebuffer.
-
 ### Fixed
 - Ensure client-side fullscreen requests still send the xdg fullscreen configure when the window
   was already fullscreened by a Halley keybind, so client fullscreen buttons map cleanly onto
