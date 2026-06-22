@@ -9,7 +9,7 @@ use smithay::reexports::wayland_server::backend::ObjectId;
 
 use super::monitor::camera::camera_controller;
 use super::root::Halley;
-use super::screenshot::screenshot_controller;
+use super::screenshot;
 use crate::animation::AnimSpec;
 use crate::compositor::activity::CommitActivity;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
@@ -430,7 +430,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
     }
     let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
         .repeat_cluster_name_prompt_input_if_due(now_ms);
-    screenshot_controller(&mut *st).run_pending_screenshot_capture_if_due(now_ms);
+    screenshot::run_pending_screenshot_capture_if_due(&mut *st, now_ms);
     if let Some(pending) = st
         .input
         .interaction_state

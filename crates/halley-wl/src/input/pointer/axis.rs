@@ -7,7 +7,7 @@ use crate::backend::interface::BackendView;
 use crate::compositor::exit_confirm;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 use crate::input::ctx::InputCtx;
 
 use super::context::pointer_screen_context_for_monitor;
@@ -164,7 +164,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     if exit_confirm::active(&*st) {
         return;
     }
-    if screenshot_controller(&mut *st).screenshot_session_active() {
+    if screenshot::screenshot_session_active(&mut *st) {
         return;
     }
     if crate::compositor::portal_chooser::portal_chooser_active(&*st) {

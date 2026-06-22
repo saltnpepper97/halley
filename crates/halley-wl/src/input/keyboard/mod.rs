@@ -4,7 +4,7 @@ pub(crate) mod spawn;
 
 use crate::compositor::exit_confirm;
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
@@ -288,7 +288,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
     }
 
-    if screenshot_controller(&mut *st).screenshot_session_active() {
+    if screenshot::screenshot_session_active(&mut *st) {
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
@@ -318,26 +318,26 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             if Some(code) == escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 if menu_mode {
-                    let _ = screenshot_controller(&mut *st).cancel_screenshot_session();
+                    let _ = screenshot::cancel_screenshot_session(&mut *st);
                 } else {
-                    let _ = screenshot_controller(&mut *st).return_screenshot_session_to_menu();
+                    let _ = screenshot::return_screenshot_session_to_menu(&mut *st);
                 }
                 ctx.backend.request_redraw();
             } else if Some(code) == enter {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                let _ = screenshot_controller(&mut *st).confirm_screenshot_session(Instant::now());
+                let _ = screenshot::confirm_screenshot_session(&mut *st, Instant::now());
                 ctx.backend.request_redraw();
             } else if Some(code) == left {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(-1);
+                let _ = screenshot::move_screenshot_menu_selection(&mut *st, -1);
                 ctx.backend.request_redraw();
             } else if Some(code) == right {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(1);
+                let _ = screenshot::move_screenshot_menu_selection(&mut *st, 1);
                 ctx.backend.request_redraw();
             }
         }

@@ -7,7 +7,7 @@ use smithay::input::pointer::CursorIcon;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::root::Halley;
-use crate::compositor::screenshot::screenshot_controller;
+use crate::compositor::screenshot;
 use crate::input::ctx::InputCtx;
 
 use super::button::{ButtonFrame, handle_button_release};
@@ -27,7 +27,7 @@ pub(super) fn handle_screenshot_pointer_button<B: BackendView>(
     local_sy: f32,
     world_now: halley_core::field::Vec2,
 ) -> bool {
-    if !screenshot_controller(&mut *st).screenshot_session_active() {
+    if !screenshot::screenshot_session_active(&mut *st) {
         return false;
     }
 
@@ -44,22 +44,24 @@ pub(super) fn handle_screenshot_pointer_button<B: BackendView>(
                 if let Some(crate::overlay::ScreenshotMenuHit::Item(idx)) =
                     crate::overlay::screenshot_menu_hit_test(local_w, local_h, local_sx, local_sy)
                 {
-                    screenshot_controller(&mut *st).hover_screenshot_menu_item(Some(idx));
-                    let _ = screenshot_controller(&mut *st).activate_screenshot_menu_item(idx);
+                    screenshot::hover_screenshot_menu_item(&mut *st, Some(idx));
+                    let _ = screenshot::activate_screenshot_menu_item(&mut *st, idx);
                 }
             }
             Some(CaptureMode::Region) => {
-                let _ = screenshot_controller(&mut *st).begin_screenshot_region_drag(
+                let _ = screenshot::begin_screenshot_region_drag(
+                    &mut *st,
                     frame.global_sx.round() as i32,
                     frame.global_sy.round() as i32,
                 );
             }
             Some(CaptureMode::Screen) => {
-                let _ = screenshot_controller(&mut *st).confirm_screenshot_session(Instant::now());
+                let _ = screenshot::confirm_screenshot_session(&mut *st, Instant::now());
             }
             Some(CaptureMode::Window) => {
                 let now = Instant::now();
-                screenshot_controller(&mut *st).update_screenshot_window_selection_from_pointer(
+                screenshot::update_screenshot_window_selection_from_pointer(
+                    &mut *st,
                     target_monitor,
                     local_w,
                     local_h,
@@ -67,7 +69,7 @@ pub(super) fn handle_screenshot_pointer_button<B: BackendView>(
                     local_sy,
                     now,
                 );
-                let _ = screenshot_controller(&mut *st).confirm_screenshot_session(now);
+                let _ = screenshot::confirm_screenshot_session(&mut *st, now);
             }
             _ => {}
         }
@@ -76,7 +78,7 @@ pub(super) fn handle_screenshot_pointer_button<B: BackendView>(
         && matches!(button_state, ButtonState::Released)
         && matches!(session_mode, Some(CaptureMode::Region))
     {
-        screenshot_controller(&mut *st).end_screenshot_region_drag();
+        screenshot::end_screenshot_region_drag(&mut *st);
     }
     if matches!(button_state, ButtonState::Released) {
         handle_button_release(st, ps, ctx.backend, button_code, None, world_now);
@@ -112,7 +114,7 @@ pub(super) fn handle_screenshot_pointer_motion<B: BackendView>(
         return false;
     };
 
-    screenshot_controller(&mut *st).update_screenshot_session_monitor(target_monitor.to_string());
+    screenshot::update_screenshot_session_monitor(&mut *st, target_monitor.to_string());
     let menu_mode = st
         .input
         .interaction_state
@@ -125,7 +127,7 @@ pub(super) fn handle_screenshot_pointer_motion<B: BackendView>(
             Some(crate::overlay::ScreenshotMenuHit::Item(idx)) => Some(idx),
             None => None,
         };
-        screenshot_controller(&mut *st).hover_screenshot_menu_item(idx);
+        screenshot::hover_screenshot_menu_item(&mut *st, idx);
         crate::compositor::interaction::pointer::set_cursor_override_icon(
             st,
             Some(CursorIcon::Pointer),
@@ -140,12 +142,14 @@ pub(super) fn handle_screenshot_pointer_motion<B: BackendView>(
         .as_ref()
         .is_some_and(|session| session.mode == CaptureMode::Window);
     if dragging_region {
-        screenshot_controller(&mut *st).update_screenshot_region_drag(
+        screenshot::update_screenshot_region_drag(
+            &mut *st,
             effective_sx.round() as i32,
             effective_sy.round() as i32,
         );
     } else if window_mode {
-        screenshot_controller(&mut *st).update_screenshot_window_selection_from_pointer(
+        screenshot::update_screenshot_window_selection_from_pointer(
+            &mut *st,
             target_monitor,
             local_w,
             local_h,
