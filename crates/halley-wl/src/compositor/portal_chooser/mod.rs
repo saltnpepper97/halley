@@ -105,9 +105,13 @@ pub(crate) fn start_portal_chooser(
     }
     let monitor = chooser_monitor(st);
     st.begin_modal_keyboard_capture();
-    if let Some(enter) = halley_config::keybinds::key_name_to_evdev("return") {
-        crate::compositor::interaction::state::trap_modal_key_release(st, enter + 8);
-    }
+    // No open-time Enter pre-trap: `begin_modal_keyboard_capture` clears keyboard
+    // focus through the `set_keyboard_focus` choke point, whose
+    // `flush_stuck_forwarded_keys` already forwards a synthetic release for the
+    // held Enter to the app that invoked the portal (e.g. OBS) before focus drops
+    // to None. The chooser arms Enter/Escape traps at genuine confirm/cancel
+    // presses, and `finish_modal_capture` clears any leftover trap on teardown so
+    // none can outlive the chooser and strand a later key in client-side repeat.
     let menu_selected = if allow_monitor { 0 } else { 1 };
     let phase = match (allow_monitor, allow_window) {
         (true, false) => PortalChooserPhase::ScreenPick,
@@ -374,6 +378,15 @@ fn finish_after_selection(st: &mut Halley, now: Instant) -> bool {
 }
 
 fn finish_modal_capture(st: &mut Halley, _session: &PortalChooserState) {
+    // Drop any modal release-traps the chooser armed (Enter/Escape on
+    // confirm/cancel). They are only meaningful while the chooser owns the
+    // keyboard; a leftover trap diverts the next unrelated key release into
+    // `flush_trapped_modal_release` and strands the client in client-side key
+    // repeat. `forwarded_pressed_keys` is already drained by the focus-clear flush
+    // at open, but clear it too as belt-and-suspenders.
+    st.input.interaction_state.modal_release_keys.clear();
+    st.input.interaction_state.forwarded_pressed_keys.clear();
+
     let restore_focus = st
         .last_input_surface_node_for_monitor(st.model.monitor_state.current_monitor.as_str())
         .or(st.last_input_surface_node());
