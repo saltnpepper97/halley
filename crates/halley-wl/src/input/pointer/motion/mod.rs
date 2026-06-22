@@ -285,8 +285,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         return;
     }
 
-    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    let prompt_monitor = crate::compositor::clusters::system::active_cluster_name_prompt_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
     if let Some(prompt_monitor) = prompt_monitor {
         let prompt_hit = if routing.monitor == prompt_monitor {
             crate::overlay::cluster_naming_dialog_hit_test(
@@ -304,8 +306,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         ps.hover_node = None;
         ps.hover_started_at = None;
         if let Some(crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char)) = prompt_hit {
-            let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                .drag_cluster_name_prompt_selection_for_monitor(
+            let _ =
+                crate::compositor::clusters::system::drag_cluster_name_prompt_selection_for_monitor(
+                    &mut *st,
                     prompt_monitor.as_str(),
                     caret_char,
                 );

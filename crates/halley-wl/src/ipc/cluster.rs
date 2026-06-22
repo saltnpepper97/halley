@@ -90,9 +90,12 @@ fn open_cluster(
             cid.as_u64()
         )));
     };
-    if crate::compositor::clusters::system::cluster_system_controller(st)
-        .enter_cluster_workspace_by_core(core, monitor.as_str(), now)
-    {
+    if crate::compositor::clusters::system::enter_cluster_workspace_by_core(
+        st,
+        core,
+        monitor.as_str(),
+        now,
+    ) {
         Ok(())
     } else {
         Err(ApiError::Unsupported(format!(
@@ -116,16 +119,15 @@ fn open_finalize_draft(
         .collect::<Vec<_>>();
     let now = Instant::now();
     focus_output_if_needed(st, monitor.as_str(), now);
-    if crate::compositor::clusters::system::cluster_system_controller(st)
-        .open_lift_cluster_finalize_draft(
-            monitor.as_str(),
-            draft.name_hint,
-            draft.app_ids,
-            draft_app_launches(draft.app_launches),
-            running_node_ids,
-            now,
-        )
-    {
+    if crate::compositor::clusters::system::open_lift_cluster_finalize_draft(
+        st,
+        monitor.as_str(),
+        draft.name_hint,
+        draft.app_ids,
+        draft_app_launches(draft.app_launches),
+        running_node_ids,
+        now,
+    ) {
         Ok(())
     } else {
         Err(ApiError::Unsupported(format!(
@@ -156,9 +158,12 @@ fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Res
     }
 
     let monitor = resolve_output_context(st, output)?;
-    let exists = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .cluster_slot_cluster_for_monitor(monitor.as_str(), slot)
-        .is_some();
+    let exists = crate::compositor::clusters::system::cluster_slot_cluster_for_monitor(
+        &*st,
+        monitor.as_str(),
+        slot,
+    )
+    .is_some();
     if !exists {
         return Err(ApiError::NotFound(format!(
             "no cluster in slot {slot} on output {monitor}"
@@ -284,8 +289,7 @@ fn cluster_info(st: &Halley, cid: ClusterId) -> Result<ClusterInfo, ApiError> {
 
 fn cluster_slot(st: &Halley, cid: ClusterId) -> Option<u8> {
     let output = cluster_output(st, cid)?;
-    crate::compositor::clusters::system::cluster_system_controller(st)
-        .cluster_slot_order_for_monitor(output.as_str())
+    crate::compositor::clusters::system::cluster_slot_order_for_monitor(st, output.as_str())
         .iter()
         .position(|existing| *existing == cid)
         .and_then(|index| u8::try_from(index + 1).ok())

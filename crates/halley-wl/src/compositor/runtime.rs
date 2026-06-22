@@ -426,8 +426,9 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
     {
         st.input.interaction_state.pending_collapsed_node_click = None;
     }
-    let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-        .repeat_cluster_name_prompt_input_if_due(now_ms);
+    let _ = crate::compositor::clusters::system::repeat_cluster_name_prompt_input_if_due(
+        &mut *st, now_ms,
+    );
     screenshot::run_pending_screenshot_capture_if_due(&mut *st, now_ms);
     if let Some(pending) = st
         .input

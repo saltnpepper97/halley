@@ -29,12 +29,12 @@ pub(super) struct ExitClusterWorkspacePlan {
     pub(super) hidden_ids: Vec<NodeId>,
 }
 
-pub(super) struct ClusterTilePlacement {
+pub(crate) struct ClusterTilePlacement {
     pub(super) node_id: NodeId,
     pub(super) rect: halley_core::tiling::Rect,
 }
 
-pub(super) struct ClusterLayoutPlan {
+pub(crate) struct ClusterLayoutPlan {
     pub(super) kind: ClusterWorkspaceLayoutKind,
     pub(super) tiles: Vec<ClusterTilePlacement>,
     pub(super) overflow_members: Vec<NodeId>,

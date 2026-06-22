@@ -246,8 +246,7 @@ impl XdgShellHandler for Halley {
                 });
         let handled_by_cluster = node_cluster.is_some();
         let handled_by_lift_staging =
-            crate::compositor::clusters::system::cluster_system_controller(&*self)
-                .pending_lift_cluster_node_staged(id);
+            crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*self, id);
         if !is_transient && !handled_by_cluster && !handled_by_lift_staging {
             self.model.spawn_state.pending_initial_reveal.insert(id);
             let _ = self.model.field.set_detached(id, true);

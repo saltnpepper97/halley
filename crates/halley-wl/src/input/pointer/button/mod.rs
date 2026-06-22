@@ -179,8 +179,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     ) || ps.drag.is_some()
         || ps.resize.is_some();
-    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    let prompt_monitor = crate::compositor::clusters::system::active_cluster_name_prompt_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
     if handle_screenshot_pointer_button(
         st,
         ctx,
@@ -229,16 +231,14 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                     match hit {
                         crate::overlay::ClusterNamingDialogHit::ConfirmButton => {
                             let _ =
-                                crate::compositor::clusters::system::cluster_system_controller(st)
-                                    .confirm_cluster_name_prompt_for_monitor(
+                                crate::compositor::clusters::system::confirm_cluster_name_prompt_for_monitor(st,
                                         prompt_monitor.as_str(),
                                         Instant::now(),
                                     );
                         }
                         crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char) => {
                             let _ =
-                                crate::compositor::clusters::system::cluster_system_controller(st)
-                                    .begin_cluster_name_prompt_drag_for_monitor(
+                                crate::compositor::clusters::system::begin_cluster_name_prompt_drag_for_monitor(st,
                                         prompt_monitor.as_str(),
                                         caret_char,
                                     );
@@ -249,8 +249,11 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 return;
             }
             ButtonState::Released if left || right => {
-                let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .end_cluster_name_prompt_drag_for_monitor(prompt_monitor.as_str());
+                let _ =
+                    crate::compositor::clusters::system::end_cluster_name_prompt_drag_for_monitor(
+                        &mut *st,
+                        prompt_monitor.as_str(),
+                    );
                 handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
                 return;
             }

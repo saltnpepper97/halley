@@ -97,8 +97,7 @@ fn create_named_test_cluster(
     let cid = st.create_cluster(vec![a, b]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, monitor);
-    let _ =
-        cluster_system_controller(&mut *st).ensure_cluster_name_record_for_monitor(cid, monitor);
+    let _ = super::ensure_cluster_name_record_for_monitor(&mut *st, cid, monitor);
     (cid, core)
 }
 
@@ -178,11 +177,11 @@ fn cluster_slot_order_is_creation_order_per_monitor() {
     let (cid_b1, _core_b1) = create_named_test_cluster(&mut st, "monitor_b", ["b1", "b2"], 920.0);
 
     assert_eq!(
-        cluster_system_controller(&st).cluster_slot_order_for_monitor("monitor_a"),
+        super::cluster_slot_order_for_monitor(&st, "monitor_a"),
         vec![cid_a1, cid_a2]
     );
     assert_eq!(
-        cluster_system_controller(&st).cluster_slot_order_for_monitor("monitor_b"),
+        super::cluster_slot_order_for_monitor(&st, "monitor_b"),
         vec![cid_b1]
     );
 }
@@ -307,7 +306,10 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
             .is_none()
     );
 
-    assert!(cluster_system_controller(&mut st).cancel_cluster_name_prompt_for_monitor("monitor_a"));
+    assert!(super::cancel_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_a"
+    ));
     assert!(
         !st.model
             .cluster_state
@@ -351,16 +353,15 @@ fn lift_finalize_prompt_selects_existing_matching_apps_without_banner() {
         .node_app_ids
         .insert(second, "org.mozilla.firefox".to_string());
 
-    assert!(
-        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
-            "monitor_a",
-            Some("Browser".to_string()),
-            vec!["org.mozilla.firefox.desktop".to_string()],
-            Vec::new(),
-            Vec::new(),
-            now,
-        )
-    );
+    assert!(super::open_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        Some("Browser".to_string()),
+        vec!["org.mozilla.firefox.desktop".to_string()],
+        Vec::new(),
+        Vec::new(),
+        now,
+    ));
     assert!(
         !st.ui
             .render_state
@@ -377,10 +378,11 @@ fn lift_finalize_prompt_selects_existing_matching_apps_without_banner() {
         Some(2)
     );
 
-    assert!(
-        cluster_system_controller(&mut st)
-            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
-    );
+    assert!(super::confirm_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_a",
+        now,
+    ));
     assert_eq!(st.model.field.cluster_ids().len(), 1);
     assert!(
         !st.model
@@ -409,20 +411,20 @@ fn lift_finalize_cross_monitor_selection_centers_core_on_target_monitor() {
     st.assign_node_to_monitor(first, "monitor_a");
     st.assign_node_to_monitor(second, "monitor_a");
 
-    assert!(
-        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
-            "monitor_b",
-            Some("Cross".to_string()),
-            Vec::new(),
-            Vec::new(),
-            vec![first, second],
-            now,
-        )
-    );
-    assert!(
-        cluster_system_controller(&mut st)
-            .confirm_cluster_name_prompt_for_monitor("monitor_b", now,)
-    );
+    assert!(super::open_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_b",
+        Some("Cross".to_string()),
+        Vec::new(),
+        Vec::new(),
+        vec![first, second],
+        now,
+    ));
+    assert!(super::confirm_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_b",
+        now,
+    ));
 
     let cid = st
         .model
@@ -474,29 +476,29 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
 
-    assert!(
-        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
-            "monitor_a",
-            Some("Work".to_string()),
-            vec!["alpha.desktop".to_string(), "beta.desktop".to_string()],
-            vec![
-                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
-                    app_id: "alpha.desktop".to_string(),
-                    command: "true".to_string(),
-                },
-                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
-                    app_id: "beta.desktop".to_string(),
-                    command: "true".to_string(),
-                },
-            ],
-            Vec::new(),
-            now,
-        )
-    );
-    assert!(
-        cluster_system_controller(&mut st)
-            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
-    );
+    assert!(super::open_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        Some("Work".to_string()),
+        vec!["alpha.desktop".to_string(), "beta.desktop".to_string()],
+        vec![
+            crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: "alpha.desktop".to_string(),
+                command: "true".to_string(),
+            },
+            crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: "beta.desktop".to_string(),
+                command: "true".to_string(),
+            },
+        ],
+        Vec::new(),
+        now,
+    ));
+    assert!(super::confirm_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_a",
+        now,
+    ));
     assert!(
         st.model
             .cluster_state
@@ -518,19 +520,19 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     st.assign_node_to_monitor(alpha, "monitor_a");
     st.assign_node_to_monitor(beta, "monitor_a");
 
-    assert!(
-        cluster_system_controller(&mut st)
-            .note_pending_lift_cluster_candidate_node("monitor_a", alpha)
-    );
-    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(alpha));
+    assert!(super::note_pending_lift_cluster_candidate_node(
+        &mut st,
+        "monitor_a",
+        alpha
+    ));
+    assert!(super::pending_lift_cluster_node_staged(&st, alpha));
     st.model.spawn_state.pending_initial_reveal.insert(alpha);
-    assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
-            "monitor_a",
-            alpha,
-            "alpha",
-        )
-    );
+    assert!(super::maybe_add_node_to_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        alpha,
+        "alpha",
+    ));
     assert_eq!(st.model.field.cluster_ids().len(), 0);
     assert!(
         st.model
@@ -539,19 +541,19 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
             .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
     );
     assert!(!st.model.spawn_state.pending_initial_reveal.contains(&alpha));
-    assert!(
-        cluster_system_controller(&mut st)
-            .note_pending_lift_cluster_candidate_node("monitor_a", beta)
-    );
-    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(beta));
+    assert!(super::note_pending_lift_cluster_candidate_node(
+        &mut st,
+        "monitor_a",
+        beta
+    ));
+    assert!(super::pending_lift_cluster_node_staged(&st, beta));
     st.model.spawn_state.pending_initial_reveal.insert(beta);
-    assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
-            "monitor_a",
-            beta,
-            "beta",
-        )
-    );
+    assert!(super::maybe_add_node_to_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        beta,
+        "beta",
+    ));
 
     assert_eq!(st.model.field.cluster_ids().len(), 1);
     assert!(
@@ -562,8 +564,8 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     );
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_some());
     assert!(st.model.field.cluster_id_for_member_public(beta).is_some());
-    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(alpha));
-    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(beta));
+    assert!(!super::pending_lift_cluster_node_staged(&st, alpha));
+    assert!(!super::pending_lift_cluster_node_staged(&st, beta));
     assert!(!st.model.spawn_state.pending_initial_reveal.contains(&beta));
     for member in [alpha, beta] {
         assert!(st.model.field.node(member).is_some_and(|node| {
@@ -598,29 +600,29 @@ fn lift_finalize_app_launches_do_not_select_existing_matching_windows() {
     st.model.node_app_ids.insert(alpha, "alpha".to_string());
     st.model.node_app_ids.insert(beta, "beta".to_string());
 
-    assert!(
-        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
-            "monitor_a",
-            Some("Work".to_string()),
-            Vec::new(),
-            vec![
-                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
-                    app_id: "alpha.desktop".to_string(),
-                    command: "true".to_string(),
-                },
-                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
-                    app_id: "beta.desktop".to_string(),
-                    command: "true".to_string(),
-                },
-            ],
-            Vec::new(),
-            now,
-        )
-    );
-    assert!(
-        cluster_system_controller(&mut st)
-            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
-    );
+    assert!(super::open_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        Some("Work".to_string()),
+        Vec::new(),
+        vec![
+            crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: "alpha.desktop".to_string(),
+                command: "true".to_string(),
+            },
+            crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: "beta.desktop".to_string(),
+                command: "true".to_string(),
+            },
+        ],
+        Vec::new(),
+        now,
+    ));
+    assert!(super::confirm_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_a",
+        now,
+    ));
     assert_eq!(st.model.field.cluster_ids().len(), 0);
     assert!(
         st.model
@@ -630,13 +632,12 @@ fn lift_finalize_app_launches_do_not_select_existing_matching_windows() {
     );
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_none());
     assert!(st.model.field.cluster_id_for_member_public(beta).is_none());
-    assert!(
-        !cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
-            "monitor_a",
-            alpha,
-            "alpha",
-        )
-    );
+    assert!(!super::maybe_add_node_to_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        alpha,
+        "alpha",
+    ));
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_none());
     assert_eq!(
         st.ui
@@ -655,25 +656,25 @@ fn lift_finalize_releases_non_matching_staged_candidate() {
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
 
-    assert!(
-        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
-            "monitor_a",
-            Some("Work".to_string()),
-            Vec::new(),
-            vec![
-                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
-                    app_id: "alpha.desktop".to_string(),
-                    command: "true".to_string(),
-                },
-            ],
-            Vec::new(),
-            now,
-        )
-    );
-    assert!(
-        cluster_system_controller(&mut st)
-            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
-    );
+    assert!(super::open_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        Some("Work".to_string()),
+        Vec::new(),
+        vec![
+            crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: "alpha.desktop".to_string(),
+                command: "true".to_string(),
+            },
+        ],
+        Vec::new(),
+        now,
+    ));
+    assert!(super::confirm_cluster_name_prompt_for_monitor(
+        &mut st,
+        "monitor_a",
+        now,
+    ));
 
     let candidate = st.model.field.spawn_surface(
         "Gamma",
@@ -681,20 +682,20 @@ fn lift_finalize_releases_non_matching_staged_candidate() {
         Vec2 { x: 220.0, y: 160.0 },
     );
     st.assign_node_to_monitor(candidate, "monitor_a");
-    assert!(
-        cluster_system_controller(&mut st)
-            .note_pending_lift_cluster_candidate_node("monitor_a", candidate)
-    );
-    assert!(cluster_system_controller(&st).pending_lift_cluster_node_staged(candidate));
+    assert!(super::note_pending_lift_cluster_candidate_node(
+        &mut st,
+        "monitor_a",
+        candidate
+    ));
+    assert!(super::pending_lift_cluster_node_staged(&st, candidate));
 
-    assert!(
-        !cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
-            "monitor_a",
-            candidate,
-            "gamma",
-        )
-    );
-    assert!(!cluster_system_controller(&st).pending_lift_cluster_node_staged(candidate));
+    assert!(!super::maybe_add_node_to_lift_cluster_finalize_draft(
+        &mut st,
+        "monitor_a",
+        candidate,
+        "gamma",
+    ));
+    assert!(!super::pending_lift_cluster_node_staged(&st, candidate));
     assert!(
         st.model
             .field
@@ -714,7 +715,7 @@ fn custom_cluster_name_stays_unique_and_survives_monitor_move() {
             name: "Studio".to_string(),
         },
     );
-    let _ = cluster_system_controller(&mut st).relabel_cluster_core(cid);
+    let _ = super::relabel_cluster_core(&mut st, cid);
     st.assign_node_to_monitor(core, "monitor_b");
     let _ = st.sync_cluster_monitor(cid, Some("monitor_b"));
     assert_eq!(
@@ -1073,12 +1074,8 @@ fn tiled_cluster_focus_retargets_replacement_tile_by_index() {
     let now = Instant::now();
     assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
 
-    let removed = cluster_system_controller(&mut st).detach_member_from_cluster(
-        cid,
-        stack_a,
-        Vec2 { x: 0.0, y: 0.0 },
-        now,
-    );
+    let removed =
+        super::detach_member_from_cluster(&mut st, cid, stack_a, Vec2 { x: 0.0, y: 0.0 }, now);
     assert!(removed);
     st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
     assert!(st.focus_active_tiled_cluster_member_for_monitor("monitor_a", Some(1), now));

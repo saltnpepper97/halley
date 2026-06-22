@@ -402,8 +402,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
-    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    let prompt_monitor = crate::compositor::clusters::system::active_cluster_name_prompt_monitor(
+        &*st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
     if let Some(prompt_monitor) = prompt_monitor {
         let mut repeated_char = None;
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
@@ -446,52 +448,66 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             };
             let handled = if Some(code) == escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .cancel_cluster_name_prompt_for_monitor(prompt_monitor.as_str())
+                crate::compositor::clusters::system::cancel_cluster_name_prompt_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                )
             } else if Some(code) == enter {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .confirm_cluster_name_prompt_for_monitor(
-                        prompt_monitor.as_str(),
-                        Instant::now(),
-                    )
+                crate::compositor::clusters::system::confirm_cluster_name_prompt_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                    Instant::now(),
+                )
             } else if !first_press && repeat_action.is_none() {
                 false
             } else if Some(code) == left {
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .cluster_name_prompt_move_left_for_monitor(prompt_monitor.as_str())
+                crate::compositor::clusters::system::cluster_name_prompt_move_left_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                )
             } else if Some(code) == right {
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .cluster_name_prompt_move_right_for_monitor(prompt_monitor.as_str())
+                crate::compositor::clusters::system::cluster_name_prompt_move_right_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                )
             } else if Some(code) == backspace {
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .cluster_name_prompt_backspace_for_monitor(prompt_monitor.as_str())
+                crate::compositor::clusters::system::cluster_name_prompt_backspace_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                )
             } else if Some(code) == delete {
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .cluster_name_prompt_delete_for_monitor(prompt_monitor.as_str())
+                crate::compositor::clusters::system::cluster_name_prompt_delete_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                )
             } else if let Some(ch) = repeated_char {
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .insert_cluster_name_prompt_char_for_monitor(prompt_monitor.as_str(), ch)
+                crate::compositor::clusters::system::insert_cluster_name_prompt_char_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                    ch,
+                )
             } else {
                 false
             };
             if handled && let Some(action) = repeat_action {
                 let now_ms = st.now_ms(Instant::now());
-                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                    .start_cluster_name_prompt_repeat_for_monitor(
-                        prompt_monitor.as_str(),
-                        code,
-                        action,
-                        now_ms,
-                    );
+                crate::compositor::clusters::system::start_cluster_name_prompt_repeat_for_monitor(
+                    &mut *st,
+                    prompt_monitor.as_str(),
+                    code,
+                    action,
+                    now_ms,
+                );
             }
             if handled {
                 ctx.backend.request_redraw();
             }
         } else {
             ctx.mod_state.borrow_mut().intercepted_keys.remove(&code);
-            crate::compositor::clusters::system::cluster_system_controller(&mut *st)
-                .stop_cluster_name_prompt_repeat_for_code(code);
+            crate::compositor::clusters::system::stop_cluster_name_prompt_repeat_for_code(
+                &mut *st, code,
+            );
         }
         return;
     }

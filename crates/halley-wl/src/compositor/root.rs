@@ -815,8 +815,9 @@ impl Halley {
     pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
         let previous_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         super::monitor::state::assign_node_to_monitor(self, id, monitor);
-        super::clusters::system::cluster_system_controller(&mut *self)
-            .sync_cluster_name_for_node_monitor(id, monitor);
+        crate::compositor::clusters::system::sync_cluster_name_for_node_monitor(
+            &mut *self, id, monitor,
+        );
         if previous_monitor.as_deref() != Some(monitor)
             && super::workspace::state::abort_maximize_session_for_external_active_node_on_monitor(
                 self, monitor, id,
@@ -1552,14 +1553,14 @@ impl Halley {
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
-        super::clusters::system::cluster_system_controller(self).remove_node_from_field(id, now_ms)
+        crate::compositor::clusters::system::remove_node_from_field(self, id, now_ms)
     }
 
     pub fn cluster_bloom_for_monitor(
         &mut self,
         monitor: &str,
     ) -> Option<halley_core::cluster::ClusterId> {
-        super::clusters::system::cluster_system_controller(self).cluster_bloom_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_bloom_for_monitor(self, monitor)
     }
 
     #[cfg(test)]
@@ -1568,8 +1569,7 @@ impl Halley {
         cid: halley_core::cluster::ClusterId,
         preferred: Option<&str>,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .sync_cluster_monitor(cid, preferred)
+        crate::compositor::clusters::system::sync_cluster_monitor(self, cid, preferred)
     }
 
     #[cfg(test)]
@@ -1579,8 +1579,9 @@ impl Halley {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .enter_cluster_workspace_by_core(core_id, monitor, now)
+        crate::compositor::clusters::system::enter_cluster_workspace_by_core(
+            self, core_id, monitor, now,
+        )
     }
 
     pub fn open_cluster_bloom_for_monitor(
@@ -1588,13 +1589,11 @@ impl Halley {
         monitor: &str,
         cid: halley_core::cluster::ClusterId,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .open_cluster_bloom_for_monitor(monitor, cid)
+        crate::compositor::clusters::system::open_cluster_bloom_for_monitor(self, monitor, cid)
     }
 
     pub fn close_cluster_bloom_for_monitor(&mut self, monitor: &str) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .close_cluster_bloom_for_monitor(monitor)
+        crate::compositor::clusters::system::close_cluster_bloom_for_monitor(self, monitor)
     }
 
     pub fn detach_member_from_cluster(
@@ -1604,8 +1603,9 @@ impl Halley {
         world_pos: Vec2,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .detach_member_from_cluster(cid, member_id, world_pos, now)
+        crate::compositor::clusters::system::detach_member_from_cluster(
+            self, cid, member_id, world_pos, now,
+        )
     }
 
     #[allow(dead_code)]
@@ -1615,8 +1615,7 @@ impl Halley {
         node_id: NodeId,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .absorb_node_into_cluster(cid, node_id, now)
+        crate::compositor::clusters::system::absorb_node_into_cluster(self, cid, node_id, now)
     }
 
     pub(crate) fn commit_ready_cluster_join_for_node(
@@ -1624,8 +1623,7 @@ impl Halley {
         node_id: NodeId,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .commit_ready_cluster_join_for_node(node_id, now)
+        crate::compositor::clusters::system::commit_ready_cluster_join_for_node(self, node_id, now)
     }
 
     pub fn active_cluster_workspace_for_monitor(
@@ -1644,21 +1642,20 @@ impl Halley {
     }
 
     pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64) {
-        super::clusters::system::cluster_system_controller(self)
-            .reveal_cluster_overflow_for_monitor(monitor, now_ms)
+        crate::compositor::clusters::system::reveal_cluster_overflow_for_monitor(
+            self, monitor, now_ms,
+        )
     }
 
     pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, monitor: &str) {
-        super::clusters::system::cluster_system_controller(self)
-            .hide_cluster_overflow_for_monitor(monitor)
+        crate::compositor::clusters::system::hide_cluster_overflow_for_monitor(self, monitor)
     }
 
     pub(crate) fn cluster_overflow_rect_for_monitor(
         &self,
         monitor: &str,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_overflow_rect_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_overflow_rect_for_monitor(self, monitor)
     }
 
     pub(crate) fn cluster_overflow_slot_rect_for_monitor(
@@ -1667,8 +1664,12 @@ impl Halley {
         overflow_len: usize,
         slot_index: usize,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_overflow_slot_rect_for_monitor(monitor, overflow_len, slot_index)
+        crate::compositor::clusters::system::cluster_overflow_slot_rect_for_monitor(
+            self,
+            monitor,
+            overflow_len,
+            slot_index,
+        )
     }
 
     pub(crate) fn active_cluster_tile_rect_for_member(
@@ -1676,8 +1677,9 @@ impl Halley {
         monitor: &str,
         member_id: NodeId,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .active_cluster_tile_rect_for_member(monitor, member_id)
+        crate::compositor::clusters::system::active_cluster_tile_rect_for_member(
+            self, monitor, member_id,
+        )
     }
 
     pub(crate) fn adjust_cluster_overflow_scroll_for_monitor(
@@ -1685,8 +1687,9 @@ impl Halley {
         monitor: &str,
         delta: i32,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .adjust_cluster_overflow_scroll_for_monitor(monitor, delta)
+        crate::compositor::clusters::system::adjust_cluster_overflow_scroll_for_monitor(
+            self, monitor, delta,
+        )
     }
 
     pub(crate) fn cluster_spawn_rect_for_new_member(
@@ -1694,12 +1697,11 @@ impl Halley {
         monitor: &str,
         cid: halley_core::cluster::ClusterId,
     ) -> Option<halley_core::tiling::Rect> {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_spawn_rect_for_new_member(monitor, cid)
+        crate::compositor::clusters::system::cluster_spawn_rect_for_new_member(self, monitor, cid)
     }
 
     pub fn has_any_active_cluster_workspace(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).has_any_active_cluster_workspace()
+        crate::compositor::clusters::system::has_any_active_cluster_workspace(self)
     }
 
     pub(crate) fn swap_cluster_overflow_member_with_visible(
@@ -1710,14 +1712,14 @@ impl Halley {
         visible_member: NodeId,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .swap_cluster_overflow_member_with_visible(
-                monitor,
-                cid,
-                overflow_member,
-                visible_member,
-                now_ms,
-            )
+        crate::compositor::clusters::system::swap_cluster_overflow_member_with_visible(
+            self,
+            monitor,
+            cid,
+            overflow_member,
+            visible_member,
+            now_ms,
+        )
     }
 
     pub(crate) fn reorder_cluster_overflow_member(
@@ -1728,7 +1730,8 @@ impl Halley {
         target_overflow_index: usize,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self).reorder_cluster_overflow_member(
+        crate::compositor::clusters::system::reorder_cluster_overflow_member(
+            self,
             monitor,
             cid,
             member,
@@ -1744,8 +1747,9 @@ impl Halley {
         world_pos: Vec2,
         now_ms: u64,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .move_active_cluster_member_to_drop_tile(monitor, member, world_pos, now_ms)
+        crate::compositor::clusters::system::move_active_cluster_member_to_drop_tile(
+            self, monitor, member, world_pos, now_ms,
+        )
     }
 
     pub(crate) fn cycle_active_stack_for_monitor(
@@ -1754,44 +1758,41 @@ impl Halley {
         direction: halley_core::cluster_layout::ClusterCycleDirection,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cycle_active_stack_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::cycle_active_stack_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .collapse_active_cluster_workspace(now)
+        crate::compositor::clusters::system::collapse_active_cluster_workspace(self, now)
     }
 
     pub fn cluster_mode_active(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).cluster_mode_active()
+        crate::compositor::clusters::system::cluster_mode_active(self)
     }
 
     pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cluster_mode_active_for_monitor(monitor)
+        crate::compositor::clusters::system::cluster_mode_active_for_monitor(self, monitor)
     }
 
     pub fn enter_cluster_mode(&mut self) -> bool {
-        super::clusters::system::cluster_system_controller(self).enter_cluster_mode()
+        crate::compositor::clusters::system::enter_cluster_mode(self)
     }
 
     pub fn exit_cluster_mode(&mut self) -> bool {
-        super::clusters::system::cluster_system_controller(self).exit_cluster_mode()
+        crate::compositor::clusters::system::exit_cluster_mode(self)
     }
 
     pub fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .toggle_cluster_mode_selection(node_id)
+        crate::compositor::clusters::system::toggle_cluster_mode_selection(self, node_id)
     }
 
     pub fn confirm_cluster_mode(&mut self, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self).confirm_cluster_mode(now)
+        crate::compositor::clusters::system::confirm_cluster_mode(self, now)
     }
 
     pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .toggle_cluster_workspace_by_core(core_id, now)
+        crate::compositor::clusters::system::toggle_cluster_workspace_by_core(self, core_id, now)
     }
 
     pub(crate) fn activate_cluster_slot_on_current_monitor(
@@ -1799,20 +1800,20 @@ impl Halley {
         slot: u8,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .activate_cluster_slot_on_current_monitor(slot, now)
+        crate::compositor::clusters::system::activate_cluster_slot_on_current_monitor(
+            self, slot, now,
+        )
     }
 
     pub(crate) fn process_pending_cluster_slot_transition_for_current_monitor(
         &mut self,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .process_pending_cluster_slot_transition_for_current_monitor(now)
+        crate::compositor::clusters::system::process_pending_cluster_slot_transition_for_current_monitor(self, now)
     }
 
     pub fn has_active_cluster_workspace(&self) -> bool {
-        super::clusters::system::cluster_system_controller(self).has_active_cluster_workspace()
+        crate::compositor::clusters::system::has_active_cluster_workspace(self)
     }
 
     pub(crate) fn layout_active_cluster_workspace_for_monitor(
@@ -1820,8 +1821,9 @@ impl Halley {
         monitor: &str,
         now_ms: u64,
     ) {
-        super::clusters::system::cluster_system_controller(self)
-            .layout_active_cluster_workspace_for_monitor(monitor, now_ms)
+        crate::compositor::clusters::system::layout_active_cluster_workspace_for_monitor(
+            self, monitor, now_ms,
+        )
     }
 
     pub(crate) fn focus_active_tiled_cluster_member_for_monitor(
@@ -1830,8 +1832,12 @@ impl Halley {
         preferred_index: Option<usize>,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .focus_active_tiled_cluster_member_for_monitor(monitor, preferred_index, now)
+        crate::compositor::clusters::system::focus_active_tiled_cluster_member_for_monitor(
+            self,
+            monitor,
+            preferred_index,
+            now,
+        )
     }
 
     pub(crate) fn tile_focus_active_cluster_member_for_monitor(
@@ -1840,8 +1846,9 @@ impl Halley {
         direction: halley_config::DirectionalAction,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .tile_focus_active_cluster_member_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::tile_focus_active_cluster_member_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub(crate) fn tile_swap_active_cluster_member_for_monitor(
@@ -1850,8 +1857,9 @@ impl Halley {
         direction: halley_config::DirectionalAction,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .tile_swap_active_cluster_member_for_monitor(monitor, direction, now)
+        crate::compositor::clusters::system::tile_swap_active_cluster_member_for_monitor(
+            self, monitor, direction, now,
+        )
     }
 
     pub(crate) fn cycle_active_cluster_layout_for_monitor(
@@ -1859,8 +1867,9 @@ impl Halley {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .cycle_active_cluster_layout_for_monitor(monitor, now)
+        crate::compositor::clusters::system::cycle_active_cluster_layout_for_monitor(
+            self, monitor, now,
+        )
     }
 }
 

@@ -9,7 +9,6 @@ use halley_config::{ClusterDefaultLayout, DirectionalAction};
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::cluster_layout::{ClusterCycleDirection, ClusterWorkspaceLayoutKind};
 use halley_core::field::RemoveNodeClusterEffect;
-use std::ops::{Deref, DerefMut};
 
 fn cluster_mode_selected_nodes_for_monitor_mut<'a>(
     st: &'a mut Halley,
@@ -22,7 +21,7 @@ fn cluster_mode_selected_nodes_for_monitor_mut<'a>(
         .or_default()
 }
 
-fn open_cluster_bloom_for_monitor(st: &mut Halley, monitor: &str, cid: ClusterId) -> bool {
+fn open_cluster_bloom_for_monitor_inner(st: &mut Halley, monitor: &str, cid: ClusterId) -> bool {
     let Some(cluster) = st.model.field.cluster(cid) else {
         return false;
     };
@@ -33,7 +32,7 @@ fn open_cluster_bloom_for_monitor(st: &mut Halley, monitor: &str, cid: ClusterId
         .cluster_state
         .cluster_bloom_open
         .retain(|name, open_cid| *open_cid != cid || name == monitor);
-    let _ = close_cluster_bloom_for_monitor(st, monitor);
+    let _ = close_cluster_bloom_for_monitor_inner(st, monitor);
     let _ = st.model.field.set_pinned(core_id, true);
     st.input.interaction_state.physics_velocity.remove(&core_id);
     st.model
@@ -43,7 +42,7 @@ fn open_cluster_bloom_for_monitor(st: &mut Halley, monitor: &str, cid: ClusterId
     true
 }
 
-fn close_cluster_bloom_for_monitor(st: &mut Halley, monitor: &str) -> bool {
+fn close_cluster_bloom_for_monitor_inner(st: &mut Halley, monitor: &str) -> bool {
     let Some(cid) = st.model.cluster_state.cluster_bloom_open.remove(monitor) else {
         return false;
     };
@@ -53,7 +52,7 @@ fn close_cluster_bloom_for_monitor(st: &mut Halley, monitor: &str) -> bool {
     true
 }
 
-fn enter_cluster_mode(st: &mut Halley, monitor: &str) -> bool {
+fn enter_cluster_mode_inner(st: &mut Halley, monitor: &str) -> bool {
     if st
         .model
         .cluster_state
@@ -69,7 +68,7 @@ fn enter_cluster_mode(st: &mut Halley, monitor: &str) -> bool {
     true
 }
 
-fn exit_cluster_mode(st: &mut Halley, monitor: &str) -> bool {
+fn exit_cluster_mode_inner(st: &mut Halley, monitor: &str) -> bool {
     if !st
         .model
         .cluster_state
@@ -85,7 +84,7 @@ fn exit_cluster_mode(st: &mut Halley, monitor: &str) -> bool {
     true
 }
 
-fn toggle_cluster_mode_selection(st: &mut Halley, monitor: &str, node_id: NodeId) -> bool {
+fn toggle_cluster_mode_selection_inner(st: &mut Halley, monitor: &str, node_id: NodeId) -> bool {
     if !st
         .model
         .cluster_state
@@ -109,7 +108,7 @@ fn toggle_cluster_mode_selection(st: &mut Halley, monitor: &str, node_id: NodeId
     true
 }
 
-fn detach_member_from_cluster(
+fn detach_member_from_cluster_inner(
     st: &mut Halley,
     cid: ClusterId,
     member_id: NodeId,
@@ -141,7 +140,7 @@ fn detach_member_from_cluster(
     Some(outcome)
 }
 
-fn absorb_node_into_cluster(st: &mut Halley, cid: ClusterId, node_id: NodeId) -> bool {
+fn absorb_node_into_cluster_inner(st: &mut Halley, cid: ClusterId, node_id: NodeId) -> bool {
     let active_workspace = st
         .model
         .field
@@ -278,16 +277,15 @@ mod navigation;
 mod overflow;
 mod workspace;
 
+pub(crate) use mode::*;
+pub(crate) use mutation::*;
+pub(crate) use naming::*;
+pub(crate) use navigation::*;
+pub(crate) use overflow::*;
+pub(crate) use workspace::*;
+
 #[cfg(test)]
 mod tests;
-
-pub(crate) struct ClusterSystemController<T> {
-    st: T,
-}
-
-pub(crate) fn cluster_system_controller<T>(st: T) -> ClusterSystemController<T> {
-    ClusterSystemController { st }
-}
 
 pub(crate) fn active_cluster_workspace_for_monitor(
     st: &Halley,
@@ -300,143 +298,107 @@ pub(crate) fn active_cluster_workspace_for_monitor(
         .copied()
 }
 
+pub(crate) const CLUSTER_OVERFLOW_VISIBLE_SLOTS: usize = 15;
+
+pub(crate) fn preferred_monitor_for_cluster(
+    st: &Halley,
+    cid: ClusterId,
+    preferred: Option<&str>,
+) -> Option<String> {
+    crate::compositor::clusters::read::preferred_monitor_for_cluster(st, cid, preferred)
+}
+
+pub(crate) fn cluster_overflow_rect_for_monitor(
+    st: &Halley,
+    monitor: &str,
+) -> Option<halley_core::tiling::Rect> {
+    st.model
+        .cluster_state
+        .cluster_overflow_rects
+        .get(monitor)
+        .copied()
+}
+
+pub(crate) fn cluster_overflow_slot_rect_for_monitor(
+    st: &Halley,
+    monitor: &str,
+    overflow_len: usize,
+    slot_index: usize,
+) -> Option<halley_core::tiling::Rect> {
+    crate::compositor::clusters::read::overflow_strip_slot_rect_for_monitor(
+        st,
+        monitor,
+        overflow_len,
+        slot_index,
+    )
+}
+
+pub(crate) fn active_cluster_tile_rect_for_member(
+    st: &Halley,
+    monitor: &str,
+    member_id: NodeId,
+) -> Option<halley_core::tiling::Rect> {
+    crate::compositor::clusters::read::plan_active_cluster_layout(st, monitor)?
+        .tiles
+        .into_iter()
+        .find(|tile| tile.node_id == member_id)
+        .map(|tile| tile.rect)
+}
+
+pub(crate) fn cluster_spawn_rect_for_new_member(
+    st: &Halley,
+    monitor: &str,
+    cid: ClusterId,
+) -> Option<halley_core::tiling::Rect> {
+    crate::compositor::clusters::read::cluster_spawn_rect_for_new_member(st, monitor, cid)
+}
+
 pub(crate) fn stack_layout_rects_for_members(
     st: &Halley,
     monitor: &str,
     members: &[NodeId],
 ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
-    cluster_system_controller(st).stack_layout_rects_for_members(monitor, members)
+    crate::compositor::clusters::read::stack_layout_rects_for_members(st, monitor, members)
 }
 
-impl<T: Deref<Target = Halley>> Deref for ClusterSystemController<T> {
-    type Target = Halley;
-
-    fn deref(&self) -> &Self::Target {
-        self.st.deref()
-    }
+pub fn has_any_active_cluster_workspace(st: &Halley) -> bool {
+    !st.model.cluster_state.active_cluster_workspaces.is_empty()
 }
 
-impl<T: DerefMut<Target = Halley>> DerefMut for ClusterSystemController<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.st.deref_mut()
-    }
+pub fn cluster_mode_active(st: &Halley) -> bool {
+    cluster_mode_active_for_monitor(st, st.model.monitor_state.current_monitor.as_str())
 }
 
-impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
-    const CLUSTER_OVERFLOW_VISIBLE_SLOTS: usize = 15;
+pub fn cluster_mode_active_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .cluster_state
+        .cluster_mode_selected_nodes
+        .contains_key(monitor)
+}
 
-    fn preferred_monitor_for_cluster(
-        &self,
-        cid: ClusterId,
-        preferred: Option<&str>,
-    ) -> Option<String> {
-        crate::compositor::clusters::read::preferred_monitor_for_cluster(self, cid, preferred)
-    }
+pub fn has_active_cluster_workspace(st: &Halley) -> bool {
+    active_cluster_workspace_for_monitor(st, st.model.monitor_state.current_monitor.as_str())
+        .is_some()
+}
 
-    pub(crate) fn cluster_overflow_rect_for_monitor(
-        &self,
-        monitor: &str,
-    ) -> Option<halley_core::tiling::Rect> {
-        self.model
-            .cluster_state
-            .cluster_overflow_rects
-            .get(monitor)
-            .copied()
-    }
+pub(crate) fn active_cluster_layout_kind(st: &Halley) -> ClusterWorkspaceLayoutKind {
+    st.runtime.tuning.cluster_layout_kind()
+}
 
-    pub(crate) fn cluster_overflow_slot_rect_for_monitor(
-        &self,
-        monitor: &str,
-        overflow_len: usize,
-        slot_index: usize,
-    ) -> Option<halley_core::tiling::Rect> {
-        crate::compositor::clusters::read::overflow_strip_slot_rect_for_monitor(
-            self,
-            monitor,
-            overflow_len,
-            slot_index,
-        )
+pub(crate) fn cluster_overflow_len(st: &Halley, cid: ClusterId) -> usize {
+    if !matches!(
+        active_cluster_layout_kind(st),
+        ClusterWorkspaceLayoutKind::Tiling
+    ) {
+        return 0;
     }
-
-    pub(crate) fn active_cluster_tile_rect_for_member(
-        &self,
-        monitor: &str,
-        member_id: NodeId,
-    ) -> Option<halley_core::tiling::Rect> {
-        crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)?
-            .tiles
-            .into_iter()
-            .find(|tile| tile.node_id == member_id)
-            .map(|tile| tile.rect)
-    }
-
-    pub(crate) fn cluster_spawn_rect_for_new_member(
-        &self,
-        monitor: &str,
-        cid: ClusterId,
-    ) -> Option<halley_core::tiling::Rect> {
-        crate::compositor::clusters::read::cluster_spawn_rect_for_new_member(self, monitor, cid)
-    }
-
-    pub(crate) fn stack_layout_rects_for_members(
-        &self,
-        monitor: &str,
-        members: &[NodeId],
-    ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
-        crate::compositor::clusters::read::stack_layout_rects_for_members(self, monitor, members)
-    }
-
-    pub fn has_any_active_cluster_workspace(&self) -> bool {
-        !self
-            .model
-            .cluster_state
-            .active_cluster_workspaces
-            .is_empty()
-    }
-
-    pub fn cluster_mode_active(&self) -> bool {
-        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
-    }
-
-    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
-        self.model
-            .cluster_state
-            .cluster_mode_selected_nodes
-            .contains_key(monitor)
-    }
-
-    pub fn has_active_cluster_workspace(&self) -> bool {
-        self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
-            .is_some()
-    }
-
-    pub fn active_cluster_workspace_for_monitor(&self, monitor: &str) -> Option<ClusterId> {
-        self.model
-            .cluster_state
-            .active_cluster_workspaces
-            .get(monitor)
-            .copied()
-    }
-
-    fn active_cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
-        self.runtime.tuning.cluster_layout_kind()
-    }
-
-    fn cluster_overflow_len(&self, cid: ClusterId) -> usize {
-        if !matches!(
-            self.active_cluster_layout_kind(),
-            ClusterWorkspaceLayoutKind::Tiling
-        ) {
-            return 0;
-        }
-        self.model
-            .field
-            .cluster(cid)
-            .map(|cluster| {
-                cluster
-                    .overflow_members(self.runtime.tuning.tile_max_stack)
-                    .len()
-            })
-            .unwrap_or(0)
-    }
+    st.model
+        .field
+        .cluster(cid)
+        .map(|cluster| {
+            cluster
+                .overflow_members(st.runtime.tuning.tile_max_stack)
+                .len()
+        })
+        .unwrap_or(0)
 }

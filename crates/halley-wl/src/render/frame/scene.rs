@@ -258,8 +258,7 @@ pub(super) fn collect_debug_frame_scene(
         .into_iter()
         .filter_map(|id| {
             let node = st.model.field.node(id)?;
-            if crate::compositor::clusters::system::cluster_system_controller(&*st)
-                .pending_lift_cluster_node_staged(id)
+            if crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*st, id)
                 || !st.model.field.participates_in_field_view(id)
                 || !st.model.field.is_visible(id)
                 || !st.node_assigned_to_current_monitor(id)
