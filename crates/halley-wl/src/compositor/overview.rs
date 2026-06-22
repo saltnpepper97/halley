@@ -622,36 +622,23 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
-    // An overflow-bar member of an active tile-mode cluster workspace: promote it
-    // into the master slot (the layout shifts the old master into overflow) rather
-    // than trying to reveal a HIDDEN_BY_CLUSTER node.
+    // Any member of an active cluster workspace: promote it into the master slot
+    // (the relayout shifts the old master down; an overflow member becomes visible)
+    // and focus it, rather than revealing it at its windowed field position.
     let target_monitor = st.monitor_for_node_or_current(node_id);
     if let Some(cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str()) {
-        let is_overflow = st
+        let is_member = st
             .model
-            .cluster_state
-            .cluster_overflow_members
-            .get(target_monitor.as_str())
-            .is_some_and(|members| members.contains(&node_id));
-        if is_overflow {
-            let max_stack = st.runtime.tuning.tile_max_stack;
-            let master = st
+            .field
+            .cluster(cid)
+            .is_some_and(|cluster| cluster.members().contains(&node_id));
+        if is_member {
+            let _ = st
                 .model
                 .field
-                .cluster(cid)
-                .and_then(|cluster| cluster.visible_members(max_stack).first().copied());
-            if let Some(master) = master {
-                let now_ms = st.now_ms(now);
-                let _ =
-                    crate::compositor::clusters::system::swap_cluster_overflow_member_with_visible(
-                        st,
-                        target_monitor.as_str(),
-                        cid,
-                        node_id,
-                        master,
-                        now_ms,
-                    );
-            }
+                .promote_cluster_member_to_master(cid, node_id);
+            let now_ms = st.now_ms(now);
+            st.layout_active_cluster_workspace_for_monitor(target_monitor.as_str(), now_ms);
             st.set_interaction_focus(Some(node_id), 30_000, now);
             return;
         }

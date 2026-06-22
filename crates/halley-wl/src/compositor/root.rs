@@ -439,6 +439,7 @@ impl Halley {
                     apogee_session: None,
                     apogee_live_preview_node: None,
                     apogee_live_preview_last_at: None,
+                    apogee_hover_node: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,

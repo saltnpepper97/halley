@@ -106,6 +106,12 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             st.input.interaction_state.apogee_live_preview_node = live_preview;
             st.input.interaction_state.apogee_live_preview_last_at = None;
         }
+        // Track the hovered tile (window or core) so the overview can ring core
+        // tiles too, not just window previews.
+        let hover_changed = st.input.interaction_state.apogee_hover_node != hit;
+        if hover_changed {
+            st.input.interaction_state.apogee_hover_node = hit;
+        }
         let icon = if hit.is_some() {
             Some(smithay::input::pointer::CursorIcon::Pointer)
         } else {
@@ -115,7 +121,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
         }
         request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
-        if live_preview_changed {
+        if live_preview_changed || hover_changed {
             ctx.backend.request_output_redraw(target_monitor.as_str());
         }
         return;

@@ -471,6 +471,7 @@ pub(crate) fn draw_observatory(
     let core_offset = monitor_session.core_scroll_offset;
     let phase_open = matches!(session.phase, ApogeePhase::Open);
     let hovered_node = st.input.interaction_state.apogee_live_preview_node;
+    let hovered_overlay_node = st.input.interaction_state.apogee_hover_node;
 
     let visuals = resolve_overlay_visuals(&st.runtime.tuning);
     let overlay = OverlayView::from_halley(st);
@@ -496,7 +497,7 @@ pub(crate) fn draw_observatory(
         if rect.loc.x > screen_w || rect.loc.x + rect.size.w < 0 {
             continue;
         }
-        let hovered = phase_open && hovered_node == Some(tile.node_id);
+        let hovered = phase_open && hovered_overlay_node == Some(tile.node_id);
         draw_core_tile(
             frame, &*st, &overlay, &visuals, tile, rect, tile_alpha, hovered, damage,
         )?;

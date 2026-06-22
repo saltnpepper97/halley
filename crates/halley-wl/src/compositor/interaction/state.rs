@@ -373,6 +373,9 @@ pub(crate) struct InteractionState {
     pub(crate) apogee_session: Option<crate::compositor::overview::ApogeeSession>,
     pub(crate) apogee_live_preview_node: Option<NodeId>,
     pub(crate) apogee_live_preview_last_at: Option<Instant>,
+    /// Apogee tile (window or core) currently under the cursor, used to draw the
+    /// hover ring. Unlike `apogee_live_preview_node` this also tracks core tiles.
+    pub(crate) apogee_hover_node: Option<NodeId>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,

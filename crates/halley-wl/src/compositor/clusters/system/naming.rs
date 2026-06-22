@@ -897,10 +897,31 @@ pub(crate) fn finish_lift_finalized_cluster(
     let now_ms = st.now_ms(now);
     let _ = st.model.field.touch(core_id, now_ms);
     st.set_interaction_focus(Some(core_id), 30_000, now);
-    // The core is dropped at the view centre and may land on top of a window;
-    // resolve overlap immediately so it slides clear like a freshly spawned node
-    // (mirrors the spawn path), instead of only correcting on the next interaction.
-    st.resolve_overlap_now();
+    // The core is dropped at the view centre and may land on top of a window.
+    // Slide it clear with the same animated landmark push normal nodes get when a
+    // window is revealed over them, instead of the trapped-landmark teleport that
+    // resolve_overlap_now would produce.
+    let overlapping_windows: Vec<NodeId> = st
+        .model
+        .field
+        .nodes()
+        .iter()
+        .filter(|(id, node)| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && node.state == halley_core::field::NodeState::Active
+                && st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(id)
+                    .map(String::as_str)
+                    == Some(monitor)
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    for window_id in overlapping_windows {
+        st.resolve_landmarks_overlapped_by_active_window(window_id);
+    }
     st.request_maintenance();
     Some(core_id)
 }
