@@ -1120,13 +1120,12 @@ impl Halley {
     }
 
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
-        super::focus::decay::focus_decay_controller(self).enforce_single_primary_active_unit()
+        super::focus::decay::enforce_single_primary_active_unit(self)
     }
 
     #[cfg(test)]
     pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
-        super::focus::decay::focus_decay_controller(self)
-            .surface_is_definitively_outside_focus_ring(id)
+        super::focus::decay::surface_is_definitively_outside_focus_ring(self, id)
     }
 
     pub fn apply_single_surface_decay_policy(
@@ -1136,7 +1135,8 @@ impl Halley {
         active_delay_ms: u64,
         inactive_delay_ms: u64,
     ) {
-        super::focus::decay::focus_decay_controller(self).apply_single_surface_decay_policy(
+        super::focus::decay::apply_single_surface_decay_policy(
+            self,
             id,
             now_ms,
             active_delay_ms,
