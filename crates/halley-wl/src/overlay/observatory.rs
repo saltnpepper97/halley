@@ -14,8 +14,8 @@ use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
     OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_chip,
-    draw_overlay_chip_without_shadow, draw_overlay_ring, overlay_accent_fill,
-    overlay_text_color_for_fill,
+    draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow, draw_overlay_ring,
+    overlay_accent_fill, overlay_text_color_for_fill,
     preview_source::{preview_src_uv, window_preview_source_rect},
     resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
@@ -361,16 +361,24 @@ fn draw_core_tile(
     tile: &ApogeeTile,
     rect: Rectangle<i32, Physical>,
     alpha: f32,
+    hovered: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let fill = visuals.palette.key_fill.alpha(0.84 * alpha);
-    draw_overlay_chip(
+    let fill = crate::presentation::themed_node_fill_color(&st.runtime.tuning, hovered);
+    let border_color =
+        crate::presentation::themed_node_ring_color(&st.runtime.tuning, hovered, 1.0);
+    let core_visuals = OverlayVisuals {
+        border_px: 5.0,
+        ..*visuals
+    };
+    draw_overlay_chip_with_border_color(
         frame,
         overlay.render_state,
-        visuals,
+        &core_visuals,
         rect,
         rect.size.w.min(rect.size.h) as f32 * 0.5,
         fill,
+        border_color,
         true,
         damage,
         alpha,
@@ -488,8 +496,9 @@ pub(crate) fn draw_observatory(
         if rect.loc.x > screen_w || rect.loc.x + rect.size.w < 0 {
             continue;
         }
+        let hovered = phase_open && hovered_node == Some(tile.node_id);
         draw_core_tile(
-            frame, &*st, &overlay, &visuals, tile, rect, tile_alpha, damage,
+            frame, &*st, &overlay, &visuals, tile, rect, tile_alpha, hovered, damage,
         )?;
     }
 

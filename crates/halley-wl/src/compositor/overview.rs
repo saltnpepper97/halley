@@ -622,6 +622,41 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
+    // An overflow-bar member of an active tile-mode cluster workspace: promote it
+    // into the master slot (the layout shifts the old master into overflow) rather
+    // than trying to reveal a HIDDEN_BY_CLUSTER node.
+    let target_monitor = st.monitor_for_node_or_current(node_id);
+    if let Some(cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str()) {
+        let is_overflow = st
+            .model
+            .cluster_state
+            .cluster_overflow_members
+            .get(target_monitor.as_str())
+            .is_some_and(|members| members.contains(&node_id));
+        if is_overflow {
+            let max_stack = st.runtime.tuning.tile_max_stack;
+            let master = st
+                .model
+                .field
+                .cluster(cid)
+                .and_then(|cluster| cluster.visible_members(max_stack).first().copied());
+            if let Some(master) = master {
+                let now_ms = st.now_ms(now);
+                let _ =
+                    crate::compositor::clusters::system::swap_cluster_overflow_member_with_visible(
+                        st,
+                        target_monitor.as_str(),
+                        cid,
+                        node_id,
+                        master,
+                        now_ms,
+                    );
+            }
+            st.set_interaction_focus(Some(node_id), 30_000, now);
+            return;
+        }
+    }
+
     if crate::compositor::actions::window::focus_from_presentation_navigation(st, node_id, now)
         || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
     {
@@ -738,6 +773,66 @@ fn build_apogee_tiles(
             core_raw.push(entry);
         } else {
             raw.push(entry);
+        }
+    }
+
+    // Surface an active cluster workspace's overflow-bar members as window tiles.
+    // They are HIDDEN_BY_CLUSTER on the desktop (so the loop above skips them) yet
+    // still real workspace nodes; showing them lets the overview promote one into
+    // the layout. They fly in from the overflow strip.
+    if matches!(
+        crate::compositor::clusters::system::active_cluster_layout_kind(st),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+    ) && let Some(overflow_ids) = st
+        .model
+        .cluster_state
+        .cluster_overflow_members
+        .get(monitor)
+        .cloned()
+    {
+        let strip = st
+            .model
+            .cluster_state
+            .cluster_overflow_rects
+            .get(monitor)
+            .copied();
+        let already: std::collections::HashSet<NodeId> = raw.iter().map(|e| e.0).collect();
+        for oid in overflow_ids {
+            if already.contains(&oid) {
+                continue;
+            }
+            let Some(node) = view.field.node(oid) else {
+                continue;
+            };
+            let preview_size = apogee_window_preview_size(&view, oid, node.intrinsic_size);
+            let aspect = window_aspect(&view, oid, preview_size);
+            let weight = (preview_size.x * preview_size.y).max(1.0);
+            let from = if let Some(strip) = strip {
+                let side = strip.w.max(8.0);
+                TileRect {
+                    cx: strip.x + strip.w * 0.5,
+                    cy: strip.y + strip.h * 0.5,
+                    w: side,
+                    h: side,
+                }
+            } else {
+                let (cx, cy) = view.world_to_screen(screen_w, screen_h, node.pos.x, node.pos.y);
+                TileRect {
+                    cx: cx as f32,
+                    cy: cy as f32,
+                    w: (preview_size.x * scale_x).max(8.0),
+                    h: (preview_size.y * scale_y).max(8.0),
+                }
+            };
+            raw.push((
+                oid,
+                ApogeeTileKind::Window,
+                false,
+                node.pos,
+                aspect,
+                weight,
+                from,
+            ));
         }
     }
 
