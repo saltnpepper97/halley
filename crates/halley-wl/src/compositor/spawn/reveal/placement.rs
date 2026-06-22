@@ -1,17 +1,15 @@
 use std::time::Instant;
 
-use eventline::debug;
-use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement};
-use halley_core::field::{NodeId, Vec2};
-use halley_core::viewport::Viewport;
-
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::overlap::system::CollisionExtents;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::read;
 use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
 use crate::compositor::spawn::state::{InitialSpawnPlacement, SpawnPlacementExtents};
 use crate::window::active_window_frame_pad_px;
+use eventline::debug;
+use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement};
+use halley_core::field::{NodeId, Vec2};
+use halley_core::viewport::Viewport;
 
 const SPAWN_COLLISION_SAFETY_SCALE: f32 = 1.08;
 const SPAWN_CONTACT_MARGIN: f32 = 4.0;
@@ -254,7 +252,7 @@ pub(crate) fn viewport_for_monitor(st: &Halley, monitor: &str) -> Option<Viewpor
     if st.model.monitor_state.current_monitor == monitor {
         return Some(Viewport::new(
             st.model.viewport.center,
-            camera_controller(&*st).view_size(),
+            crate::compositor::monitor::camera::camera_view_size(&*st),
         ));
     }
     st.model

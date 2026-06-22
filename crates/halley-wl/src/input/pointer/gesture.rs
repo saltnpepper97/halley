@@ -15,7 +15,6 @@ use crate::compositor::interaction::state::{
     ActiveCompositorHold, ActiveCompositorPinch, ActiveCompositorPinchMode, ActiveCompositorSwipe,
     ActiveGestureRoute, SwipeMode,
 };
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::bindings::apply_compositor_action_press;
@@ -211,7 +210,7 @@ fn begin_pinch_route<B: BackendView>(st: &mut Halley, ctx: &InputCtx<'_, B>) -> 
     }
     if !gestures.pinch_to_zoom
         || !st.runtime.tuning.zoom_enabled
-        || camera_controller(&*st).zoom_blocked_by_interaction()
+        || crate::compositor::monitor::camera::zoom_blocked_by_interaction(&*st)
     {
         if target.focus.is_some() {
             return if begin_client_route(st, &target) {
@@ -272,7 +271,7 @@ fn begin_swipe_route<B: BackendView>(
     // client should own the gesture.
     let want_pan = !apogee_context && pan_fingers > 0 && fingers == pan_fingers;
     if want_pan {
-        if camera_controller(&*st).pan_blocked_on_monitor(target.monitor.as_str())
+        if crate::compositor::monitor::camera::pan_blocked_on_monitor(&*st, target.monitor.as_str())
             || (target.focus.is_some()
                 && (gestures.compositor_scope != CompositorGestureScope::Global
                     && !global_override
@@ -392,7 +391,7 @@ fn classify_pending_pinch(delta: Vec2, scale: f32) -> Option<PendingPinchIntent>
 }
 
 fn pinch_pan_delta(st: &Halley, monitor: &str, delta_x: f64, delta_y: f64) -> Vec2 {
-    let camera = camera_controller(st).view_size();
+    let camera = crate::compositor::monitor::camera::camera_view_size(st);
     let (ws_w, ws_h) = st
         .model
         .monitor_state
@@ -420,11 +419,11 @@ fn apply_pinch_pan<B: BackendView>(
     if pan.x.abs() < f32::EPSILON && pan.y.abs() < f32::EPSILON {
         return;
     }
-    if camera_controller(&*st).pan_blocked_on_monitor(monitor) {
+    if crate::compositor::monitor::camera::pan_blocked_on_monitor(&*st, monitor) {
         return;
     }
     st.note_pan_activity(Instant::now());
-    camera_controller(&mut *st).pan_target(pan);
+    crate::compositor::monitor::camera::pan_camera_target(&mut *st, pan);
     st.note_pan_viewport_change(Instant::now());
     ctx.backend.request_output_redraw(monitor);
 }
@@ -439,8 +438,10 @@ fn apply_pinch_zoom<B: BackendView>(
     if !st.activate_monitor(monitor) {
         return;
     }
-    camera_controller(&mut *st)
-        .set_target_view_size(pinch_target_view_size(start_view_size, scale as f32));
+    crate::compositor::monitor::camera::set_camera_target_view_size(
+        &mut *st,
+        pinch_target_view_size(start_view_size, scale as f32),
+    );
     ctx.backend.request_output_redraw(monitor);
 }
 

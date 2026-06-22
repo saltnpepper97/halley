@@ -2,17 +2,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use calloop::ping::Ping;
-use eventline::warn;
-use halley_config::RuntimeTuning;
-use smithay::reexports::wayland_server::backend::ObjectId;
-
-use super::monitor::camera::camera_controller;
 use super::root::Halley;
 use super::screenshot;
 use crate::animation::AnimSpec;
 use crate::compositor::activity::CommitActivity;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
+use calloop::ping::Ping;
+use eventline::warn;
+use halley_config::RuntimeTuning;
+use smithay::reexports::wayland_server::backend::ObjectId;
 
 const FIXED_ANIM_STATE_CHANGE_MS: u64 = 360;
 const FIXED_ANIM_BOUNCE: f32 = 1.45;
@@ -612,7 +610,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
         && !(st.input.interaction_state.resize_static_node.is_some()
             && now_ms < st.input.interaction_state.resize_static_until_ms)
     {
-        camera_controller(&mut *st).update_zoom_live_surface_sizes();
+        crate::compositor::monitor::camera::update_zoom_live_surface_sizes(&mut *st);
     }
     let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
         enabled: false,

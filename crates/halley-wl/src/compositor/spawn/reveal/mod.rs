@@ -14,7 +14,6 @@ use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
 
 use crate::compositor::ctx::SpawnCtx;
 use crate::compositor::focus::state::FocusState;
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::monitor::state::MonitorState;
 use crate::compositor::overlap::system::CollisionExtents;
 use crate::compositor::root::Halley;

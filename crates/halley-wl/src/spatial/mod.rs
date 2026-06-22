@@ -1,6 +1,4 @@
 mod hit_test;
-
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 
 pub(crate) fn screen_to_world(
@@ -12,7 +10,7 @@ pub(crate) fn screen_to_world(
 ) -> halley_core::field::Vec2 {
     let w = (w as f32).max(1.0);
     let h = (h as f32).max(1.0);
-    let view = camera_controller(st).view_size();
+    let view = crate::compositor::monitor::camera::camera_view_size(st);
     let nx = (sx / w) - 0.5;
     let ny = (sy / h) - 0.5;
 

@@ -1,13 +1,11 @@
+use crate::compositor::root::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, RuntimeTuning};
 #[cfg(test)]
 use halley_core::field::Vec2;
 use smithay::backend::renderer::Color32F;
 
-use crate::compositor::monitor::camera::camera_controller;
-use crate::compositor::root::Halley;
-
 pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
-    let view = camera_controller(st).view_size();
+    let view = crate::compositor::monitor::camera::camera_view_size(st);
     let vw = view.x.max(1.0);
     let vh = view.y.max(1.0);
 

@@ -5,7 +5,6 @@ use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
 use crate::compositor::exit_confirm;
-use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
 use crate::input::pointer::focus;
@@ -484,15 +483,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = routing.global_sx - lsx;
         let dy_px = routing.global_sy - lsy;
-        let camera = camera_controller(&*st).view_size();
+        let camera = crate::compositor::monitor::camera::camera_view_size(&*st);
         let dx_world = dx_px * camera.x.max(1.0) / (routing.ws_w as f32).max(1.0);
         let dy_world = dy_px * camera.y.max(1.0) / (routing.ws_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
-        camera_controller(&mut *st).pan_target(halley_core::field::Vec2 {
-            x: -dx_world,
-            y: -dy_world,
-        });
+        crate::compositor::monitor::camera::pan_camera_target(
+            &mut *st,
+            halley_core::field::Vec2 {
+                x: -dx_world,
+                y: -dy_world,
+            },
+        );
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (routing.global_sx, routing.global_sy);
         ctx.backend.request_output_redraw(routing.monitor.as_str());
