@@ -280,6 +280,25 @@ impl Halley {
             .iter()
             .map(|(monitor, space)| (monitor.clone(), (space.width, space.height)))
             .collect::<std::collections::HashMap<_, _>>();
+        // Desktop draw rank per window tile, computed under an immutable borrow so
+        // the close fly-back can overlap windows in the same z-order the live
+        // desktop uses (otherwise they snap into order when the overlay clears).
+        let draw_ranks: std::collections::HashMap<NodeId, (u64, u64)> =
+            match self.input.interaction_state.apogee_session.as_ref() {
+                Some(session) => session
+                    .monitors
+                    .iter()
+                    .flat_map(|m| m.tiles.iter())
+                    .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+                    .map(|tile| {
+                        (
+                            tile.node_id,
+                            crate::window::active_surface_draw_rank(self, tile.node_id),
+                        )
+                    })
+                    .collect(),
+                None => std::collections::HashMap::new(),
+            };
         if let Some(session) = self.input.interaction_state.apogee_session.as_mut() {
             if session.phase == ApogeePhase::Closing {
                 return;
@@ -287,11 +306,26 @@ impl Halley {
             self.input.interaction_state.apogee_live_preview_node = None;
             self.input.interaction_state.apogee_live_preview_last_at = None;
             let eased = ease_in_out_cubic(session.progress(now));
+            let pending_sel = session.pending_selection;
             for monitor_session in &mut session.monitors {
                 let (screen_w, screen_h) = screen_sizes
                     .get(&monitor_session.monitor)
                     .copied()
                     .unwrap_or((1, 1));
+                // Reorder window tiles into the live desktop's z-order so the
+                // fly-back overlaps correctly, then keep any picked tile on top.
+                monitor_session
+                    .tiles
+                    .sort_by_key(|tile| draw_ranks.get(&tile.node_id).copied().unwrap_or((0, 0)));
+                if let Some(sel) = pending_sel
+                    && let Some(idx) = monitor_session
+                        .tiles
+                        .iter()
+                        .position(|tile| tile.node_id == sel)
+                {
+                    let tile = monitor_session.tiles.remove(idx);
+                    monitor_session.tiles.push(tile);
+                }
                 // Fly back from the currently displayed atlas rect, not from the
                 // raw atlas slot, so scroll position does not snap on close.
                 for tile in &mut monitor_session.tiles {
@@ -592,6 +626,24 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
     {
         return;
+    }
+    // A cluster core: open the cluster (enter its workspace) instead of just
+    // panning to it, when the knob is enabled.
+    if st.runtime.tuning.apogee.open_cluster_on_select
+        && st.model.field.cluster_id_for_core_public(node_id).is_some()
+    {
+        let monitor = st.monitor_for_node_or_current(node_id);
+        if st.focused_monitor() != monitor {
+            st.focus_monitor_view(monitor.as_str(), now);
+        }
+        if crate::compositor::clusters::system::enter_cluster_workspace_by_core(
+            st,
+            node_id,
+            monitor.as_str(),
+            now,
+        ) {
+            return;
+        }
     }
     // Cluster cores (and any non-surface node): focus + pan to its Field position.
     if let Some(pos) = st.model.field.node(node_id).map(|node| node.pos) {

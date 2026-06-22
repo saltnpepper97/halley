@@ -225,7 +225,7 @@ fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physica
         && rect.1 + rect.3 >= output.loc.y + output.size.h - tolerance
 }
 
-fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
+pub(crate) fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
     let (rank, tie) = st.overlap_policy_stack_rank(node_id);
     if node_floats_over_active_cluster(st, node_id) {
         (rank.saturating_add(1_u64 << 62), tie)

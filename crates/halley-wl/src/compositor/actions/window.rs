@@ -144,7 +144,17 @@ pub(crate) fn focus_or_reveal_surface_node(
                 .spawn_state
                 .pending_initial_reveal
                 .contains(&node_id);
-            if !is_pending_tiled && !is_pending_reveal {
+            // A maximized window draws at the monitor's usable-viewport center, not
+            // at its windowed field pos. Panning to the windowed reveal center would
+            // shift the view and leave the maximized window off-screen-center, so
+            // leave the (already-correct) maximize camera put — mirroring the guard
+            // in close_restore_pan_plan.
+            let is_maximize_target =
+                crate::compositor::workspace::state::maximize_session_target_for_monitor(
+                    st,
+                    target_monitor.as_str(),
+                ) == Some(node_id);
+            if !is_maximize_target && !is_pending_tiled && !is_pending_reveal {
                 let _ = st
                     .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
                     .map(|target| st.animate_viewport_center_to(target, now));
