@@ -179,7 +179,8 @@ fn plan_toplevel_destroy_close_restore(
     };
     let now = Instant::now();
     let suppress_restore_pan =
-        st.node_has_overlap_policy(closing_id) || st.is_fullscreen_active(closing_id);
+        crate::compositor::spawn::state::node_has_overlap_policy(st, closing_id)
+            || st.is_fullscreen_active(closing_id);
 
     if facts.closing_fullscreen {
         return non_cluster_close_restore_target(st, focused_monitor, closing_id).map(|target| {

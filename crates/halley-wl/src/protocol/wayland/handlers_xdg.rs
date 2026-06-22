@@ -256,7 +256,7 @@ impl XdgShellHandler for Halley {
         }
         if !handled_by_lift_staging && (!handled_by_cluster || handled_by_active_cluster) {
             spawn::reveal::reveal_new_toplevel_node_via_ctx(
-                &mut self.spawn_ctx(),
+                &mut crate::compositor::ctx::spawn_ctx(self),
                 id,
                 is_transient,
                 now,

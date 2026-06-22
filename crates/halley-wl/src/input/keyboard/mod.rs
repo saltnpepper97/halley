@@ -274,7 +274,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             } else if Some(code) == exit_return {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 exit_confirm::clear(&mut *st);
-                st.request_exit();
+                crate::compositor::runtime::request_exit(st);
                 ctx.backend.request_redraw();
             }
         }
@@ -541,7 +541,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 st.exit_cluster_mode()
             } else {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                st.confirm_cluster_mode(Instant::now())
+                crate::compositor::clusters::system::confirm_cluster_mode(st, Instant::now())
             };
             if handled || Some(code) == cluster_return || Some(code) == cluster_escape {
                 ctx.backend.request_redraw();

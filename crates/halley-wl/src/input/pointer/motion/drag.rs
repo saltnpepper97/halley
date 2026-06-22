@@ -904,15 +904,16 @@ pub(crate) fn finish_pointer_drag(
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
-    let joined = st.commit_ready_cluster_join_for_node(node_id, now)
-        || join_active_stacking_layout_at(
-            st,
-            drag_monitor.as_str(),
-            node_id,
-            world_now,
-            now,
-            now_ms,
-        );
+    let joined =
+        crate::compositor::clusters::system::commit_ready_cluster_join_for_node(st, node_id, now)
+            || join_active_stacking_layout_at(
+                st,
+                drag_monitor.as_str(),
+                node_id,
+                world_now,
+                now,
+                now_ms,
+            );
     if !joined {
         if started_active {
             let _ = st.move_active_cluster_member_to_drop_tile(
@@ -988,7 +989,12 @@ pub(super) fn handle_drag_motion(
 
     let drag_allowed = !drag.requires_drag_modifier || drag_mod_ok;
     if ps.resize.is_some() || !drag_allowed {
-        let joined = !drag_allowed && st.commit_ready_cluster_join_for_node(drag.node_id, now);
+        let joined = !drag_allowed
+            && crate::compositor::clusters::system::commit_ready_cluster_join_for_node(
+                st,
+                drag.node_id,
+                now,
+            );
         crate::compositor::carry::system::set_drag_authority_node(st, None);
         crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
         ps.drag = None;

@@ -36,8 +36,6 @@ pub fn now_ms(st: &Halley, now: Instant) -> u64 {
     now.duration_since(st.runtime.started_at).as_millis() as u64
 }
 
-pub(crate) fn debug_dump(_st: &Halley) {}
-
 pub fn exit_requested(st: &Halley) -> bool {
     st.runtime.exit_requested
 }
@@ -360,7 +358,7 @@ pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
     if !st.runtime.tuning.cursor.hide_while_typing {
         st.input.interaction_state.cursor_hidden_by_typing = false;
     }
-    st.refresh_xdg_decoration_mode();
+    crate::compositor::platform::refresh_xdg_decoration_mode(st);
     request_maintenance(st);
 
     if let Some(id) = prev_focus {
@@ -398,7 +396,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
     crate::compositor::workspace::lifecycle::reconcile_surface_bindings(st);
     let now_ms = now.duration_since(st.runtime.started_at).as_millis() as u64;
     crate::protocol::wayland::activation::prune_expired(st, now, now_ms);
-    let _ = st.recent_top_node_active(now);
+    let _ = crate::compositor::focus::state::recent_top_node_active(st, now);
     let pointer_contents_changed =
         crate::compositor::interaction::pointer::update_pointer_contents_at_last_screen(
             st, None, now,
@@ -449,7 +447,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
         st.input.interaction_state.cursor_override_until_ms = None;
         st.input.interaction_state.cursor_override_icon = None;
     }
-    if st.has_any_active_cluster_workspace() {
+    if crate::compositor::clusters::system::has_any_active_cluster_workspace(st) {
         let active_monitors = st
             .model
             .cluster_state
@@ -570,7 +568,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
         .cluster_overflow_promotion_anim
         .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);
 
-    st.process_pending_spawn_activations(now, now_ms);
+    crate::compositor::spawn::state::process_pending_spawn_activations(st, now, now_ms);
     let resize_settling = st
         .input
         .interaction_state
@@ -632,7 +630,7 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
     {
         st.resolve_surface_overlap();
     }
-    st.restore_pan_return_active_focus(now);
+    crate::compositor::focus::state::restore_pan_return_active_focus(st, now);
     let animations_enabled = st.runtime.tuning.animations_enabled();
     let crate::compositor::root::Halley { model, ui, .. } = st;
     if animations_enabled {

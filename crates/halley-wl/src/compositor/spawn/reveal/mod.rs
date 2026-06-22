@@ -370,7 +370,8 @@ pub(crate) fn maybe_start_pending_spawn_pan(st: &mut Halley, now: Instant) {
 
         let previous_monitor = activate_node_monitor_for_spawn_pan(st, next.node_id);
 
-        let did_pan = st.animate_viewport_center_to_delayed(
+        let did_pan = crate::compositor::focus::system::animate_viewport_center_to_delayed(
+            st,
             next.target_center,
             now,
             Halley::VIEWPORT_PAN_PRELOAD_MS,

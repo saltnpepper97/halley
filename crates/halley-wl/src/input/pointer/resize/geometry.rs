@@ -215,8 +215,11 @@ pub(crate) fn active_node_surface_transform_screen_details(
         n.intrinsic_size.x,
         n.intrinsic_size.y,
         transition_alpha,
-    ) * st.fullscreen_entry_scale(node_id, st.now_ms(now))
-        * fit_scale
+    ) * crate::compositor::fullscreen::system::fullscreen_entry_scale(
+        st,
+        node_id,
+        st.now_ms(now),
+    ) * fit_scale
         * cam_scale;
 
     let (origin_x, origin_y, scale) = if let Some(active_resize) =

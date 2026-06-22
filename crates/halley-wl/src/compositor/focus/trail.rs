@@ -239,7 +239,9 @@ pub(crate) fn restore_focus_to_node_after_close(
         halley_core::field::NodeState::Active => {
             st.set_interaction_focus(Some(id), 30_000, now);
             if !cluster_local && !suppress_pan {
-                st.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                crate::compositor::focus::system::maybe_pan_to_restored_focus_on_close(
+                    st, monitor, id, now,
+                );
             }
             true
         }
@@ -253,7 +255,9 @@ pub(crate) fn restore_focus_to_node_after_close(
             crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
             st.set_interaction_focus(Some(id), 30_000, now);
             if !cluster_local && !suppress_pan {
-                st.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                crate::compositor::focus::system::maybe_pan_to_restored_focus_on_close(
+                    st, monitor, id, now,
+                );
             }
             true
         }

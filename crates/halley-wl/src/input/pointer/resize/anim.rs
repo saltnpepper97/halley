@@ -227,7 +227,7 @@ fn finish_resize_interaction(
             );
         }
         keep_resized_window_forward(st, resize.node_id, now);
-        st.end_resize_interaction(now);
+        crate::compositor::focus::system::end_resize_interaction(st, now);
         st.resolve_overlap_now();
         return;
     }
@@ -257,7 +257,7 @@ fn finish_resize_interaction(
         },
     );
     keep_resized_window_forward(st, resize.node_id, now);
-    st.end_resize_interaction(now);
+    crate::compositor::focus::system::end_resize_interaction(st, now);
     st.resolve_landmarks_overlapped_by_active_window(resize.node_id);
     st.resolve_overlap_now();
 }

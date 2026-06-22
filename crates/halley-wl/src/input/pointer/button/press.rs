@@ -392,7 +392,10 @@ pub(crate) fn handle_workspace_left_press(
         if inside {
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), st.now_ms(now));
         } else {
-            st.hide_cluster_overflow_for_monitor(monitor.as_str());
+            crate::compositor::clusters::system::hide_cluster_overflow_for_monitor(
+                st,
+                monitor.as_str(),
+            );
         }
     }
     if hit.move_surface && !hit.is_core {

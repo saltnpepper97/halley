@@ -58,11 +58,18 @@ pub(super) fn build_stack_transition_plan(
     transition: &crate::render::state::StackCycleTransitionSnapshot,
 ) -> Option<StackTransitionPlan> {
     let custom_source_rects = transition.source_rects.is_some();
-    let old_rects = transition
-        .source_rects
-        .clone()
-        .or_else(|| st.stack_layout_rects_for_members(monitor, &transition.old_visible))?;
-    let new_rects = st.stack_layout_rects_for_members(monitor, &transition.new_visible)?;
+    let old_rects = transition.source_rects.clone().or_else(|| {
+        crate::compositor::clusters::system::stack_layout_rects_for_members(
+            st,
+            monitor,
+            &transition.old_visible,
+        )
+    })?;
+    let new_rects = crate::compositor::clusters::system::stack_layout_rects_for_members(
+        st,
+        monitor,
+        &transition.new_visible,
+    )?;
     let t = ease_in_out_cubic(transition.progress);
     let draw_orders = stack_draw_order_map(&transition.new_visible);
     let topmost_order = transition.new_visible.len() as i32 + 1;

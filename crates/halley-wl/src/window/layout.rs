@@ -164,11 +164,13 @@ pub(super) fn resolve_window_render_layout(
     let transition_alpha =
         crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
     let anim = crate::frame_loop::anim_style_for(st, node_id, node_state, now);
-    let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
+    let fullscreen_entry_scale =
+        crate::compositor::fullscreen::system::fullscreen_entry_scale(st, node_id, st.now_ms(now));
     let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
     let resizing_this_node = active_resize.is_some();
     let persistent_rule_top = is_persistent_rule_top(st, node_id);
-    let overlap_policy_stack_this_node = st.node_has_overlap_policy(node_id);
+    let overlap_policy_stack_this_node =
+        crate::compositor::spawn::state::node_has_overlap_policy(st, node_id);
     let draw_top_this_node = resizing_this_node
         || dragging_this_node
         || (persistent_rule_top && !overlap_policy_stack_this_node);

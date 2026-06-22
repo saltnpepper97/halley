@@ -386,7 +386,11 @@ fn register_layer_surface_impl(
         assigned_monitor_for_no_output(st, &namespace)
     };
 
-    st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
+    crate::compositor::monitor::state::assign_layer_surface_to_monitor(
+        st,
+        surface.wl_surface(),
+        assigned_monitor.clone(),
+    );
     st.model
         .monitor_state
         .layer_surface_namespace

@@ -93,7 +93,7 @@ pub(crate) fn enforce_single_primary_active_unit(st: &mut Halley) {
     if spawn_placement_transition_active(st, now_ms) {
         return;
     }
-    let companion = st.companion_surface_node(now_ms);
+    let companion = crate::compositor::focus::state::companion_surface_node(st, now_ms);
     let preferred_surface = st.last_input_surface_node();
 
     let active_ids: Vec<NodeId> = st

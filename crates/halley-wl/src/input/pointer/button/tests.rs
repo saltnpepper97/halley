@@ -256,7 +256,7 @@ fn core_single_click_only_focuses_without_opening_bloom() {
         deadline_ms: st.now_ms(Instant::now()),
     });
 
-    st.run_maintenance(Instant::now());
+    crate::compositor::runtime::run_maintenance(&mut st, Instant::now());
 
     assert_eq!(st.cluster_bloom_for_monitor("monitor_a"), None);
     assert_eq!(st.active_cluster_workspace_for_monitor("monitor_a"), None);

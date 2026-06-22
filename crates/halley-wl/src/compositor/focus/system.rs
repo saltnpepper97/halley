@@ -188,7 +188,8 @@ pub fn apply_wayland_focus_state(st: &mut Halley, id: Option<NodeId>) {
         st.enter_xdg_fullscreen(fid, None, Instant::now());
     }
     st.model.monitor_state.layer_keyboard_focus = None;
-    let requested_focus_surface = focus_id.and_then(|fid| st.wl_surface_for_node(fid));
+    let requested_focus_surface =
+        focus_id.and_then(|fid| crate::compositor::focus::system::wl_surface_for_node(st, fid));
     let active_constrained_surface =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
             .map(|(surface, _)| surface);

@@ -151,7 +151,7 @@ pub(crate) fn begin_carry_state_tracking(st: &mut Halley, id: NodeId) {
             .carry_state
             .carry_state_hold
             .insert(id, n.state.clone());
-        let fp = st.collision_size_for_node(n);
+        let fp = crate::compositor::overlap::system::collision_size_for_node(st, n);
         let z = zone_for_pos_with_hysteresis(st, id, n.pos, fp);
         st.model.carry_state.carry_zone_hint.insert(id, z);
         st.model
@@ -218,7 +218,11 @@ pub(crate) fn update_carry_state_preview_at(
     };
     let n_kind = n.kind.clone();
     let was_active = n.state == halley_core::field::NodeState::Active;
-    let footprint = zone_eval_footprint_for(st, id, st.collision_size_for_node(n));
+    let footprint = zone_eval_footprint_for(
+        st,
+        id,
+        crate::compositor::overlap::system::collision_size_for_node(st, n),
+    );
     if n_kind != halley_core::field::NodeKind::Surface || !st.model.field.is_visible(id) {
         return;
     }

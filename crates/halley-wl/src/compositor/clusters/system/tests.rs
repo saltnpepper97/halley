@@ -291,7 +291,9 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
     assert!(st.enter_cluster_mode());
     assert!(st.toggle_cluster_mode_selection(first));
     assert!(st.toggle_cluster_mode_selection(second));
-    assert!(st.confirm_cluster_mode(now));
+    assert!(crate::compositor::clusters::system::confirm_cluster_mode(
+        &mut st, now
+    ));
     assert!(
         st.model
             .cluster_state
@@ -1312,7 +1314,13 @@ fn closing_cluster_bloom_refocuses_core() {
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
-    assert!(st.open_cluster_bloom_for_monitor("monitor_a", cid));
+    assert!(
+        crate::compositor::clusters::system::open_cluster_bloom_for_monitor(
+            &mut st,
+            "monitor_a",
+            cid
+        )
+    );
     st.set_interaction_focus(Some(master), 30_000, Instant::now());
 
     assert!(st.close_cluster_bloom_for_monitor("monitor_a"));

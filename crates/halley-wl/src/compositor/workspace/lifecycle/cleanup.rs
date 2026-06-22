@@ -372,7 +372,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                         == st.model.field.cluster_id_for_member_public(id))
                 .then_some((monitor, preferred_index))
             });
-        st.drop_fullscreen_surface(id, Instant::now());
+        crate::compositor::fullscreen::system::drop_fullscreen_surface(st, id, Instant::now());
         if st.model.focus_state.pan_restore_active_focus == Some(id) {
             st.model.focus_state.pan_restore_active_focus = None;
         }

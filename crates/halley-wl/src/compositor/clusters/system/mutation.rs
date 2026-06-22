@@ -18,7 +18,8 @@ pub(crate) fn reset_empty_monitor_spawn_state(st: &mut Halley, monitor: &str) {
         return;
     }
 
-    let view_anchor = st.default_spawn_view_anchor_for_monitor(monitor);
+    let view_anchor =
+        crate::compositor::spawn::state::default_spawn_view_anchor_for_monitor(st, monitor);
     let spawn = st.spawn_monitor_state_mut(monitor);
     spawn.spawn_patch = None;
     spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;

@@ -352,7 +352,8 @@ pub fn reassert_wayland_keyboard_focus_if_drifted(st: &mut Halley, id: Option<No
         );
         return;
     }
-    let desired_focus = id.and_then(|fid| st.wl_surface_for_node(fid));
+    let desired_focus =
+        id.and_then(|fid| crate::compositor::focus::system::wl_surface_for_node(st, fid));
     if let Some(keyboard) = st.platform.seat.get_keyboard() {
         let current_focus = keyboard.current_focus();
         let matches = match (&current_focus, &desired_focus) {

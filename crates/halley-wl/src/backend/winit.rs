@@ -586,7 +586,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     WinitEvent::CloseRequested => {
                         debug!("winit event: {:?}", event);
-                        st.request_exit();
+                        crate::compositor::runtime::request_exit(st);
                     }
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
                         let code: u32 = event.key_code().into();
@@ -840,7 +840,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
                 }
                 let now = Instant::now();
-                st.drain_drm_syncobj_blockers();
+                crate::compositor::platform::drain_drm_syncobj_blockers(st);
 
                 st.runtime.spawned_children.retain_mut(|child| {
                     match child.try_wait() {

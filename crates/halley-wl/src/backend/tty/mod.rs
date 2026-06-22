@@ -319,7 +319,7 @@ fn advance_tty_redraw_frame(
     now: Instant,
     include_maintenance: bool,
 ) {
-    st.drain_drm_syncobj_blockers();
+    crate::compositor::platform::drain_drm_syncobj_blockers(st);
 
     let resize_active = {
         let ps = pointer_state.borrow();

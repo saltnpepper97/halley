@@ -1315,7 +1315,8 @@ pub(crate) fn queue_tty_drm_frame(
             crate::frame_loop::tty_output_animation_redraw_state(st, output_name, Instant::now());
 
         let local_cursor = cursor_screen.and_then(|(sx, sy)| {
-            let (target_monitor, sx, sy) = st.monitor_for_screen_clamped(sx, sy)?;
+            let (target_monitor, sx, sy) =
+                crate::compositor::monitor::state::monitor_for_screen_clamped(st, sx, sy)?;
             if target_monitor != output_name {
                 return None;
             }
@@ -2192,7 +2193,7 @@ fn fullscreen_direct_scanout_candidate(
             "top/overlay layer-shell surfaces are present on the output",
         ));
     }
-    if st.monitor_has_visible_overlap_policy_window(output_name) {
+    if crate::compositor::spawn::state::monitor_has_visible_overlap_policy_window(st, output_name) {
         return Some(blocked(
             "overlap-policy window is visible above fullscreen on the output",
         ));

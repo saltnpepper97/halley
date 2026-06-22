@@ -144,7 +144,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     st.tick_viewport_pan_animation(now_ms);
     crate::compositor::actions::window::tick_pending_maximize(st, now);
     let _ = st.process_pending_cluster_slot_transition_for_current_monitor(now);
-    st.tick_pending_spawn_pan(now, now_ms);
+    crate::compositor::spawn::reveal::tick_pending_spawn_pan(st, now, now_ms);
     crate::compositor::workspace::state::tick_maximize_animation(st, now);
     tick_active_drag(st, now);
     crate::compositor::focus::cycle::tick_focus_cycle_session(st, now);
@@ -223,7 +223,11 @@ fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
         && st.cluster_bloom_for_monitor(pending_hover.monitor.as_str()) != Some(cid)
     {
         st.input.interaction_state.overlay_hover_target = None;
-        let _ = st.open_cluster_bloom_for_monitor(pending_hover.monitor.as_str(), cid);
+        let _ = crate::compositor::clusters::system::open_cluster_bloom_for_monitor(
+            st,
+            pending_hover.monitor.as_str(),
+            cid,
+        );
     }
 }
 
