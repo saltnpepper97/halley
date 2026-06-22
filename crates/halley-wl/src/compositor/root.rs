@@ -432,6 +432,7 @@ impl Halley {
                     last_screenshot_result: None,
                     portal_chooser: None,
                     modal_release_keys: HashSet::new(),
+                    forwarded_pressed_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
                     active_gesture_route: None,

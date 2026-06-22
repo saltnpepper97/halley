@@ -119,13 +119,21 @@ impl Animator {
 
     pub fn snap_to_state(&mut self, id: NodeId, state: NodeState, now: Instant) {
         let target = base_style(state.clone());
+        // Preserve the existing track start when re-snapping to the same state.
+        // Scale/alpha still snap instantly (from == to), but keeping started_at
+        // avoids resetting the icon fade timer (keyed off track elapsed) which
+        // caused the node icon to flash off then back on at drag release.
+        let started_at = match self.tracks.get(&id) {
+            Some(track) if track.last_state == state => track.started_at,
+            _ => now,
+        };
         self.tracks.insert(
             id,
             Track {
                 last_state: state,
                 from: target,
                 to: target,
-                started_at: now,
+                started_at,
             },
         );
         self.pulses.remove(&id);
@@ -238,5 +246,31 @@ mod tests {
         let style = animator.style_for(id, NodeState::Node, start + Duration::from_millis(40));
         assert_eq!(style.scale, 0.30);
         assert_eq!(style.alpha, 1.0);
+    }
+
+    #[test]
+    fn snap_to_same_state_preserves_icon_fade_timer() {
+        let start = Instant::now();
+        let id = NodeId::new(7);
+        let mut animator = Animator::new(start);
+
+        animator.snap_to_state(id, NodeState::Node, start);
+        // Icon fade is keyed off track elapsed; before the re-snap it reads as
+        // the full elapsed time (well past the icon fade-in window).
+        let elapsed_before = animator
+            .track_elapsed_for(id, NodeState::Node, start + Duration::from_secs(2))
+            .expect("track elapsed");
+        assert!(elapsed_before >= Duration::from_secs(2));
+
+        // Re-snapping (as drag release does) must not reset the timer.
+        animator.snap_to_state(id, NodeState::Node, start + Duration::from_secs(2));
+        let elapsed_after = animator
+            .track_elapsed_for(id, NodeState::Node, start + Duration::from_secs(2))
+            .expect("track elapsed");
+        assert_eq!(elapsed_after, elapsed_before);
+
+        // Scale still snaps instantly to the Node marker scale.
+        let style = animator.style_for(id, NodeState::Node, start + Duration::from_secs(2));
+        assert_eq!(style.scale, 0.30);
     }
 }

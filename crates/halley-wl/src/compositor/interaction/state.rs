@@ -362,6 +362,11 @@ pub(crate) struct InteractionState {
     /// Active xdg-desktop-portal source chooser overlay (screen vs window pick).
     pub(crate) portal_chooser: Option<crate::compositor::portal_chooser::PortalChooserState>,
     pub(crate) modal_release_keys: HashSet<u32>,
+    /// Mirror of smithay's private `forwarded_pressed_keys`: every keycode whose
+    /// *press* we forwarded to a client and have not yet forwarded a release for.
+    /// Used by `flush_stuck_forwarded_keys` to clear stale non-modifier keys on a
+    /// focus change so the next focused surface never inherits a stuck repeat.
+    pub(crate) forwarded_pressed_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
     pub(crate) active_gesture_route: Option<ActiveGestureRoute>,

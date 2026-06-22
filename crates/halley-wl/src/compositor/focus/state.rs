@@ -395,7 +395,11 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
                     desired_focus.as_ref().map(|wl| format!("{:?}", wl.id())),
                     current_focus.as_ref().map(|wl| format!("{:?}", wl.id()))
                 );
-                keyboard.set_focus(self, desired_focus.clone(), SERIAL_COUNTER.next_serial());
+                crate::compositor::focus::system::set_keyboard_focus(
+                    self,
+                    desired_focus.clone(),
+                    SERIAL_COUNTER.next_serial(),
+                );
                 self.update_selection_focus_from_surface(desired_focus.as_ref());
             }
         }

@@ -1,8 +1,8 @@
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, RuntimeTuning};
+#[cfg(test)]
 use halley_core::field::Vec2;
 use smithay::backend::renderer::Color32F;
 
-use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 
@@ -23,13 +23,15 @@ pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
     (220.0, 220.0)
 }
 
-#[cfg_attr(not(feature = "aperture"), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn node_render_diameter_px(
     st: &Halley,
     intrinsic_size: Vec2,
     label_len: usize,
     anim_scale: f32,
 ) -> f32 {
+    use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
+
     const PROXY_TO_MARKER_START: f32 = 0.50;
     const PROXY_TO_MARKER_END: f32 = 0.20;
 
