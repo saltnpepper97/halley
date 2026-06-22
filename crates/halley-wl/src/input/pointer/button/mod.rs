@@ -38,7 +38,7 @@ pub(crate) use frame::{
 };
 #[cfg(test)]
 pub(crate) use press::{handle_core_left_press, handle_workspace_left_press};
-pub(crate) use release::handle_button_release;
+pub(crate) use release::{collapse_bloom_for_core_if_open, handle_button_release};
 
 use press::{
     begin_bloom_pull_preview, handle_left_press, handle_move_binding_press,
