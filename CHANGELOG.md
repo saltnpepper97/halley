@@ -87,6 +87,12 @@ All notable changes to this project will be documented in this file.
   existing Halley capture overlay. Portal requests map to compositor capture modes,
   poll the capture IPC, and return a `file://` URI. `PickColor` is advertised as
   unsupported for now. GTK remains the fallback for other portal interfaces.
+- Add `apogee.open-cluster-on-select` (default `true`) so selecting a cluster core in Apogee opens its
+  workspace (entering it via `enter_cluster_workspace_by_core`) instead of only panning to the core.
+- Surface tile-cluster overflow members in Apogee, flying in from the overflow strip with app-icon
+  fallback previews, and promote a selected overflow member into the master slot (re-laying out the
+  cluster and shifting the old master into overflow). Selecting any cluster workspace member in Apogee
+  now promotes it to master for both tiling and stacking layouts.
 
 ### Changed
 - Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
@@ -179,6 +185,12 @@ All notable changes to this project will be documented in this file.
   mode and into the Config mode only (where they already existed). Actions now exposes just
   "Reload Halley config"; both open-config entries remain reachable from the default General
   search via the Config provider.
+- Flatten the compositor's `*Controller` wrapper structs (ClusterSystem, ClusterRead, ClusterMutation,
+  FocusSystem, FocusState, FocusCycle, FocusDecay, FocusTrail, Fullscreen, ExitConfirm, Runtime,
+  SpawnReveal, Screenshot, Camera) into free functions taking `&Halley`/`&mut Halley`, and trim the
+  thin one-line `root.rs` facade methods that only delegated to those functions, removing the last dead
+  code (unused `FullscreenCtx`, empty `debug_dump`) and clearing workspace-wide warnings. Pure
+  mechanical transform; no behavior changes.
 
 ### Removed
 - Remove field parallax entirely, including `field.parallax` config parsing and generated-config
@@ -280,6 +292,35 @@ All notable changes to this project will be documented in this file.
   from a dead layer-shell launcher, dismissed screenshot/portal overlay, or session-lock transition
   and start repeating it forever. Modifiers are preserved so held Ctrl/Alt/Shift/Super carry across
   the handoff.
+- Clear stale modal key-traps on portal chooser teardown so a dismissed screenshot/portal source chooser
+  can no longer leave a trapped Enter that repeats forever in the next focused client. The chooser's
+  `modal_release_keys` and `forwarded_pressed_keys` are now cleared in `finish_modal_capture`, the single
+  choke point every chooser exit (cancel, selected, cancelled) reaches; the redundant open-time Enter
+  pre-trap is dropped since `begin_modal_keyboard_capture` already routes through `set_keyboard_focus`.
+- Selecting a maximized window in Apogee no longer leaves it off-centre on return (the reveal pan is
+  skipped for the monitor's maximize target), closing Apogee without a selection no longer flashes the
+  wrong window z-order (each monitor's tiles are reordered to the live desktop draw order before
+  fly-back), and selecting a cluster core now opens its workspace via `apogee.open-cluster-on-select`.
+- Resolve a Lift-created cluster core dropping on top of a window by running overlap resolution
+  immediately in `finish_lift_finalized_cluster` so the core slides clear, and stop selecting a cluster
+  member in Apogee from shifting the whole cluster off-centre by skipping the reveal pan when the monitor
+  has an active cluster workspace.
+- Collapse a cluster core's open bloom when grabbing it to drag, so the bloom no longer stays fanned out
+  while the drag does nothing; covers the plain press-to-drag-threshold path in addition to the drag/move
+  binding paths that already collapsed it.
+- Give Apogee core tiles the same look as normal core nodes: themed cluster fill colour (honouring
+  `node_background_color`) and a 5px themed border ring (honouring `node_border_color_*`), plus a hover
+  ring driven by new `apogee_hover_node` state. A Lift-created core now also slides clear of windows using
+  the animated landmark push instead of a trapped-landmark teleport.
+- Keep the outgoing stack member rendering during a forward (Next) stack cycle so it flies out to the
+  left instead of vanishing. The stack-transition pose/membership is now computed before the visibility
+  gate, letting the departing top render through its transition even after the relayout marks it hidden;
+  Prev (whose incoming top becomes visible) already animated correctly.
+- Stop reloading config from resetting an active cluster workspace to its default layout. The reload
+  path now sets a one-shot `skip_next_cluster_relayout` flag that the next maintenance tick consumes,
+  suppressing the tiling re-layout that normally fires on maintenance (preserving manual member
+  positions) while leaving all other maintenance work and legitimate re-layouts (cluster entry, member
+  add, overflow animations) unaffected.
 
 ## [v0.4.0] - 2026-06-12
 
