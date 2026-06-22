@@ -29,21 +29,6 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.model.focus_state.monitor_focus.remove(monitor);
     }
 
-    pub(super) fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
-        let crate::compositor::root::Halley {
-            model,
-            input,
-            runtime,
-            ..
-        } = &mut **self;
-        ClusterMutationController {
-            field: &mut model.field,
-            cluster_state: &mut model.cluster_state,
-            interaction_state: &mut input.interaction_state,
-            tuning: &runtime.tuning,
-        }
-    }
-
     pub(crate) fn sync_cluster_monitor(
         &mut self,
         cid: halley_core::cluster::ClusterId,
@@ -236,9 +221,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         now: Instant,
     ) -> bool {
         let now_ms = self.now_ms(now);
-        let Some(outcome) = self
-            .cluster_mutation_controller()
-            .detach_member_from_cluster(cid, member_id, world_pos, now_ms)
+        let Some(outcome) =
+            super::detach_member_from_cluster(self, cid, member_id, world_pos, now_ms)
         else {
             return false;
         };
@@ -290,10 +274,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 (monitor, old_visible)
             });
         let was_pinned = self.node_user_pinned(node_id);
-        if !self
-            .cluster_mutation_controller()
-            .absorb_node_into_cluster(cid, node_id)
-        {
+        if !super::absorb_node_into_cluster(self, cid, node_id) {
             return false;
         }
 

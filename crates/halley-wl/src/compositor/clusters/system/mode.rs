@@ -16,9 +16,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         cid: halley_core::cluster::ClusterId,
     ) -> bool {
         let _ = self.sync_cluster_monitor(cid, Some(monitor));
-        let opened = self
-            .cluster_mutation_controller()
-            .open_cluster_bloom_for_monitor(monitor, cid);
+        let opened = super::open_cluster_bloom_for_monitor(self, monitor, cid);
         if opened
             && let Some(core_id) = self
                 .model
@@ -38,9 +36,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .cluster(cid)
                 .and_then(|cluster| cluster.core)
         });
-        let closed = self
-            .cluster_mutation_controller()
-            .close_cluster_bloom_for_monitor(monitor);
+        let closed = super::close_cluster_bloom_for_monitor(self, monitor);
         if closed {
             let now = Instant::now();
             if let Some(core_id) = core_id {
@@ -66,10 +62,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             );
             return false;
         }
-        if !self
-            .cluster_mutation_controller()
-            .enter_cluster_mode(monitor.as_str())
-        {
+        if !super::enter_cluster_mode(self, monitor.as_str()) {
             return false;
         }
         self.begin_modal_keyboard_capture();
@@ -79,10 +72,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
 
     pub fn exit_cluster_mode(&mut self) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
-        if !self
-            .cluster_mutation_controller()
-            .exit_cluster_mode(monitor.as_str())
-        {
+        if !super::exit_cluster_mode(self, monitor.as_str()) {
             return false;
         }
         self.model
@@ -129,8 +119,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
 
     pub fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
-        self.cluster_mutation_controller()
-            .toggle_cluster_mode_selection(monitor.as_str(), node_id)
+        super::toggle_cluster_mode_selection(self, monitor.as_str(), node_id)
     }
 
     pub(super) fn order_cluster_creation_members(&self, members: Vec<NodeId>) -> Vec<NodeId> {

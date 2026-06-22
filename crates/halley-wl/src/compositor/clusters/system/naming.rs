@@ -916,9 +916,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .cluster_finalize_drafts
             .remove(monitor);
-        let _ = self
-            .cluster_mutation_controller()
-            .exit_cluster_mode(monitor);
+        let _ = super::exit_cluster_mode(self, monitor);
         self.ui.render_state.clear_persistent_mode_banner(monitor);
         self.model.cluster_state.pending_lift_cluster_builds.insert(
             monitor.to_string(),
@@ -1146,9 +1144,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .cluster_state
                 .cluster_finalize_drafts
                 .remove(monitor);
-            let _ = self
-                .cluster_mutation_controller()
-                .exit_cluster_mode(monitor);
+            let _ = super::exit_cluster_mode(self, monitor);
             self.ui.render_state.clear_persistent_mode_banner(monitor);
             let focused_surface = self
                 .last_input_surface_node_for_monitor(monitor)
