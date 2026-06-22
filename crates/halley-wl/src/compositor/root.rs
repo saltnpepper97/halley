@@ -1139,64 +1139,63 @@ impl Halley {
     }
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).companion_surface_node(now_ms)
+        super::focus::state::companion_surface_node(self, now_ms)
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        super::focus::state::focus_state_controller(self).active_focus_ring()
+        super::focus::state::active_focus_ring(self)
     }
 
     pub fn focus_ring_for_monitor(&self, monitor: &str) -> halley_core::viewport::FocusRing {
-        super::focus::state::focus_state_controller(self).focus_ring_for_monitor(monitor)
+        super::focus::state::focus_ring_for_monitor(self, monitor)
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
-        super::focus::state::focus_state_controller(self).should_draw_focus_ring_preview(now)
+        super::focus::state::should_draw_focus_ring_preview(self, now)
     }
 
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
-        super::focus::state::focus_state_controller(self).focus_monitor_view(monitor, now)
+        super::focus::state::focus_monitor_view(self, monitor, now)
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
-        super::focus::state::focus_state_controller(self).set_interaction_focus(id, hold_ms, now)
+        super::focus::state::set_interaction_focus(self, id, hold_ms, now)
     }
 
     pub(crate) fn restore_pan_return_active_focus(&mut self, now: Instant) {
-        super::focus::state::focus_state_controller(self).restore_pan_return_active_focus(now)
+        super::focus::state::restore_pan_return_active_focus(self, now)
     }
 
     #[allow(dead_code)]
     pub fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
-        super::focus::state::focus_state_controller(self)
-            .reassert_wayland_keyboard_focus_if_drifted(id)
+        super::focus::state::reassert_wayland_keyboard_focus_if_drifted(self, id)
     }
 
     #[allow(dead_code)]
     pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).focused_node_for_monitor(monitor)
+        super::focus::state::focused_node_for_monitor(self, monitor)
     }
 
     #[allow(dead_code)]
     pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
-        super::focus::state::focus_state_controller(self).focused_monitor_for_node(id)
+        super::focus::state::focused_monitor_for_node(self, id)
     }
 
     #[allow(dead_code)]
     pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
-        super::focus::state::focus_state_controller(self).set_monitor_focus(monitor, id)
+        super::focus::state::set_monitor_focus(self, monitor, id)
     }
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
-        super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
+        super::focus::state::set_recent_top_node(self, node_id, until)
     }
 
     pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
-        super::focus::state::focus_state_controller(self).raise_overlap_policy_node(node_id)
+        super::focus::state::raise_overlap_policy_node(self, node_id)
     }
 
     pub fn overlap_policy_stack_rank(&self, node_id: NodeId) -> (u64, u64) {
-        super::focus::state::focus_state_controller(self).overlap_policy_stack_rank(node_id)
+        super::focus::state::overlap_policy_stack_rank(self, node_id)
     }
 
     pub(crate) fn focus_pointer_target(
@@ -1209,7 +1208,7 @@ impl Halley {
     }
 
     pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
-        super::focus::state::focus_state_controller(self).recent_top_node_active(now)
+        super::focus::state::recent_top_node_active(self, now)
     }
 
     pub(crate) fn focus_cycle_session_active(&self) -> bool {
