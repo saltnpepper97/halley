@@ -80,9 +80,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
     ) -> Option<(ClusterId, Vec<ClusterTilePlacement>)> {
         let cid = self.active_cluster_workspace_for_monitor(monitor)?;
-        let plan = self
-            .cluster_read_controller()
-            .plan_active_cluster_layout(monitor)?;
+        let plan = crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)?;
         if !matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
             return None;
         }
@@ -357,8 +355,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let previous_layout_kind = self.active_cluster_layout_kind();
         let tile_to_stack_transition =
             if matches!(previous_layout_kind, ClusterWorkspaceLayoutKind::Tiling) {
-                self.cluster_read_controller()
-                    .plan_active_cluster_layout(monitor)
+                crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)
                     .map(|plan| {
                         let source_rects = plan
                             .tiles

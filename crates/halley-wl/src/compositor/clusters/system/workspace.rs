@@ -118,9 +118,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         let perf_start = crate::perf::start();
         let plan_start = crate::perf::start();
-        let Some(plan) = self
-            .cluster_read_controller()
-            .plan_enter_cluster_workspace(core_id, monitor)
+        let Some(plan) =
+            crate::compositor::clusters::read::plan_enter_cluster_workspace(self, core_id, monitor)
         else {
             return false;
         };
@@ -239,9 +238,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        let Some(plan) = self
-            .cluster_read_controller()
-            .plan_exit_cluster_workspace(monitor)
+        let Some(plan) =
+            crate::compositor::clusters::read::plan_exit_cluster_workspace(self, monitor)
         else {
             return false;
         };
@@ -473,9 +471,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         {
             return;
         }
-        let Some(plan) = self
-            .cluster_read_controller()
-            .plan_active_cluster_layout(monitor)
+        let Some(plan) =
+            crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)
         else {
             return;
         };

@@ -74,9 +74,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             self.clear_cluster_overflow_for_monitor(monitor);
             return;
         };
-        let Some(plan) = self
-            .cluster_read_controller()
-            .plan_active_cluster_layout(monitor)
+        let Some(plan) =
+            crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)
         else {
             self.clear_cluster_overflow_for_monitor(monitor);
             return;
@@ -120,10 +119,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .cluster_overflow_scroll_offsets
                 .insert(monitor.to_string(), next);
         }
-        if let Some(rect) = self
-            .cluster_read_controller()
-            .overflow_strip_rect_for_monitor(monitor, overflow.len())
-        {
+        if let Some(rect) = crate::compositor::clusters::read::overflow_strip_rect_for_monitor(
+            self,
+            monitor,
+            overflow.len(),
+        ) {
             self.model
                 .cluster_state
                 .cluster_overflow_rects

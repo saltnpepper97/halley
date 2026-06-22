@@ -6,8 +6,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         &mut self,
         monitor: &str,
     ) -> Option<halley_core::cluster::ClusterId> {
-        self.cluster_read_controller()
-            .cluster_bloom_for_monitor(monitor)
+        crate::compositor::clusters::read::cluster_bloom_for_monitor(self, monitor)
     }
 
     pub fn open_cluster_bloom_for_monitor(

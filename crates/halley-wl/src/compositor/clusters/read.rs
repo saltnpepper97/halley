@@ -6,12 +6,13 @@ use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, layout_cluster_workspace};
 use halley_core::tiling::Rect;
 
-pub(super) struct ClusterReadController<'a> {
-    pub(super) field: &'a Field,
-    pub(super) cluster_state: &'a ClusterState,
-    pub(super) monitor_state: &'a MonitorState,
-    pub(super) tuning: &'a RuntimeTuning,
-}
+const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
+const OVERFLOW_STRIP_W_PX: f32 = 56.0;
+const OVERFLOW_SCROLLBAR_GUTTER_PX: f32 = 12.0;
+const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
+const OVERFLOW_ICON_SIZE_PX: f32 = 40.0;
+const OVERFLOW_ICON_GAP_PX: f32 = 8.0;
+const OVERFLOW_VISIBLE_SLOTS: usize = 15;
 
 pub(super) struct EnterClusterWorkspacePlan {
     pub(super) cid: ClusterId,
@@ -39,295 +40,302 @@ pub(super) struct ClusterLayoutPlan {
     pub(super) overflow_members: Vec<NodeId>,
 }
 
-impl<'a> ClusterReadController<'a> {
-    const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
-    const OVERFLOW_STRIP_W_PX: f32 = 56.0;
-    const OVERFLOW_SCROLLBAR_GUTTER_PX: f32 = 12.0;
-    const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
-    const OVERFLOW_ICON_SIZE_PX: f32 = 40.0;
-    const OVERFLOW_ICON_GAP_PX: f32 = 8.0;
-    const OVERFLOW_VISIBLE_SLOTS: usize = 15;
+pub(super) fn cluster_bloom_for_monitor(st: &Halley, monitor: &str) -> Option<ClusterId> {
+    st.model
+        .cluster_state
+        .cluster_bloom_open
+        .get(monitor)
+        .copied()
+}
 
-    pub(super) fn cluster_bloom_for_monitor(&self, monitor: &str) -> Option<ClusterId> {
-        self.cluster_state.cluster_bloom_open.get(monitor).copied()
-    }
-
-    pub(super) fn preferred_monitor_for_cluster(
-        &self,
-        cid: ClusterId,
-        preferred: Option<&str>,
-    ) -> Option<String> {
-        preferred
-            .map(str::to_string)
-            .or_else(|| {
-                self.cluster_state
-                    .active_cluster_workspaces
+pub(super) fn preferred_monitor_for_cluster(
+    st: &Halley,
+    cid: ClusterId,
+    preferred: Option<&str>,
+) -> Option<String> {
+    preferred
+        .map(str::to_string)
+        .or_else(|| {
+            st.model
+                .cluster_state
+                .active_cluster_workspaces
+                .iter()
+                .find_map(|(monitor, active_cid)| (*active_cid == cid).then(|| monitor.clone()))
+        })
+        .or_else(|| {
+            st.model
+                .cluster_state
+                .cluster_bloom_open
+                .iter()
+                .find_map(|(monitor, open_cid)| (*open_cid == cid).then(|| monitor.clone()))
+        })
+        .or_else(|| {
+            st.model
+                .field
+                .cluster(cid)
+                .and_then(|cluster| cluster.core)
+                .and_then(|core_id| st.model.monitor_state.node_monitor.get(&core_id).cloned())
+        })
+        .or_else(|| {
+            st.model.field.cluster(cid).and_then(|cluster| {
+                cluster
+                    .members()
                     .iter()
-                    .find_map(|(monitor, active_cid)| (*active_cid == cid).then(|| monitor.clone()))
+                    .find_map(|member| st.model.monitor_state.node_monitor.get(member).cloned())
             })
-            .or_else(|| {
-                self.cluster_state
-                    .cluster_bloom_open
-                    .iter()
-                    .find_map(|(monitor, open_cid)| (*open_cid == cid).then(|| monitor.clone()))
-            })
-            .or_else(|| {
-                self.field
-                    .cluster(cid)
-                    .and_then(|cluster| cluster.core)
-                    .and_then(|core_id| self.monitor_state.node_monitor.get(&core_id).cloned())
-            })
-            .or_else(|| {
-                self.field.cluster(cid).and_then(|cluster| {
-                    cluster
-                        .members()
-                        .iter()
-                        .find_map(|member| self.monitor_state.node_monitor.get(member).cloned())
-                })
-            })
-            .or_else(|| Some(self.monitor_state.current_monitor.clone()))
-    }
+        })
+        .or_else(|| Some(st.model.monitor_state.current_monitor.clone()))
+}
 
-    pub(super) fn workspace_viewport_for_monitor(
-        &self,
-        monitor: &str,
-    ) -> Option<halley_core::viewport::Viewport> {
-        self.monitor_state
-            .monitors
-            .get(monitor)
-            .map(|space| space.usable_viewport)
-    }
+pub(super) fn workspace_viewport_for_monitor(
+    st: &Halley,
+    monitor: &str,
+) -> Option<halley_core::viewport::Viewport> {
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| space.usable_viewport)
+}
 
-    fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
-        self.tuning.cluster_layout_kind()
-    }
+fn cluster_layout_kind(st: &Halley) -> ClusterWorkspaceLayoutKind {
+    st.runtime.tuning.cluster_layout_kind()
+}
 
-    fn cluster_layout_bounds(
-        &self,
-        viewport: halley_core::viewport::Viewport,
-    ) -> (halley_core::tiling::Rect, f32) {
-        let (outer_gap, inner_gap) = compensated_cluster_gaps(
-            self.tuning.tile_gaps_outer_px.max(0.0),
-            self.tuning.tile_gaps_inner_px.max(0.0),
-            active_window_frame_pad_px(self.tuning) as f32,
-        );
-        let outer_gap = outer_gap.max(0.0);
-        let viewport_left = viewport.center.x - viewport.size.x * 0.5;
-        let viewport_top = viewport.center.y - viewport.size.y * 0.5;
-        (
-            halley_core::tiling::Rect {
-                x: viewport_left + outer_gap,
-                y: viewport_top + outer_gap,
-                w: (viewport.size.x - outer_gap * 2.0).max(0.0),
-                h: (viewport.size.y - outer_gap * 2.0).max(0.0),
-            },
-            inner_gap.max(0.0),
-        )
-    }
+fn cluster_layout_bounds(
+    st: &Halley,
+    viewport: halley_core::viewport::Viewport,
+) -> (halley_core::tiling::Rect, f32) {
+    let (outer_gap, inner_gap) = compensated_cluster_gaps(
+        st.runtime.tuning.tile_gaps_outer_px.max(0.0),
+        st.runtime.tuning.tile_gaps_inner_px.max(0.0),
+        active_window_frame_pad_px(&st.runtime.tuning) as f32,
+    );
+    let outer_gap = outer_gap.max(0.0);
+    let viewport_left = viewport.center.x - viewport.size.x * 0.5;
+    let viewport_top = viewport.center.y - viewport.size.y * 0.5;
+    (
+        halley_core::tiling::Rect {
+            x: viewport_left + outer_gap,
+            y: viewport_top + outer_gap,
+            w: (viewport.size.x - outer_gap * 2.0).max(0.0),
+            h: (viewport.size.y - outer_gap * 2.0).max(0.0),
+        },
+        inner_gap.max(0.0),
+    )
+}
 
-    fn cluster_layout_plan_for_members(
-        &self,
-        viewport: halley_core::viewport::Viewport,
-        members: &[NodeId],
-    ) -> ClusterLayoutPlan {
-        let kind = self.cluster_layout_kind();
-        let (bounds, inner_gap) = self.cluster_layout_bounds(viewport);
-        let result = layout_cluster_workspace(
-            kind,
-            bounds,
-            inner_gap,
-            active_window_frame_pad_px(self.tuning) as f32,
-            members,
-            self.tuning.active_cluster_visible_limit(),
-        );
-        let overflow_members = if matches!(kind, ClusterWorkspaceLayoutKind::Tiling) {
-            result.queue_members.clone()
+fn cluster_layout_plan_for_members(
+    st: &Halley,
+    viewport: halley_core::viewport::Viewport,
+    members: &[NodeId],
+) -> ClusterLayoutPlan {
+    let kind = cluster_layout_kind(st);
+    let (bounds, inner_gap) = cluster_layout_bounds(st, viewport);
+    let result = layout_cluster_workspace(
+        kind,
+        bounds,
+        inner_gap,
+        active_window_frame_pad_px(&st.runtime.tuning) as f32,
+        members,
+        st.runtime.tuning.active_cluster_visible_limit(),
+    );
+    let overflow_members = if matches!(kind, ClusterWorkspaceLayoutKind::Tiling) {
+        result.queue_members.clone()
+    } else {
+        Vec::new()
+    };
+    let tiles = result
+        .placements
+        .into_iter()
+        .map(|placement| ClusterTilePlacement {
+            node_id: placement.node_id,
+            rect: placement.rect,
+        })
+        .collect::<Vec<_>>();
+    ClusterLayoutPlan {
+        kind,
+        tiles,
+        overflow_members,
+    }
+}
+
+pub(super) fn cluster_spawn_rect_for_new_member(
+    st: &Halley,
+    monitor: &str,
+    cid: ClusterId,
+) -> Option<halley_core::tiling::Rect> {
+    let cluster = st.model.field.cluster(cid)?;
+    let viewport = workspace_viewport_for_monitor(st, monitor)?;
+    let mut preview_members = cluster.members().to_vec();
+    let visible_limit = halley_core::cluster_layout::cluster_visible_limit(
+        cluster_layout_kind(st),
+        st.runtime.tuning.active_cluster_visible_limit(),
+    );
+    if visible_limit == usize::MAX || preview_members.len() < visible_limit {
+        if matches!(
+            cluster_layout_kind(st),
+            ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            preview_members.insert(0, NodeId::new(u64::MAX));
         } else {
-            Vec::new()
-        };
-        let tiles = result
-            .placements
-            .into_iter()
-            .map(|placement| ClusterTilePlacement {
-                node_id: placement.node_id,
-                rect: placement.rect,
-            })
-            .collect::<Vec<_>>();
-        ClusterLayoutPlan {
-            kind,
-            tiles,
-            overflow_members,
+            preview_members.push(NodeId::new(u64::MAX));
         }
     }
+    cluster_layout_plan_for_members(st, viewport, &preview_members)
+        .tiles
+        .into_iter()
+        .last()
+        .map(|tile| tile.rect)
+}
 
-    pub(super) fn cluster_spawn_rect_for_new_member(
-        &self,
-        monitor: &str,
-        cid: ClusterId,
-    ) -> Option<halley_core::tiling::Rect> {
-        let cluster = self.field.cluster(cid)?;
-        let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let mut preview_members = cluster.members().to_vec();
-        let visible_limit = halley_core::cluster_layout::cluster_visible_limit(
-            self.cluster_layout_kind(),
-            self.tuning.active_cluster_visible_limit(),
-        );
-        if visible_limit == usize::MAX || preview_members.len() < visible_limit {
-            if matches!(
-                self.cluster_layout_kind(),
-                ClusterWorkspaceLayoutKind::Stacking
-            ) {
-                preview_members.insert(0, NodeId::new(u64::MAX));
-            } else {
-                preview_members.push(NodeId::new(u64::MAX));
-            }
+pub(super) fn overflow_strip_rect_for_monitor(
+    st: &Halley,
+    monitor: &str,
+    overflow_len: usize,
+) -> Option<halley_core::tiling::Rect> {
+    if overflow_len == 0 {
+        return None;
+    }
+    let space = st.model.monitor_state.monitors.get(monitor)?;
+    let strip_w = if overflow_len > OVERFLOW_VISIBLE_SLOTS {
+        OVERFLOW_STRIP_W_PX + OVERFLOW_SCROLLBAR_GUTTER_PX
+    } else {
+        OVERFLOW_STRIP_W_PX
+    };
+    let visible_slots = overflow_len.min(OVERFLOW_VISIBLE_SLOTS) as f32;
+    let height = OVERFLOW_ICON_PAD_PX * 2.0
+        + visible_slots * OVERFLOW_ICON_SIZE_PX
+        + (visible_slots - 1.0).max(0.0) * OVERFLOW_ICON_GAP_PX;
+    Some(halley_core::tiling::Rect {
+        x: (space.width as f32 - strip_w - OVERFLOW_STRIP_PAD_PX).max(0.0),
+        y: ((space.height as f32 - height) * 0.5).max(OVERFLOW_STRIP_PAD_PX),
+        w: strip_w,
+        h: height,
+    })
+}
+
+pub(super) fn overflow_strip_slot_rect_for_monitor(
+    st: &Halley,
+    monitor: &str,
+    overflow_len: usize,
+    slot_index: usize,
+) -> Option<Rect> {
+    let strip = overflow_strip_rect_for_monitor(st, monitor, overflow_len)?;
+    let scrollbar_extra = if overflow_len > OVERFLOW_VISIBLE_SLOTS {
+        OVERFLOW_SCROLLBAR_GUTTER_PX
+    } else {
+        0.0
+    };
+    let icon_x = strip.x + (strip.w - OVERFLOW_ICON_SIZE_PX - scrollbar_extra) * 0.5;
+    Some(Rect {
+        x: icon_x,
+        y: strip.y
+            + OVERFLOW_ICON_PAD_PX
+            + slot_index as f32 * (OVERFLOW_ICON_SIZE_PX + OVERFLOW_ICON_GAP_PX),
+        w: OVERFLOW_ICON_SIZE_PX,
+        h: OVERFLOW_ICON_SIZE_PX,
+    })
+}
+
+pub(super) fn plan_enter_cluster_workspace(
+    st: &Halley,
+    core_id: NodeId,
+    monitor: &str,
+) -> Option<EnterClusterWorkspacePlan> {
+    let cid = st.model.field.cluster_id_for_core_public(core_id)?;
+    let cluster = st.model.field.cluster(cid)?;
+    let members = cluster.members().iter().copied().collect::<HashSet<_>>();
+    let core_pos = st.model.field.node(core_id)?.pos;
+    let current_viewport = workspace_viewport_for_monitor(st, monitor)?;
+    let mut hidden_ids = Vec::new();
+    for &id in st.model.field.nodes().keys() {
+        if members.contains(&id) || id == core_id {
+            continue;
         }
-        self.cluster_layout_plan_for_members(viewport, &preview_members)
+        if st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .is_some_and(|node_monitor| node_monitor != monitor)
+        {
+            continue;
+        }
+        let already_detached = st
+            .model
+            .field
+            .node(id)
+            .is_some_and(|n| n.visibility.has(Visibility::DETACHED));
+        if !already_detached {
+            hidden_ids.push(id);
+        }
+    }
+    Some(EnterClusterWorkspacePlan {
+        cid,
+        core_id,
+        core_pos,
+        current_viewport,
+        hidden_ids,
+    })
+}
+
+pub(super) fn plan_exit_cluster_workspace(
+    st: &Halley,
+    monitor: &str,
+) -> Option<ExitClusterWorkspacePlan> {
+    let cid = st
+        .model
+        .cluster_state
+        .active_cluster_workspaces
+        .get(monitor)
+        .copied()?;
+    let hidden_ids = st
+        .model
+        .cluster_state
+        .workspace_hidden_nodes
+        .get(monitor)
+        .cloned()
+        .unwrap_or_default();
+    let core_id = st.model.field.cluster(cid).and_then(|c| c.core);
+    let core_pos = core_id.and_then(|id| st.model.field.node(id).map(|node| node.pos));
+    Some(ExitClusterWorkspacePlan {
+        cid,
+        core_id,
+        core_pos,
+        hidden_ids,
+    })
+}
+
+pub(super) fn plan_active_cluster_layout(st: &Halley, monitor: &str) -> Option<ClusterLayoutPlan> {
+    let cid = st
+        .model
+        .cluster_state
+        .active_cluster_workspaces
+        .get(monitor)
+        .copied()?;
+    let cluster = st.model.field.cluster(cid)?;
+    let viewport = workspace_viewport_for_monitor(st, monitor)?;
+    Some(cluster_layout_plan_for_members(
+        st,
+        viewport,
+        cluster.members(),
+    ))
+}
+
+pub(super) fn stack_layout_rects_for_members(
+    st: &Halley,
+    monitor: &str,
+    members: &[NodeId],
+) -> Option<std::collections::HashMap<NodeId, Rect>> {
+    let viewport = workspace_viewport_for_monitor(st, monitor)?;
+    Some(
+        cluster_layout_plan_for_members(st, viewport, members)
             .tiles
             .into_iter()
-            .last()
-            .map(|tile| tile.rect)
-    }
-
-    pub(super) fn overflow_strip_rect_for_monitor(
-        &self,
-        monitor: &str,
-        overflow_len: usize,
-    ) -> Option<halley_core::tiling::Rect> {
-        if overflow_len == 0 {
-            return None;
-        }
-        let space = self.monitor_state.monitors.get(monitor)?;
-        let strip_w = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
-            Self::OVERFLOW_STRIP_W_PX + Self::OVERFLOW_SCROLLBAR_GUTTER_PX
-        } else {
-            Self::OVERFLOW_STRIP_W_PX
-        };
-        let visible_slots = overflow_len.min(Self::OVERFLOW_VISIBLE_SLOTS) as f32;
-        let height = Self::OVERFLOW_ICON_PAD_PX * 2.0
-            + visible_slots * Self::OVERFLOW_ICON_SIZE_PX
-            + (visible_slots - 1.0).max(0.0) * Self::OVERFLOW_ICON_GAP_PX;
-        Some(halley_core::tiling::Rect {
-            x: (space.width as f32 - strip_w - Self::OVERFLOW_STRIP_PAD_PX).max(0.0),
-            y: ((space.height as f32 - height) * 0.5).max(Self::OVERFLOW_STRIP_PAD_PX),
-            w: strip_w,
-            h: height,
-        })
-    }
-
-    pub(super) fn overflow_strip_slot_rect_for_monitor(
-        &self,
-        monitor: &str,
-        overflow_len: usize,
-        slot_index: usize,
-    ) -> Option<Rect> {
-        let strip = self.overflow_strip_rect_for_monitor(monitor, overflow_len)?;
-        let scrollbar_extra = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
-            Self::OVERFLOW_SCROLLBAR_GUTTER_PX
-        } else {
-            0.0
-        };
-        let icon_x = strip.x + (strip.w - Self::OVERFLOW_ICON_SIZE_PX - scrollbar_extra) * 0.5;
-        Some(Rect {
-            x: icon_x,
-            y: strip.y
-                + Self::OVERFLOW_ICON_PAD_PX
-                + slot_index as f32 * (Self::OVERFLOW_ICON_SIZE_PX + Self::OVERFLOW_ICON_GAP_PX),
-            w: Self::OVERFLOW_ICON_SIZE_PX,
-            h: Self::OVERFLOW_ICON_SIZE_PX,
-        })
-    }
-
-    pub(super) fn plan_enter_cluster_workspace(
-        &self,
-        core_id: NodeId,
-        monitor: &str,
-    ) -> Option<EnterClusterWorkspacePlan> {
-        let cid = self.field.cluster_id_for_core_public(core_id)?;
-        let cluster = self.field.cluster(cid)?;
-        let members = cluster.members().iter().copied().collect::<HashSet<_>>();
-        let core_pos = self.field.node(core_id)?.pos;
-        let current_viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let mut hidden_ids = Vec::new();
-        for &id in self.field.nodes().keys() {
-            if members.contains(&id) || id == core_id {
-                continue;
-            }
-            if self
-                .monitor_state
-                .node_monitor
-                .get(&id)
-                .is_some_and(|node_monitor| node_monitor != monitor)
-            {
-                continue;
-            }
-            let already_detached = self
-                .field
-                .node(id)
-                .is_some_and(|n| n.visibility.has(Visibility::DETACHED));
-            if !already_detached {
-                hidden_ids.push(id);
-            }
-        }
-        Some(EnterClusterWorkspacePlan {
-            cid,
-            core_id,
-            core_pos,
-            current_viewport,
-            hidden_ids,
-        })
-    }
-
-    pub(super) fn plan_exit_cluster_workspace(
-        &self,
-        monitor: &str,
-    ) -> Option<ExitClusterWorkspacePlan> {
-        let cid = self
-            .cluster_state
-            .active_cluster_workspaces
-            .get(monitor)
-            .copied()?;
-        let hidden_ids = self
-            .cluster_state
-            .workspace_hidden_nodes
-            .get(monitor)
-            .cloned()
-            .unwrap_or_default();
-        let core_id = self.field.cluster(cid).and_then(|c| c.core);
-        let core_pos = core_id.and_then(|id| self.field.node(id).map(|node| node.pos));
-        Some(ExitClusterWorkspacePlan {
-            cid,
-            core_id,
-            core_pos,
-            hidden_ids,
-        })
-    }
-
-    pub(super) fn plan_active_cluster_layout(&self, monitor: &str) -> Option<ClusterLayoutPlan> {
-        let cid = self
-            .cluster_state
-            .active_cluster_workspaces
-            .get(monitor)
-            .copied()?;
-        let cluster = self.field.cluster(cid)?;
-        let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        Some(self.cluster_layout_plan_for_members(viewport, cluster.members()))
-    }
-
-    pub(super) fn stack_layout_rects_for_members(
-        &self,
-        monitor: &str,
-        members: &[NodeId],
-    ) -> Option<std::collections::HashMap<NodeId, Rect>> {
-        let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        Some(
-            self.cluster_layout_plan_for_members(viewport, members)
-                .tiles
-                .into_iter()
-                .map(|tile| (tile.node_id, tile.rect))
-                .collect(),
-        )
-    }
+            .map(|tile| (tile.node_id, tile.rect))
+            .collect(),
+    )
 }
 
 #[cfg(test)]

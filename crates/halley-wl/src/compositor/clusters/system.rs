@@ -1,7 +1,6 @@
 use super::*;
 use crate::compositor::clusters::read::{
-    ClusterLayoutPlan, ClusterReadController, ClusterTilePlacement, EnterClusterWorkspacePlan,
-    ExitClusterWorkspacePlan,
+    ClusterLayoutPlan, ClusterTilePlacement, EnterClusterWorkspacePlan, ExitClusterWorkspacePlan,
 };
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
@@ -326,22 +325,12 @@ impl<T: DerefMut<Target = Halley>> DerefMut for ClusterSystemController<T> {
 impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
     const CLUSTER_OVERFLOW_VISIBLE_SLOTS: usize = 15;
 
-    fn cluster_read_controller(&self) -> ClusterReadController<'_> {
-        ClusterReadController {
-            field: &self.model.field,
-            cluster_state: &self.model.cluster_state,
-            monitor_state: &self.model.monitor_state,
-            tuning: &self.runtime.tuning,
-        }
-    }
-
     fn preferred_monitor_for_cluster(
         &self,
         cid: ClusterId,
         preferred: Option<&str>,
     ) -> Option<String> {
-        self.cluster_read_controller()
-            .preferred_monitor_for_cluster(cid, preferred)
+        crate::compositor::clusters::read::preferred_monitor_for_cluster(self, cid, preferred)
     }
 
     pub(crate) fn cluster_overflow_rect_for_monitor(
@@ -361,8 +350,12 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
         overflow_len: usize,
         slot_index: usize,
     ) -> Option<halley_core::tiling::Rect> {
-        self.cluster_read_controller()
-            .overflow_strip_slot_rect_for_monitor(monitor, overflow_len, slot_index)
+        crate::compositor::clusters::read::overflow_strip_slot_rect_for_monitor(
+            self,
+            monitor,
+            overflow_len,
+            slot_index,
+        )
     }
 
     pub(crate) fn active_cluster_tile_rect_for_member(
@@ -370,8 +363,7 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         member_id: NodeId,
     ) -> Option<halley_core::tiling::Rect> {
-        self.cluster_read_controller()
-            .plan_active_cluster_layout(monitor)?
+        crate::compositor::clusters::read::plan_active_cluster_layout(self, monitor)?
             .tiles
             .into_iter()
             .find(|tile| tile.node_id == member_id)
@@ -383,8 +375,7 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         cid: ClusterId,
     ) -> Option<halley_core::tiling::Rect> {
-        self.cluster_read_controller()
-            .cluster_spawn_rect_for_new_member(monitor, cid)
+        crate::compositor::clusters::read::cluster_spawn_rect_for_new_member(self, monitor, cid)
     }
 
     pub(crate) fn stack_layout_rects_for_members(
@@ -392,8 +383,7 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         members: &[NodeId],
     ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
-        self.cluster_read_controller()
-            .stack_layout_rects_for_members(monitor, members)
+        crate::compositor::clusters::read::stack_layout_rects_for_members(self, monitor, members)
     }
 
     pub fn has_any_active_cluster_workspace(&self) -> bool {
