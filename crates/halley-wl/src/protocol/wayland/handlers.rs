@@ -100,7 +100,55 @@ impl DataDeviceHandler for Halley {
     }
 }
 
-impl WaylandDndGrabHandler for Halley {}
+impl WaylandDndGrabHandler for Halley {
+    // Start the actual server-side drag-and-drop grab in response to a client's
+    // `wl_data_device.start_drag`. The default trait impl just cancels the source,
+    // which silently kills every client DnD (Firefox tab moves, file/clip drops,
+    // etc.); we must promote the implicit pointer/touch grab into a `DnDGrab`.
+    fn dnd_requested<S: smithay::input::dnd::Source>(
+        &mut self,
+        source: S,
+        _icon: Option<WlSurface>,
+        seat: smithay::input::Seat<Self>,
+        serial: smithay::utils::Serial,
+        type_: smithay::input::dnd::GrabType,
+    ) {
+        let dh = self.platform.display_handle.clone();
+        match type_ {
+            smithay::input::dnd::GrabType::Pointer => {
+                match seat.get_pointer().and_then(|pointer| {
+                    pointer
+                        .grab_start_data()
+                        .map(|start_data| (pointer, start_data))
+                }) {
+                    Some((pointer, start_data)) => {
+                        let grab = smithay::input::dnd::DnDGrab::new_pointer(
+                            &dh, start_data, source, seat,
+                        );
+                        pointer.set_grab(self, grab, serial, smithay::input::pointer::Focus::Keep);
+                    }
+                    None => source.cancel(),
+                }
+            }
+            smithay::input::dnd::GrabType::Touch => {
+                match seat.get_touch().and_then(|touch| {
+                    touch
+                        .grab_start_data()
+                        .map(|start_data| (touch, start_data))
+                }) {
+                    Some((touch, start_data)) => {
+                        let grab =
+                            smithay::input::dnd::DnDGrab::new_touch(&dh, start_data, source, seat);
+                        touch.set_grab(self, grab, serial);
+                    }
+                    None => source.cancel(),
+                }
+            }
+        }
+    }
+}
+
+impl smithay::input::dnd::DndGrabHandler for Halley {}
 
 delegate_data_device!(Halley);
 
