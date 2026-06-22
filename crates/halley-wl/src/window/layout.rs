@@ -111,18 +111,23 @@ pub(super) fn resolve_window_render_layout(
     now: Instant,
 ) -> Option<WindowRenderLayout> {
     let node = st.model.field.node(node_id)?;
-    if node.state != halley_core::field::NodeState::Active
-        || !st.model.field.is_visible(node_id)
-        || !st.node_assigned_to_current_monitor(node_id)
-    {
-        return None;
-    }
-
     let stack_transition_pose = stack_layout
         .transition_plan
         .as_ref()
         .and_then(|plan| plan.poses.get(&node_id).copied());
     let stack_member_rendered = stack_layout.render_set.contains(&node_id);
+    // A node taking part in the stack-cycle transition keeps rendering even after
+    // the relayout has already moved it out of the visible set (hidden / no longer
+    // Active) — otherwise the outgoing top of a forward cycle vanishes instead of
+    // flying out to the left. The transition pose drives its geometry/alpha.
+    let in_stack_transition = stack_transition_pose.is_some();
+    if !st.node_assigned_to_current_monitor(node_id)
+        || (!in_stack_transition
+            && (node.state != halley_core::field::NodeState::Active
+                || !st.model.field.is_visible(node_id)))
+    {
+        return None;
+    }
     let node_pos = node.pos;
     let node_state = node.state.clone();
     let node_intrinsic = node.intrinsic_size;

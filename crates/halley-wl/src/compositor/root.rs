@@ -466,6 +466,7 @@ impl Halley {
                 exit_requested: false,
                 started_at: now,
                 maintenance_dirty: true,
+                skip_next_cluster_relayout: false,
                 screenshot_full_repaint_until_ms: 0,
                 maintenance_ping: None,
                 tty_redraw_all: true,

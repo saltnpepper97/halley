@@ -21,6 +21,7 @@ pub(crate) struct RuntimeState {
     pub(crate) exit_requested: bool,
     pub(crate) started_at: Instant,
     pub(crate) maintenance_dirty: bool,
+    pub(crate) skip_next_cluster_relayout: bool,
     pub(crate) screenshot_full_repaint_until_ms: u64,
     pub(crate) maintenance_ping: Option<Ping>,
     pub(crate) tty_redraw_all: bool,
@@ -447,7 +448,11 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
         st.input.interaction_state.cursor_override_until_ms = None;
         st.input.interaction_state.cursor_override_icon = None;
     }
-    if crate::compositor::clusters::system::has_any_active_cluster_workspace(st) {
+    let skip_cluster_relayout = st.runtime.skip_next_cluster_relayout;
+    st.runtime.skip_next_cluster_relayout = false;
+    if !skip_cluster_relayout
+        && crate::compositor::clusters::system::has_any_active_cluster_workspace(st)
+    {
         let active_monitors = st
             .model
             .cluster_state
