@@ -1237,11 +1237,11 @@ impl Halley {
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {
-        super::focus::system::focus_system_controller(self).set_app_focused(focused)
+        super::focus::system::set_app_focused(self, focused)
     }
 
     pub(crate) fn clear_keyboard_focus(&mut self) {
-        super::focus::system::focus_system_controller(self).clear_keyboard_focus()
+        super::focus::system::clear_keyboard_focus(self)
     }
 
     pub fn wl_surface_for_node(
@@ -1264,29 +1264,27 @@ impl Halley {
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
-        super::focus::system::focus_system_controller(self).apply_wayland_focus_state(id)
+        super::focus::system::apply_wayland_focus_state(self, id)
     }
 
     pub fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
-        super::focus::system::focus_system_controller(self)
-            .update_focus_tracking_for_surface(fid, now_ms)
+        super::focus::system::update_focus_tracking_for_surface(self, fid, now_ms)
     }
 
     pub fn note_pan_activity(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).note_pan_activity(now)
+        super::focus::system::note_pan_activity(self, now)
     }
 
     pub(crate) fn note_pan_viewport_change(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).note_pan_viewport_change(now)
+        super::focus::system::note_pan_viewport_change(self, now)
     }
 
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
-        super::focus::system::focus_system_controller(self).set_pan_restore_focus_target(id)
+        super::focus::system::set_pan_restore_focus_target(self, id)
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
-        super::focus::system::focus_system_controller(self)
-            .animate_viewport_center_to(target_center, now)
+        super::focus::system::animate_viewport_center_to(self, target_center, now)
     }
 
     pub fn animate_viewport_center_to_on_monitor(
@@ -1295,7 +1293,8 @@ impl Halley {
         target_center: Vec2,
         now: Instant,
     ) -> bool {
-        super::focus::system::focus_system_controller(self).animate_viewport_center_to_on_monitor(
+        super::focus::system::animate_viewport_center_to_on_monitor(
+            self,
             monitor,
             target_center,
             now,
@@ -1308,15 +1307,11 @@ impl Halley {
         now: Instant,
         delay_ms: u64,
     ) -> bool {
-        super::focus::system::focus_system_controller(self).animate_viewport_center_to_delayed(
-            target_center,
-            now,
-            delay_ms,
-        )
+        super::focus::system::animate_viewport_center_to_delayed(self, target_center, now, delay_ms)
     }
 
     pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
-        super::focus::system::focus_system_controller(self).tick_viewport_pan_animation(now_ms)
+        super::focus::system::tick_viewport_pan_animation(self, now_ms)
     }
 
     pub(crate) fn surface_is_fully_visible_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
@@ -1337,24 +1332,23 @@ impl Halley {
         id: NodeId,
         now: Instant,
     ) -> bool {
-        super::focus::system::focus_system_controller(self)
-            .maybe_pan_to_restored_focus_on_close(monitor, id, now)
+        super::focus::system::maybe_pan_to_restored_focus_on_close(self, monitor, id, now)
     }
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
-        super::focus::system::focus_system_controller(self).begin_resize_interaction(id, now)
+        super::focus::system::begin_resize_interaction(self, id, now)
     }
 
     pub fn end_resize_interaction(&mut self, now: Instant) {
-        super::focus::system::focus_system_controller(self).end_resize_interaction(now)
+        super::focus::system::end_resize_interaction(self, now)
     }
 
     pub fn resolve_overlap_now(&mut self) {
-        super::focus::system::focus_system_controller(self).resolve_overlap_now()
+        super::focus::system::resolve_overlap_now(self)
     }
 
     pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
-        super::focus::system::focus_system_controller(self).set_last_active_size_now(id, size)
+        super::focus::system::set_last_active_size_now(self, id, size)
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
