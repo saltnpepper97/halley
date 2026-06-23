@@ -228,24 +228,24 @@ fn draw_focus_cycle_preview(
         alpha,
     )?;
 
-    // Fullscreen windows capture to a black texture, so force the app-icon
-    // fallback below instead of previewing them. The selected card previews live
-    // from the shared `window_offscreen_cache`; neighbours read their frozen
+    // Preview from the captured offscreen texture when ready. Fullscreen and game
+    // windows are now captured during the cycle (the immersive lock is released, so
+    // they're composited), so they preview for real too. The selected card previews
+    // live from the shared `window_offscreen_cache`; neighbours read their frozen
     // `focus_cycle_still` so they don't animate (see `prewarm_focus_cycle_previews`).
-    let preview = (!overlay.node_is_fullscreen(node_id))
-        .then(|| {
-            let cache = &overlay.render_state.cache;
-            let source = if selected {
-                &cache.window_offscreen_cache
-            } else {
-                &cache.focus_cycle_still
-            };
-            source
-                .get(&node_id)
-                .filter(|cache| cache.has_content)
-                .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
-        })
-        .flatten();
+    // No usable texture → app-icon fallback below.
+    let preview = {
+        let cache = &overlay.render_state.cache;
+        let source = if selected {
+            &cache.window_offscreen_cache
+        } else {
+            &cache.focus_cycle_still
+        };
+        source
+            .get(&node_id)
+            .filter(|cache| cache.has_content)
+            .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
+    };
 
     if let Some((texture, bbox)) = preview {
         let source = window_preview_source_rect(overlay, node_id, bbox);

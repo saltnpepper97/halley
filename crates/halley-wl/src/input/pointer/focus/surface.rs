@@ -80,7 +80,7 @@ fn popups_top_to_bottom(st: &Halley, surface: &WlSurface) -> Vec<(PopupKind, Poi
         .collect()
 }
 
-fn popup_focus_for_screen(
+pub(crate) fn popup_focus_for_screen(
     st: &mut Halley,
     ws_w: i32,
     ws_h: i32,

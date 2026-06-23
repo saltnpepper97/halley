@@ -334,6 +334,37 @@ pub(crate) fn draw_debug_frame_to_target(
             collect_layer_surfaces(renderer, st, size, prepared.now);
         let cursor = draw_software_cursor
             .then(|| collect_cursor_scene(renderer, cursor_screen, cursor_image));
+
+        // Optional backdrop blur for overlay chrome (apogee tile labels). Mirrors
+        // the main path's FrameBlurContext setup; no layer mask is needed here.
+        // `blur_textures` is taken from `gpu` for the frame and restored after
+        // `finish` so it isn't reallocated every frame.
+        let blur_cfg = st.runtime.tuning.effects.blur;
+        let blur_ready = halley_config::overlay_blur_enabled(
+            &blur_cfg,
+            &st.runtime.tuning.overlay_style,
+        ) && !st.ui.render_state.gpu.blur_programs_failed
+            && st.ui.render_state.gpu.blur_down_program.is_some()
+            && st.ui.render_state.gpu.blur_up_program.is_some()
+            && st.ui.render_state.gpu.blur_composite_program.is_some()
+            && st.ui.render_state.gpu.blur_composite_masked_program.is_some();
+        let down = st.ui.render_state.gpu.blur_down_program.clone();
+        let up = st.ui.render_state.gpu.blur_up_program.clone();
+        let composite = st.ui.render_state.gpu.blur_composite_program.clone();
+        let masked_composite = st.ui.render_state.gpu.blur_composite_masked_program.clone();
+        let mut blur_textures = None;
+        if blur_ready {
+            match crate::render::blur::ensure_blur_textures(
+                renderer,
+                &mut st.ui.render_state.gpu.blur_textures,
+                size,
+                blur_cfg.passes,
+            ) {
+                Ok(()) => blur_textures = st.ui.render_state.gpu.blur_textures.take(),
+                Err(err) => eventline::warn!("apogee overlay blur disabled this frame: {err}"),
+            }
+        }
+
         let mut frame = renderer.render(framebuffer, size, frame_transform)?;
         frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
         draw_apogee_background_layers(
@@ -342,14 +373,44 @@ pub(crate) fn draw_debug_frame_to_target(
             &layer_background,
             &layer_bottom,
         )?;
-        crate::overlay::draw_observatory(
-            &mut frame,
-            st,
-            size.w,
-            size.h,
-            prepared.damage,
-            prepared.now,
-        )?;
+        {
+            let mut blur_ctx = match (
+                down.as_ref(),
+                up.as_ref(),
+                composite.as_ref(),
+                masked_composite.as_ref(),
+                blur_textures.as_mut(),
+            ) {
+                (Some(down), Some(up), Some(composite), Some(masked_composite), Some(textures)) => {
+                    Some(FrameBlurContext {
+                        textures,
+                        down_program: down,
+                        up_program: up,
+                        composite_program: composite,
+                        masked_composite_program: masked_composite,
+                        offset: crate::render::blur::blur_offset(blur_cfg.radius),
+                        saturation: blur_cfg.saturation,
+                        noise: blur_cfg.noise,
+                        layer_mask_texture: None,
+                    })
+                }
+                _ => None,
+            };
+            crate::overlay::with_overlay_blur_context(
+                blur_ctx.as_mut(),
+                || -> Result<(), Box<dyn Error>> {
+                    crate::overlay::draw_observatory(
+                        &mut frame,
+                        st,
+                        size.w,
+                        size.h,
+                        prepared.damage,
+                        prepared.now,
+                    )
+                    .map(|_| ())
+                },
+            )?;
+        }
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_background)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_bottom)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_top)?;
@@ -366,6 +427,9 @@ pub(crate) fn draw_debug_frame_to_target(
             )?;
         }
         let _ = frame.finish()?;
+        if let Some(blur_textures) = blur_textures {
+            st.ui.render_state.gpu.blur_textures = Some(blur_textures);
+        }
         return Ok(());
     }
 

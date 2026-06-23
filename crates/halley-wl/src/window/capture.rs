@@ -466,12 +466,10 @@ pub(crate) fn prewarm_focus_cycle_previews(
         let Some(wl) = node_surfaces.get(&node_id).cloned() else {
             continue;
         };
-        if node_requires_live_surface_render(st, node_id) {
-            continue;
-        }
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
+        // This runs only during an alt+tab cycle, which releases the immersive
+        // fullscreen lock (the window is composited, off direct scanout), so even
+        // fullscreen/game surfaces are sampleable here — capture them for the
+        // preview card instead of falling back to the app icon.
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
@@ -626,11 +624,6 @@ pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Hall
         .filter(|node_id| tile_node_ids.contains(node_id));
     let mut missing = Vec::new();
     for node_id in tile_node_ids {
-        // Fullscreen windows capture to a black texture; Apogee shows their app
-        // icon instead, so don't spend capture budget on them.
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
         let cache = st
             .ui
             .render_state
@@ -702,12 +695,9 @@ pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Hall
         let Some(wl) = node_surfaces.get(&node_id).cloned() else {
             continue;
         };
-        if node_requires_live_surface_render(st, node_id) {
-            continue;
-        }
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
+        // This runs only while apogee is open, where the fullscreen/game window is
+        // soft-suspended (composited, off direct scanout), so its surface is
+        // sampleable — capture it for the tile instead of falling back to the icon.
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };

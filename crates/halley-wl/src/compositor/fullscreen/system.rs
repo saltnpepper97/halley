@@ -297,8 +297,13 @@ mod tests {
         assert_eq!(anim.monitor, "monitor_a");
         assert_eq!(anim.from_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.from_size, Vec2 { x: 320.0, y: 240.0 });
-        assert_eq!(anim.to_pos, Vec2 { x: 400.0, y: 300.0 });
+        // The window grows in place (centred on itself); the camera recentres onto
+        // it, so the fill target is the window's own position, not the monitor centre.
+        assert_eq!(anim.to_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.to_size, Vec2 { x: 800.0, y: 600.0 });
+        // The camera is retargeted to centre on the window at zoom 1.0.
+        assert_eq!(state.model.camera_target_center, Vec2 { x: 140.0, y: 150.0 });
+        assert_eq!(state.model.camera_target_view_size, Vec2 { x: 800.0, y: 600.0 });
     }
 
     #[test]
@@ -348,7 +353,8 @@ mod tests {
         let (mid_pos, mid_size) =
             fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, mid)
                 .expect("mid visual");
-        assert!(mid_pos.x > 140.0 && mid_pos.x < 400.0);
+        // Grows in place: the centre stays put while only the size eases up.
+        assert_eq!(mid_pos, Vec2 { x: 140.0, y: 150.0 });
         assert!(mid_size.x > 320.0 && mid_size.x < 800.0);
 
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
@@ -358,7 +364,7 @@ mod tests {
             now + std::time::Duration::from_millis(260),
         )
         .expect("end visual");
-        assert_eq!(end_pos, Vec2 { x: 400.0, y: 300.0 });
+        assert_eq!(end_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(end_size, Vec2 { x: 800.0, y: 600.0 });
         assert!(
             !state
@@ -405,7 +411,8 @@ mod tests {
             .get(&fullscreen)
             .expect("exit animation");
         assert_eq!(anim.monitor, "monitor_a");
-        assert_eq!(anim.from_pos, Vec2 { x: 400.0, y: 300.0 });
+        // Shrinks in place at the window's own centre (the grow did the same).
+        assert_eq!(anim.from_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.from_size, Vec2 { x: 800.0, y: 600.0 });
         assert_eq!(anim.to_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.to_size, Vec2 { x: 320.0, y: 240.0 });
@@ -415,7 +422,7 @@ mod tests {
         let (mid_pos, mid_size) =
             fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, mid)
                 .expect("mid exit visual");
-        assert!(mid_pos.x > 140.0 && mid_pos.x < 400.0);
+        assert_eq!(mid_pos, Vec2 { x: 140.0, y: 150.0 });
         assert!(mid_size.x > 320.0 && mid_size.x < 800.0);
 
         // Once it expires the override is gone and the window rests at restored geometry.
@@ -923,12 +930,32 @@ pub(crate) fn fullscreen_visual_for_node_on_monitor_at(
         .copied()
         == Some(node_id))
     .then(|| {
-        st.model
+        // Centre the fullscreen window on its OWN position (the camera is recentred
+        // onto it on entry), at the monitor's native size. Anchoring to the node's
+        // centre rather than the live camera centre keeps the steady-state rect
+        // consistent with the grow/shrink animation's endpoint, so there's no jump
+        // when the animation expires while the camera is still easing in.
+        let size = st
+            .model
             .monitor_state
             .monitors
             .get(monitor)
-            .map(|space| (space.viewport.center, space.viewport.size))
-            .unwrap_or((st.model.viewport.center, st.model.viewport.size))
+            .map(|space| space.viewport.size)
+            .unwrap_or(st.model.viewport.size);
+        let center = st
+            .model
+            .field
+            .node(node_id)
+            .map(|node| node.pos)
+            .unwrap_or_else(|| {
+                st.model
+                    .monitor_state
+                    .monitors
+                    .get(monitor)
+                    .map(|space| space.viewport.center)
+                    .unwrap_or(st.model.viewport.center)
+            });
+        (center, size)
     })
 }
 
@@ -982,17 +1009,6 @@ fn fullscreen_monitor_view(st: &Halley, monitor_name: &str) -> (Vec2, Vec2) {
         .get(monitor_name)
         .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
         .unwrap_or((st.model.viewport.center, st.model.viewport.size))
-}
-
-fn reset_monitor_zoom_once(st: &mut Halley, monitor_name: &str) {
-    if let Some(monitor) = st.model.monitor_state.monitors.get_mut(monitor_name) {
-        monitor.zoom_ref_size = monitor.viewport.size;
-        monitor.camera_target_view_size = monitor.viewport.size;
-    }
-    if st.model.monitor_state.current_monitor == monitor_name {
-        st.model.zoom_ref_size = st.model.viewport.size;
-        st.model.camera_target_view_size = st.model.viewport.size;
-    }
 }
 
 fn fullscreen_target_size_for(st: &Halley, monitor_name: &str) -> (i32, i32) {
@@ -1425,12 +1441,22 @@ fn enter_fullscreen(
         .entry(monitor_name.clone())
         .or_insert(pre_fullscreen_camera);
 
-    // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
-    reset_monitor_zoom_once(st, monitor_name.as_str());
-
     let Some(node) = st.model.field.node(node_id).cloned() else {
         return;
     };
+
+    // Animate the monitor camera to centre on the window AND ease the zoom to 1.0
+    // together, so the window grows in place to fill the screen. The old behaviour
+    // snapped the zoom to 1.0 about the (off-window) camera centre, which shoved
+    // every windowed node behind it sideways by the zoom delta.
+    crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
+        st,
+        monitor_name.as_str(),
+        crate::compositor::workspace::state::MaximizeCameraSnapshot {
+            center: node.pos,
+            view_size: viewport_size,
+        },
+    );
 
     let soft_resume_entry = soft_resume
         .then(|| {
@@ -1499,7 +1525,9 @@ fn enter_fullscreen(
             crate::compositor::fullscreen::state::FullscreenScaleAnim {
                 monitor: monitor_name.clone(),
                 from_pos: from.0,
-                to_pos: viewport_center,
+                // Grow in place (centred on the window itself), matching the camera
+                // recentring above — not toward the old camera centre.
+                to_pos: node.pos,
                 from_size: from.1,
                 to_size: viewport_size,
                 start_ms,

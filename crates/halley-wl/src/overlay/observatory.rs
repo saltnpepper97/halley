@@ -13,9 +13,9 @@ use crate::render::draw_primitives::draw_rect;
 use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
-    OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_chip,
-    draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow, draw_overlay_ring,
-    overlay_accent_fill, overlay_text_color_for_fill,
+    OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_backdrop_blur,
+    draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
+    draw_overlay_ring, overlay_accent_fill, overlay_text_color_for_fill,
     preview_source::{preview_src_uv, window_preview_source_rect},
     resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
@@ -142,20 +142,17 @@ fn draw_window_preview(
         alpha,
     )?;
 
-    // Fullscreen windows capture to a black/unusable texture (video, keybind
-    // fullscreen), so skip the preview and show the app icon instead. Non-fullscreen
-    // windows with no captured texture yet also fall back to the icon.
-    let preview = (!overlay.node_is_fullscreen(tile.node_id))
-        .then(|| {
-            overlay
-                .render_state
-                .cache
-                .window_offscreen_cache
-                .get(&tile.node_id)
-                .filter(|cache| cache.has_content)
-                .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
-        })
-        .flatten();
+    // Preview from the captured offscreen texture when one is ready. Fullscreen and
+    // game tiles are now captured while apogee is open (they're composited then), so
+    // they get a real preview too; anything without a usable texture falls back to
+    // the app icon below.
+    let preview = overlay
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&tile.node_id)
+        .filter(|cache| cache.has_content)
+        .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)));
 
     if let Some((texture, bbox)) = preview {
         let source = window_preview_source_rect(overlay, tile.node_id, bbox);
@@ -270,10 +267,14 @@ fn draw_tile_label(
         (rect.loc.x + 8, rect.loc.y + rect.size.h - 8 - label_h).into(),
         ((rect.size.w - 16).max(1), label_h).into(),
     );
+    // Frosted label: a Dual-Kawase backdrop blur (no-op when overlay blur is off,
+    // leaving the plain tint below) plus a translucent tint so the text stays
+    // legible over the blurred window thumbnail behind it.
+    draw_overlay_backdrop_blur(frame, label_rect, 8.0, damage, alpha)?;
     let fill = if hovered {
-        overlay_accent_fill(visuals, 0.55, 0.88 * alpha)
+        overlay_accent_fill(visuals, 0.55, 0.62 * alpha)
     } else {
-        Color32F::new(0.02, 0.025, 0.035, 0.72 * alpha)
+        Color32F::new(0.02, 0.025, 0.035, 0.5 * alpha)
     };
     draw_overlay_chip_without_shadow(
         frame,

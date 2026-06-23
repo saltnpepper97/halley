@@ -93,6 +93,9 @@ All notable changes to this project will be documented in this file.
   fallback previews, and promote a selected overflow member into the master slot (re-laying out the
   cluster and shifting the old master into overflow). Selecting any cluster workspace member in Apogee
   now promotes it to master for both tiling and stacking layouts.
+- Add frosted-glass backdrop blur behind Apogee tile labels (Dual-Kawase, honouring the
+  global `effects.blur` switches) so labels stay legible over the blurred window thumbnail
+  behind them; the Apogee render fast path now sets up a `FrameBlurContext` for overlay chrome.
 
 ### Changed
 - Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
@@ -191,6 +194,16 @@ All notable changes to this project will be documented in this file.
   thin one-line `root.rs` facade methods that only delegated to those functions, removing the last dead
   code (unused `FullscreenCtx`, empty `debug_dump`) and clearing workspace-wide warnings. Pure
   mechanical transform; no behavior changes.
+- Fullscreen windows now grow and shrink in place, centred on the window's own position, with
+  the monitor camera easing to centre on the window and zoom to 1.0 together. The old behaviour
+  snapped the zoom to 1.0 about the (often off-window) camera centre, shoving every windowed node
+  behind it sideways by the zoom delta; the steady-state fullscreen rect also anchors on the node
+  centre now, so there is no jump when the grow/shrink animation expires mid-camera-ease.
+- Narrow config-reload texture invalidation: offscreen window textures are rebuilt only when the
+  baked border-corner radius actually changes (including crossing 0, which toggles the geometry
+  clip), not whenever the whole `decorations` block differs. Border sizes/colours, shadows and
+  blur are drawn live per frame, so a colour-only theme reload no longer flushes every window's
+  offscreen texture.
 
 ### Fixed
 - Ensure client-side fullscreen requests still send the xdg fullscreen configure when the window
@@ -317,6 +330,14 @@ All notable changes to this project will be documented in this file.
   suppressing the tiling re-layout that normally fires on maintenance (preserving manual member
   positions) while leaving all other maintenance work and legitimate re-layouts (cluster entry, member
   add, overflow animations) unaffected.
+- Capture real previews for fullscreen and game windows in Apogee and the Alt+Tab focus-cycle
+  switcher instead of falling back to the app icon. The immersive fullscreen/game lock is released
+  while Apogee is open and during an Alt+Tab cycle (the window is composited, off direct scanout),
+  so its surface is sampleable; the per-node fullscreen skip has been dropped from the
+  apogee/focus-cycle prewarm and preview paths.
+- Deliver a press landing on an overflowing popup (e.g. a context menu spilling past its parent
+  window) to the popup without also raising or focusing the toplevel beneath it. The window-side
+  raise/drag/resize path is now skipped when a popup is under the pointer.
 
 ## [v0.4.0] - 2026-06-12
 
