@@ -1,7 +1,9 @@
 use super::*;
 use crate::compositor::{actions, fullscreen, monitor, spawn, surface, workspace};
 use crate::compositor::spawn::rules::ResolvedInitialWindowRule;
-use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::desktop::{
+    PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, find_popup_root_surface,
+};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface};
@@ -394,12 +396,55 @@ impl XdgShellHandler for Halley {
 
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
         let popup = PopupKind::from(surface);
-        if let Ok(root) = find_popup_root_surface(&popup) {
-            let _ = self.platform.popup_manager.grab_popup::<Self>(
-                root,
-                popup,
-                &self.platform.seat,
+        let Ok(root) = find_popup_root_surface(&popup) else {
+            return;
+        };
+        let seat = self.platform.seat.clone();
+        // Actually install the popup grab on the seat (standard Smithay flow,
+        // mirroring the DnD `set_grab`). Without this the grab is discarded and the
+        // menu only stays focused while the pointer is over its hit region — so a
+        // popup that overflows the parent window loses pointer focus in the overflow
+        // and Qt clients (kdenlive) dismiss it on motion. The installed grab keeps
+        // pointer + keyboard focus on the popup chain and dismisses on outside click.
+        let Ok(mut grab) =
+            self.platform
+                .popup_manager
+                .grab_popup::<Self>(root, popup, &seat, serial)
+        else {
+            return;
+        };
+
+        if let Some(keyboard) = seat.get_keyboard() {
+            if keyboard.is_grabbed()
+                && !(keyboard.has_grab(serial)
+                    || keyboard.has_grab(grab.previous_serial().unwrap_or(serial)))
+            {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            // Route popup-grab focus through the choke point so it flushes stale forwarded
+            // keys like every other focus change (no surface inherits a stuck repeat).
+            crate::compositor::focus::system::set_keyboard_focus(
+                self,
+                grab.current_grab(),
                 serial,
+            );
+            keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+        }
+
+        if let Some(pointer) = seat.get_pointer() {
+            if pointer.is_grabbed()
+                && !(pointer.has_grab(serial)
+                    || pointer.has_grab(grab.previous_serial().unwrap_or_else(|| grab.serial())))
+            {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            pointer.set_grab(
+                self,
+                PopupPointerGrab::new(&grab),
+                serial,
+                smithay::input::pointer::Focus::Keep,
             );
         }
     }

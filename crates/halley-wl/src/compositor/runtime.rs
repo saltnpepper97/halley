@@ -237,7 +237,7 @@ fn animation_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
 pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
     let prev_runtime_viewport = st.model.viewport;
     let prev_config_viewport = st.runtime.tuning.viewport();
-    let prev_decorations = st.runtime.tuning.decorations;
+    let prev_border_radius_px = st.runtime.tuning.window_border_radius_px();
     let prev_font = st.runtime.tuning.font.clone();
     let prev_input = st.runtime.tuning.input.clone();
     let prev_physics_enabled = st.runtime.tuning.physics_enabled;
@@ -353,7 +353,11 @@ pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
     if st.runtime.tuning.font != prev_font {
         st.ui.render_state.invalidate_ui_text_cache();
     }
-    if st.runtime.tuning.decorations != prev_decorations {
+    // Only the baked rounded-corner radius affects the offscreen window texture; border
+    // sizes/colors, shadows and blur are all drawn live per frame. So rebuild textures only
+    // when the radius actually changes (including crossing 0, which toggles the geometry
+    // clip), not on color-only theme reloads.
+    if st.runtime.tuning.window_border_radius_px() != prev_border_radius_px {
         st.ui.render_state.clear_window_offscreen_caches();
     }
     if !st.runtime.tuning.cursor.hide_while_typing {

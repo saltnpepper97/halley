@@ -19,6 +19,7 @@ use smithay::utils::SERIAL_COUNTER;
 
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
+    popup_focus_for_screen,
 };
 use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
@@ -135,6 +136,25 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         Instant::now(),
         ps.resize,
     );
+    let popup_focus = popup_focus_for_screen(
+        st,
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        Instant::now(),
+        ps.resize,
+    );
+    // A seat grab (an open xdg_popup menu, or a drag) owns pointer routing: the
+    // button is delivered through the grab by `dispatch_pointer_button`. Skip the
+    // window-side node-focus/raise so we don't steal focus to a window beneath the
+    // menu — and unlike `popup_focus` this holds even in the menu's overflow region
+    // where the per-position popup hit-test misses.
+    let pointer_grabbed = st
+        .platform
+        .seat
+        .get_pointer()
+        .is_some_and(|pointer| pointer.is_grabbed());
     if matches!(button_state, ButtonState::Pressed)
         && let Some((surface, _)) = layer_focus.as_ref()
     {
@@ -464,6 +484,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         && left
         && !intercepted
         && layer_focus.is_none()
+        && popup_focus.is_none()
+        && !pointer_grabbed
         && let Some(hit) = press_hit
         && !hit.move_surface
         && !hit.is_core
@@ -483,6 +505,16 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         && let Some((surface, _)) = layer_focus
     {
         let _ = crate::compositor::monitor::layer_shell::focus_layer_surface(st, &surface);
+        return;
+    }
+    // A press landing on a popup (e.g. a context menu overflowing its parent
+    // window) was already delivered to the popup by dispatch_pointer_button.
+    // Skip the window-side raise/drag/resize handling so the toplevel beneath
+    // the menu is not focused or raised.
+    if matches!(button_state, ButtonState::Pressed)
+        && !intercepted
+        && (popup_focus.is_some() || pointer_grabbed)
+    {
         return;
     }
     match button_state {

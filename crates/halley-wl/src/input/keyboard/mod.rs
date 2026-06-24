@@ -110,6 +110,59 @@ pub(crate) fn flush_stuck_forwarded_keys(st: &mut Halley) {
     }
 }
 
+/// Release any key we forwarded to a client as *pressed* that is no longer physically
+/// held. This is the general, choke-point guarantee against stuck client-side key repeat:
+/// it runs after **every** key event (see `handle_keyboard_input`), so a release swallowed
+/// by a modal, lost to a dead surface, or skipped by a deferred focus is still delivered to
+/// whoever now holds focus — no per-case `trap_modal_key_release` required. Genuinely held
+/// keys (still in `keys_physically_down`, modifiers included) are left untouched, so normal
+/// key-holds and held Ctrl/Alt/Super are unaffected.
+pub(crate) fn reconcile_forwarded_keys(st: &mut Halley) {
+    let codes: Vec<u32> = st
+        .input
+        .interaction_state
+        .forwarded_pressed_keys
+        .iter()
+        .copied()
+        .filter(|code| {
+            !st.input
+                .interaction_state
+                .keys_physically_down
+                .contains(code)
+        })
+        .collect();
+    if codes.is_empty() {
+        return;
+    }
+    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+        for code in &codes {
+            st.input
+                .interaction_state
+                .forwarded_pressed_keys
+                .remove(code);
+            st.input.interaction_state.modal_release_keys.remove(code);
+        }
+        return;
+    };
+    for code in codes {
+        let (_, mods_changed) =
+            keyboard.input_intercept::<(), _>(st, code.into(), KeyState::Released, |_, _, _| ());
+        keyboard.input_forward(
+            st,
+            code.into(),
+            KeyState::Released,
+            SERIAL_COUNTER.next_serial(),
+            now_millis_u32(),
+            mods_changed,
+        );
+        st.input
+            .interaction_state
+            .forwarded_pressed_keys
+            .remove(&code);
+        st.input.interaction_state.modal_release_keys.remove(&code);
+    }
+}
+
 #[inline]
 fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
     let _ = action;
@@ -231,6 +284,24 @@ fn keyboard_has_client_focus(st: &Halley) -> bool {
 }
 
 pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
+    st: &mut Halley,
+    ctx: &InputCtx<'_, B>,
+    code: u32,
+    pressed: bool,
+) {
+    // Record raw physical key state before any modal routing, then reconcile afterwards so
+    // no client is ever left holding a key whose release got swallowed — the general fix
+    // for stuck key repeat, independent of which path consumed this event.
+    if pressed {
+        st.input.interaction_state.keys_physically_down.insert(code);
+    } else {
+        st.input.interaction_state.keys_physically_down.remove(&code);
+    }
+    handle_keyboard_input_inner(st, ctx, code, pressed);
+    reconcile_forwarded_keys(st);
+}
+
+fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
     code: u32,
@@ -512,6 +583,90 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
+    // Apogee keyboard navigation: arrows move a highlighted selection across the window
+    // mosaic and the core rail, Enter activates it, Escape closes. These keys are raw
+    // (not compositor binds), so they're intercepted here before normal dispatch and
+    // kept from leaking to focused clients while the overview is open.
+    if st.input.interaction_state.apogee_session.is_some()
+        && !crate::protocol::wayland::session_lock::session_lock_active(st)
+    {
+        let escape = key_name_to_evdev("escape").map(|code| code + 8);
+        let enter = key_name_to_evdev("return").map(|code| code + 8);
+        let left = key_name_to_evdev("left").map(|code| code + 8);
+        let right = key_name_to_evdev("right").map(|code| code + 8);
+        let up = key_name_to_evdev("up").map(|code| code + 8);
+        let down = key_name_to_evdev("down").map(|code| code + 8);
+        let dir = if Some(code) == left {
+            Some(halley_config::DirectionalAction::Left)
+        } else if Some(code) == right {
+            Some(halley_config::DirectionalAction::Right)
+        } else if Some(code) == up {
+            Some(halley_config::DirectionalAction::Up)
+        } else if Some(code) == down {
+            Some(halley_config::DirectionalAction::Down)
+        } else {
+            None
+        };
+        if dir.is_some() || Some(code) == enter || Some(code) == escape {
+            if let Some(keyboard) = st.platform.seat.get_keyboard() {
+                let serial = SERIAL_COUNTER.next_serial();
+                keyboard.input::<(), _>(
+                    st,
+                    code.into(),
+                    if pressed {
+                        KeyState::Pressed
+                    } else {
+                        KeyState::Released
+                    },
+                    serial,
+                    now_millis_u32(),
+                    |_, _, _| FilterResult::Intercept(()),
+                );
+            }
+            if pressed {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let now = Instant::now();
+                if let Some(dir) = dir {
+                    // Navigate in global screen space (crosses monitors) and warp the
+                    // cursor onto the target tile. The cursor is the single source of
+                    // truth: warping it drives the same hover path the mouse uses, and
+                    // updates the pointer accumulator so a later physical move continues
+                    // from here — one focus, not two.
+                    if let Some(target) =
+                        crate::compositor::overview::apogee_navigate(st, dir)
+                    {
+                        crate::compositor::overview::apogee_reveal_tile(st, target);
+                        if let Some((gsx, gsy)) =
+                            crate::compositor::overview::apogee_tile_global_center(st, target)
+                        {
+                            crate::input::pointer::motion::handle_pointer_motion_absolute(
+                                st,
+                                ctx,
+                                0,
+                                0,
+                                gsx,
+                                gsy,
+                                (0.0, 0.0),
+                                (0.0, 0.0),
+                                0,
+                            );
+                        }
+                    }
+                } else if Some(code) == enter {
+                    if let Some(node) = st.input.interaction_state.apogee_hover_node {
+                        crate::compositor::overview::select_apogee_target(st, node, now);
+                    } else {
+                        st.close_apogee(now);
+                    }
+                } else {
+                    st.close_apogee(now);
+                }
+                ctx.backend.request_redraw();
+            }
+            return;
+        }
+    }
+
     if st.focus_cycle_session_active() {
         handle_focus_cycle_session_input(st, ctx, code, pressed);
         return;
@@ -780,6 +935,30 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconcile_forwarded_keys_drains_only_keys_not_physically_down() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        // `stuck` was forwarded as pressed but its release was swallowed (no longer
+        // physically down) — it must be drained so the client stops repeating. `held` is
+        // still physically down (a genuine key-hold) — it must be left forwarded.
+        let stuck = 36; // return
+        let held = 45; // arbitrary letter key
+        let st = &mut state.input.interaction_state;
+        st.forwarded_pressed_keys.insert(stuck);
+        st.forwarded_pressed_keys.insert(held);
+        st.keys_physically_down.insert(held);
+
+        reconcile_forwarded_keys(&mut state);
+
+        let st = &state.input.interaction_state;
+        assert!(!st.forwarded_pressed_keys.contains(&stuck));
+        assert!(st.forwarded_pressed_keys.contains(&held));
+    }
 
     #[test]
     fn hover_keyboard_launch_latches_pointer_monitor_over_stale_pending_monitor() {

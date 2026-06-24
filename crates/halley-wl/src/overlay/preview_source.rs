@@ -45,12 +45,19 @@ pub(super) fn window_preview_source_rect(
         .map(|node| node.intrinsic_size.x.max(1.0) / node.intrinsic_size.y.max(1.0))
         .filter(|aspect| aspect.is_finite() && *aspect >= 0.25 && *aspect <= 4.5);
 
-    if let Some((geo_x, geo_y, geo_w, geo_h)) = overlay
-        .render_state
-        .cache
-        .window_geometry
-        .get(&node_id)
-        .copied()
+    // A fullscreen window has no CSD inset — its whole surface is the content — so
+    // the `window_geometry` crop must not apply. Crucially, right after going
+    // fullscreen the captured texture is already fullscreen-size while the cached
+    // `window_geometry` still lags at the windowed rect; cropping to it would sample
+    // a tiny windowed sub-rect at the old offset (small, bottom-right). Use the full
+    // bbox for fullscreen tiles instead.
+    if !overlay.node_is_fullscreen(node_id)
+        && let Some((geo_x, geo_y, geo_w, geo_h)) = overlay
+            .render_state
+            .cache
+            .window_geometry
+            .get(&node_id)
+            .copied()
         && geo_w >= 1.0
         && geo_h >= 1.0
     {

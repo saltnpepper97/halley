@@ -13,9 +13,9 @@ use crate::render::draw_primitives::draw_rect;
 use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
-    OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_chip,
-    draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow, draw_overlay_ring,
-    overlay_accent_fill, overlay_text_color_for_fill,
+    OverlayView, OverlayVisuals, draw_overflow_member_chip, draw_overlay_backdrop_blur,
+    draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
+    draw_overlay_ring, overlay_accent_fill, overlay_text_color_for_fill,
     preview_source::{preview_src_uv, window_preview_source_rect},
     resolve_overlay_visuals, truncate_overlay_text_to_width,
 };
@@ -142,20 +142,17 @@ fn draw_window_preview(
         alpha,
     )?;
 
-    // Fullscreen windows capture to a black/unusable texture (video, keybind
-    // fullscreen), so skip the preview and show the app icon instead. Non-fullscreen
-    // windows with no captured texture yet also fall back to the icon.
-    let preview = (!overlay.node_is_fullscreen(tile.node_id))
-        .then(|| {
-            overlay
-                .render_state
-                .cache
-                .window_offscreen_cache
-                .get(&tile.node_id)
-                .filter(|cache| cache.has_content)
-                .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)))
-        })
-        .flatten();
+    // Preview from the captured offscreen texture when one is ready. Fullscreen and
+    // game tiles are now captured while apogee is open (they're composited then), so
+    // they get a real preview too; anything without a usable texture falls back to
+    // the app icon below.
+    let preview = overlay
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&tile.node_id)
+        .filter(|cache| cache.has_content)
+        .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)));
 
     if let Some((texture, bbox)) = preview {
         let source = window_preview_source_rect(overlay, tile.node_id, bbox);
@@ -270,10 +267,14 @@ fn draw_tile_label(
         (rect.loc.x + 8, rect.loc.y + rect.size.h - 8 - label_h).into(),
         ((rect.size.w - 16).max(1), label_h).into(),
     );
+    // Frosted label: a Dual-Kawase backdrop blur (no-op when overlay blur is off,
+    // leaving the plain tint below) plus a translucent tint so the text stays
+    // legible over the blurred window thumbnail behind it.
+    draw_overlay_backdrop_blur(frame, label_rect, 8.0, damage, alpha)?;
     let fill = if hovered {
-        overlay_accent_fill(visuals, 0.55, 0.88 * alpha)
+        overlay_accent_fill(visuals, 0.55, 0.62 * alpha)
     } else {
-        Color32F::new(0.02, 0.025, 0.035, 0.72 * alpha)
+        Color32F::new(0.02, 0.025, 0.035, 0.5 * alpha)
     };
     draw_overlay_chip_without_shadow(
         frame,
@@ -383,6 +384,9 @@ fn draw_core_tile(
         damage,
         alpha,
     )?;
+    if hovered {
+        draw_core_hover_label(frame, overlay, visuals, tile, rect, alpha, damage)?;
+    }
     if let Some(icon) = crate::render::cluster_core_icon_texture(st, false) {
         let side = (rect.size.w.min(rect.size.h) as f32 * 0.62).round() as i32;
         let side = side.clamp(20, rect.size.w.min(rect.size.h).max(1));
@@ -431,6 +435,69 @@ fn draw_core_tile(
         &overlay.tuning.font,
         rect.loc.x + ((rect.size.w - text_w).max(0) / 2),
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
+        label.as_str(),
+        1,
+        overlay_text_color_for_fill(fill, alpha),
+        damage,
+    )?;
+    Ok(())
+}
+
+/// Draw a frosted name chip just below a hovered/selected core tile. Cores otherwise
+/// show only their icon, so this surfaces the cluster's label on hover and keeps it up
+/// for the whole hover.
+fn draw_core_hover_label(
+    frame: &mut GlesFrame<'_, '_>,
+    overlay: &OverlayView<'_>,
+    visuals: &OverlayVisuals,
+    tile: &ApogeeTile,
+    rect: Rectangle<i32, Physical>,
+    alpha: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let text = tile_label(overlay, tile);
+    if text.is_empty() {
+        return Ok(());
+    }
+    let max_w = (rect.size.w * 2).clamp(120, 260);
+    let label = truncate_overlay_text_to_width(
+        overlay.render_state,
+        &overlay.tuning.font,
+        text.as_str(),
+        1,
+        max_w - 16,
+    );
+    let (text_w, text_h) =
+        ui_text_size_in(overlay.render_state, &overlay.tuning.font, label.as_str(), 1);
+    let chip_w = (text_w + 20).clamp(48, max_w);
+    let chip_h = (text_h + 12).clamp(22, 34);
+    let chip = Rectangle::<i32, Physical>::new(
+        (
+            rect.loc.x + (rect.size.w - chip_w) / 2,
+            rect.loc.y + rect.size.h + 8,
+        )
+            .into(),
+        (chip_w, chip_h).into(),
+    );
+    draw_overlay_backdrop_blur(frame, chip, 8.0, damage, alpha)?;
+    let fill = overlay_accent_fill(visuals, 0.55, 0.62 * alpha);
+    draw_overlay_chip_without_shadow(
+        frame,
+        overlay.render_state,
+        visuals,
+        chip,
+        8.0,
+        fill,
+        false,
+        damage,
+        alpha,
+    )?;
+    draw_ui_text_in(
+        frame,
+        overlay.render_state,
+        &overlay.tuning.font,
+        chip.loc.x + ((chip.size.w - text_w).max(0) / 2),
+        chip.loc.y + ((chip.size.h - text_h).max(0) / 2),
         label.as_str(),
         1,
         overlay_text_color_for_fill(fill, alpha),

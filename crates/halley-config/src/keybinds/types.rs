@@ -114,6 +114,9 @@ pub enum CompositorBindingAction {
     CloseFocusedWindow,
     ClusterMode,
     Apogee,
+    /// Pan the camera back to centre on the last focused node — a quick "go back"
+    /// after wandering the field.
+    CenterLastFocused,
     FocusCycle(FocusCycleBindingAction),
     Quit { requires_shift: bool },
     ZoomIn,

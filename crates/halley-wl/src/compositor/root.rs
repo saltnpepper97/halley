@@ -433,6 +433,7 @@ impl Halley {
                     portal_chooser: None,
                     modal_release_keys: HashSet::new(),
                     forwarded_pressed_keys: HashSet::new(),
+                    keys_physically_down: HashSet::new(),
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
                     active_gesture_route: None,
@@ -1270,6 +1271,10 @@ impl Halley {
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::exit_xdg_fullscreen(self, node_id, now)
+    }
+
+    pub(crate) fn exit_xdg_fullscreen_no_anim(&mut self, node_id: NodeId, now: Instant) {
+        super::fullscreen::system::exit_xdg_fullscreen_no_anim(self, node_id, now)
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {

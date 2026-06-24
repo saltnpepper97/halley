@@ -101,7 +101,7 @@ fn new_expanded_window_does_not_displace_existing_expanded_window() {
 }
 
 #[test]
-fn active_window_pushes_unpinned_collapsed_node() {
+fn active_window_yields_to_unpinned_collapsed_node() {
     let mut tuning = halley_config::RuntimeTuning::default();
     tuning.physics_enabled = false;
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
@@ -130,11 +130,15 @@ fn active_window_pushes_unpinned_collapsed_node() {
 
     state.resolve_surface_overlap();
 
-    assert_eq!(
+    // Landmarks (nodes/cores) are fixed reference points: in passive overlap the node
+    // stays and the window yields, so a marker boxed between windows is never pushed
+    // under them (it would have no room to escape). Pinning is no longer required for
+    // this — it now only matters for drag carry behaviour.
+    assert_eq!(state.model.field.node(node).expect("node").pos, node_pos);
+    assert_ne!(
         state.model.field.node(window).expect("window").pos,
         window_pos
     );
-    assert_ne!(state.model.field.node(node).expect("node").pos, node_pos);
     assert!(!nodes_overlap(&state, window, node));
 }
 
@@ -1257,11 +1261,13 @@ fn idle_overlap_settles_active_surface_and_node() {
 
     tick_overlap_frames(&mut state, 96);
 
-    assert_eq!(
+    // The landmark node is the fixed reference: it stays put and the window yields,
+    // so a marker is never shoved around by (or boxed under) neighbouring windows.
+    assert_eq!(state.model.field.node(node).expect("node").pos, node_pos);
+    assert_ne!(
         state.model.field.node(active).expect("active").pos,
         active_pos
     );
-    assert_ne!(state.model.field.node(node).expect("node").pos, node_pos);
     assert!(!nodes_overlap(&state, active, node));
 }
 

@@ -126,7 +126,12 @@ fn mixed_expanded_landmark_locks(
                 (a_locked, true)
             }
         } else {
-            (true, b_locked)
+            // Passive (idle / zoom): treat the landmark as the fixed reference and make
+            // the window yield. A marker boxed between two windows can't move to satisfy
+            // both, so locking the window and moving the marker leaves it overlapping;
+            // locking the marker pushes the windows apart to open its keep-out gap. The
+            // gap is screen-constant, so this keeps the marker clear at every zoom.
+            (a_locked, true)
         }
     } else if b_expanded && a_landmark {
         let a_pinned = st.model.field.node(a).is_some_and(|node| node.pinned);
@@ -142,7 +147,8 @@ fn mixed_expanded_landmark_locks(
                 (true, b_locked)
             }
         } else {
-            (a_locked, true)
+            // Passive: mirror of the branch above — lock the landmark, move the window.
+            (true, b_locked)
         }
     } else {
         (a_locked, b_locked)

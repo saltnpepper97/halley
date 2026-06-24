@@ -446,6 +446,7 @@ fn start_active_maximize_session(
         NodeId,
         crate::compositor::workspace::state::MaximizeNodeSnapshot,
     >,
+    from_override: Option<(halley_core::field::Vec2, halley_core::field::Vec2)>,
     now: Instant,
 ) -> bool {
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
@@ -454,10 +455,16 @@ fn start_active_maximize_session(
 
     let _ = node_snapshots;
     let (target_pos, target_size) = maximize_target_for_monitor(st, monitor);
-    let from =
-        crate::compositor::workspace::state::maximize_animation_visual_for_node_on_monitor_at(
-            st, target_id, monitor, now,
-        )
+    // `from_override` carries the outgoing fullscreen window's on-screen rect when
+    // maximizing straight out of fullscreen, so the grow eases from the full-screen
+    // rect down to the maximized rect instead of snapping to the small windowed size
+    // first (which read as a jarring flash).
+    let from = from_override
+        .or_else(|| {
+            crate::compositor::workspace::state::maximize_animation_visual_for_node_on_monitor_at(
+                st, target_id, monitor, now,
+            )
+        })
         .or_else(|| {
             st.model.field.node(target_id).map(|node| {
                 (
@@ -516,12 +523,42 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
                         session.state =
                             crate::compositor::workspace::state::MaximizeSessionState::Active;
                     }
-                    start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
+                    start_active_maximize_session(
+                        st,
+                        id,
+                        monitor,
+                        &existing.node_snapshots,
+                        None,
+                        now,
+                    )
                 }
             };
         }
         let _ =
             crate::compositor::workspace::state::abort_maximize_session_for_monitor(st, monitor);
+    }
+
+    // Maximize and fullscreen are mutually exclusive on a monitor: exit any active
+    // fullscreen before starting the maximize session. Skip the shrink animation so
+    // only the maximize grow is visible (no conflicting shrink-then-grow flash).
+    // Capture the fullscreen window's current on-screen rect first so the maximize
+    // grow eases from full-screen down to the maximized rect, rather than snapping to
+    // the small windowed size between exit and grow.
+    let mut from_override = None;
+    if let Some(fs_id) = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(monitor)
+        .copied()
+    {
+        if fs_id == id {
+            from_override =
+                crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_monitor_at(
+                    st, fs_id, monitor, now,
+                );
+        }
+        st.exit_xdg_fullscreen_no_anim(fs_id, now);
     }
 
     let Some(target_snapshot) = maximize_snapshot_for_node(st, id) else {
@@ -541,7 +578,7 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
             state: crate::compositor::workspace::state::MaximizeSessionState::Active,
         },
     );
-    start_active_maximize_session(st, id, monitor, &node_snapshots, now)
+    start_active_maximize_session(st, id, monitor, &node_snapshots, from_override, now)
 }
 
 pub(crate) fn toggle_focused_maximize_node_state(st: &mut Halley) -> bool {
@@ -597,9 +634,7 @@ pub(crate) fn toggle_node_maximize_state(
     if st.node_user_pinned(id) {
         return false;
     }
-    if crate::compositor::surface::is_active_cluster_workspace_member(st, id)
-        || st.is_fullscreen_active(id)
-    {
+    if crate::compositor::surface::is_active_cluster_workspace_member(st, id) {
         return false;
     }
 

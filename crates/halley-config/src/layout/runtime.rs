@@ -919,6 +919,9 @@ keybinds:
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
+  # Pan the camera back to centre on the last focused node (quick "go back").
+  "$var.mod+h" "center-last-focused"
+
   # Switch active monitor focus.
   "$var.mod+shift+left" "monitor-focus left"
   "$var.mod+shift+right" "monitor-focus right"

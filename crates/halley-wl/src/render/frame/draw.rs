@@ -230,7 +230,7 @@ pub(super) fn draw_scene_below_windows(
     size: smithay::utils::Size<i32, Physical>,
     prepared: &PreparedFrameState,
     scene: &SceneCollections,
-    hover_node: Option<halley_core::field::NodeId>,
+    _hover_node: Option<halley_core::field::NodeId>,
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
     draw_layer_groups(
@@ -246,16 +246,10 @@ pub(super) fn draw_scene_below_windows(
         blur_ctx.as_deref_mut(),
     )?;
 
-    draw_node_markers(
-        frame,
-        st,
-        size,
-        &scene.render_nodes,
-        hover_node,
-        prepared.damage,
-        prepared.now,
-    )?;
-
+    // Node/core markers used to be drawn here, beneath windows, which let a window
+    // grown over a marker hide it. They're now drawn in `draw_scene_windows_and_hud`
+    // (above window bodies, below popups/HUD and their own hover labels) so a landmark
+    // is never occluded. See that pass for the marker draw.
     draw_window_shadows(frame, size, prepared.damage, &scene.shadow_rects, st)?;
     Ok(())
 }
@@ -322,6 +316,21 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.resized_border_rects,
         st,
     )?;
+
+    // Node/core markers (landmarks: standalone nodes + cluster cores) draw above window
+    // bodies and borders so a window grown over a marker can't hide it, but below popups,
+    // overlay HUD, and the node hover labels that follow. Markers are screen-space
+    // constant, so this keeps them visible at every zoom without resizing them.
+    draw_node_markers(
+        frame,
+        st,
+        size,
+        &scene.render_nodes,
+        hover_node,
+        prepared.damage,
+        prepared.now,
+    )?;
+
     draw_offscreen_textures(
         frame,
         prepared.damage,

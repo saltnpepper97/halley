@@ -320,7 +320,35 @@ pub(crate) fn apply_compositor_action_press(
             crate::compositor::monitor::camera::reset_zoom(st);
             true
         }
+        CompositorBindingAction::CenterLastFocused => center_on_last_focused(st),
     }
+}
+
+/// Pan the camera back to centre on the last focused node — a quick "go back" after
+/// wandering the field. Uses the live interaction focus, falling back to the monitor's
+/// last focused surface node. Mirrors the focus-and-pan path used by Apogee selection
+/// (`set_interaction_focus` + `set_pan_restore_focus_target` + `animate_viewport_center_to`).
+fn center_on_last_focused(st: &mut Halley) -> bool {
+    let now = Instant::now();
+    let monitor = st.focused_monitor().to_string();
+    let Some(node_id) = st
+        .model
+        .focus_state
+        .primary_interaction_focus
+        .or_else(|| st.last_focused_surface_node_for_monitor(monitor.as_str()))
+    else {
+        return false;
+    };
+    let Some(pos) = st.model.field.node(node_id).map(|node| node.pos) else {
+        return false;
+    };
+    let node_monitor = st.monitor_for_node_or_current(node_id);
+    if st.focused_monitor() != node_monitor {
+        st.focus_monitor_view(node_monitor.as_str(), now);
+    }
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    st.set_pan_restore_focus_target(node_id);
+    st.animate_viewport_center_to(pos, now)
 }
 
 fn apogee_allows_compositor_action(action: &CompositorBindingAction) -> bool {
@@ -364,6 +392,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::Apogee
+            | CompositorBindingAction::CenterLastFocused
             | CompositorBindingAction::FocusCycle(_)
             | CompositorBindingAction::Stack(_)
             | CompositorBindingAction::Tile(_)

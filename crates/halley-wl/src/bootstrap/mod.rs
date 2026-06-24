@@ -136,7 +136,10 @@ fn apply_reloaded_tuning_state(st: &mut Halley, next: RuntimeTuning) {
     st.apply_tuning(next);
     restore_live_camera_state(st, live_camera);
     let opacity_changed = crate::compositor::spawn::state::recompute_all_node_rule_opacities(st);
-    st.ui.render_state.clear_window_offscreen_caches();
+    // Note: window offscreen caches hold only client surface content (rounded to the
+    // border radius). Borders, shadows, overlays and blur are drawn live per frame, so a
+    // color-only reload needs no texture rebuild. `apply_tuning` already invalidates these
+    // caches when the baked rounding radius changes, so no blanket clear is needed here.
     st.runtime.skip_next_cluster_relayout = true;
     st.request_maintenance();
     if opacity_changed {

@@ -297,8 +297,13 @@ mod tests {
         assert_eq!(anim.monitor, "monitor_a");
         assert_eq!(anim.from_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.from_size, Vec2 { x: 320.0, y: 240.0 });
-        assert_eq!(anim.to_pos, Vec2 { x: 400.0, y: 300.0 });
+        // The window grows in place (centred on itself); the camera recentres onto
+        // it, so the fill target is the window's own position, not the monitor centre.
+        assert_eq!(anim.to_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.to_size, Vec2 { x: 800.0, y: 600.0 });
+        // The camera is retargeted to centre on the window at zoom 1.0.
+        assert_eq!(state.model.camera_target_center, Vec2 { x: 140.0, y: 150.0 });
+        assert_eq!(state.model.camera_target_view_size, Vec2 { x: 800.0, y: 600.0 });
     }
 
     #[test]
@@ -348,7 +353,8 @@ mod tests {
         let (mid_pos, mid_size) =
             fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, mid)
                 .expect("mid visual");
-        assert!(mid_pos.x > 140.0 && mid_pos.x < 400.0);
+        // Grows in place: the centre stays put while only the size eases up.
+        assert_eq!(mid_pos, Vec2 { x: 140.0, y: 150.0 });
         assert!(mid_size.x > 320.0 && mid_size.x < 800.0);
 
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
@@ -358,7 +364,7 @@ mod tests {
             now + std::time::Duration::from_millis(260),
         )
         .expect("end visual");
-        assert_eq!(end_pos, Vec2 { x: 400.0, y: 300.0 });
+        assert_eq!(end_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(end_size, Vec2 { x: 800.0, y: 600.0 });
         assert!(
             !state
@@ -405,7 +411,8 @@ mod tests {
             .get(&fullscreen)
             .expect("exit animation");
         assert_eq!(anim.monitor, "monitor_a");
-        assert_eq!(anim.from_pos, Vec2 { x: 400.0, y: 300.0 });
+        // Shrinks in place at the window's own centre (the grow did the same).
+        assert_eq!(anim.from_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.from_size, Vec2 { x: 800.0, y: 600.0 });
         assert_eq!(anim.to_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.to_size, Vec2 { x: 320.0, y: 240.0 });
@@ -415,7 +422,7 @@ mod tests {
         let (mid_pos, mid_size) =
             fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, mid)
                 .expect("mid exit visual");
-        assert!(mid_pos.x > 140.0 && mid_pos.x < 400.0);
+        assert_eq!(mid_pos, Vec2 { x: 140.0, y: 150.0 });
         assert!(mid_size.x > 320.0 && mid_size.x < 800.0);
 
         // Once it expires the override is gone and the window rests at restored geometry.
@@ -775,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn fullscreen_roundtrip_preserves_active_maximize_session() {
+    fn fullscreen_and_maximize_are_mutually_exclusive() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tuning();
         tuning.animations.maximize.enabled = false;
@@ -796,48 +803,147 @@ mod tests {
             .expect("target")
             .intrinsic_size;
 
-        assert!(
-            crate::compositor::actions::window::toggle_node_maximize_state(
-                &mut state,
-                target,
-                now,
-                "monitor_a"
-            )
-        );
-        let maximized = state.model.field.node(target).expect("target").clone();
-        assert_eq!(maximized.pos, original_pos);
-        assert_eq!(maximized.intrinsic_size, original_size);
-        assert!(
-            crate::compositor::workspace::state::maximize_session_active_on_monitor(
-                &state,
-                "monitor_a"
-            )
-        );
+        // Maximize the window.
+        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state,
+            target,
+            now,
+            "monitor_a"
+        ));
+        assert!(crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            &state,
+            "monitor_a"
+        ));
 
+        // Fullscreening the same window must abort the maximize session (mutual
+        // exclusivity per monitor), not preserve it underneath.
         state.enter_xdg_fullscreen(target, None, now + std::time::Duration::from_millis(20));
-        assert!(
-            crate::compositor::workspace::state::maximize_session_active_on_monitor(
-                &state,
-                "monitor_a"
-            )
-        );
+        assert!(!crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            &state,
+            "monitor_a"
+        ));
+        assert!(state.is_fullscreen_active(target));
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
 
+        // Exiting fullscreen returns to the pre-maximize geometry — the maximize
+        // session was aborted on fullscreen entry, so it does not resume.
         state.exit_xdg_fullscreen(target, now + std::time::Duration::from_millis(300));
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(700));
 
         let restored = state.model.field.node(target).expect("target");
-        assert_eq!(restored.pos, maximized.pos);
-        assert_eq!(restored.intrinsic_size, maximized.intrinsic_size);
-        assert!(
-            crate::compositor::workspace::state::maximize_session_active_on_monitor(
-                &state,
-                "monitor_a"
-            )
-        );
         assert_eq!(restored.pos, original_pos);
         assert_eq!(restored.intrinsic_size, original_size);
+        assert!(!crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            &state,
+            "monitor_a"
+        ));
         assert!(!restored.pinned);
+    }
+
+    #[test]
+    fn maximize_fullscreen_maximize_unmaximize_restores_windowed_size() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let tuning = single_monitor_tuning();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let target = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 120.0, y: 140.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, "monitor_a");
+        let original_pos = state.model.field.node(target).expect("target").pos;
+        let original_size = state
+            .model
+            .field
+            .node(target)
+            .expect("target")
+            .intrinsic_size;
+
+        // 1. maximize
+        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state, target, now, "monitor_a"
+        ));
+        // Simulate the real client whose committed surface geometry lags behind: the
+        // `window_geometry` cache still reports a large (maximized/fullscreen) size that
+        // the client has not yet shrunk. This is captured as the fullscreen restore's
+        // `window_geometry` and re-applied on exit, so on the re-maximize below
+        // `current_surface_size_for_node` would report this stale large size. The
+        // re-maximize must instead trust the windowed size pinned into `resize_footprint`.
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(target, (0.0, 0.0, 1920.0, 1080.0));
+        // 2. fullscreen
+        state.enter_xdg_fullscreen(target, None, now + std::time::Duration::from_millis(20));
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        assert!(state.is_fullscreen_active(target));
+        // 3. maximize again (must exit fullscreen, re-snapshot the *windowed* size)
+        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state,
+            target,
+            now + std::time::Duration::from_millis(300),
+            "monitor_a"
+        ));
+        assert!(!state.is_fullscreen_active(target));
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(560));
+        // 4. unmaximize
+        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state,
+            target,
+            now + std::time::Duration::from_millis(600),
+            "monitor_a"
+        ));
+
+        let restored = state.model.field.node(target).expect("target");
+        assert_eq!(restored.pos, original_pos, "pos must return to windowed");
+        assert_eq!(
+            restored.intrinsic_size, original_size,
+            "size must return to windowed, not stay maximized"
+        );
+    }
+
+    #[test]
+    fn maximize_exits_active_fullscreen_on_same_monitor() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let a = state.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "terminal",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(a, "monitor_a");
+        state.assign_node_to_monitor(b, "monitor_a");
+
+        // Fullscreen window A.
+        state.enter_xdg_fullscreen(a, None, now);
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        assert!(state.is_fullscreen_active(a));
+
+        // Maximizing window B must exit A's fullscreen (mutual exclusivity).
+        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state,
+            b,
+            now + std::time::Duration::from_millis(300),
+            "monitor_a"
+        ));
+        assert!(!state.is_fullscreen_active(a));
+        assert!(crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            &state,
+            "monitor_a"
+        ));
     }
 }
 
@@ -923,12 +1029,32 @@ pub(crate) fn fullscreen_visual_for_node_on_monitor_at(
         .copied()
         == Some(node_id))
     .then(|| {
-        st.model
+        // Centre the fullscreen window on its OWN position (the camera is recentred
+        // onto it on entry), at the monitor's native size. Anchoring to the node's
+        // centre rather than the live camera centre keeps the steady-state rect
+        // consistent with the grow/shrink animation's endpoint, so there's no jump
+        // when the animation expires while the camera is still easing in.
+        let size = st
+            .model
             .monitor_state
             .monitors
             .get(monitor)
-            .map(|space| (space.viewport.center, space.viewport.size))
-            .unwrap_or((st.model.viewport.center, st.model.viewport.size))
+            .map(|space| space.viewport.size)
+            .unwrap_or(st.model.viewport.size);
+        let center = st
+            .model
+            .field
+            .node(node_id)
+            .map(|node| node.pos)
+            .unwrap_or_else(|| {
+                st.model
+                    .monitor_state
+                    .monitors
+                    .get(monitor)
+                    .map(|space| space.viewport.center)
+                    .unwrap_or(st.model.viewport.center)
+            });
+        (center, size)
     })
 }
 
@@ -982,17 +1108,6 @@ fn fullscreen_monitor_view(st: &Halley, monitor_name: &str) -> (Vec2, Vec2) {
         .get(monitor_name)
         .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
         .unwrap_or((st.model.viewport.center, st.model.viewport.size))
-}
-
-fn reset_monitor_zoom_once(st: &mut Halley, monitor_name: &str) {
-    if let Some(monitor) = st.model.monitor_state.monitors.get_mut(monitor_name) {
-        monitor.zoom_ref_size = monitor.viewport.size;
-        monitor.camera_target_view_size = monitor.viewport.size;
-    }
-    if st.model.monitor_state.current_monitor == monitor_name {
-        st.model.zoom_ref_size = st.model.viewport.size;
-        st.model.camera_target_view_size = st.model.viewport.size;
-    }
 }
 
 fn fullscreen_target_size_for(st: &Halley, monitor_name: &str) -> (i32, i32) {
@@ -1128,12 +1243,20 @@ fn exit_xdg_fullscreen_inner(
     now: Instant,
     suspend: bool,
     preserve_client_fullscreen: bool,
+    skip_animation: bool,
 ) {
     // Find which monitor this node is fullscreened on.
     let monitor_name = match fullscreen_monitor_for_node(st, node_id) {
         Some(m) => m.to_owned(),
         None => return, // not active fullscreen on any monitor
     };
+
+    // Invalidate the offscreen texture so the next capture (Apogee/Alt+Tab or the
+    // main render path) rebuilds it at the post-fullscreen geometry instead of
+    // reusing the fullscreen-sized snapshot for a now-windowed surface.
+    st.ui
+        .render_state
+        .clear_window_offscreen_cache_for(node_id);
 
     st.model
         .fullscreen_state
@@ -1195,6 +1318,7 @@ fn exit_xdg_fullscreen_inner(
     // ease from it (the node leaves active state below).
     let should_animate = !suspend
         && !preserve_client_fullscreen
+        && !skip_animation
         && st.runtime.tuning.fullscreen_animation_enabled()
         && st.model.monitor_state.current_monitor == monitor_name;
     let exit_anim_from = should_animate.then(|| {
@@ -1283,7 +1407,7 @@ fn exit_xdg_fullscreen_inner(
 }
 
 pub(crate) fn soft_suspend_xdg_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
-    exit_xdg_fullscreen_inner(st, node_id, now, true, true);
+    exit_xdg_fullscreen_inner(st, node_id, now, true, true, false);
 }
 
 fn restore_fullscreen_snapshot(
@@ -1295,7 +1419,20 @@ fn restore_fullscreen_snapshot(
         node.pos = entry.pos;
         node.intrinsic_size = entry.intrinsic_size;
     }
+    // Reset the footprint to the restored intrinsic size first (this also clears any
+    // stale `resize_footprint`), THEN pin `resize_footprint` to the restored windowed
+    // size so it survives. `sync_active_footprint_to_intrinsic` sets `resize_footprint
+    // = None`, so doing it the other way around wipes the value we need: until the
+    // client commits the windowed resize, `current_surface_size_for_node` still reports
+    // the fullscreen geometry, and `current_window_size_for_node` prefers
+    // `resize_footprint` over that stale surface size. Without this, exiting fullscreen
+    // straight into a maximize snapshots the fullscreen size and "restores" to it on
+    // unmaximize.
     let _ = st.model.field.sync_active_footprint_to_intrinsic(id);
+    let _ = st
+        .model
+        .field
+        .set_resize_footprint(id, Some(entry.intrinsic_size));
     if let Some(loc) = entry.bbox_loc {
         st.ui.render_state.cache.bbox_loc.insert(id, loc);
     } else {
@@ -1410,6 +1547,39 @@ fn enter_fullscreen(
         exit_xdg_fullscreen(st, existing, now);
     }
 
+    // Maximize and fullscreen are mutually exclusive on a monitor: abort any active
+    // maximize session before taking over. This must precede the pre-fullscreen camera
+    // capture below so exit-fullscreen returns to the pre-maximize view.
+    // Capture the node's pre-maximize geometry first: after the abort the surface
+    // buffer is still at the (larger) maximize size until the client commits the
+    // resize, so `current_surface_size_for_node` would return a stale size for
+    // `fullscreen_restore`. The snapshot has the true original windowed size.
+    let maximize_pre_size = st
+        .model
+        .workspace_state
+        .maximize_sessions
+        .get(monitor_name.as_str())
+        .and_then(|session| session.node_snapshots.get(&node_id))
+        .map(|snapshot| snapshot.size);
+    // Also capture the maximized window's current on-screen rect before the abort, so
+    // the fullscreen grow eases from the maximized rect up to full-screen instead of
+    // snapping to the small windowed size first (the abort restores windowed geometry).
+    let maximize_pre_visual = crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+        st,
+        node_id,
+        monitor_name.as_str(),
+        now,
+    );
+    if crate::compositor::workspace::state::maximize_session_active_on_monitor(
+        st,
+        monitor_name.as_str(),
+    ) {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+            st,
+            monitor_name.as_str(),
+        );
+    }
+
     let target_size = fullscreen_target_size_for(st, monitor_name.as_str());
     let (viewport_center, viewport_size) = fullscreen_monitor_view(st, monitor_name.as_str());
     clear_non_target_fullscreen_restore_entries(st, &monitor_name, node_id);
@@ -1425,12 +1595,32 @@ fn enter_fullscreen(
         .entry(monitor_name.clone())
         .or_insert(pre_fullscreen_camera);
 
-    // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
-    reset_monitor_zoom_once(st, monitor_name.as_str());
-
     let Some(node) = st.model.field.node(node_id).cloned() else {
         return;
     };
+
+    // Invalidate any stale windowed offscreen texture so the next Apogee/Alt+Tab
+    // capture rebuilds it at the fullscreen surface geometry instead of reusing
+    // the smaller windowed snapshot. Defense-in-depth: the offscreen cache also
+    // self-heals on size change (`ensure_window_offscreen_cache` → `matches_size`).
+    // NOTE: this does NOT fix the live field render — that corruption is the scale
+    // math using stale CSD geometry, handled by `render_window_geometry_for_node`.
+    st.ui
+        .render_state
+        .clear_window_offscreen_cache_for(node_id);
+
+    // Animate the monitor camera to centre on the window AND ease the zoom to 1.0
+    // together, so the window grows in place to fill the screen. The old behaviour
+    // snapped the zoom to 1.0 about the (off-window) camera centre, which shoved
+    // every windowed node behind it sideways by the zoom delta.
+    crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
+        st,
+        monitor_name.as_str(),
+        crate::compositor::workspace::state::MaximizeCameraSnapshot {
+            center: node.pos,
+            view_size: viewport_size,
+        },
+    );
 
     let soft_resume_entry = soft_resume
         .then(|| {
@@ -1443,6 +1633,7 @@ fn enter_fullscreen(
         .flatten();
     let saved_size = soft_resume_entry
         .map(|entry| entry.size)
+        .or(maximize_pre_size)
         .unwrap_or_else(|| {
             crate::compositor::surface::current_surface_size_for_node(st, node_id)
                 .unwrap_or(node.intrinsic_size)
@@ -1482,15 +1673,20 @@ fn enter_fullscreen(
     );
     if st.runtime.tuning.fullscreen_animation_enabled() && !soft_resume {
         st.request_window_animation_prewarm(node_id, now);
-        let from = (st.model.monitor_state.current_monitor == monitor_name)
-            .then(|| {
-                crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
-                    st,
-                    node_id,
-                    now,
-                )
+        // Prefer the maximized window's pre-abort rect (captured above) so a
+        // maximize→fullscreen grows smoothly from maximized to full-screen. The abort
+        // has already torn down the maximize session, so re-querying it here returns
+        // nothing — hence capturing before the abort.
+        let from = maximize_pre_visual
+            .or_else(|| {
+                (st.model.monitor_state.current_monitor == monitor_name)
+                    .then(|| {
+                        crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                            st, node_id, now,
+                        )
+                    })
+                    .flatten()
             })
-            .flatten()
             .unwrap_or((saved_pos, saved_size));
         let start_ms = st.now_ms(now);
         let duration_ms = st.runtime.tuning.fullscreen_animation_duration_ms();
@@ -1499,7 +1695,9 @@ fn enter_fullscreen(
             crate::compositor::fullscreen::state::FullscreenScaleAnim {
                 monitor: monitor_name.clone(),
                 from_pos: from.0,
-                to_pos: viewport_center,
+                // Grow in place (centred on the window itself), matching the camera
+                // recentring above — not toward the old camera centre.
+                to_pos: node.pos,
                 from_size: from.1,
                 to_size: viewport_size,
                 start_ms,
@@ -1530,6 +1728,21 @@ fn enter_fullscreen(
 }
 
 pub(crate) fn exit_xdg_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+    resume_and_clear_fullscreen_suspended_state(st, node_id);
+    exit_xdg_fullscreen_inner(st, node_id, now, false, false, false);
+}
+
+/// Exit fullscreen without the shrink animation — used when transitioning directly
+/// to maximize so the maximize grow animation is the only visible motion (no
+/// conflicting shrink-then-grow flash).
+pub(crate) fn exit_xdg_fullscreen_no_anim(st: &mut Halley, node_id: NodeId, now: Instant) {
+    resume_and_clear_fullscreen_suspended_state(st, node_id);
+    exit_xdg_fullscreen_inner(st, node_id, now, false, false, true);
+}
+
+/// Promote a soft-suspended fullscreen node back to active and clear the suspended
+/// entry, so the inner exit processes it as a genuine active-fullscreen exit.
+fn resume_and_clear_fullscreen_suspended_state(st: &mut Halley, node_id: NodeId) {
     if !is_fullscreen_active(st, node_id)
         && let Some(monitor) =
             fullscreen_suspended_monitor_for_node(st, node_id).map(str::to_string)
@@ -1550,7 +1763,6 @@ pub(crate) fn exit_xdg_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant
             .fullscreen_suspended_node
             .remove(&monitor);
     }
-    exit_xdg_fullscreen_inner(st, node_id, now, false, false);
 }
 
 pub(crate) fn drop_fullscreen_surface(st: &mut Halley, id: NodeId, _now: Instant) {

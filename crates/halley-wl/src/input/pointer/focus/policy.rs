@@ -10,6 +10,17 @@ pub(crate) fn apply_hover_focus_mode(
     blocked: bool,
     now: Instant,
 ) {
+    // While a seat grab is active (e.g. an open xdg_popup menu, or a drag), the
+    // grab owns focus. Changing the interaction focus here would reassert keyboard
+    // focus onto a window and break the popup keyboard grab, dismissing the menu.
+    if st
+        .platform
+        .seat
+        .get_pointer()
+        .is_some_and(|pointer| pointer.is_grabbed())
+    {
+        return;
+    }
     if !hover_focus_enabled(
         st.runtime.tuning.input.focus_mode,
         blocked,

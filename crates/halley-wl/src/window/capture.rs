@@ -23,6 +23,13 @@ fn preview_offscreen_clip(
     f32,
     smithay::backend::renderer::gles::GlesTexProgram,
 )> {
+    // A fullscreen-active surface already IS the whole content (no window
+    // chrome/border to clip away), and its xdg window-geometry cache may still
+    // hold the stale windowed rect from before the client went fullscreen.
+    // Skip the clip so the entire fullscreen surface is captured.
+    if st.is_fullscreen_active(node_id) {
+        return None;
+    }
     let (x, y, w, h) = window_geometry_for_node(st, node_id)?;
     let program = st
         .ui
@@ -138,7 +145,10 @@ pub(crate) fn capture_closing_window_animation(
 
     let (view_center, viewport_size, view_size) = render_view_for_monitor(st, monitor);
     let render_scale = (viewport_size.x.max(1.0) / view_size.x.max(1.0)).max(0.01);
-    let local_geo = window_geometry_for_node(st, node_id).unwrap_or((
+    // For a fullscreen surface this returns None (no CSD crop; cached geometry can be
+    // stale), so we fall back to the live cache bbox `ob` — same rule the field render
+    // uses — instead of over-scaling a window closing straight out of fullscreen.
+    let local_geo = render_window_geometry_for_node(st, node_id).unwrap_or((
         ob.loc.x as f32,
         ob.loc.y as f32,
         ob.size.w.max(1) as f32,
@@ -466,12 +476,10 @@ pub(crate) fn prewarm_focus_cycle_previews(
         let Some(wl) = node_surfaces.get(&node_id).cloned() else {
             continue;
         };
-        if node_requires_live_surface_render(st, node_id) {
-            continue;
-        }
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
+        // This runs only during an alt+tab cycle, which releases the immersive
+        // fullscreen lock (the window is composited, off direct scanout), so even
+        // fullscreen/game surfaces are sampleable here — capture them for the
+        // preview card instead of falling back to the app icon.
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
@@ -626,11 +634,6 @@ pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Hall
         .filter(|node_id| tile_node_ids.contains(node_id));
     let mut missing = Vec::new();
     for node_id in tile_node_ids {
-        // Fullscreen windows capture to a black texture; Apogee shows their app
-        // icon instead, so don't spend capture budget on them.
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
         let cache = st
             .ui
             .render_state
@@ -702,12 +705,9 @@ pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Hall
         let Some(wl) = node_surfaces.get(&node_id).cloned() else {
             continue;
         };
-        if node_requires_live_surface_render(st, node_id) {
-            continue;
-        }
-        if st.fullscreen_monitor_for_node(node_id).is_some() {
-            continue;
-        }
+        // This runs only while apogee is open, where the fullscreen/game window is
+        // soft-suspended (composited, off direct scanout), so its surface is
+        // sampleable — capture it for the tile instead of falling back to the icon.
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };

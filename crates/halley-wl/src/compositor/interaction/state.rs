@@ -367,6 +367,12 @@ pub(crate) struct InteractionState {
     /// Used by `flush_stuck_forwarded_keys` to clear stale non-modifier keys on a
     /// focus change so the next focused surface never inherits a stuck repeat.
     pub(crate) forwarded_pressed_keys: HashSet<u32>,
+    /// Ground truth of which keycodes are *physically* down right now, updated from the
+    /// raw libinput key events at the very top of `handle_keyboard_input` before any
+    /// modal routing. `reconcile_forwarded_keys` releases any `forwarded_pressed_keys`
+    /// entry missing here, so a key whose release was swallowed (by a modal, a dead
+    /// surface, a deferred focus) can never leave a client stuck repeating.
+    pub(crate) keys_physically_down: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
     pub(crate) active_gesture_route: Option<ActiveGestureRoute>,
