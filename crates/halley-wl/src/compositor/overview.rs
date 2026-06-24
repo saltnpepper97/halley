@@ -859,7 +859,7 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
-    if crate::compositor::actions::window::focus_from_presentation_navigation_switching(
+    if crate::compositor::actions::window::focus_from_presentation_navigation(
         st, node_id, now,
     ) || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
     {
@@ -1970,7 +1970,7 @@ mod tests {
     }
 
     #[test]
-    fn apogee_activation_switches_from_fullscreen_to_adjacent_window() {
+    fn apogee_activation_raises_visible_target_above_fullscreen() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -1993,14 +1993,15 @@ mod tests {
 
         activate_apogee_target(&mut state, target, now);
 
-        // Selecting a window that is not already floating above the fullscreen
-        // leaves fullscreen (soft-suspended) and switches focus to it — one action,
-        // no second select needed.
-        assert!(!state.is_fullscreen_active(fullscreen));
+        // Selecting a window in Apogee raises it above the fullscreen but does NOT
+        // exit the fullscreen — only an explicit fullscreen/maximize action on the
+        // target triggers mutual exclusivity.
+        assert!(state.is_fullscreen_active(fullscreen));
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(target)
         );
+        assert!(state.node_draws_above_fullscreen_on_monitor(target, monitor.as_str()));
     }
 
     #[test]

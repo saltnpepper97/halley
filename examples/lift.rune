@@ -5,9 +5,9 @@ lift:
 
   width 760
   
-  max-results 12
-  
+  max-results 12 
   visible-results 8
+
   fuzzy true
   show-section-labels true
   

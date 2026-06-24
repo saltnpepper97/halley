@@ -119,10 +119,12 @@ All notable changes to this project will be documented in this file.
   visible when zooming out, where each marker's keep-out gap grows in screen-constant space);
   windows now spread to keep its gap clear. Pinning a node is no longer required to make it a
   landmark — it now only affects drag-carry behaviour.
-- Selecting a window in Apogee that sits beside or behind a fullscreen window now leaves
-  fullscreen (soft-suspend) and switches focus in one action, instead of raising the window
-  above the fullscreen and keeping the presentation (which needed a second select to actually
-  exit fullscreen). Alt+Tab and focus-trail keep the original raise-above-keep behaviour.
+- Maximize and fullscreen are now mutually exclusive per monitor: entering fullscreen aborts any
+  active maximize session on that monitor, and maximizing a window exits any active fullscreen on
+  it. Previously the two could coexist — a maximize session was preserved underneath fullscreen so
+  a maximized window returned from fullscreen still maximized (and maximizing was blocked while
+  fullscreen). Cross-window maximization on the same monitor now exits the other window's
+  fullscreen too.
 - Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
   card motion between selections, while keeping the existing bounded snapshot prewarm behavior.
 - Open Apogee on every active monitor at once, with each monitor showing only its own windows and
@@ -231,6 +233,27 @@ All notable changes to this project will be documented in this file.
   offscreen texture.
 
 ### Fixed
+- Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
+  tore the outgoing mode down (snapping the window to its small windowed size) before the
+  incoming mode's grow animation started. Each direction now captures the outgoing window's
+  on-screen rect (the maximized rect when fullscreening, the full-screen rect when maximizing)
+  and eases from it, so the window grows/shrinks directly between maximized and full-screen
+  with no intermediate snap.
+- Fix a window staying stuck at maximized size after a `maximize → fullscreen → maximize →
+  unmaximize` sequence. Exiting fullscreen straight into a maximize re-snapshotted the size
+  from the still-stale fullscreen/maximized surface geometry, so unmaximize "restored" to that
+  size. `restore_fullscreen_snapshot` now pins the restored windowed size into the node's
+  `resize_footprint` *after* the footprint sync (the sync was clearing the value the prior fix
+  set), so the re-maximize snapshots the true windowed size before the client commits its
+  resize.
+- Stop runaway key repeat (e.g. Enter repeating forever in a terminal after first opening a
+  cluster) for good, with a general guard instead of another per-case patch: physical key
+  state is now tracked and, after every key event, any key still forwarded to a client as
+  pressed but no longer physically held is released (`reconcile_forwarded_keys`). This covers
+  modal/overlay interactions that begin and end on the same surface, async opens, and deferred
+  focus to freshly-revealed windows — paths the previous focus-change-only flush missed.
+  Genuine key-holds and held modifiers are unaffected, and popup-grab focus now routes through
+  the same focus choke point.
 - Fix corrupt first-fullscreen rendering of XWayland windows (e.g. Steam) where the live surface
   was blown up so only its top-left corner filled the screen until you toggled fullscreen again.
   A fullscreen surface's render geometry is now derived from its live buffer rather than the cached

@@ -422,7 +422,13 @@ impl XdgShellHandler for Halley {
                 grab.ungrab(PopupUngrabStrategy::All);
                 return;
             }
-            keyboard.set_focus(self, grab.current_grab(), serial);
+            // Route popup-grab focus through the choke point so it flushes stale forwarded
+            // keys like every other focus change (no surface inherits a stuck repeat).
+            crate::compositor::focus::system::set_keyboard_focus(
+                self,
+                grab.current_grab(),
+                serial,
+            );
             keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
         }
 
