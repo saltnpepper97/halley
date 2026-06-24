@@ -405,6 +405,8 @@ pub struct IconCache {
     action_search_icon: Option<(u32, IconRaster)>,
     action_icon: Option<(u32, IconRaster)>,
     term_icon: Option<(u32, IconRaster)>,
+    config_search_icon: Option<(u32, IconRaster)>,
+    config_icon: Option<(u32, IconRaster)>,
 }
 
 /// Search-bar glyphs. Authored as square SVGs and rendered to alpha masks that are
@@ -413,6 +415,7 @@ const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
 const APP_SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/apps.svg");
 const ACTION_ICON_SVG: &[u8] = include_bytes!("../assets/spark.svg");
 const TERM_ICON_SVG: &[u8] = include_bytes!("../assets/term.svg");
+const CONFIG_ICON_SVG: &[u8] = include_bytes!("../assets/settings.svg");
 const CLUSTER_SEARCH_ICON_SVG: &[u8] =
     include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
 
@@ -485,6 +488,8 @@ impl IconCache {
             action_search_icon: None,
             action_icon: None,
             term_icon: None,
+            config_search_icon: None,
+            config_icon: None,
         }
     }
 
@@ -497,6 +502,7 @@ impl IconCache {
             LiftMode::Clusters => (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG),
             LiftMode::Actions => (&mut self.action_search_icon, ACTION_ICON_SVG),
             LiftMode::Term => (&mut self.term_icon, TERM_ICON_SVG),
+            LiftMode::Config => (&mut self.config_search_icon, CONFIG_ICON_SVG),
             _ => (&mut self.search_icon, SEARCH_ICON_SVG),
         };
         if slot.as_ref().map(|(s, _)| *s) != Some(size) {
@@ -522,6 +528,15 @@ impl IconCache {
             self.action_icon = Some((size, raster));
         }
         self.action_icon.as_ref().map(|(_, raster)| raster)
+    }
+
+    fn config_glyph(&mut self, size: u32) -> Option<&IconRaster> {
+        let size = size.max(1);
+        if self.config_icon.as_ref().map(|(s, _)| *s) != Some(size) {
+            let raster = render_svg_data(CONFIG_ICON_SVG, None, size)?;
+            self.config_icon = Some((size, raster));
+        }
+        self.config_icon.as_ref().map(|(_, raster)| raster)
     }
 
     pub fn needs_index(&self) -> bool {
@@ -1370,6 +1385,21 @@ fn draw_result_icon(
                 );
             }
         }
+        LiftResultKind::Config => {
+            if let Some(raster) = icon_cache.config_glyph(config.icon_size) {
+                draw_raster_tinted(
+                    canvas,
+                    width,
+                    height,
+                    raster,
+                    x,
+                    y,
+                    size,
+                    size,
+                    colors.accent,
+                );
+            }
+        }
         _ => {}
     }
 }
@@ -2120,6 +2150,33 @@ mod tests {
     }
 
     #[test]
+    fn config_mode_uses_settings_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let settings = cache
+            .search_glyph(24, LiftMode::Config)
+            .expect("settings glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, settings);
+        // The settings.svg must rasterize to real coverage (some non-zero alpha), not a
+        // blank mask — otherwise the tinted draw would paint nothing.
+        assert!(settings.chunks_exact(4).any(|px| px[3] != 0));
+
+        // The result-row glyph uses the same asset and must also render.
+        let row = cache.config_glyph(24).expect("config row glyph");
+        assert!(row.rgba.chunks_exact(4).any(|px| px[3] != 0));
+    }
+
+    #[test]
     fn apps_mode_uses_apps_search_glyph() {
         let mut config = LiftConfig::default();
         config.icons = false;
@@ -2202,6 +2259,8 @@ mod tests {
             action_search_icon: None,
             action_icon: None,
             term_icon: None,
+            config_search_icon: None,
+            config_icon: None,
         };
 
         assert!(cache.load("new-app-icon").is_none());

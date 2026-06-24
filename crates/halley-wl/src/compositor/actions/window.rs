@@ -183,6 +183,28 @@ pub(crate) fn focus_from_presentation_navigation(
     node_id: halley_core::field::NodeId,
     now: Instant,
 ) -> bool {
+    focus_from_presentation_navigation_inner(st, node_id, now, false)
+}
+
+/// `prefer_switch`: when true (apogee tile select), a target that isn't already
+/// floating above the presentation switches to it (soft-suspends the fullscreen /
+/// aborts the maximize) in one action instead of just raising it above and keeping
+/// the presentation. Alt+tab / focus-trail pass false to keep the raise-above-keep
+/// behaviour.
+pub(crate) fn focus_from_presentation_navigation_switching(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    focus_from_presentation_navigation_inner(st, node_id, now, true)
+}
+
+fn focus_from_presentation_navigation_inner(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+    prefer_switch: bool,
+) -> bool {
     let Some(node) = st.model.field.node(node_id).cloned() else {
         return false;
     };
@@ -211,7 +233,19 @@ pub(crate) fn focus_from_presentation_navigation(
     }
 
     let target_visible = st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id);
-    if node.state == halley_core::field::NodeState::Active && target_visible {
+    // The focus-only "raise above and keep the presentation" shortcut. With
+    // `prefer_switch` (apogee), restrict it to a window already floating above the
+    // fullscreen — a window beside/behind it falls through to the soft-suspend +
+    // switch path below, so an apogee select leaves fullscreen and switches in one
+    // action instead of needing a second select. Without `prefer_switch` (alt+tab,
+    // focus trail) keep the original raise-above-keep behaviour for any visible
+    // active target.
+    let already_above_fullscreen =
+        st.node_draws_above_fullscreen_on_monitor(node_id, target_monitor.as_str());
+    if node.state == halley_core::field::NodeState::Active
+        && target_visible
+        && (already_above_fullscreen || !prefer_switch)
+    {
         let _ = st.raise_overlap_policy_node(node_id);
         st.set_interaction_focus(Some(node_id), 30_000, now);
         return true;

@@ -253,22 +253,25 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
                 requires_shift: true,
             },
         },
+        // Field node movement on the arrow keys, matching the generated template and
+        // example configs (which use arrows, not vim hjkl). This frees `mod+h` for the
+        // center-last-focused binding below.
         CompositorBinding {
             scope: CompositorBindingScope::Field,
             modifiers: modifier,
-            key: key("h"),
+            key: key("left"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left)),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Field,
             modifiers: modifier,
-            key: key("k"),
+            key: key("up"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up)),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Field,
             modifiers: modifier,
-            key: key("l"),
+            key: key("right"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(
                 DirectionalAction::Right,
             )),
@@ -276,8 +279,15 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
         CompositorBinding {
             scope: CompositorBindingScope::Field,
             modifiers: modifier,
-            key: key("j"),
+            key: key("down"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
+        },
+        // Quick "go back": pan the camera to centre on the last focused node.
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("h"),
+            action: CompositorBindingAction::CenterLastFocused,
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,

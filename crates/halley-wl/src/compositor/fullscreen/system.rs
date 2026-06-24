@@ -1151,6 +1151,13 @@ fn exit_xdg_fullscreen_inner(
         None => return, // not active fullscreen on any monitor
     };
 
+    // Invalidate the offscreen texture so the next capture (Apogee/Alt+Tab or the
+    // main render path) rebuilds it at the post-fullscreen geometry instead of
+    // reusing the fullscreen-sized snapshot for a now-windowed surface.
+    st.ui
+        .render_state
+        .clear_window_offscreen_cache_for(node_id);
+
     st.model
         .fullscreen_state
         .clear_direct_scanout_for_monitor(&monitor_name);
@@ -1444,6 +1451,16 @@ fn enter_fullscreen(
     let Some(node) = st.model.field.node(node_id).cloned() else {
         return;
     };
+
+    // Invalidate any stale windowed offscreen texture so the next Apogee/Alt+Tab
+    // capture rebuilds it at the fullscreen surface geometry instead of reusing
+    // the smaller windowed snapshot. Defense-in-depth: the offscreen cache also
+    // self-heals on size change (`ensure_window_offscreen_cache` → `matches_size`).
+    // NOTE: this does NOT fix the live field render — that corruption is the scale
+    // math using stale CSD geometry, handled by `render_window_geometry_for_node`.
+    st.ui
+        .render_state
+        .clear_window_offscreen_cache_for(node_id);
 
     // Animate the monitor camera to centre on the window AND ease the zoom to 1.0
     // together, so the window grows in place to fill the screen. The old behaviour

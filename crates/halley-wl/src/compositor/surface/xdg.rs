@@ -452,6 +452,26 @@ pub(crate) fn current_surface_size_for_node(
         })
 }
 
+/// Geometry to use when *rendering* a node's surface to the output.
+///
+/// The single rule: a fullscreen surface fills the output with no CSD inset — its whole
+/// buffer is content — and its cached xdg window-geometry can lag the live buffer right
+/// after the client goes fullscreen (notably XWayland/Steam, which update geometry a
+/// commit or two late). Scaling the surface through that stale windowed geometry blows
+/// the texture up so only its top-left shows. So this returns `None` for a fullscreen
+/// node, signalling the caller to substitute the live surface bbox; otherwise it returns
+/// the committed window geometry. Keep all render paths (field layout, offscreen
+/// compose, close-capture, previews) on this one helper so they can't drift apart.
+pub(crate) fn render_window_geometry_for_node(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> Option<(f32, f32, f32, f32)> {
+    if st.is_fullscreen_active(node_id) {
+        return None;
+    }
+    window_geometry_for_node(st, node_id)
+}
+
 pub(crate) fn window_geometry_for_node(
     st: &Halley,
     node_id: halley_core::field::NodeId,

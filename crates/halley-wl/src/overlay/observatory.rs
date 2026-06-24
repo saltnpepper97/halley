@@ -384,6 +384,9 @@ fn draw_core_tile(
         damage,
         alpha,
     )?;
+    if hovered {
+        draw_core_hover_label(frame, overlay, visuals, tile, rect, alpha, damage)?;
+    }
     if let Some(icon) = crate::render::cluster_core_icon_texture(st, false) {
         let side = (rect.size.w.min(rect.size.h) as f32 * 0.62).round() as i32;
         let side = side.clamp(20, rect.size.w.min(rect.size.h).max(1));
@@ -432,6 +435,69 @@ fn draw_core_tile(
         &overlay.tuning.font,
         rect.loc.x + ((rect.size.w - text_w).max(0) / 2),
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
+        label.as_str(),
+        1,
+        overlay_text_color_for_fill(fill, alpha),
+        damage,
+    )?;
+    Ok(())
+}
+
+/// Draw a frosted name chip just below a hovered/selected core tile. Cores otherwise
+/// show only their icon, so this surfaces the cluster's label on hover and keeps it up
+/// for the whole hover.
+fn draw_core_hover_label(
+    frame: &mut GlesFrame<'_, '_>,
+    overlay: &OverlayView<'_>,
+    visuals: &OverlayVisuals,
+    tile: &ApogeeTile,
+    rect: Rectangle<i32, Physical>,
+    alpha: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let text = tile_label(overlay, tile);
+    if text.is_empty() {
+        return Ok(());
+    }
+    let max_w = (rect.size.w * 2).clamp(120, 260);
+    let label = truncate_overlay_text_to_width(
+        overlay.render_state,
+        &overlay.tuning.font,
+        text.as_str(),
+        1,
+        max_w - 16,
+    );
+    let (text_w, text_h) =
+        ui_text_size_in(overlay.render_state, &overlay.tuning.font, label.as_str(), 1);
+    let chip_w = (text_w + 20).clamp(48, max_w);
+    let chip_h = (text_h + 12).clamp(22, 34);
+    let chip = Rectangle::<i32, Physical>::new(
+        (
+            rect.loc.x + (rect.size.w - chip_w) / 2,
+            rect.loc.y + rect.size.h + 8,
+        )
+            .into(),
+        (chip_w, chip_h).into(),
+    );
+    draw_overlay_backdrop_blur(frame, chip, 8.0, damage, alpha)?;
+    let fill = overlay_accent_fill(visuals, 0.55, 0.62 * alpha);
+    draw_overlay_chip_without_shadow(
+        frame,
+        overlay.render_state,
+        visuals,
+        chip,
+        8.0,
+        fill,
+        false,
+        damage,
+        alpha,
+    )?;
+    draw_ui_text_in(
+        frame,
+        overlay.render_state,
+        &overlay.tuning.font,
+        chip.loc.x + ((chip.size.w - text_w).max(0) / 2),
+        chip.loc.y + ((chip.size.h - text_h).max(0) / 2),
         label.as_str(),
         1,
         overlay_text_color_for_fill(fill, alpha),

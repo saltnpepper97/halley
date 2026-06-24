@@ -458,6 +458,7 @@ fn keybind_candidates() -> &'static [(&'static str, &'static str)] {
         ("$var.mod+m", "maximize-focused"),
         ("$var.mod+f", "toggle-fullscreen"),
         ("$var.mod+p", "toggle-focused-pin"),
+        ("$var.mod+h", "center-last-focused"),
         ("$var.mod+1", "cluster slot 1"),
         ("$var.mod+2", "cluster slot 2"),
         ("$var.mod+3", "cluster slot 3"),

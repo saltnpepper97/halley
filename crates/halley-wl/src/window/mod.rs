@@ -29,7 +29,7 @@ use crate::compositor::spawn::state::{
 };
 use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
-    window_geometry_for_node,
+    render_window_geometry_for_node, window_geometry_for_node,
 };
 use crate::input::active_resize_geometry_screen;
 use crate::presentation::world_to_screen;

@@ -267,7 +267,15 @@ pub(super) fn resolve_window_render_layout(
         bbox.size.h.max(1) as f32,
     );
 
-    let local_geo = if stack_member_rendered {
+    let local_geo = if fullscreen_on_current_monitor {
+        // A fullscreen surface has no CSD inset — its whole buffer is content — and the
+        // cached xdg window-geometry can lag the buffer right after the client goes
+        // fullscreen (notably XWayland/Steam). Dividing the fullscreen visual size by the
+        // stale windowed geometry over-scales the texture so only its top-left shows. Use
+        // the live surface bbox so render_scale maps the actual buffer to the output.
+        // (`render_window_geometry_for_node` returns None for fullscreen by design.)
+        render_window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
+    } else if stack_member_rendered {
         let base_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
         let target_size = stack_transition_pose
             .map(|pose| pose.size)

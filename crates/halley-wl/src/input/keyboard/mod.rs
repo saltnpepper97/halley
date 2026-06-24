@@ -512,6 +512,90 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
+    // Apogee keyboard navigation: arrows move a highlighted selection across the window
+    // mosaic and the core rail, Enter activates it, Escape closes. These keys are raw
+    // (not compositor binds), so they're intercepted here before normal dispatch and
+    // kept from leaking to focused clients while the overview is open.
+    if st.input.interaction_state.apogee_session.is_some()
+        && !crate::protocol::wayland::session_lock::session_lock_active(st)
+    {
+        let escape = key_name_to_evdev("escape").map(|code| code + 8);
+        let enter = key_name_to_evdev("return").map(|code| code + 8);
+        let left = key_name_to_evdev("left").map(|code| code + 8);
+        let right = key_name_to_evdev("right").map(|code| code + 8);
+        let up = key_name_to_evdev("up").map(|code| code + 8);
+        let down = key_name_to_evdev("down").map(|code| code + 8);
+        let dir = if Some(code) == left {
+            Some(halley_config::DirectionalAction::Left)
+        } else if Some(code) == right {
+            Some(halley_config::DirectionalAction::Right)
+        } else if Some(code) == up {
+            Some(halley_config::DirectionalAction::Up)
+        } else if Some(code) == down {
+            Some(halley_config::DirectionalAction::Down)
+        } else {
+            None
+        };
+        if dir.is_some() || Some(code) == enter || Some(code) == escape {
+            if let Some(keyboard) = st.platform.seat.get_keyboard() {
+                let serial = SERIAL_COUNTER.next_serial();
+                keyboard.input::<(), _>(
+                    st,
+                    code.into(),
+                    if pressed {
+                        KeyState::Pressed
+                    } else {
+                        KeyState::Released
+                    },
+                    serial,
+                    now_millis_u32(),
+                    |_, _, _| FilterResult::Intercept(()),
+                );
+            }
+            if pressed {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let now = Instant::now();
+                if let Some(dir) = dir {
+                    // Navigate in global screen space (crosses monitors) and warp the
+                    // cursor onto the target tile. The cursor is the single source of
+                    // truth: warping it drives the same hover path the mouse uses, and
+                    // updates the pointer accumulator so a later physical move continues
+                    // from here — one focus, not two.
+                    if let Some(target) =
+                        crate::compositor::overview::apogee_navigate(st, dir)
+                    {
+                        crate::compositor::overview::apogee_reveal_tile(st, target);
+                        if let Some((gsx, gsy)) =
+                            crate::compositor::overview::apogee_tile_global_center(st, target)
+                        {
+                            crate::input::pointer::motion::handle_pointer_motion_absolute(
+                                st,
+                                ctx,
+                                0,
+                                0,
+                                gsx,
+                                gsy,
+                                (0.0, 0.0),
+                                (0.0, 0.0),
+                                0,
+                            );
+                        }
+                    }
+                } else if Some(code) == enter {
+                    if let Some(node) = st.input.interaction_state.apogee_hover_node {
+                        crate::compositor::overview::select_apogee_target(st, node, now);
+                    } else {
+                        st.close_apogee(now);
+                    }
+                } else {
+                    st.close_apogee(now);
+                }
+                ctx.backend.request_redraw();
+            }
+            return;
+        }
+    }
+
     if st.focus_cycle_session_active() {
         handle_focus_cycle_session_input(st, ctx, code, pressed);
         return;

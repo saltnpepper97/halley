@@ -583,6 +583,221 @@ pub(crate) fn apogee_region_for_point(screen_h: i32, sy: f32) -> ApogeeInteracti
     }
 }
 
+/// Global (cross-monitor) origin of a monitor in screen space.
+fn apogee_monitor_global_offset(st: &Halley, monitor: &str) -> (f32, f32) {
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| (space.offset_x as f32, space.offset_y as f32))
+        .unwrap_or((0.0, 0.0))
+}
+
+/// On-screen *local* center of an apogee tile within its monitor, using the same
+/// projection as `apogee_tile_at` (Open phase) so a cursor warped here lands on the
+/// tile. Returns `None` if the node isn't a tile in this session.
+fn apogee_tile_local_center(
+    monitor_session: &ApogeeMonitorSession,
+    screen_w: i32,
+    node_id: NodeId,
+) -> Option<(f32, f32)> {
+    if let Some(tile) = monitor_session
+        .core_tiles
+        .iter()
+        .find(|tile| tile.node_id == node_id)
+    {
+        let p = apogee_project_core_rect(
+            tile.to,
+            monitor_session.core_scroll_offset,
+            monitor_session.core_atlas_width,
+            screen_w,
+            0,
+        );
+        return Some((p.rect.cx, p.rect.cy));
+    }
+    monitor_session
+        .tiles
+        .iter()
+        .find(|tile| tile.node_id == node_id && matches!(tile.kind, ApogeeTileKind::Window))
+        .map(|tile| (tile.to.cx, tile.to.cy))
+}
+
+/// Global screen center of an apogee tile (any monitor). Mirrors the on-screen
+/// projection so the keyboard warp drops the cursor exactly onto the tile.
+pub(crate) fn apogee_tile_global_center(st: &Halley, node_id: NodeId) -> Option<(f32, f32)> {
+    let session = st.input.interaction_state.apogee_session.as_ref()?;
+    for monitor_session in &session.monitors {
+        let screen_w = st
+            .model
+            .monitor_state
+            .monitors
+            .get(&monitor_session.monitor)
+            .map(|space| space.width)
+            .unwrap_or(1);
+        if let Some((lx, ly)) = apogee_tile_local_center(monitor_session, screen_w, node_id) {
+            let (ox, oy) = apogee_monitor_global_offset(st, &monitor_session.monitor);
+            return Some((lx + ox, ly + oy));
+        }
+    }
+    None
+}
+
+/// Pick the next apogee tile to move the cursor to when navigating with the arrow keys.
+/// Every monitor's window mosaic and (scrolled) core rail are flattened into one
+/// **global** screen field, so navigation crosses monitor boundaries naturally (no wrap)
+/// and `Up`/`Down` step between the mosaic and the core rail. Navigation starts from the
+/// live cursor position (the single source of truth — same as mouse hover) and excludes
+/// the tile already under the cursor so each press advances.
+pub(crate) fn apogee_navigate(
+    st: &Halley,
+    dir: halley_config::DirectionalAction,
+) -> Option<NodeId> {
+    use halley_config::DirectionalAction as D;
+    let session = st.input.interaction_state.apogee_session.as_ref()?;
+    let (cx, cy) = st
+        .input
+        .interaction_state
+        .last_pointer_screen_global
+        .unwrap_or_else(|| {
+            let monitor = st.model.monitor_state.current_monitor.clone();
+            let (ox, oy) = apogee_monitor_global_offset(st, &monitor);
+            let (w, h) = st
+                .model
+                .monitor_state
+                .monitors
+                .get(&monitor)
+                .map(|space| (space.width as f32, space.height as f32))
+                .unwrap_or((1.0, 1.0));
+            (ox + w * 0.5, oy + h * 0.5)
+        });
+    let exclude = st.input.interaction_state.apogee_hover_node;
+
+    // (node, global_cx, global_cy) for every selectable tile across all monitors.
+    let mut cands: Vec<(NodeId, f32, f32)> = Vec::new();
+    for monitor_session in &session.monitors {
+        let screen_w = st
+            .model
+            .monitor_state
+            .monitors
+            .get(&monitor_session.monitor)
+            .map(|space| space.width)
+            .unwrap_or(1);
+        let (ox, oy) = apogee_monitor_global_offset(st, &monitor_session.monitor);
+        for tile in &monitor_session.core_tiles {
+            if Some(tile.node_id) == exclude {
+                continue;
+            }
+            let p = apogee_project_core_rect(
+                tile.to,
+                monitor_session.core_scroll_offset,
+                monitor_session.core_atlas_width,
+                screen_w,
+                0,
+            );
+            cands.push((tile.node_id, p.rect.cx + ox, p.rect.cy + oy));
+        }
+        for tile in monitor_session
+            .tiles
+            .iter()
+            .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+        {
+            if Some(tile.node_id) == exclude {
+                continue;
+            }
+            cands.push((tile.node_id, tile.to.cx + ox, tile.to.cy + oy));
+        }
+    }
+
+    // Keep tiles strictly in the travel direction; score primary-axis distance plus a
+    // perpendicular penalty so the nearest aligned tile wins. Track the nearest tile
+    // overall too, to seed the very first press when the cursor isn't over any tile.
+    let mut best: Option<(f32, NodeId)> = None;
+    let mut nearest: Option<(f32, NodeId)> = None;
+    for (id, gx, gy) in cands {
+        let dx = gx - cx;
+        let dy = gy - cy;
+        let dist2 = dx * dx + dy * dy;
+        if nearest.is_none_or(|(b, _)| dist2 < b) {
+            nearest = Some((dist2, id));
+        }
+        let (primary, perp) = match dir {
+            D::Left => (-dx, dy.abs()),
+            D::Right => (dx, dy.abs()),
+            D::Up => (-dy, dx.abs()),
+            D::Down => (dy, dx.abs()),
+        };
+        if primary <= 1.0 {
+            continue;
+        }
+        let cost = primary + perp * 2.0;
+        if best.is_none_or(|(b, _)| cost < b) {
+            best = Some((cost, id));
+        }
+    }
+    best.map(|(_, id)| id).or_else(|| {
+        // Nothing in the travel direction: only seed from the nearest tile when the
+        // cursor isn't already on a tile (so a dead-end press at an edge is a no-op).
+        exclude.is_none().then(|| nearest.map(|(_, id)| id)).flatten()
+    })
+}
+
+/// Scroll the core rail of whichever monitor owns `node_id` so the core is on screen.
+/// No-op for window tiles. Run after navigation lands on a (possibly scrolled-off) core,
+/// before warping the cursor to it.
+pub(crate) fn apogee_reveal_tile(st: &mut Halley, node_id: NodeId) {
+    let monitor = st.input.interaction_state.apogee_session.as_ref().and_then(|session| {
+        session
+            .monitors
+            .iter()
+            .find(|ms| ms.core_tiles.iter().any(|tile| tile.node_id == node_id))
+            .map(|ms| ms.monitor.clone())
+    });
+    if let Some(monitor) = monitor {
+        apogee_reveal_core(st, monitor.as_str(), node_id);
+    }
+}
+
+/// Scroll the core rail so the given core tile is fully visible. No-op for window tiles
+/// or when the rail can't scroll. Used after keyboard navigation lands on an off-screen
+/// core so the selection is always on screen.
+fn apogee_reveal_core(st: &mut Halley, monitor: &str, node_id: NodeId) {
+    let screen_w = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| space.width.max(1) as f32)
+        .unwrap_or(1.0);
+    let Some(session) = st.input.interaction_state.apogee_session.as_mut() else {
+        return;
+    };
+    let Some(monitor_session) = session.monitor_session_mut(monitor) else {
+        return;
+    };
+    let max_offset = (monitor_session.core_atlas_width - screen_w).max(0.0);
+    if max_offset <= 0.5 {
+        return;
+    }
+    let Some(tile) = monitor_session
+        .core_tiles
+        .iter()
+        .find(|tile| tile.node_id == node_id)
+    else {
+        return;
+    };
+    let half_w = tile.to.w * 0.5;
+    let left = tile.to.cx - half_w;
+    let right = tile.to.cx + half_w;
+    let margin = 24.0;
+    let mut offset = monitor_session.core_scroll_offset;
+    if left - offset < margin {
+        offset = left - margin;
+    } else if right - offset > screen_w - margin {
+        offset = right - screen_w + margin;
+    }
+    monitor_session.core_scroll_offset = offset.clamp(0.0, max_offset);
+}
+
 /// Begin closing Apogee with a pending selection. The selected tile is raised to
 /// the top of the draw order for the close animation, and the actual focus /
 /// activation is deferred until the close animation finishes (via `tick_apogee`)
@@ -644,8 +859,9 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
-    if crate::compositor::actions::window::focus_from_presentation_navigation(st, node_id, now)
-        || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
+    if crate::compositor::actions::window::focus_from_presentation_navigation_switching(
+        st, node_id, now,
+    ) || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
     {
         return;
     }
@@ -1754,7 +1970,7 @@ mod tests {
     }
 
     #[test]
-    fn apogee_activation_can_raise_visible_target_above_fullscreen() {
+    fn apogee_activation_switches_from_fullscreen_to_adjacent_window() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -1777,12 +1993,14 @@ mod tests {
 
         activate_apogee_target(&mut state, target, now);
 
-        assert!(state.is_fullscreen_active(fullscreen));
+        // Selecting a window that is not already floating above the fullscreen
+        // leaves fullscreen (soft-suspended) and switches focus to it — one action,
+        // no second select needed.
+        assert!(!state.is_fullscreen_active(fullscreen));
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(target)
         );
-        assert!(state.node_draws_above_fullscreen_on_monitor(target, monitor.as_str()));
     }
 
     #[test]

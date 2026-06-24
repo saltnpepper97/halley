@@ -47,6 +47,9 @@ All notable changes to this project will be documented in this file.
 - Add a Halley Lift search-bar magnifier icon: a `search-icon:` block (`enabled`, `side`
   `left`/`right`, `size`) with a `colors.search-icon` tint (empty follows `hint`). The bundled
   square SVG is rendered to an alpha mask and tinted at draw time.
+- Add a dedicated Halley Lift settings glyph (bundled `settings.svg`) shown as the search-bar
+  icon while the `config` search mode is active and as the row icon for config-editing results
+  (Lift config / Halley config), so config entries are no longer iconless.
 - Add a dedicated Halley Lift Apps-mode search glyph, alongside refreshed bundled search and
   terminal glyph strokes for clearer small-size rendering.
 - Add drawn fallback glyphs for Halley Lift result rows without a raster icon: a squircle for
@@ -96,8 +99,30 @@ All notable changes to this project will be documented in this file.
 - Add frosted-glass backdrop blur behind Apogee tile labels (Dual-Kawase, honouring the
   global `effects.blur` switches) so labels stay legible over the blurred window thumbnail
   behind them; the Apogee render fast path now sets up a `FrameBlurContext` for overlay chrome.
+- Add arrow-key navigation in Apogee: the arrow keys move a highlighted selection across the
+  window mosaic and the core rail, Enter activates it (windows fly to focus; cluster cores open
+  their workspace), and Escape closes. Navigation is unified with the mouse — pressing an arrow
+  warps the cursor onto the target tile so keyboard and pointer drive the same single hover/focus
+  (a later mouse move continues from there) — and it crosses monitor boundaries in global screen
+  space (jump to the next monitor's tiles, no wrap).
+- Show a frosted name label below a hovered or keyboard-selected cluster **core** tile in Apogee
+  (cores previously showed only their icon); the label stays up for the whole hover.
+- Add a `center-last-focused` keybind action (default `mod+h`) that pans the camera back to centre
+  on the last focused node — a quick "go back" after wandering the field. Wired into the internal
+  template, bootstrap backfill, and example configs. The bare-defaults field node-move bindings
+  also move from vim `hjkl` to the arrow keys, matching the generated config and freeing `mod+h`.
 
 ### Changed
+- Treat field node/core markers as fixed landmarks in passive (idle/zoom) overlap resolution:
+  neighbouring windows now yield around a marker instead of the marker being pushed aside. A
+  marker boxed between two windows used to have nowhere to go and ended up overlapped (most
+  visible when zooming out, where each marker's keep-out gap grows in screen-constant space);
+  windows now spread to keep its gap clear. Pinning a node is no longer required to make it a
+  landmark — it now only affects drag-carry behaviour.
+- Selecting a window in Apogee that sits beside or behind a fullscreen window now leaves
+  fullscreen (soft-suspend) and switches focus in one action, instead of raising the window
+  above the fullscreen and keeping the presentation (which needed a second select to actually
+  exit fullscreen). Alt+Tab and focus-trail keep the original raise-above-keep behaviour.
 - Animate the Alt+Tab focus-cycle switcher with a quick open fade/scale and smooth carousel-style
   card motion between selections, while keeping the existing bounded snapshot prewarm behavior.
 - Open Apogee on every active monitor at once, with each monitor showing only its own windows and
@@ -206,6 +231,17 @@ All notable changes to this project will be documented in this file.
   offscreen texture.
 
 ### Fixed
+- Fix corrupt first-fullscreen rendering of XWayland windows (e.g. Steam) where the live surface
+  was blown up so only its top-left corner filled the screen until you toggled fullscreen again.
+  A fullscreen surface's render geometry is now derived from its live buffer rather than the cached
+  xdg window-geometry, which can lag the buffer right after the client goes fullscreen and made the
+  render scale come out far too large. Routed through one `render_window_geometry_for_node` helper
+  shared by the field, offscreen-compose, and close-capture paths (Apogee/Alt+Tab previews already
+  handled this).
+- Stop field node/core markers from being hidden underneath windows. Markers are screen-space
+  constant (readable at every zoom) and now draw above window bodies and borders — but below
+  popups, overlay HUD, and their own hover labels — so a window grown over a marker can no longer
+  occlude it.
 - Ensure client-side fullscreen requests still send the xdg fullscreen configure when the window
   was already fullscreened by a Halley keybind, so client fullscreen buttons map cleanly onto
   Halley's fullscreen state.

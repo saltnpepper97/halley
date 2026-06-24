@@ -36,6 +36,7 @@ keybinds:
   "$var.mod+q" "close-focused"
   "$var.mod+f" "toggle-fullscreen"
   "$var.mod+p" "toggle-focused-pin"
+  "$var.mod+h" "center-last-focused"
 
   "$var.mod+leftmouse" "move-window"
   "$var.mod+rightmouse" "resize-window"

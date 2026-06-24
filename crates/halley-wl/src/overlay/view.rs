@@ -18,6 +18,8 @@ pub(crate) struct OverlayView<'a> {
     pub(crate) tuning: &'a RuntimeTuning,
     pub(crate) node_app_ids: &'a std::collections::HashMap<NodeId, String>,
     pub(crate) last_active_size: &'a std::collections::HashMap<NodeId, Vec2>,
+    pub(crate) fullscreen_active: &'a std::collections::HashMap<String, NodeId>,
+    pub(crate) fullscreen_soft_suspended: &'a std::collections::HashMap<String, NodeId>,
     pub(crate) viewport: Viewport,
     pub(crate) camera_view_size: Vec2,
 }
@@ -33,9 +35,19 @@ impl<'a> OverlayView<'a> {
             tuning: &st.runtime.tuning,
             node_app_ids: &st.model.node_app_ids,
             last_active_size: &st.model.workspace_state.last_active_size,
+            fullscreen_active: &st.model.fullscreen_state.fullscreen_active_node,
+            fullscreen_soft_suspended: &st.model.fullscreen_state.fullscreen_soft_suspended_node,
             viewport: st.model.viewport,
             camera_view_size: crate::compositor::monitor::camera::camera_view_size(st),
         }
+    }
+
+    /// Whether `node_id` is a fullscreen window — either actively fullscreen or
+    /// soft-suspended (which is the state while apogee is open, so its preview must
+    /// still be treated as fullscreen, i.e. no CSD-geometry crop).
+    pub(crate) fn node_is_fullscreen(&self, node_id: NodeId) -> bool {
+        self.fullscreen_active.values().any(|&n| n == node_id)
+            || self.fullscreen_soft_suspended.values().any(|&n| n == node_id)
     }
 
     pub(crate) fn cluster_overflow_visible_for_monitor(&self, monitor: &str, now_ms: u64) -> bool {

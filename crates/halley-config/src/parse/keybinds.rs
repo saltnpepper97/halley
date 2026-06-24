@@ -425,6 +425,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::ZoomReset,
             );
         }
+        "center_last_focused" | "center-last-focused" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::CenterLastFocused,
+            );
+        }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
         }
