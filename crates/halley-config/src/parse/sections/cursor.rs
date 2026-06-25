@@ -32,6 +32,14 @@ pub(crate) fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.cursor.hide_after_ms,
     );
+    out.cursor.hide_on_keyboard_nav = pick_bool(
+        cfg,
+        &[
+            "cursor.hide-on-keyboard-nav",
+            "cursor.hide_on_keyboard_nav",
+        ],
+        out.cursor.hide_on_keyboard_nav,
+    );
 }
 
 #[cfg(test)]
@@ -64,5 +72,23 @@ end
     #[test]
     fn cursor_defaults_do_not_idle_hide() {
         assert_eq!(RuntimeTuning::default().cursor.hide_after_ms, 0);
+    }
+
+    #[test]
+    fn cursor_hide_on_keyboard_nav_defaults_on_and_is_toggllable() {
+        assert!(RuntimeTuning::default().cursor.hide_on_keyboard_nav);
+
+        let cfg = RuneConfig::from_str(
+            r#"
+cursor:
+  hide-on-keyboard-nav false
+end
+"#,
+        )
+        .expect("cursor config should parse");
+
+        let mut out = RuntimeTuning::default();
+        load_cursor_section(&cfg, &mut out);
+        assert!(!out.cursor.hide_on_keyboard_nav);
     }
 }

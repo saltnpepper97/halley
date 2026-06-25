@@ -1127,6 +1127,7 @@ mod tests {
             Vec::new(),
             1.0,
             1.0,
+            false,
         );
 
         assert!(tty_output_animation_redraw_state(&state, "right", start).active);

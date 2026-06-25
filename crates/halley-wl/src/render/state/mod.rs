@@ -82,6 +82,10 @@ pub(crate) enum ClosingWindowAnimationKind {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
+        /// Draw the shrink beneath live windows instead of on top. Set for
+        /// minimize/collapse-to-node so a minimizing window drops behind the
+        /// windows it was stacked under rather than flashing to the front.
+        behind: bool,
     },
     Node {
         pos: Vec2,
@@ -329,6 +333,7 @@ impl RenderState {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
+        behind: bool,
     ) {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
@@ -345,6 +350,7 @@ impl RenderState {
                     offscreen_textures,
                     start_scale,
                     start_alpha,
+                    behind,
                 },
             },
         );

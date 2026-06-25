@@ -191,6 +191,7 @@ mod tests {
                 size: 32,
                 hide_while_typing: false,
                 hide_after_ms: 2_000,
+                hide_on_keyboard_nav: true,
             },
             Some("token-123"),
         );

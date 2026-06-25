@@ -252,7 +252,14 @@ pub(crate) fn begin_drag(
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
     if !hit.is_core {
+        // Dragging a window must not resume a soft-suspended fullscreen session.
+        st.input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = true;
         st.focus_pointer_target(hit.node_id, 30_000, now);
+        st.input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = false;
     }
     let to = halley_core::field::Vec2 {
         x: world_now.x - drag_ctx.current_offset.x,
@@ -828,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn finishing_active_drag_does_not_raise_on_release() {
+    fn finishing_active_drag_raises_dropped_window_to_front() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let existing = st.model.field.spawn_surface(
@@ -877,17 +884,11 @@ mod tests {
             Instant::now(),
         );
 
-        assert!(st.overlap_policy_stack_rank(existing) > st.overlap_policy_stack_rank(dragged));
+        // The dropped window is now raised above the previously-frontmost peer.
+        assert!(st.overlap_policy_stack_rank(dragged) > st.overlap_policy_stack_rank(existing));
         assert_eq!(
             st.model.focus_state.primary_interaction_focus,
             Some(dragged)
-        );
-        assert!(
-            !st.ui
-                .render_state
-                .window_animations
-                .raise_animations
-                .contains_key(&dragged)
         );
     }
 }
@@ -954,6 +955,11 @@ pub(crate) fn finish_pointer_drag(
     if started_active {
         st.set_recent_top_node(node_id, now + Duration::from_millis(1200));
         st.set_interaction_focus(Some(node_id), 30_000, now);
+        // An explicit drag-and-drop is a strong "put this on top" intent, so always
+        // bring the dropped window to the front (no-ops if already frontmost). This is
+        // independent of `raise_on_click`, and is what keeps a window dropped over peers
+        // on another monitor from landing behind them.
+        let _ = st.raise_overlap_policy_node(node_id);
     }
     // Hold the just-dropped window fixed at its release position so the overlap
     // resolver pushes *neighbors* apart instead of snapping the dropped window.

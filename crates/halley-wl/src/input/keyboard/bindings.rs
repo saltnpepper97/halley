@@ -172,6 +172,11 @@ pub(crate) fn apply_compositor_action_press(
         return true;
     }
 
+    // Any compositor keybind counts as keyboard use — hide the cursor (position
+    // is preserved, so focus-tracking warps keep working). Real pointer activity
+    // (motion/button/axis) clears it again via `note_cursor_activity`.
+    crate::compositor::interaction::state::mark_cursor_hidden_by_keyboard_nav(st);
+
     match action {
         CompositorBindingAction::Quit { .. } => {
             exit_confirm::show(st);

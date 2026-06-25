@@ -152,40 +152,57 @@ pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
 const SPAWN_VIEW_HANDOFF_PAN_RATIO: f32 = 0.35;
 const SPAWN_VIEW_HANDOFF_FOCUS_RATIO: f32 = 0.25;
 
+/// True if `id` is a fullscreen session that was soft-suspended (e.g. a game you
+/// alt+tabbed away from) and is currently sitting windowed on some monitor.
+pub(crate) fn node_is_suspended_fullscreen(st: &Halley, id: NodeId) -> bool {
+    st.model
+        .fullscreen_state
+        .fullscreen_suspended_node
+        .values()
+        .any(|&nid| nid == id)
+}
+
+/// Re-enter a soft-suspended fullscreen session for `fid`: restore the monitor's
+/// pre-suspend camera center, then re-assert fullscreen. Triggered by deliberate
+/// selection only (click, alt+tab, apogee) — never by plain field hover.
+pub(crate) fn resume_suspended_fullscreen(st: &mut Halley, fid: NodeId) {
+    if let Some(entry) = st
+        .model
+        .fullscreen_state
+        .fullscreen_restore
+        .get(&fid)
+        .copied()
+    {
+        let target_monitor = st.monitor_for_node_or_current(fid);
+        if let Some(space) = st.model.monitor_state.monitors.get_mut(&target_monitor) {
+            space.viewport.center = entry.viewport_center;
+            space.camera_target_center = entry.viewport_center;
+        }
+        if st.model.monitor_state.current_monitor == target_monitor {
+            st.model.viewport.center = entry.viewport_center;
+            st.model.camera_target_center = st.model.viewport.center;
+            st.runtime.tuning.viewport_center = st.model.viewport.center;
+            st.input.interaction_state.viewport_pan_anim = None;
+        }
+    }
+    st.enter_xdg_fullscreen(fid, None, Instant::now());
+}
+
 pub fn apply_wayland_focus_state(st: &mut Halley, id: Option<NodeId>) {
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
         crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(st);
         return;
     }
     let focus_id = fullscreen_focus_override(st, id).or(id);
-    if let Some(fid) = focus_id
-        && st
-            .model
-            .fullscreen_state
-            .fullscreen_suspended_node
-            .values()
-            .any(|&nid| nid == fid)
+    // Field hover-focus and drag set `suppress_fullscreen_resume_on_focus` so that
+    // merely moving the pointer into a soft-suspended game's area doesn't yank it back
+    // to fullscreen. Deliberate selection — a click, alt+tab, or apogee pick — leaves
+    // the flag clear and resumes the session here.
+    if !st.input.interaction_state.suppress_fullscreen_resume_on_focus
+        && let Some(fid) = focus_id
+        && node_is_suspended_fullscreen(st, fid)
     {
-        if let Some(entry) = st
-            .model
-            .fullscreen_state
-            .fullscreen_restore
-            .get(&fid)
-            .copied()
-        {
-            let target_monitor = st.monitor_for_node_or_current(fid);
-            if let Some(space) = st.model.monitor_state.monitors.get_mut(&target_monitor) {
-                space.viewport.center = entry.viewport_center;
-                space.camera_target_center = entry.viewport_center;
-            }
-            if st.model.monitor_state.current_monitor == target_monitor {
-                st.model.viewport.center = entry.viewport_center;
-                st.model.camera_target_center = st.model.viewport.center;
-                st.runtime.tuning.viewport_center = st.model.viewport.center;
-                st.input.interaction_state.viewport_pan_anim = None;
-            }
-        }
-        st.enter_xdg_fullscreen(fid, None, Instant::now());
+        resume_suspended_fullscreen(st, fid);
     }
     st.model.monitor_state.layer_keyboard_focus = None;
     let requested_focus_surface =

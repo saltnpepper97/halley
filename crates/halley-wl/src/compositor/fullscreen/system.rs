@@ -729,6 +729,70 @@ mod tests {
     }
 
     #[test]
+    fn suppressed_focus_does_not_resume_soft_suspended_fullscreen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.soft_suspend_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(40));
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+
+        // Hover-focus (suppressed): focusing the suspended node must NOT resume it.
+        state
+            .input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = true;
+        state.apply_wayland_focus_state(Some(fullscreen));
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key("monitor_a"),
+            "suppressed focus must not resume fullscreen"
+        );
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+
+        // Deliberate focus (alt+tab / apogee path): resumes the session.
+        state
+            .input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = false;
+        state.apply_wayland_focus_state(Some(fullscreen));
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("monitor_a"),
+            Some(&fullscreen),
+            "deliberate focus must resume fullscreen"
+        );
+    }
+
+    #[test]
     fn hard_exit_after_soft_suspend_restores_fullscreen_session() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());

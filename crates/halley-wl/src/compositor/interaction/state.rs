@@ -339,6 +339,11 @@ pub(crate) struct InteractionState {
     pub(crate) drag_authority_velocity: Vec2,
     pub(crate) suspend_overlap_resolve: bool,
     pub(crate) suspend_state_checks: bool,
+    /// When set, a focus change must NOT resume a soft-suspended fullscreen window.
+    /// Set around the non-deliberate focus triggers (field hover-focus and drag) so
+    /// that merely moving the pointer into a suspended game's area doesn't yank it
+    /// back to fullscreen; a deliberate click, alt+tab, or apogee pick still resumes.
+    pub(crate) suppress_fullscreen_resume_on_focus: bool,
     pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
     pub(crate) physics_last_tick: Instant,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
@@ -396,6 +401,12 @@ pub(crate) struct InteractionState {
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
     pub(crate) cursor_override_icon: Option<CursorIcon>,
     pub(crate) cursor_hidden_by_typing: bool,
+    /// Cursor hidden because the user is driving window navigation from the
+    /// keyboard (focus cycle, tile/stack/trail/monitor steps, apogee arrows).
+    /// Only the cursor *image* is suppressed — the pointer position is untouched,
+    /// so the warp-to-focused-node machinery keeps working. Any real pointer
+    /// activity (motion/button/axis, including inside the apogee overview) clears it.
+    pub(crate) cursor_hidden_by_keyboard_nav: bool,
     pub(crate) last_cursor_activity_at_ms: u64,
 }
 
@@ -408,8 +419,10 @@ pub(crate) fn note_cursor_activity(st: &mut Halley, now_ms: u64) -> bool {
     st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
 
     let was_typing_hidden = std::mem::take(&mut st.input.interaction_state.cursor_hidden_by_typing);
+    let was_kb_nav_hidden =
+        std::mem::take(&mut st.input.interaction_state.cursor_hidden_by_keyboard_nav);
 
-    was_idle_hidden || was_typing_hidden
+    was_idle_hidden || was_typing_hidden || was_kb_nav_hidden
 }
 
 pub(crate) fn note_typing_activity(st: &mut Halley, now_ms: u64) -> bool {
@@ -428,6 +441,21 @@ pub(crate) fn note_typing_activity(st: &mut Halley, now_ms: u64) -> bool {
     let changed = !st.input.interaction_state.cursor_hidden_by_typing;
     st.input.interaction_state.cursor_hidden_by_typing = true;
     changed
+}
+
+/// Mark the cursor hidden because of keyboard-driven navigation. Suppresses only
+/// the cursor image — the pointer position is left untouched, so warps to the
+/// focused node's center keep working. Honors `cursor.hide-on-keyboard-nav` and
+/// pokes the redraw path so backends re-read `effective_cursor_image_status`.
+pub(crate) fn mark_cursor_hidden_by_keyboard_nav(st: &mut Halley) {
+    if !st.runtime.tuning.cursor.hide_on_keyboard_nav
+        || st.input.interaction_state.cursor_hidden_by_keyboard_nav
+    {
+        return;
+    }
+    st.input.interaction_state.cursor_hidden_by_keyboard_nav = true;
+    st.runtime.tty_redraw_all = true;
+    st.request_maintenance();
 }
 
 pub(crate) fn take_input_state_reset_request(st: &mut Halley) -> bool {
@@ -906,5 +934,37 @@ mod tests {
             effective_cursor_image_status(&state),
             CursorImageStatus::Hidden
         ));
+    }
+
+    #[test]
+    fn keyboard_nav_hide_suppresses_cursor_image_and_pointer_reveals_it() {
+        use crate::compositor::platform::effective_cursor_image_status;
+        use smithay::input::pointer::CursorImageStatus;
+
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        // Default config enables hide-on-keyboard-nav.
+        assert!(state.runtime.tuning.cursor.hide_on_keyboard_nav);
+
+        // Keyboard use marks the cursor hidden — only the image is suppressed, so
+        // it wins immediately regardless of pointer/client focus state.
+        mark_cursor_hidden_by_keyboard_nav(&mut state);
+        assert!(state.input.interaction_state.cursor_hidden_by_keyboard_nav);
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Hidden
+        ));
+
+        // Any real pointer activity reveals it again.
+        assert!(note_cursor_activity(&mut state, 1_000));
+        assert!(!state.input.interaction_state.cursor_hidden_by_keyboard_nav);
+
+        // With the feature disabled in config, marking is a no-op.
+        state.runtime.tuning.cursor.hide_on_keyboard_nav = false;
+        mark_cursor_hidden_by_keyboard_nav(&mut state);
+        assert!(!state.input.interaction_state.cursor_hidden_by_keyboard_nav);
     }
 }

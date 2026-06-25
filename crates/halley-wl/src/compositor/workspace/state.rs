@@ -163,6 +163,7 @@ pub(crate) fn start_active_to_node_close_animation(
         offscreen_textures,
         start_scale,
         start_alpha,
+        true,
     );
     st.ui.render_state.finish_window_animation_prewarm(id);
     st.ui

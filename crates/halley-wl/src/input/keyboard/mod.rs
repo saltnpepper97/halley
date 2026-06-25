@@ -651,6 +651,12 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
                                 0,
                             );
                         }
+                        // The warp above runs the apogee motion branch which
+                        // reveals the cursor; re-arm the keyboard-nav hide so the
+                        // cursor stays hidden while driving the overview with arrows.
+                        crate::compositor::interaction::state::mark_cursor_hidden_by_keyboard_nav(
+                            st,
+                        );
                     }
                 } else if Some(code) == enter {
                     if let Some(node) = st.input.interaction_state.apogee_hover_node {

@@ -262,6 +262,7 @@ impl ConfigSchema {
             "cursor.hide-when-typing",
             "cursor.hide-after-ms",
             "cursor.hide-after-inactive-ms",
+            "cursor.hide-on-keyboard-nav",
             "debug.overlay-fps",
             "debug.show-ring-when-resizing",
             "decay.active-delay",
@@ -687,6 +688,7 @@ fn bool_scalar(path: &str) -> bool {
             | "clusters.show-icons"
             | "cursor.hide-while-typing"
             | "cursor.hide-when-typing"
+            | "cursor.hide-on-keyboard-nav"
             | "debug.overlay-fps"
             | "debug.show-ring-when-resizing"
             | "decorations.secondary-border.enabled"

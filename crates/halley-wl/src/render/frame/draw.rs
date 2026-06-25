@@ -266,6 +266,35 @@ pub(super) fn draw_scene_windows_and_hud(
     hover_node: Option<halley_core::field::NodeId>,
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
+    // Minimize/collapse-to-node shrinks draw beneath live windows so a minimizing
+    // window drops behind the windows it was stacked under instead of flashing to
+    // the front. Real closes stay in the on-top pass below.
+    draw_closing_window_shrink(
+        frame,
+        size,
+        prepared.damage,
+        &scene.closing_window_animations,
+        st,
+        true,
+    )?;
+
+    // Node/core markers (landmarks: standalone nodes + cluster cores) draw beneath the
+    // live windows so a window collapsing into its node drops behind the windows it was
+    // stacked under instead of the node marker flashing to the front. They sit above the
+    // wallpaper/below-windows backdrop and below popups, overlay HUD, and the node hover
+    // labels that follow. Markers are screen-space constant, so this keeps them sized the
+    // same at every zoom. (Per the node/window invariant, settled markers don't overlap
+    // windows, so a window can't normally hide one once the collapse slide finishes.)
+    draw_node_markers(
+        frame,
+        st,
+        size,
+        &scene.render_nodes,
+        hover_node,
+        prepared.damage,
+        prepared.now,
+    )?;
+
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -315,20 +344,6 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.resized_border_rects,
         st,
-    )?;
-
-    // Node/core markers (landmarks: standalone nodes + cluster cores) draw above window
-    // bodies and borders so a window grown over a marker can't hide it, but below popups,
-    // overlay HUD, and the node hover labels that follow. Markers are screen-space
-    // constant, so this keeps them visible at every zoom without resizing them.
-    draw_node_markers(
-        frame,
-        st,
-        size,
-        &scene.render_nodes,
-        hover_node,
-        prepared.damage,
-        prepared.now,
     )?;
 
     draw_offscreen_textures(
@@ -451,35 +466,9 @@ pub(super) fn draw_scene_windows_and_hud(
             &[prepared.damage],
         );
     }
-    draw_window_shadows(
-        frame,
-        size,
-        prepared.damage,
-        &scene.above_fullscreen_shadow_rects,
-        st,
-    )?;
-    if !scene.above_fullscreen_active_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.above_fullscreen_active_elements,
-            &[prepared.damage],
-        );
-    }
-    draw_offscreen_textures(
-        frame,
-        prepared.damage,
-        &scene.above_fullscreen_offscreen_textures,
-        st.ui.render_state.gpu.window_texture_program.as_ref(),
-        blur_ctx.as_deref_mut(),
-    )?;
-    draw_window_borders(
-        frame,
-        size,
-        prepared.damage,
-        &scene.above_fullscreen_border_rects,
-        st,
-    )?;
+    // Above-fullscreen windows all render as atomic stack units (content + border
+    // drawn together, sorted by draw_order) so a back window's border can't bleed
+    // over a front window the way a flat batched border pass would.
     draw_stack_window_units(
         frame,
         size,
@@ -698,6 +687,8 @@ fn transform_rect_about_center(
     )
 }
 
+/// On-top closing pass: node markers (the landmark a window collapses toward)
+/// plus the shrink for real window closes (`behind == false`).
 fn draw_closing_window_animations(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
@@ -706,7 +697,20 @@ fn draw_closing_window_animations(
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     draw_closing_node_markers(frame, st, size, animations, damage)?;
+    draw_closing_window_shrink(frame, size, damage, animations, st, false)
+}
 
+/// Window shrink/fade tween. `behind` selects which animations to draw: minimize
+/// (collapse-to-node) animations are drawn beneath live windows, real closes on
+/// top. Called once per z-phase from `draw_scene_windows_and_hud`.
+fn draw_closing_window_shrink(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    animations: &[ClosingWindowAnimationSnapshot],
+    st: &mut Halley,
+    behind: bool,
+) -> Result<(), Box<dyn Error>> {
     for animation in animations {
         let ClosingWindowAnimationKind::Window {
             style,
@@ -714,10 +718,14 @@ fn draw_closing_window_animations(
             offscreen_textures,
             start_scale,
             start_alpha,
+            behind: anim_behind,
         } = &animation.kind
         else {
             continue;
         };
+        if *anim_behind != behind {
+            continue;
+        }
 
         let eased = crate::animation::ease_in_out_cubic(animation.progress);
         // Fold in the window's live scale/alpha at close time so the tween continues seamlessly

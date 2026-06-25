@@ -1141,6 +1141,7 @@ pub struct CursorConfig {
     pub size: u32,
     pub hide_while_typing: bool,
     pub hide_after_ms: u64,
+    pub hide_on_keyboard_nav: bool,
 }
 
 impl Default for CursorConfig {
@@ -1150,6 +1151,7 @@ impl Default for CursorConfig {
             size: 24,
             hide_while_typing: false,
             hide_after_ms: 0,
+            hide_on_keyboard_nav: true,
         }
     }
 }

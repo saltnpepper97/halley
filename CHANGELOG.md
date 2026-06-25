@@ -111,6 +111,14 @@ All notable changes to this project will be documented in this file.
   on the last focused node — a quick "go back" after wandering the field. Wired into the internal
   template, bootstrap backfill, and example configs. The bare-defaults field node-move bindings
   also move from vim `hjkl` to the arrow keys, matching the generated config and freeing `mod+h`.
+- Add `cursor.hide-on-keyboard-nav` (default `true`): any compositor keybind and keyboard-driven
+  window navigation (focus cycle, tile/stack/trail/monitor steps, and Apogee arrow keys) now hides
+  the cursor image — the pointer position is preserved so focus-tracking warps keep working — and
+  any real pointer activity (motion/button/axis, including inside Apogee) reveals it again.
+- Map a client maximize request (e.g. a GTK title-bar maximize button) to fullscreen: edge-to-edge,
+  zoom 1.0, no decorations. An app re-request never clobbers an existing fullscreen or flips its
+  origin, and an app unmaximize only tears down a fullscreen that began from a client maximize — so
+  an app unmaximize can never dismiss a user-initiated (Mod+F) fullscreen.
 
 ### Changed
 - Treat field node/core markers as fixed landmarks in passive (idle/zoom) overlap resolution:
@@ -231,6 +239,9 @@ All notable changes to this project will be documented in this file.
   clip), not whenever the whole `decorations` block differs. Border sizes/colours, shadows and
   blur are drawn live per frame, so a colour-only theme reload no longer flushes every window's
   offscreen texture.
+- Drag-and-drop now always raises the dropped window to the front, independent of
+  `input.raise-on-click`, so a window dropped over peers on another monitor no longer lands
+  behind them.
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
@@ -397,6 +408,16 @@ All notable changes to this project will be documented in this file.
 - Deliver a press landing on an overflowing popup (e.g. a context menu spilling past its parent
   window) to the popup without also raising or focusing the toplevel beneath it. The window-side
   raise/drag/resize path is now skipped when a popup is under the pointer.
+- Stop field hover-focus and window drags from yanking a soft-suspended fullscreen session (a game
+  you alt+tabbed away from) back to fullscreen just by moving the pointer into its windowed area;
+  only a deliberate click, alt+tab, or Apogee pick resumes it.
+- Fix a back window's border bleeding over a front window when more than one window sits above a
+  fullscreen surface. Above-fullscreen windows now render as atomic per-window stack units (content
+  + border together, sorted by draw order) instead of a flat batched-content-then-batched-borders
+  pass.
+- Stop a minimizing/collapse-to-node window from flashing to the front: it now shrinks behind the
+  live windows it was stacked under. Field node/core markers likewise draw beneath live windows so
+  a collapsing window can't momentarily hide its target marker.
 
 ## [v0.4.0] - 2026-06-12
 

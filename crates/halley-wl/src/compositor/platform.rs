@@ -196,6 +196,13 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         }
     }
 
+    // Keyboard-driven navigation hides the cursor image (position is preserved).
+    // Checked before the apogee block so the overview honors the hide too; the
+    // pointer still warps to each selected tile, only the image is suppressed.
+    if st.input.interaction_state.cursor_hidden_by_keyboard_nav {
+        return CursorImageStatus::Hidden;
+    }
+
     if st.input.interaction_state.apogee_session.is_some() {
         return CursorImageStatus::Named(
             st.input

@@ -67,7 +67,15 @@ pub(crate) fn apply_hover_focus_mode(
         }
     }
 
+    // Hover-focus is not a deliberate pick: don't let pointer-enter resume a
+    // soft-suspended fullscreen window (e.g. a game you alt+tabbed away from).
+    st.input
+        .interaction_state
+        .suppress_fullscreen_resume_on_focus = true;
     st.focus_pointer_target(hit.node_id, 30_000, now);
+    st.input
+        .interaction_state
+        .suppress_fullscreen_resume_on_focus = false;
 }
 
 pub(crate) fn hover_focus_enabled(

@@ -104,6 +104,13 @@ pub(crate) fn restore_fullscreen_click_focus(
     now: Instant,
 ) -> bool {
     if !st.is_fullscreen_active(node_id) {
+        // A soft-suspended fullscreen window (a game you alt+tabbed away from) is
+        // windowed, not active — field hover deliberately does not resume it. A
+        // deliberate click on it does.
+        if crate::compositor::focus::system::node_is_suspended_fullscreen(st, node_id) {
+            crate::compositor::focus::system::resume_suspended_fullscreen(st, node_id);
+            return true;
+        }
         return false;
     }
 
