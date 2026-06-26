@@ -107,6 +107,11 @@ pub(super) fn resolve_window_render_layout(
     now: Instant,
 ) -> Option<WindowRenderLayout> {
     let node = st.model.field.node(node_id)?;
+    // A cluster workspace member hidden while another member is fullscreen doesn't
+    // render — only the fullscreen tile shows until the session exits.
+    if crate::compositor::fullscreen::system::cluster_sibling_hidden_for_fullscreen(st, node_id) {
+        return None;
+    }
     let stack_transition_pose = stack_layout
         .transition_plan
         .as_ref()

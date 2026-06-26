@@ -1,6 +1,6 @@
 use crate::compositor::root::Halley;
 use crate::window::active_window_frame_pad_px;
-use eventline::debug;
+use eventline::{debug, info};
 use halley_api::{NodeMoveDirection, TrailDirection};
 use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
 use halley_core::decay::DecayLevel;
@@ -597,6 +597,11 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     let focused_monitor = st.focused_monitor().to_string();
 
     let Some(id) = focused_surface_node_for_action(st, focused_monitor.as_str()) else {
+        info!(
+            "toggle-fullscreen: no focused surface on {:?}; cluster_ws={}",
+            focused_monitor,
+            st.has_active_cluster_workspace()
+        );
         return false;
     };
 
@@ -607,7 +612,14 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
         return false;
     }
 
-    if st.is_fullscreen_active(id) {
+    // Use the session predicate (active OR soft-suspended) so the keybind always
+    // exits a fullscreen you're in. The narrower `is_fullscreen_active` only sees
+    // the active map, so after a soft-suspend (alt-tab/focus drift) the toggle
+    // thought the window wasn't fullscreen, re-entered, and wedged a corrupt
+    // second session you couldn't escape. `exit_xdg_fullscreen` resumes-from-
+    // suspend internally before exiting.
+    if st.is_fullscreen_session_node(id) {
+        info!("toggle-fullscreen: exit id={}", id.as_u64());
         st.exit_xdg_fullscreen(id, now);
         return true;
     }
@@ -615,6 +627,11 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     if node.state == halley_core::field::NodeState::Node {
         uncollapse_surface_node_for_action(st, id, now);
     }
+    info!(
+        "toggle-fullscreen: enter id={} cluster_member={}",
+        id.as_u64(),
+        st.model.field.cluster_id_for_member_public(id).is_some()
+    );
     st.enter_user_fullscreen(id, None, now);
     true
 }
@@ -634,7 +651,10 @@ pub(crate) fn toggle_node_maximize_state(
     if st.node_user_pinned(id) {
         return false;
     }
-    if crate::compositor::surface::is_active_cluster_workspace_member(st, id) {
+    // Maximize is not allowed for any cluster member (collapsed under a core or
+    // laid out in an active workspace): it conflicts with the cluster's own
+    // tiling/stacking layout and presentation session. Fullscreen is allowed.
+    if st.model.field.cluster_id_for_member_public(id).is_some() {
         return false;
     }
 
@@ -802,6 +822,12 @@ pub(crate) fn toggle_node_state(
 
     if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
         if st.active_cluster_workspace_for_monitor(focused_monitor) == Some(cid) {
+            // A fullscreen member must be torn down before the workspace collapses,
+            // otherwise fullscreen state is left pointing at a node that gets
+            // collapsed under a core (corrupt, unexitable session).
+            if st.is_fullscreen_session_node(id) {
+                st.exit_xdg_fullscreen(id, now);
+            }
             return st.collapse_active_cluster_workspace(now);
         }
     }
@@ -1795,5 +1821,42 @@ mod tests {
             Instant::now(),
             "monitor_a"
         ));
+    }
+
+    #[test]
+    fn maximize_toggle_is_blocked_for_collapsed_cluster_members() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let master = st.model.field.spawn_surface(
+            "master",
+            halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            halley_core::field::Vec2 { x: 300.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st.create_cluster(vec![master, stack]).expect("cluster");
+        st.collapse_cluster(cid).expect("core");
+
+        // A collapsed cluster member (no active workspace) is still barred from
+        // maximize — maximize conflicts with cluster membership in any state.
+        assert!(!toggle_node_maximize_state(
+            &mut st,
+            master,
+            Instant::now(),
+            "monitor_a"
+        ));
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .get("monitor_a")
+                .is_none(),
+            "no maximize session should be created for a cluster member"
+        );
     }
 }

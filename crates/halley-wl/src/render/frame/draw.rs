@@ -719,6 +719,7 @@ fn draw_closing_window_shrink(
             start_scale,
             start_alpha,
             behind: anim_behind,
+            pull_to,
         } = &animation.kind
         else {
             continue;
@@ -727,15 +728,30 @@ fn draw_closing_window_shrink(
             continue;
         }
 
-        let eased = crate::animation::ease_in_out_cubic(animation.progress);
+        let p = animation.progress.clamp(0.0, 1.0);
+        // Cluster close ("suck into core") drives scale + travel with back-loaded
+        // ease-in curves so each ghost holds near full-size while it starts to
+        // drift, then accelerates and collapses tightly onto the core node in the
+        // final stretch. Plain window closes keep the symmetric ease-in-out.
+        let pulling = pull_to.is_some();
+        let shrink_curve = if pulling { p * p } else { crate::animation::ease_in_out_cubic(p) };
+        // Travel is even more back-loaded (t^3) than the shrink, so the window
+        // rushes into the node right as it vanishes — selling the "sucked in" feel.
+        let pull_t = pull_to.map(|_| p * p * p);
+        let pull_offset = |cx: f32, cy: f32| -> (f32, f32) {
+            match (pull_to, pull_t) {
+                (Some((tx, ty)), Some(t)) => ((tx - cx) * t, (ty - cy) * t),
+                _ => (0.0, 0.0),
+            }
+        };
         // Fold in the window's live scale/alpha at close time so the tween continues seamlessly
         // from the open animation instead of snapping to full size.
         let (scale, alpha) = match style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
-                (start_scale * (1.0 - eased).clamp(0.0, 1.0), *start_alpha)
+                (start_scale * (1.0 - shrink_curve).clamp(0.0, 1.0), *start_alpha)
             }
             halley_config::WindowCloseAnimationStyle::Fade => {
-                (*start_scale, start_alpha * (1.0 - eased).clamp(0.0, 1.0))
+                (*start_scale, start_alpha * (1.0 - shrink_curve).clamp(0.0, 1.0))
             }
         };
         if scale <= 0.001 || alpha <= 0.001 {
@@ -746,10 +762,10 @@ fn draw_closing_window_shrink(
             .iter()
             .cloned()
             .map(|mut tex| {
-                let center = (
-                    tex.dst_x as f32 + tex.dst_w as f32 * 0.5,
-                    tex.dst_y as f32 + tex.dst_h as f32 * 0.5,
-                );
+                let cx = tex.dst_x as f32 + tex.dst_w as f32 * 0.5;
+                let cy = tex.dst_y as f32 + tex.dst_h as f32 * 0.5;
+                let (ox, oy) = pull_offset(cx, cy);
+                let center = (cx + ox, cy + oy);
                 let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
                     tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
                 );
@@ -777,10 +793,10 @@ fn draw_closing_window_shrink(
             let scaled_border_rects = border_rects
                 .iter()
                 .map(|border_rect| {
-                    let center = (
-                        border_rect.x as f32 + border_rect.w as f32 * 0.5,
-                        border_rect.y as f32 + border_rect.h as f32 * 0.5,
-                    );
+                    let bcx = border_rect.x as f32 + border_rect.w as f32 * 0.5;
+                    let bcy = border_rect.y as f32 + border_rect.h as f32 * 0.5;
+                    let (ox, oy) = pull_offset(bcx, bcy);
+                    let center = (bcx + ox, bcy + oy);
                     let (x, y, w, h) = transform_rect_about_center(
                         border_rect.x,
                         border_rect.y,

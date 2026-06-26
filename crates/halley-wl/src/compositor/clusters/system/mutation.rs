@@ -234,6 +234,13 @@ pub fn absorb_node_into_cluster(
     node_id: NodeId,
     now: Instant,
 ) -> bool {
+    // A maximized window joining a cluster must drop its maximize session first —
+    // maximize is barred inside clusters, and a dangling session would fight the
+    // cluster's own layout. Abort (restores windowed geometry) before the absorb.
+    if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_node(st, node_id);
+    }
+
     let previous_overflow_len = cluster_overflow_len(st, cid);
     let stack_insert_transition = preferred_monitor_for_cluster(st, cid, None)
         .filter(|monitor| active_cluster_workspace_for_monitor(st, monitor.as_str()) == Some(cid))

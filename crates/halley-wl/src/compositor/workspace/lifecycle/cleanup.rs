@@ -315,7 +315,18 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                 (pos, node.label.clone(), node.state.clone())
             })
         });
+        // A tiled cluster member that closes is replaced by the remaining members
+        // animating (tile tracks) into the freed slot. Playing the standard
+        // in-place shrink ghost on top of that reflow leaves a large stale
+        // texture — most visibly when the *master* closes — lingering over the
+        // window that grows to fill its slot. Let the reflow carry the transition.
+        let closing_is_tiled_member = crate::compositor::surface::is_active_cluster_workspace_member(st, id)
+            && matches!(
+                st.runtime.tuning.cluster_layout_kind(),
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+            );
         if !silent_close
+            && !closing_is_tiled_member
             && st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
         {
@@ -343,6 +354,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     start_scale,
                     start_alpha,
                     false,
+                    None,
                 );
             }
         }

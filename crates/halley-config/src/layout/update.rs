@@ -521,6 +521,21 @@ end
         assert!(updated.contains("  raise:\n    enabled true\n    duration-ms 140"));
         assert!(updated.contains("    trigger \"always\""));
         assert!(updated.contains("smooth-resize:\n    enabled true\n    duration-ms 90"));
+        assert!(updated.contains("  cluster:\n"));
+        assert!(updated.contains("    tiling:\n"));
+        assert!(updated.contains("      open-duration-ms 300"));
+        assert!(updated.contains("      stagger-ms 55"));
+        assert!(updated.contains("      close-duration-ms 420"));
+        assert!(updated.contains("    stacking:\n"));
+        assert!(updated.contains("      close-duration-ms 360"));
+
+        // The backfilled config must still parse and validate cleanly, and the
+        // injected cluster knobs must round-trip.
+        let tuning = RuntimeTuning::from_rune_str(&updated).expect("updated config parses");
+        assert_eq!(tuning.animations.cluster.tiling.open_duration_ms, 300);
+        assert_eq!(tuning.animations.cluster.tiling.stagger_ms, 55);
+        assert_eq!(tuning.animations.cluster.tiling.close_duration_ms, 420);
+        assert_eq!(tuning.animations.cluster.stacking.close_duration_ms, 360);
     }
 
     #[test]

@@ -144,14 +144,36 @@ struct BearingGroup {
     alpha: f32,
 }
 
+fn color32f_to_rgba(color: Color32F) -> [u8; 4] {
+    [
+        (color.r().clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.g().clamp(0.0, 1.0) * 255.0).round() as u8,
+        (color.b().clamp(0.0, 1.0) * 255.0).round() as u8,
+        255,
+    ]
+}
+
 pub(crate) fn ensure_bearing_icon_resources(
     renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
     st: &mut Halley,
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
-    if !st.runtime.tuning.bearings.show_icons
-        || !node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
-    {
+    if !st.runtime.tuning.bearings.show_icons {
+        return Ok(());
+    }
+
+    // Keep the cluster-core bearing glyph ready, tinted to the chip text colour.
+    // This is independent of the app-icon path below (cluster cores have no app id)
+    // and of `node_show_app_icons`, since the bearing icon slot is gated only on
+    // `bearings.show_icons`.
+    let (_, chip_text_color) = overlay_fill_and_text_colors(&st.runtime.tuning);
+    crate::render::ensure_bearing_cluster_icon_resources(
+        renderer,
+        st,
+        color32f_to_rgba(chip_text_color),
+    )?;
+
+    if !node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false) {
         return Ok(());
     }
 
@@ -1064,6 +1086,33 @@ fn draw_bearing_icon(
     alpha: f32,
     chip_text_color: Color32F,
 ) -> Result<(), Box<dyn Error>> {
+    // Cluster cores have no app id; draw the cluster glyph (already tinted to the
+    // chip text colour) rather than the app-icon fallback box + first-letter glyph.
+    if st
+        .model
+        .field
+        .node(node_id)
+        .is_some_and(|node| node.state == halley_core::field::NodeState::Core)
+    {
+        if let Some(icon) = crate::render::bearing_cluster_icon_texture(st) {
+            let src = Rectangle::<f64, Buffer>::new(
+                (0.0, 0.0).into(),
+                (icon.width as f64, icon.height as f64).into(),
+            );
+            frame.render_texture_from_to(
+                &icon.texture,
+                src,
+                rect,
+                &[damage],
+                &[],
+                Transform::Normal,
+                alpha,
+                None,
+                &[],
+            )?;
+        }
+        return Ok(());
+    }
     if node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
         && let Some(NodeAppIconCacheEntry::Ready(icon)) = node_app_icon_entry(st, node_id)
     {

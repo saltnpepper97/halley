@@ -642,7 +642,21 @@ pub(crate) fn collect_active_surfaces(
                 .window_offscreen_cache
                 .get(&node_id)
                 .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
-            let cache_miss = if defer_offscreen_rebuild {
+            // A *size* change means the client resized into a new slot (e.g. a window
+            // sliding into the freed master). The cached texture is the old size and
+            // would be stretched onto the new slot — the "zoom stretch". Never defer
+            // a size change: rebuild the offscreen cache at the live buffer size so it
+            // tracks the resize and fills the slot crisply. Content-only churn (same
+            // size) still defers during a slide so we don't rebuild every commit.
+            let size_changed = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get(&node_id)
+                .is_some_and(|cache| !cache.matches_size(bbox.size.w, bbox.size.h));
+            let defer = defer_offscreen_rebuild && !size_changed;
+            let cache_miss = if defer {
                 !stale_cache_available
             } else {
                 let cache = st.ui.render_state.ensure_window_offscreen_cache(
@@ -655,10 +669,12 @@ pub(crate) fn collect_active_surfaces(
             };
 
             if cache_miss {
-                if defer_offscreen_rebuild {
-                    if tiling_tile_transition.is_some() && !stale_cache_available {
-                        continue;
-                    }
+                if defer {
+                    // No warm offscreen cache to tween (e.g. a window spawned into a
+                    // collapsed cluster never rendered, so it has no cache yet).
+                    // Render the live surface at the transition pose instead of
+                    // skipping it — skipping left the whole cluster looking empty on
+                    // open until the animation finished and the cache rebuilt.
                     log_window_render_path(
                         st,
                         node_id,

@@ -119,6 +119,19 @@ All notable changes to this project will be documented in this file.
   zoom 1.0, no decorations. An app re-request never clobbers an existing fullscreen or flips its
   origin, and an app unmaximize only tears down a fullscreen that began from a client maximize — so
   an app unmaximize can never dismiss a user-initiated (Mod+F) fullscreen.
+- Add cluster workspace open/close animations via a new `animations.cluster` block
+  (`enabled`, `tiling.{open-duration-ms, stagger-ms, close-duration-ms}`,
+  `stacking.{open-duration-ms, close-duration-ms}`). Opening cascades tiling members in
+  from the left with a per-member stagger (slaves first, master last) and tunes the
+  stacking card grow-in; closing captures each visible member as a shrink/fade ghost that
+  glides into the core node ("suck into core"). Wired into defaults, the parser, the
+  validator, bootstrap backfill, and the example configs.
+- Add fullscreen support inside cluster workspaces. The `toggle-fullscreen` keybind is now
+  `Global`-scoped (was `Field`, which is filtered out under cluster scopes) so `Mod+F`
+  works there; when a member fullscreens, its sibling tiles hide and the fullscreen member
+  grows from its visible tile rect, and exiting restores and re-lays-out the workspace.
+- Draw a tinted cluster glyph on a cluster core's bearing chip instead of the app-icon
+  fallback box + first letter, independent of `node-show-app-icons`.
 
 ### Changed
 - Treat field node/core markers as fixed landmarks in passive (idle/zoom) overlap resolution:
@@ -242,6 +255,17 @@ All notable changes to this project will be documented in this file.
 - Drag-and-drop now always raises the dropped window to the front, independent of
   `input.raise-on-click`, so a window dropped over peers on another monitor no longer lands
   behind them.
+- Bar maximize for any cluster member — collapsed under a core or laid out in an active
+  workspace — since it conflicts with the cluster's own tiling/stacking session. A maximized
+  window joining a cluster drops its maximize session first, and a client maximize request
+  (e.g. a GTK title-bar button) on a cluster member is silently ignored rather than mapped
+  to fullscreen.
+- Smooth the fullscreen resume-from-soft-suspend re-centre: the camera no longer snaps to
+  the saved centre, instead easing there in lockstep with the re-zoom for a grow-in-place
+  (off the active monitor restores directly).
+- Replace inlined `ease_in_out_cubic` curve bodies with the shared
+  `crate::animation::ease_in_out_cubic` helper and extract `FULLSCREEN_MIN_W`/`H` constants
+  (no behavior change).
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
@@ -418,6 +442,24 @@ All notable changes to this project will be documented in this file.
 - Stop a minimizing/collapse-to-node window from flashing to the front: it now shrinks behind the
   live windows it was stacked under. Field node/core markers likewise draw beneath live windows so
   a collapsing window can't momentarily hide its target marker.
+- Fix the first `Mod+Enter` in a freshly-created cluster doing nothing: the cluster-name prompt's
+  confirm path trapped the key release but left the key in `intercepted_keys`, swallowing the next
+  compositor keybind on the same key until a later release freed it.
+- Fix the fullscreen toggle wedging a corrupt second session after a soft-suspend (alt-tab away):
+  the toggle now uses the active-OR-suspended session predicate so it always exits a fullscreen
+  you're in.
+- Fix dangling, unexitable fullscreen state when a fullscreen cluster member is collapsed or
+  minimized — fullscreen is now torn down before the workspace collapses.
+- Fix a dropped tiled cluster member glitching into place: the cluster layout now owns the dropped
+  window's final position (carry authority cleared before re-layout, release-position static lock
+  skipped for tiled members), mirroring the keybind-move path.
+- Fix a stale shrink-ghost texture lingering over the window that grows to fill a closed tiled
+  cluster member's slot (most visible when the master closes) — the reflow now carries the
+  transition.
+- Fix the "zoom stretch" during a tiled cluster reflow: a size change is never deferred, so the
+  offscreen cache rebuilds at the live buffer size and fills the new slot crisply, and a tile
+  transition with no warm cache renders the live surface at the transition pose instead of leaving
+  the cluster looking empty on open.
 
 ## [v0.4.0] - 2026-06-12
 

@@ -4,6 +4,16 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::*;
 
+/// A captured close-ghost for one cluster member: (node, border rects, offscreen
+/// textures, start scale, start alpha) — replayed gliding into the core on exit.
+type CapturedCloseGhost = (
+    NodeId,
+    Vec<crate::window::ActiveBorderRect>,
+    Vec<crate::window::OffscreenNodeTexture>,
+    f32,
+    f32,
+);
+
 pub(crate) fn restore_cluster_workspace_monitor(st: &mut Halley, monitor: &str) {
     let Some(vp) = st
         .model
@@ -149,7 +159,7 @@ pub(crate) fn enter_cluster_workspace_by_core(
             .get(monitor)
             .map(|space| space.viewport)
             .unwrap_or(plan.current_viewport);
-        st.input.interaction_state.viewport_pan_anim = None;
+        // (viewport_pan_anim is cleared unconditionally just below.)
         st.model.viewport = live_viewport;
         st.model.zoom_ref_size = live_viewport.size;
         st.model.camera_target_center = live_viewport.center;
@@ -197,6 +207,23 @@ pub(crate) fn enter_cluster_workspace_by_core(
         .cluster(plan.cid)
         .and_then(|cluster| cluster.members().first().copied())
     {
+        // Drive the stacking open speed: re-tween each card's grow-in over the
+        // configured stacking open duration (tunes the existing reveal the user
+        // likes — no new stacking behavior).
+        if st.runtime.tuning.cluster_animation_enabled() {
+            let open_ms = st.runtime.tuning.cluster_stacking_open_duration_ms();
+            let members = st
+                .model
+                .field
+                .cluster(plan.cid)
+                .map(|cluster| cluster.members().to_vec())
+                .unwrap_or_default();
+            for member in members {
+                crate::compositor::workspace::state::mark_active_transition(
+                    st, member, now, open_ms,
+                );
+            }
+        }
         st.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
         st.set_interaction_focus(Some(front), 30_000, now);
         st.update_focus_tracking_for_surface(front, now_ms);
@@ -238,6 +265,59 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
     else {
         return false;
     };
+
+    // Defense-in-depth: tear down any fullscreen still active on a member before
+    // the workspace collapses, so collapsing a cluster never leaves dangling
+    // fullscreen state pointing at a node that ends up collapsed under a core.
+    if let Some(members) = st.model.field.cluster(plan.cid).map(|c| c.members().to_vec()) {
+        for member in members {
+            if st.is_fullscreen_session_node(member) {
+                st.exit_xdg_fullscreen(member, now);
+            }
+        }
+    }
+
+    // Closing a cluster used to tear the workspace down instantly, which read as
+    // a jarring pop. Capture a shrink+fade ghost of each currently-visible member
+    // *before* the teardown collapses them under the core, then (once the desktop
+    // viewport is restored) replay those ghosts gliding into the core node — the
+    // reverse of apogee fanning windows out. Captured here, started after restore
+    // so the core's on-screen position is known in the restored viewport.
+    let close_duration_ms = match active_cluster_layout_kind(st) {
+        ClusterWorkspaceLayoutKind::Stacking => st.runtime.tuning.cluster_stacking_close_duration_ms(),
+        ClusterWorkspaceLayoutKind::Tiling => st.runtime.tuning.cluster_tiling_close_duration_ms(),
+    };
+    let close_style = st.runtime.tuning.window_close_style();
+    let mut captured_close_ghosts: Vec<CapturedCloseGhost> = Vec::new();
+    if st.runtime.tuning.cluster_animation_enabled() {
+        let members = st
+            .model
+            .field
+            .cluster(plan.cid)
+            .map(|cluster| cluster.members().to_vec())
+            .unwrap_or_default();
+        for member in members {
+            let visible = st.model.field.node(member).is_some_and(|node| {
+                node.state == halley_core::field::NodeState::Active
+                    && !node.visibility.has(Visibility::DETACHED)
+                    && !node.visibility.has(Visibility::HIDDEN_BY_CLUSTER)
+            });
+            if !visible {
+                continue;
+            }
+            if let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
+                crate::window::capture_closing_window_animation(st, monitor, member)
+            {
+                captured_close_ghosts.push((
+                    member,
+                    border_rects,
+                    offscreen_textures,
+                    start_scale,
+                    start_alpha,
+                ));
+            }
+        }
+    }
 
     for id in &plan.hidden_ids {
         let _ = st.model.field.set_detached(*id, false);
@@ -288,6 +368,42 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
         st.set_recent_top_node(core_id, now + std::time::Duration::from_millis(1200));
         st.set_interaction_focus(Some(core_id), 30_000, now);
     }
+
+    if !captured_close_ghosts.is_empty() {
+        // Target the core node's screen position in the now-restored viewport so
+        // the ghosts converge on it. world_to_screen reads the current monitor's
+        // live viewport, so only resolve a pull target when exiting the focused
+        // monitor; otherwise the ghosts simply shrink in place.
+        let pull_to = (st.model.monitor_state.current_monitor == monitor)
+            .then(|| {
+                core.and_then(|core_id| st.model.field.node(core_id).map(|node| node.pos))
+                    .or(plan.core_pos)
+            })
+            .flatten()
+            .map(|core_world| {
+                let (ow, oh) = st.fullscreen_target_size_for(monitor);
+                let (sx, sy) =
+                    crate::presentation::world_to_screen(st, ow, oh, core_world.x, core_world.y);
+                (sx as f32, sy as f32)
+            });
+        for (member, border_rects, offscreen_textures, start_scale, start_alpha) in
+            captured_close_ghosts
+        {
+            st.ui.render_state.start_closing_window_animation(
+                member,
+                monitor,
+                Instant::now(),
+                close_duration_ms,
+                close_style,
+                border_rects,
+                offscreen_textures,
+                start_scale,
+                start_alpha,
+                false,
+                pull_to,
+            );
+        }
+    }
     true
 }
 
@@ -303,7 +419,29 @@ pub(crate) fn update_tiled_cluster_animation_targets(
     dragged_member: Option<NodeId>,
     now: Instant,
 ) {
-    for placement in &plan.tiles {
+    let stagger_ms = st.runtime.tuning.cluster_tiling_stagger_ms();
+    let tile_count = plan.tiles.len();
+    // The cascade stagger is only for opening the *whole* cluster (several members
+    // entering at once). A single window opening into an existing cluster must not
+    // inherit a rank-based delay — that just makes its open feel sluggish. Count
+    // how many tiles are entering (hidden, no live track) up front.
+    let entering_count = plan
+        .tiles
+        .iter()
+        .filter(|placement| {
+            !st.ui
+                .render_state
+                .cluster_tile_tracks()
+                .contains_key(&placement.node_id)
+                && crate::animation::cluster_tile_rect_from_field(
+                    &st.model.field,
+                    placement.node_id,
+                )
+                .is_none_or(|rect| rect.alpha <= crate::animation::ALPHA_INVISIBLE)
+        })
+        .count();
+    let stagger_open = entering_count > 1;
+    for (index, placement) in plan.tiles.iter().enumerate() {
         if st
             .model
             .spawn_state
@@ -331,14 +469,39 @@ pub(crate) fn update_tiled_cluster_animation_targets(
             .window_geometry
             .get(&placement.node_id)
             .copied();
-        if current_rect.is_some_and(|rect| rect.alpha > 0.01)
+        if current_rect.is_some_and(|rect| rect.alpha > crate::animation::ALPHA_INVISIBLE)
             && let Some(geo) = frozen_geo
         {
             st.ui
                 .render_state
                 .remember_cluster_tile_frozen_geometry(placement.node_id, geo);
         }
-        let duration_ms = st.runtime.tuning.tile_animation_duration_ms();
+        // A member that is currently hidden/invisible is entering the workspace
+        // (the cluster is opening): give it the slower per-member "slide into
+        // place" timing + a staggered start so the tiles arrive one by one. An
+        // already-visible member is just reflowing (e.g. a sibling closed), so it
+        // moves immediately with the snappier tile duration.
+        let entering = !st
+            .ui
+            .render_state
+            .cluster_tile_tracks()
+            .contains_key(&placement.node_id)
+            && current_rect.is_none_or(|rect| rect.alpha <= crate::animation::ALPHA_INVISIBLE);
+        let duration_ms = if entering {
+            st.runtime.tuning.cluster_tiling_open_duration_ms()
+        } else {
+            st.runtime.tuning.tile_animation_duration_ms()
+        };
+        // Cascade the slaves in first, then the master last. plan.tiles[0] is the
+        // master and [1..] are the stack slaves (cluster_layout::layout_tiling_workspace),
+        // so reverse the master to the back of the stagger order.
+        let stack_count = tile_count.saturating_sub(1);
+        let stagger_rank = if index == 0 { stack_count } else { index - 1 };
+        let start_delay_ms = if entering && stagger_open {
+            stagger_rank as u64 * stagger_ms
+        } else {
+            0
+        };
         if st.runtime.tuning.tile_animation_enabled() {
             crate::animation::set_cluster_tile_target(
                 st.ui.render_state.cluster_tile_tracks_mut(),
@@ -347,6 +510,7 @@ pub(crate) fn update_tiled_cluster_animation_targets(
                 placement.rect,
                 now,
                 duration_ms,
+                start_delay_ms,
             );
             st.request_window_animation_prewarm(placement.node_id, now);
         } else {

@@ -197,7 +197,9 @@ pub(super) fn collect_debug_frame_scene(
     ) = collect_layer_surfaces(renderer, st, size, now);
 
     let window_plan = collect_active_surfaces(renderer, st, size, resize_preview, now);
-    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
+    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled()
+        || st.runtime.tuning.cluster_animation_enabled()
+    {
         st.ui
             .render_state
             .closing_window_animation_snapshots(render_monitor.as_str(), now)

@@ -316,6 +316,18 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
             .modal_release_keys
             .contains(&code)
     {
+        // The matching press was consumed by a modal (e.g. the cluster name prompt,
+        // which inserts the key into `intercepted_keys` then traps the release on
+        // confirm). This early return skips the normal release cleanup, so clear the
+        // key here too — otherwise it stays stuck in `intercepted_keys` and the next
+        // compositor keybind on the same key is swallowed (`insert` returns false →
+        // `first_binding_press` is false) until a later release frees it. That was the
+        // "first mod+enter in a fresh cluster does nothing, second works" glitch.
+        {
+            let mut ms = ctx.mod_state.borrow_mut();
+            ms.intercepted_keys.remove(&code);
+            ms.intercepted_compositor_actions.remove(&code);
+        }
         flush_trapped_modal_release(st, code);
         return;
     }

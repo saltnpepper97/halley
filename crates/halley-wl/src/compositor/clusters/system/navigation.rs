@@ -87,6 +87,18 @@ pub(crate) fn visible_tiled_cluster_tiles_for_monitor(
     Some((cid, visible_tiles))
 }
 
+/// Whether `node_id` is currently a visible tile in the monitor's active *tiled*
+/// cluster workspace. Used by the pointer-drop path to let the cluster layout own
+/// the dropped window's position instead of the free-window static lock.
+pub(crate) fn node_is_active_tiled_cluster_member(
+    st: &Halley,
+    monitor: &str,
+    node_id: NodeId,
+) -> bool {
+    visible_tiled_cluster_tiles_for_monitor(st, monitor)
+        .is_some_and(|(_, tiles)| tiles.iter().any(|tile| tile.node_id == node_id))
+}
+
 pub(crate) fn directional_target_member(
     st: &Halley,
     visible_tiles: &[ClusterTilePlacement],

@@ -383,6 +383,14 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
+        // Maximize is not allowed inside a cluster (it conflicts with the cluster's
+        // own tiling/stacking session). Silently ignore a client maximize request
+        // (e.g. a GTK title-bar button) on a cluster member rather than mapping it
+        // to fullscreen, so the title-bar control reflects that maximize is barred.
+        if self.model.field.cluster_id_for_member_public(node_id).is_some() {
+            surface.send_configure();
+            return;
+        }
         // Map a client maximize request (e.g. a GTK title-bar maximize button) to
         // fullscreen: edge-to-edge, zoom 1.0, no decorations. If the node is
         // already fullscreen — whether from a prior maximize or a Mod+F keybind —

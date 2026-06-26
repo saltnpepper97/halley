@@ -282,6 +282,30 @@ impl RuntimeTuning {
         self.animations.stack.duration_ms.max(1)
     }
 
+    pub fn cluster_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.cluster.enabled
+    }
+
+    pub fn cluster_tiling_open_duration_ms(&self) -> u64 {
+        self.animations.cluster.tiling.open_duration_ms.max(1)
+    }
+
+    pub fn cluster_tiling_stagger_ms(&self) -> u64 {
+        self.animations.cluster.tiling.stagger_ms
+    }
+
+    pub fn cluster_tiling_close_duration_ms(&self) -> u64 {
+        self.animations.cluster.tiling.close_duration_ms.max(1)
+    }
+
+    pub fn cluster_stacking_open_duration_ms(&self) -> u64 {
+        self.animations.cluster.stacking.open_duration_ms.max(1)
+    }
+
+    pub fn cluster_stacking_close_duration_ms(&self) -> u64 {
+        self.animations.cluster.stacking.close_duration_ms.max(1)
+    }
+
     pub fn raise_animation_enabled(&self) -> bool {
         self.animations_enabled() && self.animations.raise.enabled
     }
@@ -782,6 +806,22 @@ animations:
   stack:
     enabled true
     duration-ms 220
+  end
+
+  cluster:
+    # Opening/closing a cluster *workspace* (distinct from `tile`/`stack` above,
+    # which animate reflow/cycling *within* an already-open cluster). open slides
+    # members in; close sucks them into the core node. Split per layout.
+    enabled true
+    tiling:
+      open-duration-ms 300   # slide-in cascade
+      stagger-ms 55          # per-member delay (slaves first, master last); 0 = together
+      close-duration-ms 420  # suck-into-core
+    end
+    stacking:
+      open-duration-ms 240   # card grow-in
+      close-duration-ms 360  # suck-into-core
+    end
   end
 
   raise:

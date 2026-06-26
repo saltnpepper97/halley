@@ -22,8 +22,8 @@ const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
 const ANIMATION_PREWARM_TTL_MS: u64 = 1_500;
 
 pub(crate) use cache::{
-    ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, PinIconCache,
-    RenderCacheState, ScreenshotMenuIconCache,
+    BearingClusterIconCache, ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture,
+    PinIconCache, RenderCacheState, ScreenshotMenuIconCache,
 };
 pub(crate) use gpu::RenderGpuState;
 
@@ -86,6 +86,10 @@ pub(crate) enum ClosingWindowAnimationKind {
         /// minimize/collapse-to-node so a minimizing window drops behind the
         /// windows it was stacked under rather than flashing to the front.
         behind: bool,
+        /// When set, the ghost is also translated toward this screen-space point
+        /// (in physical px) as it shrinks — used to "suck" a closing cluster's
+        /// windows into the core node they collapse to.
+        pull_to: Option<(f32, f32)>,
     },
     Node {
         pos: Vec2,
@@ -334,6 +338,7 @@ impl RenderState {
         start_scale: f32,
         start_alpha: f32,
         behind: bool,
+        pull_to: Option<(f32, f32)>,
     ) {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
@@ -351,6 +356,7 @@ impl RenderState {
                     start_scale,
                     start_alpha,
                     behind,
+                    pull_to,
                 },
             },
         );

@@ -921,14 +921,35 @@ pub(crate) fn finish_pointer_drag(
                 now,
                 now_ms,
             );
+    // A drop onto an active *tiled* cluster workspace must let the cluster layout own the
+    // window's final position. Clear the carry authority *before* the drop re-layout so the
+    // member animates to its slot in a single tile track (while authority is set, the layout
+    // treats it as still-dragging and skips it, so it only animates on a later layout — and
+    // the release-position static lock below fights that, producing the double "glitch into
+    // place"). Mirrors the keybind move, which has neither carry nor static lock.
+    let tiled_cluster_member = !joined
+        && started_active
+        && crate::compositor::clusters::system::node_is_active_tiled_cluster_member(
+            st,
+            drag_monitor.as_str(),
+            node_id,
+        );
     if !joined {
         if started_active {
-            let _ = st.move_active_cluster_member_to_drop_tile(
+            if tiled_cluster_member {
+                crate::compositor::carry::system::set_drag_authority_node(st, None);
+            }
+            let moved = st.move_active_cluster_member_to_drop_tile(
                 drag_monitor.as_str(),
                 node_id,
                 world_now,
                 now_ms,
             );
+            // Dropped on its own slot (no reorder): still re-tile so it animates back
+            // instead of being left at the release position.
+            if tiled_cluster_member && !moved {
+                st.layout_active_cluster_workspace_for_monitor(drag_monitor.as_str(), now_ms);
+            }
             crate::compositor::carry::system::finalize_mouse_drag_state(
                 st,
                 node_id,
@@ -965,6 +986,7 @@ pub(crate) fn finish_pointer_drag(
     // resolver pushes *neighbors* apart instead of snapping the dropped window.
     // Reuses the resize static-lock that the solver already treats as immovable.
     if started_active
+        && !tiled_cluster_member
         && st.input.interaction_state.resize_static_node.is_none()
         && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
     {

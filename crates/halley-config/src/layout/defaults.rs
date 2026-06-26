@@ -174,7 +174,9 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             action: CompositorBindingAction::MaximizeFocusedWindow,
         },
         CompositorBinding {
-            scope: CompositorBindingScope::Field,
+            // Global so Super+F also fires inside a cluster workspace (fullscreen is
+            // supported there); Field bindings are filtered out under cluster scopes.
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: key("f"),
             action: CompositorBindingAction::ToggleFullscreen,

@@ -96,6 +96,15 @@ pub(crate) struct PinIconCache {
     pub(crate) icon: Option<NodeAppIconTexture>,
 }
 
+/// The cluster glyph tinted to the bearing chip text colour, drawn on a cluster
+/// core's bearing chip in place of the app-icon fallback. Rebuilt only when the
+/// chip text colour changes.
+#[derive(Default)]
+pub(crate) struct BearingClusterIconCache {
+    pub(crate) color: [u8; 4],
+    pub(crate) icon: Option<NodeAppIconTexture>,
+}
+
 #[derive(Default)]
 pub(crate) struct RenderCacheState {
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
@@ -105,6 +114,7 @@ pub(crate) struct RenderCacheState {
     pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
     pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
     pub(crate) pin_icon_cache: PinIconCache,
+    pub(crate) bearing_cluster_icon_cache: BearingClusterIconCache,
     pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,

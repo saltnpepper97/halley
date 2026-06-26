@@ -6,6 +6,11 @@ use halley_core::tiling::Rect;
 
 use super::curves::ease_in_out_cubic;
 
+/// A cluster tile with alpha at or below this is treated as fully invisible —
+/// i.e. not yet shown / mid fade-out — and therefore a fresh "entering" tile
+/// rather than a reflow of a visible one.
+pub(crate) const ALPHA_INVISIBLE: f32 = 0.01;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ClusterTileAnimRect {
     pub(crate) center: Vec2,
@@ -18,7 +23,17 @@ pub(crate) struct ClusterTileTrack {
     from: ClusterTileAnimRect,
     to: ClusterTileAnimRect,
     started_at: Instant,
+    /// Delay before the track begins moving — used to stagger member entry so
+    /// tiles cascade in rather than popping in unison.
+    start_delay: Duration,
     duration: Duration,
+}
+
+impl ClusterTileTrack {
+    #[inline]
+    fn lifetime(&self) -> Duration {
+        self.start_delay + self.duration
+    }
 }
 
 pub(crate) type ClusterTileTracks = HashMap<NodeId, ClusterTileTrack>;
@@ -45,14 +60,18 @@ fn anim_rect_from_tile_rect(rect: Rect, alpha: f32) -> ClusterTileAnimRect {
 
 #[inline]
 fn entry_rect_for_target(target: ClusterTileAnimRect) -> ClusterTileAnimRect {
+    // Each member slides in horizontally from the left of its slot, near full
+    // size (a slide, not a zoom), fading in. Combined with the per-member start
+    // delay (cluster.tiling.stagger-ms) — slaves first, master last — this reads
+    // as the windows being dealt into place one by one from the left.
     ClusterTileAnimRect {
         center: Vec2 {
-            x: target.center.x - target.size.x * 0.12,
+            x: target.center.x - target.size.x * 0.6,
             y: target.center.y,
         },
         size: Vec2 {
-            x: target.size.x * 0.98,
-            y: target.size.y * 0.98,
+            x: target.size.x * 0.96,
+            y: target.size.y * 0.96,
         },
         alpha: 0.0,
     }
@@ -99,6 +118,11 @@ pub(crate) fn cluster_tile_rect_for_track(
     now: Instant,
 ) -> ClusterTileAnimRect {
     let elapsed = now.saturating_duration_since(track.started_at);
+    if elapsed <= track.start_delay {
+        // Still waiting for this member's staggered turn — hold the entry pose.
+        return track.from;
+    }
+    let elapsed = elapsed - track.start_delay;
     if elapsed >= track.duration {
         return track.to;
     }
@@ -124,21 +148,29 @@ pub(crate) fn set_cluster_tile_target(
     target_rect: Rect,
     now: Instant,
     duration_ms: u64,
+    start_delay_ms: u64,
 ) {
     let target = anim_rect_from_tile_rect(target_rect, 1.0);
+    // The stagger delay only applies to a fresh entry (member was hidden). A
+    // reflow of an already-visible tile must move immediately, with no delay.
+    let mut entering = false;
     let current = tracks
         .get(&node_id)
         .map(|track| cluster_tile_rect_for_track(track, now))
         .or_else(|| {
             current_rect.map(|current| {
-                if current.alpha <= 0.01 {
+                if current.alpha <= ALPHA_INVISIBLE {
+                    entering = true;
                     entry_rect_for_target(target)
                 } else {
                     current
                 }
             })
         })
-        .unwrap_or_else(|| entry_rect_for_target(target));
+        .unwrap_or_else(|| {
+            entering = true;
+            entry_rect_for_target(target)
+        });
 
     if tracks
         .get(&node_id)
@@ -151,12 +183,18 @@ pub(crate) fn set_cluster_tile_target(
         return;
     }
 
+    let start_delay = if entering {
+        Duration::from_millis(start_delay_ms)
+    } else {
+        Duration::ZERO
+    };
     tracks.insert(
         node_id,
         ClusterTileTrack {
             from: current,
             to: target,
             started_at: now,
+            start_delay,
             duration: Duration::from_millis(duration_ms.max(1)),
         },
     );
@@ -179,12 +217,12 @@ pub(crate) fn retain_live_cluster_tile_tracks(
 ) {
     tracks.retain(|id, track| {
         field.node(*id).is_some()
-            && now.saturating_duration_since(track.started_at) < track.duration
+            && now.saturating_duration_since(track.started_at) < track.lifetime()
     });
 }
 
 pub(crate) fn cluster_tile_tracks_animating(tracks: &ClusterTileTracks, now: Instant) -> bool {
     tracks
         .values()
-        .any(|track| now.saturating_duration_since(track.started_at) < track.duration)
+        .any(|track| now.saturating_duration_since(track.started_at) < track.lifetime())
 }

@@ -249,9 +249,13 @@ fn apply_explicit_binding(
             );
         }
         "toggle_fullscreen" | "toggle-fullscreen" | "fullscreen" => {
+            // Global, not Field: fullscreen is supported inside cluster workspaces
+            // (a member fullscreens and its siblings hide), so the binding must be
+            // reachable under the Tile/Stack/Cluster/Global scope set the cluster
+            // workspace enables — Field bindings are filtered out there.
             upsert_compositor_binding(
                 out,
-                CompositorBindingScope::Field,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::ToggleFullscreen,
@@ -885,7 +889,11 @@ end
     }
 
     #[test]
-    fn fullscreen_keyword_parses_as_field_action() {
+    fn fullscreen_keyword_parses_as_global_action() {
+        // Global, not Field: fullscreen must stay reachable inside a cluster
+        // workspace (whose scope set is Tile/Stack + Cluster + Global and excludes
+        // Field). A Field-scoped binding would let Super+F fall through to the
+        // focused client while in a cluster.
         let mut out = RuntimeTuning::default();
         out.compositor_bindings.clear();
 
@@ -893,7 +901,7 @@ end
         assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
 
         assert!(out.compositor_bindings.iter().any(|binding| {
-            binding.scope == CompositorBindingScope::Field
+            binding.scope == CompositorBindingScope::Global
                 && binding.action == CompositorBindingAction::ToggleFullscreen
         }));
     }

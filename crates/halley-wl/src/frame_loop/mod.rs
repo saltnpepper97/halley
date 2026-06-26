@@ -1128,6 +1128,7 @@ mod tests {
             1.0,
             1.0,
             false,
+            None,
         );
 
         assert!(tty_output_animation_redraw_state(&state, "right", start).active);

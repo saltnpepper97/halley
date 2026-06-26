@@ -6,7 +6,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 
 use crate::compositor::root::Halley;
 use crate::render::icon_tint::tint_alpha_mask_image;
-use crate::render::state::{ClusterCoreIconCache, NodeAppIconTexture};
+use crate::render::state::{BearingClusterIconCache, ClusterCoreIconCache, NodeAppIconTexture};
 
 const CLUSTER_ICON_RASTER_PX: u32 = 64;
 const CLUSTER_ICON_SVG: &[u8] = include_bytes!("../compositor/clusters/assets/clusters.svg");
@@ -75,6 +75,40 @@ pub(crate) fn cluster_core_icon_texture(st: &Halley, focused: bool) -> Option<&N
             .unfocused
             .as_ref()
     }
+}
+
+/// Ensure the bearing-chip cluster glyph is rasterized and tinted to `color`
+/// (the chip text colour). Rebuilt only when the colour changes.
+pub(crate) fn ensure_bearing_cluster_icon_resources(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    color: [u8; 4],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if st.ui.render_state.cache.bearing_cluster_icon_cache.color == color
+        && st
+            .ui
+            .render_state
+            .cache
+            .bearing_cluster_icon_cache
+            .icon
+            .is_some()
+    {
+        return Ok(());
+    }
+    st.ui.render_state.cache.bearing_cluster_icon_cache = BearingClusterIconCache {
+        color,
+        icon: load_cluster_icon_texture(renderer, color)?,
+    };
+    Ok(())
+}
+
+pub(crate) fn bearing_cluster_icon_texture(st: &Halley) -> Option<&NodeAppIconTexture> {
+    st.ui
+        .render_state
+        .cache
+        .bearing_cluster_icon_cache
+        .icon
+        .as_ref()
 }
 
 fn rgba_bytes_from_border_color(color: halley_config::DecorationBorderColor) -> [u8; 4] {
