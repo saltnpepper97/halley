@@ -97,6 +97,10 @@ pub(crate) struct OffscreenNodeTexture {
     pub alpha: f32,
     /// Whether this window opted into backdrop blur (resolved via `node_wants_blur`).
     pub blur: bool,
+    /// Strength to draw the backdrop blur at, tracking the window's *fade* alpha
+    /// (open/tile-transition animation, excluding rule opacity). Keeps the blurred
+    /// patch from showing ahead of a fading-in window — `1.0` once fully settled.
+    pub blur_alpha: f32,
     pub corner_radius: f32,
     pub src_x: f64,
     pub src_y: f64,
@@ -143,11 +147,9 @@ pub(crate) struct WindowRenderPlan {
     pub(crate) active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(crate) resized_active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(crate) fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
-    pub(crate) above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
-    pub(crate) above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) popup_elements: Vec<CroppedSurfaceElement>,
     pub(crate) fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
@@ -159,10 +161,8 @@ pub(crate) struct WindowRenderPlan {
     pub(crate) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
     pub(crate) shadow_rects: Vec<WindowShadowRect>,
     pub(crate) resized_shadow_rects: Vec<WindowShadowRect>,
-    pub(crate) above_fullscreen_shadow_rects: Vec<WindowShadowRect>,
     pub(crate) border_rects: Vec<ActiveBorderRect>,
     pub(crate) resized_border_rects: Vec<ActiveBorderRect>,
-    pub(crate) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
     pub(crate) pin_badges: Vec<PinBadgeLayout>,
 }
 
@@ -263,7 +263,7 @@ fn stack_unit_for_route<'a>(
                 .entry(node_id)
                 .or_insert_with(|| StackWindowDrawUnit::new(node_id, draw_order)),
         ),
-        layout::WindowRenderRoute::AboveFullscreen | layout::WindowRenderRoute::Top => None,
+        layout::WindowRenderRoute::Top => None,
     }
 }
 
@@ -274,7 +274,6 @@ fn push_shadow_for_route(
     stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     above_fullscreen_stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     resized_shadow_rects: &mut Vec<WindowShadowRect>,
-    above_fullscreen_shadow_rects: &mut Vec<WindowShadowRect>,
 ) {
     if let Some(unit) = stack_unit_for_route(
         route,
@@ -286,14 +285,8 @@ fn push_shadow_for_route(
         return;
     }
 
-    match route {
-        layout::WindowRenderRoute::AboveFullscreen => {
-            above_fullscreen_shadow_rects.push(shadow_rect)
-        }
-        layout::WindowRenderRoute::Top => resized_shadow_rects.push(shadow_rect),
-        layout::WindowRenderRoute::Stack { .. }
-        | layout::WindowRenderRoute::AboveFullscreenStack { .. } => unreachable!(),
-    }
+    // Only the non-stack `Top` route reaches here; stack routes early-returned above.
+    resized_shadow_rects.push(shadow_rect);
 }
 
 fn set_borders_for_route(
@@ -303,7 +296,6 @@ fn set_borders_for_route(
     stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     above_fullscreen_stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     resized_border_rects: &mut Vec<ActiveBorderRect>,
-    above_fullscreen_border_rects: &mut Vec<ActiveBorderRect>,
 ) {
     if let Some(unit) = stack_unit_for_route(
         route,
@@ -315,14 +307,8 @@ fn set_borders_for_route(
         return;
     }
 
-    match route {
-        layout::WindowRenderRoute::AboveFullscreen => {
-            above_fullscreen_border_rects.extend(border_rects)
-        }
-        layout::WindowRenderRoute::Top => resized_border_rects.extend(border_rects),
-        layout::WindowRenderRoute::Stack { .. }
-        | layout::WindowRenderRoute::AboveFullscreenStack { .. } => unreachable!(),
-    }
+    // Only the non-stack `Top` route reaches here; stack routes early-returned above.
+    resized_border_rects.extend(border_rects);
 }
 
 fn push_pin_badge_for_route(
@@ -352,7 +338,6 @@ fn extend_active_elements_for_route(
     stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     above_fullscreen_stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     resized_active_elements: &mut Vec<CroppedClippedSurfaceElement>,
-    above_fullscreen_active_elements: &mut Vec<CroppedClippedSurfaceElement>,
 ) {
     if let Some(unit) = stack_unit_for_route(
         route,
@@ -364,14 +349,8 @@ fn extend_active_elements_for_route(
         return;
     }
 
-    match route {
-        layout::WindowRenderRoute::AboveFullscreen => {
-            above_fullscreen_active_elements.extend(active_elements)
-        }
-        layout::WindowRenderRoute::Top => resized_active_elements.extend(active_elements),
-        layout::WindowRenderRoute::Stack { .. }
-        | layout::WindowRenderRoute::AboveFullscreenStack { .. } => unreachable!(),
-    }
+    // Only the non-stack `Top` route reaches here; stack routes early-returned above.
+    resized_active_elements.extend(active_elements);
 }
 
 fn push_offscreen_for_route(
@@ -381,7 +360,6 @@ fn push_offscreen_for_route(
     stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     above_fullscreen_stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
     resized_offscreen_textures: &mut Vec<OffscreenNodeTexture>,
-    above_fullscreen_offscreen_textures: &mut Vec<OffscreenNodeTexture>,
 ) {
     if let Some(unit) = stack_unit_for_route(
         route,
@@ -393,14 +371,8 @@ fn push_offscreen_for_route(
         return;
     }
 
-    match route {
-        layout::WindowRenderRoute::AboveFullscreen => {
-            above_fullscreen_offscreen_textures.push(offscreen)
-        }
-        layout::WindowRenderRoute::Top => resized_offscreen_textures.push(offscreen),
-        layout::WindowRenderRoute::Stack { .. }
-        | layout::WindowRenderRoute::AboveFullscreenStack { .. } => unreachable!(),
-    }
+    // Only the non-stack `Top` route reaches here; stack routes early-returned above.
+    resized_offscreen_textures.push(offscreen);
 }
 
 pub(crate) fn collect_active_surfaces(
@@ -413,11 +385,9 @@ pub(crate) fn collect_active_surfaces(
     let active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
-    let mut above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
-    let mut above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
@@ -446,10 +416,8 @@ pub(crate) fn collect_active_surfaces(
         HashMap::new();
     let shadow_rects: Vec<WindowShadowRect> = Vec::new();
     let mut resized_shadow_rects: Vec<WindowShadowRect> = Vec::new();
-    let mut above_fullscreen_shadow_rects: Vec<WindowShadowRect> = Vec::new();
     let border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
-    let mut above_fullscreen_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut pin_badges: Vec<PinBadgeLayout> = Vec::new();
 
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
@@ -608,7 +576,6 @@ pub(crate) fn collect_active_surfaces(
                 &mut stack_window_units,
                 &mut above_fullscreen_stack_window_units,
                 &mut resized_shadow_rects,
-                &mut above_fullscreen_shadow_rects,
             );
         }
         let window_border_rects = build_window_border_rects(
@@ -629,7 +596,6 @@ pub(crate) fn collect_active_surfaces(
             &mut stack_window_units,
             &mut above_fullscreen_stack_window_units,
             &mut resized_border_rects,
-            &mut above_fullscreen_border_rects,
         );
         if let Some(pin_badge) = window_pin_badge {
             push_pin_badge_for_route(
@@ -680,7 +646,34 @@ pub(crate) fn collect_active_surfaces(
                 .window_offscreen_cache
                 .get(&node_id)
                 .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
-            let cache_miss = if defer_offscreen_rebuild {
+            // A *size* change means the client resized into a new slot. The render path
+            // scales this single capture onto the animated tile footprint, so it stays
+            // crisp only while the footprint never exceeds the capture. So during a tile
+            // transition, hold the *larger* capture and only ever downscale it:
+            //   * Grow (live buffer bigger than the cache): rebuild up to the new buffer
+            //     so the bigger slot is filled crisply.
+            //   * Shrink (live buffer smaller than the cache): keep the old, bigger
+            //     capture and downscale it onto the shrinking footprint — rebuilding to
+            //     the small buffer now would upscale it onto the still-big footprint (the
+            //     "blown up" texture). The steady-state rebuild resumes once the morph
+            //     ends and the transition clears.
+            // Content-only churn (same size) still defers during a slide so we don't
+            // rebuild every commit.
+            let cached_size = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get(&node_id)
+                .map(|cache| (cache.key.width, cache.key.height));
+            let size_changed =
+                cached_size.is_some_and(|(cw, ch)| cw != bbox.size.w || ch != bbox.size.h);
+            let live_smaller_than_cache = cached_size
+                .is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
+            let hold_bigger_capture =
+                tiling_tile_transition.is_some() && size_changed && live_smaller_than_cache;
+            let defer = defer_offscreen_rebuild && (!size_changed || hold_bigger_capture);
+            let cache_miss = if defer {
                 !stale_cache_available
             } else {
                 let cache = st.ui.render_state.ensure_window_offscreen_cache(
@@ -693,10 +686,12 @@ pub(crate) fn collect_active_surfaces(
             };
 
             if cache_miss {
-                if defer_offscreen_rebuild {
-                    if tiling_tile_transition.is_some() && !stale_cache_available {
-                        continue;
-                    }
+                if defer {
+                    // No warm offscreen cache to tween (e.g. a window spawned into a
+                    // collapsed cluster never rendered, so it has no cache yet).
+                    // Render the live surface at the transition pose instead of
+                    // skipping it — skipping left the whole cluster looking empty on
+                    // open until the animation finished and the cache rebuilt.
                     log_window_render_path(
                         st,
                         node_id,
@@ -757,7 +752,6 @@ pub(crate) fn collect_active_surfaces(
                         &mut stack_window_units,
                         &mut above_fullscreen_stack_window_units,
                         &mut resized_active_elements,
-                        &mut above_fullscreen_active_elements,
                     );
                     continue;
                 }
@@ -863,7 +857,6 @@ pub(crate) fn collect_active_surfaces(
                                 &mut stack_window_units,
                                 &mut above_fullscreen_stack_window_units,
                                 &mut resized_active_elements,
-                                &mut above_fullscreen_active_elements,
                             );
                             continue;
                         }
@@ -1048,6 +1041,7 @@ pub(crate) fn collect_active_surfaces(
                         texture,
                         alpha,
                         blur: node_wants_blur(st, node_id) || surface_wants_background_blur(&wl),
+                        blur_alpha: animation_alpha,
                         corner_radius: decoration_metrics.content_corner_radius_px as f32,
                         src_x,
                         src_y,
@@ -1073,7 +1067,6 @@ pub(crate) fn collect_active_surfaces(
                         &mut stack_window_units,
                         &mut above_fullscreen_stack_window_units,
                         &mut resized_offscreen_textures,
-                        &mut above_fullscreen_offscreen_textures,
                     );
                 }
                 None => {
@@ -1138,7 +1131,6 @@ pub(crate) fn collect_active_surfaces(
                 &mut stack_window_units,
                 &mut above_fullscreen_stack_window_units,
                 &mut resized_active_elements,
-                &mut above_fullscreen_active_elements,
             );
         }
 
@@ -1209,6 +1201,7 @@ pub(crate) fn collect_active_surfaces(
                             texture: offscreen.texture,
                             alpha,
                             blur: surface_wants_background_blur(popup.wl_surface()),
+                            blur_alpha: 1.0,
                             corner_radius: 0.0,
                             src_x,
                             src_y,
@@ -1304,11 +1297,9 @@ pub(crate) fn collect_active_surfaces(
         active_elements,
         resized_active_elements,
         fullscreen_active_elements,
-        above_fullscreen_active_elements,
         offscreen_textures,
         resized_offscreen_textures,
         fullscreen_offscreen_textures,
-        above_fullscreen_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
         fullscreen_popup_offscreen_textures,
@@ -1320,10 +1311,8 @@ pub(crate) fn collect_active_surfaces(
         above_fullscreen_stack_window_units,
         shadow_rects,
         resized_shadow_rects,
-        above_fullscreen_shadow_rects,
         border_rects,
         resized_border_rects,
-        above_fullscreen_border_rects,
         pin_badges,
     }
 }

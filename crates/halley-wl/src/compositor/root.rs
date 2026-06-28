@@ -333,6 +333,7 @@ impl Halley {
                     fullscreen_scale_anim: HashMap::new(),
                     fullscreen_camera_restore: HashMap::new(),
                     direct_scanout: HashMap::new(),
+                    fullscreen_hidden_cluster_siblings: HashMap::new(),
                 },
                 spawn_state: SpawnState {
                     pending_spawn_activate_at_ms: HashMap::new(),
@@ -412,6 +413,7 @@ impl Halley {
                     drag_authority_velocity: Vec2 { x: 0.0, y: 0.0 },
                     suspend_overlap_resolve: false,
                     suspend_state_checks: false,
+                    suppress_fullscreen_resume_on_focus: false,
                     physics_velocity: HashMap::new(),
                     physics_last_tick: now,
                     smoothed_render_pos: HashMap::new(),
@@ -455,6 +457,7 @@ impl Halley {
                     grabbed_edge_pan_monitor: None,
                     cursor_override_icon: None,
                     cursor_hidden_by_typing: false,
+                    cursor_hidden_by_keyboard_nav: false,
                     last_cursor_activity_at_ms: 0,
                 },
                 devices: Vec::new(),

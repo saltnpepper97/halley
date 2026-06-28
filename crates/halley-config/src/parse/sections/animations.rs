@@ -1,10 +1,33 @@
 use rune_cfg::RuneConfig;
 
-use crate::layout::RuntimeTuning;
+use crate::layout::{ClusterLayoutAnimConfig, RuntimeTuning};
 
 use super::super::primitives::{
     pick_bool, pick_f32, pick_raise_animation_trigger, pick_u64, pick_window_close_animation_style,
 };
+
+/// Load `animation(s).cluster.<layout>.{open-duration-ms,stagger-ms,close-duration-ms}`,
+/// accepting both `animation`/`animations` roots and dash/underscore key spellings.
+fn load_cluster_layout_anim(cfg: &RuneConfig, layout: &str, out: &mut ClusterLayoutAnimConfig) {
+    let pick = |dash: &str, underscore: &str, default: u64| {
+        let keys = [
+            format!("animation.cluster.{layout}.{dash}"),
+            format!("animations.cluster.{layout}.{dash}"),
+            format!("animation.cluster.{layout}.{underscore}"),
+            format!("animations.cluster.{layout}.{underscore}"),
+        ];
+        let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+        pick_u64(cfg, &refs, default)
+    };
+    out.open_duration_ms = pick("open-duration-ms", "open_duration_ms", out.open_duration_ms);
+    out.stagger_ms = pick("stagger-ms", "stagger_ms", out.stagger_ms);
+    out.close_duration_ms = pick("close-duration-ms", "close_duration_ms", out.close_duration_ms);
+    out.reflow_duration_ms = pick(
+        "reflow-duration-ms",
+        "reflow_duration_ms",
+        out.reflow_duration_ms,
+    );
+}
 
 pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.animations.enabled = pick_bool(
@@ -165,6 +188,14 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         out.animations.stack.duration_ms,
     );
 
+    out.animations.cluster.enabled = pick_bool(
+        cfg,
+        &["animation.cluster.enabled", "animations.cluster.enabled"],
+        out.animations.cluster.enabled,
+    );
+    load_cluster_layout_anim(cfg, "tiling", &mut out.animations.cluster.tiling);
+    load_cluster_layout_anim(cfg, "stacking", &mut out.animations.cluster.stacking);
+
     out.animations.raise.enabled = pick_bool(
         cfg,
         &["animation.raise.enabled", "animations.raise.enabled"],
@@ -245,6 +276,19 @@ animations:
     enabled true
     duration-ms 444
   end
+  cluster:
+    enabled false
+    tiling:
+      open-duration-ms 321
+      stagger-ms 40
+      close-duration-ms 234
+      reflow-duration-ms 277
+    end
+    stacking:
+      open-duration-ms 210
+      close-duration-ms 222
+    end
+  end
   raise:
     enabled true
     duration-ms 155
@@ -279,6 +323,13 @@ end
         assert_eq!(out.animations.tile.duration_ms, 333);
         assert!(out.animations.stack.enabled);
         assert_eq!(out.animations.stack.duration_ms, 444);
+        assert!(!out.animations.cluster.enabled);
+        assert_eq!(out.animations.cluster.tiling.open_duration_ms, 321);
+        assert_eq!(out.animations.cluster.tiling.stagger_ms, 40);
+        assert_eq!(out.animations.cluster.tiling.close_duration_ms, 234);
+        assert_eq!(out.animations.cluster.tiling.reflow_duration_ms, 277);
+        assert_eq!(out.animations.cluster.stacking.open_duration_ms, 210);
+        assert_eq!(out.animations.cluster.stacking.close_duration_ms, 222);
         assert!(out.animations.raise.enabled);
         assert_eq!(out.animations.raise.duration_ms, 155);
         assert_eq!(out.animations.raise.scale, 1.04);
@@ -309,6 +360,13 @@ end
         assert_eq!(out.animations.tile.duration_ms, 240);
         assert!(out.animations.stack.enabled);
         assert_eq!(out.animations.stack.duration_ms, 220);
+        assert!(out.animations.cluster.enabled);
+        assert_eq!(out.animations.cluster.tiling.open_duration_ms, 300);
+        assert_eq!(out.animations.cluster.tiling.stagger_ms, 55);
+        assert_eq!(out.animations.cluster.tiling.close_duration_ms, 420);
+        assert_eq!(out.animations.cluster.tiling.reflow_duration_ms, 400);
+        assert_eq!(out.animations.cluster.stacking.open_duration_ms, 240);
+        assert_eq!(out.animations.cluster.stacking.close_duration_ms, 360);
         assert!(out.animations.raise.enabled);
         assert_eq!(out.animations.raise.duration_ms, 140);
         assert_eq!(out.animations.raise.scale, 1.025);

@@ -4,6 +4,12 @@ use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 
 use super::*;
 
+/// Minimum window dimensions used as a floor for the fullscreen grow/shrink
+/// animation and for the target/restore sizes requested from clients, so a
+/// degenerate (zero/tiny) size never produces an invisible or collapsed window.
+const FULLSCREEN_MIN_W: f32 = 96.0;
+const FULLSCREEN_MIN_H: f32 = 72.0;
+
 pub(crate) fn on_seat_focus_changed(st: &mut Halley, focused: Option<&WlSurface>, now: Instant) {
     let _ = (st, focused, now);
 }
@@ -729,6 +735,323 @@ mod tests {
     }
 
     #[test]
+    fn suppressed_focus_does_not_resume_soft_suspended_fullscreen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.soft_suspend_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(40));
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+
+        // Hover-focus (suppressed): focusing the suspended node must NOT resume it.
+        state
+            .input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = true;
+        state.apply_wayland_focus_state(Some(fullscreen));
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key("monitor_a"),
+            "suppressed focus must not resume fullscreen"
+        );
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+
+        // Deliberate focus (alt+tab / apogee path): resumes the session.
+        state
+            .input
+            .interaction_state
+            .suppress_fullscreen_resume_on_focus = false;
+        state.apply_wayland_focus_state(Some(fullscreen));
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("monitor_a"),
+            Some(&fullscreen),
+            "deliberate focus must resume fullscreen"
+        );
+    }
+
+    #[test]
+    fn fullscreen_keybind_works_for_stacking_cluster_member() {
+        use halley_config::ClusterDefaultLayout;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.cluster_default_layout = ClusterDefaultLayout::Stacking;
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let master = state
+            .model
+            .field
+            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let card = state
+            .model
+            .field
+            .spawn_surface("card", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(card, "monitor_a");
+        let cid = state.create_cluster(vec![master, card]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(master), 30_000, now);
+        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
+            &mut state
+        ));
+        assert!(
+            state.is_fullscreen_active(master),
+            "master should be fullscreen in a stacking cluster"
+        );
+        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
+            &mut state
+        ));
+        assert!(!state.is_fullscreen_session_node(master));
+    }
+
+    #[test]
+    fn fullscreen_action_press_toggles_for_cluster_workspace_member() {
+        // Exercises the exact runtime dispatch entry point
+        // (`apply_compositor_action_press` with ToggleFullscreen) in a cluster
+        // workspace, relying only on the focus that entering the workspace sets
+        // — no manual `set_interaction_focus`. This is the closest a unit test
+        // gets to the Mod+F keybind at runtime.
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state
+            .model
+            .field
+            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let stack = state
+            .model
+            .field
+            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        use halley_config::CompositorBindingAction;
+        let applied = crate::input::keyboard::bindings::apply_compositor_action_press(
+            &mut state,
+            CompositorBindingAction::ToggleFullscreen,
+            "",
+            "",
+        );
+        assert!(applied, "ToggleFullscreen action should apply in a cluster workspace");
+        assert!(
+            state.is_fullscreen_active(master),
+            "master should be fullscreen after the ToggleFullscreen action"
+        );
+
+        let applied_exit = crate::input::keyboard::bindings::apply_compositor_action_press(
+            &mut state,
+            CompositorBindingAction::ToggleFullscreen,
+            "",
+            "",
+        );
+        assert!(applied_exit);
+        assert!(
+            !state.is_fullscreen_session_node(master),
+            "second ToggleFullscreen should exit fullscreen"
+        );
+    }
+
+    #[test]
+    fn fullscreen_keybind_toggles_for_cluster_workspace_member() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state
+            .model
+            .field
+            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let stack = state
+            .model
+            .field
+            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(master), 30_000, now);
+
+        // Enter fullscreen via the keybind path.
+        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
+            &mut state
+        ));
+        assert!(state.is_fullscreen_active(master), "master should be fullscreen after keybind");
+
+        // Exit fullscreen via the keybind path.
+        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
+            &mut state
+        ));
+        assert!(!state.is_fullscreen_session_node(master), "master should exit fullscreen");
+    }
+
+    #[test]
+    fn fullscreen_keybind_exits_after_soft_suspend() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let node = state.model.field.spawn_surface(
+            "win",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(node, "monitor_a");
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(node), 30_000, now);
+        state.enter_xdg_fullscreen(node, None, now);
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        assert!(state.is_fullscreen_active(node));
+
+        // Soft-suspend (alt-tab away). The node leaves the active map, so the old
+        // `is_fullscreen_active` predicate could no longer see it and the keybind
+        // re-entered, wedging a corrupt second session. The session predicate must
+        // still see it and exit cleanly.
+        state.soft_suspend_xdg_fullscreen(node, now + std::time::Duration::from_millis(300));
+        assert!(!state.is_fullscreen_active(node));
+        assert!(state.is_fullscreen_session_node(node));
+
+        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
+            &mut state
+        ));
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(760));
+
+        assert!(!state.is_fullscreen_session_node(node));
+        assert!(state.model.fullscreen_state.fullscreen_active_node.is_empty());
+        assert!(state.model.fullscreen_state.fullscreen_suspended_node.is_empty());
+        assert!(state.model.fullscreen_state.fullscreen_restore.is_empty());
+    }
+
+    #[test]
+    fn fullscreen_on_cluster_member_hides_siblings_and_restores_on_exit() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state
+            .model
+            .field
+            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let stack = state
+            .model
+            .field
+            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(master, None, now);
+
+        // The fullscreen member's siblings are recorded as hidden; the fullscreen
+        // member itself is not.
+        let hidden = state
+            .model
+            .fullscreen_state
+            .fullscreen_hidden_cluster_siblings
+            .get(&master)
+            .expect("siblings should be hidden while a member is fullscreen");
+        assert!(hidden.contains(&stack));
+        assert!(cluster_sibling_hidden_for_fullscreen(&state, stack));
+        assert!(!cluster_sibling_hidden_for_fullscreen(&state, master));
+
+        // Exiting clears the hidden set and leaves the workspace active.
+        state.exit_xdg_fullscreen(master, now + std::time::Duration::from_millis(40));
+        assert!(!cluster_sibling_hidden_for_fullscreen(&state, stack));
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_hidden_cluster_siblings
+                .is_empty()
+        );
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
+    }
+
+    #[test]
+    fn minimize_of_fullscreen_cluster_member_exits_fullscreen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state
+            .model
+            .field
+            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let stack = state
+            .model
+            .field
+            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(master, None, now);
+        assert!(state.is_fullscreen_active(master));
+
+        // Minimizing the fullscreen member tears down fullscreen before the
+        // workspace collapses — no dangling, corrupt session left behind.
+        assert!(crate::compositor::actions::window::toggle_node_state(
+            &mut state,
+            master,
+            now,
+            "monitor_a"
+        ));
+
+        assert!(!state.is_fullscreen_session_node(master));
+        assert!(state.model.fullscreen_state.fullscreen_active_node.is_empty());
+        assert!(state.model.fullscreen_state.fullscreen_restore.is_empty());
+        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        let _ = cid;
+    }
+
+    #[test]
     fn hard_exit_after_soft_suspend_restores_fullscreen_session() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -950,12 +1273,7 @@ mod tests {
 fn fullscreen_animation_progress(start_ms: u64, duration_ms: u64, now_ms: u64) -> f32 {
     let elapsed = now_ms.saturating_sub(start_ms);
     let t = (elapsed as f32 / duration_ms.max(1) as f32).clamp(0.0, 1.0);
-    let e = if t < 0.5 {
-        4.0 * t * t * t
-    } else {
-        1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
-    };
-    e
+    crate::animation::ease_in_out_cubic(t)
 }
 
 fn fullscreen_animation_rect(
@@ -969,8 +1287,8 @@ fn fullscreen_animation_rect(
         y: anim.from_pos.y + (anim.to_pos.y - anim.from_pos.y) * e,
     };
     let size = Vec2 {
-        x: (anim.from_size.x + (anim.to_size.x - anim.from_size.x) * e).max(96.0),
-        y: (anim.from_size.y + (anim.to_size.y - anim.from_size.y) * e).max(72.0),
+        x: (anim.from_size.x + (anim.to_size.x - anim.from_size.x) * e).max(FULLSCREEN_MIN_W),
+        y: (anim.from_size.y + (anim.to_size.y - anim.from_size.y) * e).max(FULLSCREEN_MIN_H),
     };
     (pos, size)
 }
@@ -1120,8 +1438,8 @@ fn fullscreen_target_size_for(st: &Halley, monitor_name: &str) -> (i32, i32) {
         .unwrap_or_else(|| {
             let (_, size) = fullscreen_monitor_view(st, monitor_name);
             (
-                size.x.round().max(96.0) as i32,
-                size.y.round().max(72.0) as i32,
+                size.x.round().max(FULLSCREEN_MIN_W) as i32,
+                size.y.round().max(FULLSCREEN_MIN_H) as i32,
             )
         })
 }
@@ -1353,8 +1671,8 @@ fn exit_xdg_fullscreen_inner(
             false,
             None,
             Some((
-                entry.size.x.round().max(min_w as f32).max(96.0) as i32,
-                entry.size.y.round().max(min_h as f32).max(72.0) as i32,
+                entry.size.x.round().max(min_w as f32).max(FULLSCREEN_MIN_W) as i32,
+                entry.size.y.round().max(min_h as f32).max(FULLSCREEN_MIN_H) as i32,
             )),
         );
     } else {
@@ -1403,6 +1721,12 @@ fn exit_xdg_fullscreen_inner(
             .fullscreen_restore
             .remove(&node_id);
     }
+    // On a genuine exit (not soft-suspend), bring back the hidden cluster tiles
+    // and re-lay out the workspace. Soft-suspend keeps the siblings hidden because
+    // the fullscreen session is still alive from the user's point of view.
+    if !suspend && !preserve_client_fullscreen {
+        restore_cluster_workspace_after_fullscreen(st, node_id, now);
+    }
     st.request_maintenance();
 }
 
@@ -1444,6 +1768,76 @@ fn restore_fullscreen_snapshot(
         st.ui.render_state.cache.window_geometry.remove(&id);
     }
     st.set_last_active_size_now(id, entry.intrinsic_size);
+}
+
+/// True if `node_id` is a cluster workspace sibling currently hidden because
+/// another member of the same workspace is fullscreen. Consulted by the render
+/// layout path so only the fullscreen tile shows while a cluster member is
+/// fullscreen.
+pub(crate) fn cluster_sibling_hidden_for_fullscreen(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .fullscreen_state
+        .fullscreen_hidden_cluster_siblings
+        .values()
+        .any(|siblings| siblings.contains(&node_id))
+}
+
+/// When a cluster workspace member enters fullscreen, record its sibling members
+/// so the render path can hide them (only the fullscreen tile shows). The
+/// fullscreen member keeps its cluster membership; the layout is restored by
+/// `restore_cluster_workspace_after_fullscreen` on exit. No-op for non-cluster
+/// or non-active-workspace nodes.
+fn hide_cluster_workspace_siblings_for_fullscreen(st: &mut Halley, node_id: NodeId) {
+    let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
+        return;
+    };
+    let monitor = st.monitor_for_node_or_current(node_id);
+    if st.active_cluster_workspace_for_monitor(&monitor) != Some(cid) {
+        return;
+    }
+    let siblings = st
+        .model
+        .field
+        .cluster(cid)
+        .map(|cluster| {
+            cluster
+                .members()
+                .iter()
+                .copied()
+                .filter(|member| *member != node_id)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if siblings.is_empty() {
+        return;
+    }
+    st.model
+        .fullscreen_state
+        .fullscreen_hidden_cluster_siblings
+        .insert(node_id, siblings);
+}
+
+/// Reverse of `hide_cluster_workspace_siblings_for_fullscreen`: clear the hidden
+/// sibling set for `node_id` and, if its cluster workspace is still active, re-lay
+/// it out so the tiles reappear. Called from the fullscreen exit path.
+fn restore_cluster_workspace_after_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+    let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
+        st.model
+            .fullscreen_state
+            .fullscreen_hidden_cluster_siblings
+            .remove(&node_id);
+        return;
+    };
+    let monitor = st.monitor_for_node_or_current(node_id);
+    let workspace_still_active =
+        st.active_cluster_workspace_for_monitor(&monitor) == Some(cid);
+    st.model
+        .fullscreen_state
+        .fullscreen_hidden_cluster_siblings
+        .remove(&node_id);
+    if workspace_still_active {
+        st.layout_active_cluster_workspace_for_monitor(&monitor, st.now_ms(now));
+    }
 }
 
 pub(crate) fn enter_xdg_fullscreen(
@@ -1599,6 +1993,10 @@ fn enter_fullscreen(
         return;
     };
 
+    // If the fullscreen target is an active cluster workspace member, hide its
+    // sibling tiles so only the fullscreen window shows while the session is up.
+    hide_cluster_workspace_siblings_for_fullscreen(st, node_id);
+
     // Invalidate any stale windowed offscreen texture so the next Apogee/Alt+Tab
     // capture rebuilds it at the fullscreen surface geometry instead of reusing
     // the smaller windowed snapshot. Defense-in-depth: the offscreen cache also
@@ -1677,7 +2075,30 @@ fn enter_fullscreen(
         // maximize→fullscreen grows smoothly from maximized to full-screen. The abort
         // has already torn down the maximize session, so re-querying it here returns
         // nothing — hence capturing before the abort.
+        // If this window is an active cluster-workspace tile, grow from the tile's
+        // current on-screen rect rather than its raw surface size. The surface buffer
+        // can differ from the tile's displayed (intrinsic) size, which otherwise snaps
+        // the window to that size at t=0 and reads as an over-exaggerated fly-in.
+        // Starting from the visible tile makes it a continuous "this tile zooms to
+        // fullscreen".
+        let cluster_tile_from = st
+            .model
+            .field
+            .cluster_id_for_member_public(node_id)
+            .filter(|cid| st.active_cluster_workspace_for_monitor(&monitor_name) == Some(*cid))
+            .and_then(|_| {
+                crate::animation::cluster_tile_rect_for(
+                    st.ui.render_state.cluster_tile_tracks(),
+                    node_id,
+                    now,
+                )
+                .or_else(|| {
+                    crate::animation::cluster_tile_rect_from_field(&st.model.field, node_id)
+                })
+            })
+            .map(|rect| (rect.center, rect.size));
         let from = maximize_pre_visual
+            .or(cluster_tile_from)
             .or_else(|| {
                 (st.model.monitor_state.current_monitor == monitor_name)
                     .then(|| {
@@ -1804,6 +2225,18 @@ pub(crate) fn drop_fullscreen_surface(st: &mut Halley, id: NodeId, _now: Instant
     st.model.fullscreen_state.fullscreen_motion.remove(&id);
     st.model.fullscreen_state.fullscreen_scale_anim.remove(&id);
     st.model.fullscreen_state.clear_direct_scanout_for_node(id);
+    // Clear any cluster-sibling hide state keyed on this node (it was the
+    // fullscreen member) or referencing it as a hidden sibling. The cluster
+    // member-removal path re-lays out the workspace for the survivors.
+    st.model
+        .fullscreen_state
+        .fullscreen_hidden_cluster_siblings
+        .remove(&id);
+    st.model
+        .fullscreen_state
+        .fullscreen_hidden_cluster_siblings
+        .values_mut()
+        .for_each(|siblings| siblings.retain(|sibling| *sibling != id));
 }
 
 pub(crate) fn tick_fullscreen_motion(st: &mut Halley, now: Instant) {
@@ -1829,11 +2262,7 @@ pub(crate) fn tick_fullscreen_motion(st: &mut Halley, now: Instant) {
     for (id, motion) in motions {
         let elapsed = now_ms.saturating_sub(motion.start_ms);
         let t = (elapsed as f32 / motion.duration_ms.max(1) as f32).clamp(0.0, 1.0);
-        let e = if t < 0.5 {
-            4.0 * t * t * t
-        } else {
-            1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
-        };
+        let e = crate::animation::ease_in_out_cubic(t);
         let pos = Vec2 {
             x: motion.from.x + (motion.to.x - motion.from.x) * e,
             y: motion.from.y + (motion.to.y - motion.from.y) * e,

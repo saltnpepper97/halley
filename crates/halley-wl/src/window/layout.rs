@@ -36,16 +36,12 @@ pub(super) struct WindowRenderLayout {
 pub(super) enum WindowRenderRoute {
     Stack { draw_order: i32 },
     AboveFullscreenStack { draw_order: i32 },
-    AboveFullscreen,
     Top,
 }
 
 impl WindowRenderRoute {
     pub(super) fn popups_above_fullscreen(self) -> bool {
-        matches!(
-            self,
-            WindowRenderRoute::AboveFullscreen | WindowRenderRoute::AboveFullscreenStack { .. }
-        )
+        matches!(self, WindowRenderRoute::AboveFullscreenStack { .. })
     }
 }
 
@@ -111,6 +107,11 @@ pub(super) fn resolve_window_render_layout(
     now: Instant,
 ) -> Option<WindowRenderLayout> {
     let node = st.model.field.node(node_id)?;
+    // A cluster workspace member hidden while another member is fullscreen doesn't
+    // render — only the fullscreen tile shows until the session exits.
+    if crate::compositor::fullscreen::system::cluster_sibling_hidden_for_fullscreen(st, node_id) {
+        return None;
+    }
     let stack_transition_pose = stack_layout
         .transition_plan
         .as_ref()
@@ -199,7 +200,15 @@ pub(super) fn resolve_window_render_layout(
             draw_order: overlap_policy_draw_order,
         }
     } else if draw_above_fullscreen_this_node {
-        WindowRenderRoute::AboveFullscreen
+        // Render every above-fullscreen window as its own atomic stack unit (content
+        // + border drawn together, sorted by draw_order) rather than the flat
+        // AboveFullscreen route, which batches *all* above-fullscreen content first
+        // and *all* borders after — letting a back window's border bleed over a front
+        // window once more than one window sits above fullscreen (e.g. a window carried
+        // in from another monitor stacked over the explicitly-raised one).
+        WindowRenderRoute::AboveFullscreenStack {
+            draw_order: overlap_policy_draw_order,
+        }
     } else if draw_top_this_node {
         WindowRenderRoute::Top
     } else {

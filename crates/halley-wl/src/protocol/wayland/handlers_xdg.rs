@@ -377,6 +377,53 @@ impl XdgShellHandler for Halley {
         fullscreen::system::exit_xdg_fullscreen(self, node_id, Instant::now());
     }
 
+    fn maximize_request(&mut self, surface: ToplevelSurface) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        // Maximize is not allowed inside a cluster (it conflicts with the cluster's
+        // own tiling/stacking session). Silently ignore a client maximize request
+        // (e.g. a GTK title-bar button) on a cluster member rather than mapping it
+        // to fullscreen, so the title-bar control reflects that maximize is barred.
+        if self.model.field.cluster_id_for_member_public(node_id).is_some() {
+            surface.send_configure();
+            return;
+        }
+        // Map a client maximize request (e.g. a GTK title-bar maximize button) to
+        // fullscreen: edge-to-edge, zoom 1.0, no decorations. If the node is
+        // already fullscreen — whether from a prior maximize or a Mod+F keybind —
+        // leave its session untouched so an app re-request neither clobbers a user
+        // fullscreen nor flips its origin (which would let a later unmaximize
+        // dismiss the user's fullscreen). `enter_fullscreen` is otherwise idempotent.
+        if self.fullscreen_monitor_for_node(node_id).is_some() {
+            surface.send_configure();
+            return;
+        }
+        fullscreen::system::enter_xdg_fullscreen(self, node_id, None, Instant::now());
+    }
+
+    fn unmaximize_request(&mut self, surface: ToplevelSurface) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        // Only tear down a fullscreen that we started from a client maximize
+        // request, so an app unmaximize can never dismiss a user-initiated
+        // (Mod+F) fullscreen.
+        let is_client_origin = self
+            .model
+            .fullscreen_state
+            .fullscreen_origin
+            .get(&node_id)
+            == Some(&fullscreen::state::FullscreenOrigin::ClientRequest);
+        if self.fullscreen_monitor_for_node(node_id).is_some() && is_client_origin {
+            fullscreen::system::exit_xdg_fullscreen(self, node_id, Instant::now());
+        }
+    }
+
     fn minimize_request(&mut self, surface: ToplevelSurface) {
         let key = surface.wl_surface().id();
         let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {

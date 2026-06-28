@@ -167,6 +167,9 @@ impl ConfigSchema {
             "animations.window-open",
             "animations.tile",
             "animations.stack",
+            "animations.cluster",
+            "animations.cluster.tiling",
+            "animations.cluster.stacking",
             "animations.raise",
             "apogee",
             "bearings",
@@ -224,6 +227,13 @@ impl ConfigSchema {
             "animations.tile.duration-ms",
             "animations.stack.enabled",
             "animations.stack.duration-ms",
+            "animations.cluster.enabled",
+            "animations.cluster.tiling.open-duration-ms",
+            "animations.cluster.tiling.stagger-ms",
+            "animations.cluster.tiling.close-duration-ms",
+            "animations.cluster.tiling.reflow-duration-ms",
+            "animations.cluster.stacking.open-duration-ms",
+            "animations.cluster.stacking.close-duration-ms",
             "animations.raise.enabled",
             "animations.raise.duration-ms",
             "animations.raise.scale",
@@ -262,6 +272,7 @@ impl ConfigSchema {
             "cursor.hide-when-typing",
             "cursor.hide-after-ms",
             "cursor.hide-after-inactive-ms",
+            "cursor.hide-on-keyboard-nav",
             "debug.overlay-fps",
             "debug.show-ring-when-resizing",
             "decay.active-delay",
@@ -539,6 +550,12 @@ fn numeric_scalar(path: &str) -> bool {
             | "animations.window-open.duration-ms"
             | "animations.tile.duration-ms"
             | "animations.stack.duration-ms"
+            | "animations.cluster.tiling.open-duration-ms"
+            | "animations.cluster.tiling.stagger-ms"
+            | "animations.cluster.tiling.close-duration-ms"
+            | "animations.cluster.tiling.reflow-duration-ms"
+            | "animations.cluster.stacking.open-duration-ms"
+            | "animations.cluster.stacking.close-duration-ms"
             | "animations.raise.duration-ms"
             | "animations.raise.scale"
             | "animations.raise.shadow-boost"
@@ -672,6 +689,7 @@ fn bool_scalar(path: &str) -> bool {
             | "animations.window-open.enabled"
             | "animations.tile.enabled"
             | "animations.stack.enabled"
+            | "animations.cluster.enabled"
             | "animations.raise.enabled"
             | "apogee.enabled"
             | "apogee.live-previews"
@@ -687,6 +705,7 @@ fn bool_scalar(path: &str) -> bool {
             | "clusters.show-icons"
             | "cursor.hide-while-typing"
             | "cursor.hide-when-typing"
+            | "cursor.hide-on-keyboard-nav"
             | "debug.overlay-fps"
             | "debug.show-ring-when-resizing"
             | "decorations.secondary-border.enabled"

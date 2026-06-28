@@ -65,6 +65,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     if st.input.interaction_state.apogee_session.is_some()
         && !crate::protocol::wayland::session_lock::session_lock_active(st)
     {
+        // Real pointer motion over the overview reveals a keyboard-hidden cursor.
+        // (The programmatic arrow-key warp also funnels through here, but the
+        // keyboard path re-arms the hide immediately after the warp.)
+        st.input.interaction_state.cursor_hidden_by_keyboard_nav = false;
         let now_ms = st.now_ms(Instant::now());
         st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
         let previous_monitor = st

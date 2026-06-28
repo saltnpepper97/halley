@@ -231,6 +231,12 @@ pub(super) fn offscreen_visual_crop_and_dst(
         )
     };
 
+    // The src (cached buffer crop) is mapped straight onto the animated dst box.
+    // During a tile reflow the box tweens from the member's *old* geometry to the
+    // new slot, so early frames are ~1:1 and any stretch only grows as the box
+    // approaches full size — by which point the client's resized buffer has
+    // usually committed and swaps in crisp. This is the Hyprland-style fill: brief,
+    // motion-masked, never an empty band or a zoom-cropped blow-up.
     (
         src_x,
         src_y,

@@ -238,8 +238,10 @@ pub(super) fn dispatch_pointer_motion(
 
         desktop_hover = focus.is_none();
         hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
-                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+            crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+                || crate::compositor::monitor::layer_shell::layer_surface_blocks_desktop_hover(
+                    st, surface,
+                )
         });
 
         // A gamescope-managed window fills its output and expects a 1:1 input

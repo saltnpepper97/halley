@@ -60,6 +60,11 @@ pub(crate) struct FullscreenState {
     pub(crate) fullscreen_camera_restore:
         HashMap<String, crate::compositor::workspace::state::MaximizeCameraSnapshot>,
     pub(crate) direct_scanout: HashMap<String, FullscreenDirectScanoutState>,
+    /// Cluster workspace siblings hidden while one member is fullscreen. Maps the
+    /// fullscreen member node id → the sibling member ids that were hidden so the
+    /// fullscreen window is the only cluster tile showing. Cleared on exit, which
+    /// also re-lays out the cluster workspace so the tiles reappear.
+    pub(crate) fullscreen_hidden_cluster_siblings: HashMap<NodeId, Vec<NodeId>>,
 }
 
 impl FullscreenState {

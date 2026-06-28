@@ -12,6 +12,7 @@ use halley_api::{
     ApiError, CompositorRequest, LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, Request,
     Response,
 };
+use smithay::backend::renderer::ImportEgl;
 use smithay::reexports::winit::dpi::LogicalSize;
 use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
 use smithay::reexports::winit::window::Window;
@@ -407,6 +408,17 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             state.platform.seat.add_touch();
             super::initialize_seat_keyboard(&mut state);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
+            {
+                let mut backend_ref = backend.borrow_mut();
+                match backend_ref.renderer().bind_wl_display(&dh) {
+                    Ok(_) => eventline::info!(
+                        "EGL hardware acceleration for Wayland clients enabled (winit)"
+                    ),
+                    Err(err) => eventline::warn!(
+                        "failed to enable EGL hardware acceleration for Wayland clients (winit): {err}"
+                    ),
+                }
+            }
             state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
             let xwayland_for_timer = xwayland.clone();

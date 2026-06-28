@@ -246,6 +246,7 @@ pub(crate) fn capture_closing_window_animation(
         texture,
         alpha: opacity,
         blur: node_wants_blur(st, node_id),
+        blur_alpha: 1.0,
         corner_radius: decoration_metrics.content_corner_radius_px as f32,
         src_x,
         src_y,

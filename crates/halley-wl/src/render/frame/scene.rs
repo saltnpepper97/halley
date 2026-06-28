@@ -17,8 +17,8 @@ use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::window::{
-    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
-    WindowShadowRect, collect_active_surfaces,
+    ActiveBorderRect, CroppedClippedSurfaceElement,
+    OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect, collect_active_surfaces,
 };
 
 pub(super) type SurfaceElement =
@@ -75,11 +75,9 @@ pub(super) struct SceneCollections {
     pub(super) active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(super) resized_active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(super) fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
-    pub(super) above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(super) offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
-    pub(super) above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
@@ -93,10 +91,8 @@ pub(super) struct SceneCollections {
     pub(super) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
     pub(super) shadow_rects: Vec<WindowShadowRect>,
     pub(super) resized_shadow_rects: Vec<WindowShadowRect>,
-    pub(super) above_fullscreen_shadow_rects: Vec<WindowShadowRect>,
     pub(super) border_rects: Vec<ActiveBorderRect>,
     pub(super) resized_border_rects: Vec<ActiveBorderRect>,
-    pub(super) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
     pub(super) closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
     pub(super) pin_badges: Vec<PinBadgeLayout>,
     pub(super) hover_preview_card: Option<HoverPreviewCard>,
@@ -164,11 +160,9 @@ pub(super) fn collect_debug_frame_scene(
             active_elements: Vec::new(),
             resized_active_elements: Vec::new(),
             fullscreen_active_elements: Vec::new(),
-            above_fullscreen_active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
             resized_offscreen_textures: Vec::new(),
             fullscreen_offscreen_textures: Vec::new(),
-            above_fullscreen_offscreen_textures: Vec::new(),
             popup_offscreen_textures: Vec::new(),
             popup_elements: Vec::new(),
             fullscreen_popup_offscreen_textures: Vec::new(),
@@ -179,10 +173,8 @@ pub(super) fn collect_debug_frame_scene(
             above_fullscreen_stack_window_units: Vec::new(),
             shadow_rects: Vec::new(),
             resized_shadow_rects: Vec::new(),
-            above_fullscreen_shadow_rects: Vec::new(),
             border_rects: Vec::new(),
             resized_border_rects: Vec::new(),
-            above_fullscreen_border_rects: Vec::new(),
             closing_window_animations: Vec::new(),
             pin_badges: Vec::new(),
             hover_preview_card: None,
@@ -205,7 +197,9 @@ pub(super) fn collect_debug_frame_scene(
     ) = collect_layer_surfaces(renderer, st, size, now);
 
     let window_plan = collect_active_surfaces(renderer, st, size, resize_preview, now);
-    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
+    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled()
+        || st.runtime.tuning.cluster_animation_enabled()
+    {
         st.ui
             .render_state
             .closing_window_animation_snapshots(render_monitor.as_str(), now)
@@ -292,10 +286,6 @@ pub(super) fn collect_debug_frame_scene(
     collect_blur_rects(&window_plan.offscreen_textures, &mut blur_rects);
     collect_blur_rects(&window_plan.resized_offscreen_textures, &mut blur_rects);
     collect_blur_rects(&window_plan.fullscreen_offscreen_textures, &mut blur_rects);
-    collect_blur_rects(
-        &window_plan.above_fullscreen_offscreen_textures,
-        &mut blur_rects,
-    );
     collect_blur_rects(&window_plan.popup_offscreen_textures, &mut blur_rects);
     collect_blur_rects(
         &window_plan.fullscreen_popup_offscreen_textures,
@@ -321,11 +311,9 @@ pub(super) fn collect_debug_frame_scene(
         active_elements: window_plan.active_elements,
         resized_active_elements: window_plan.resized_active_elements,
         fullscreen_active_elements: window_plan.fullscreen_active_elements,
-        above_fullscreen_active_elements: window_plan.above_fullscreen_active_elements,
         offscreen_textures: window_plan.offscreen_textures,
         resized_offscreen_textures: window_plan.resized_offscreen_textures,
         fullscreen_offscreen_textures: window_plan.fullscreen_offscreen_textures,
-        above_fullscreen_offscreen_textures: window_plan.above_fullscreen_offscreen_textures,
         popup_offscreen_textures: window_plan.popup_offscreen_textures,
         popup_elements: window_plan.popup_elements,
         fullscreen_popup_offscreen_textures: window_plan.fullscreen_popup_offscreen_textures,
@@ -337,10 +325,8 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_stack_window_units: window_plan.above_fullscreen_stack_window_units,
         shadow_rects: window_plan.shadow_rects,
         resized_shadow_rects: window_plan.resized_shadow_rects,
-        above_fullscreen_shadow_rects: window_plan.above_fullscreen_shadow_rects,
         border_rects: window_plan.border_rects,
         resized_border_rects: window_plan.resized_border_rects,
-        above_fullscreen_border_rects: window_plan.above_fullscreen_border_rects,
         closing_window_animations,
         pin_badges: window_plan.pin_badges,
         hover_preview_card,

@@ -117,6 +117,21 @@ animations:
     style "shrink"
   end
 
+  cluster:
+    # Opening/closing a cluster workspace. open slides members in; close sucks
+    # them into the core node. Split per layout (tiling / stacking).
+    enabled true
+    tiling:
+      open-duration-ms 300
+      stagger-ms 55
+      close-duration-ms 420
+    end
+    stacking:
+      open-duration-ms 240
+      close-duration-ms 360
+    end
+  end
+
   raise:
     enabled true
     duration-ms 140

@@ -188,6 +188,57 @@ pub struct WindowCloseAnimationConfig {
     pub style: WindowCloseAnimationStyle,
 }
 
+/// Per-layout open/close timing for cluster *workspace* enter/exit (distinct
+/// from `animations.tile` reflow and `animations.stack` card cycling).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClusterLayoutAnimConfig {
+    pub open_duration_ms: u64,
+    /// Per-member entry delay for the tiling open cascade. Only the tiling layout
+    /// staggers its tiles; the stacking layout ignores this field.
+    pub stagger_ms: u64,
+    pub close_duration_ms: u64,
+    /// Duration for an already-visible tile reflowing as a sibling is added or
+    /// removed (distinct from the open cascade). Only the tiling layout uses this.
+    pub reflow_duration_ms: u64,
+}
+
+impl ClusterLayoutAnimConfig {
+    pub const fn new(
+        open_duration_ms: u64,
+        stagger_ms: u64,
+        close_duration_ms: u64,
+        reflow_duration_ms: u64,
+    ) -> Self {
+        Self {
+            open_duration_ms,
+            stagger_ms,
+            close_duration_ms,
+            reflow_duration_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClusterAnimationConfig {
+    pub enabled: bool,
+    pub tiling: ClusterLayoutAnimConfig,
+    pub stacking: ClusterLayoutAnimConfig,
+}
+
+impl ClusterAnimationConfig {
+    pub const fn new(
+        enabled: bool,
+        tiling: ClusterLayoutAnimConfig,
+        stacking: ClusterLayoutAnimConfig,
+    ) -> Self {
+        Self {
+            enabled,
+            tiling,
+            stacking,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RaiseAnimationTrigger {
     Always,
@@ -235,6 +286,7 @@ pub struct AnimationsConfig {
     pub window_open: TimedAnimationConfig,
     pub tile: TimedAnimationConfig,
     pub stack: TimedAnimationConfig,
+    pub cluster: ClusterAnimationConfig,
     pub raise: RaiseAnimationConfig,
 }
 
@@ -253,6 +305,15 @@ impl Default for AnimationsConfig {
             window_open: TimedAnimationConfig::new(true, 620),
             tile: TimedAnimationConfig::new(true, 240),
             stack: TimedAnimationConfig::new(true, 220),
+            cluster: ClusterAnimationConfig::new(
+                true,
+                // tiling: open cascade (slaves first, master last), suck-into-core close,
+                // sibling reflow glides+grows tiles into their new slots
+                ClusterLayoutAnimConfig::new(300, 55, 420, 400),
+                // stacking: tunes the existing card grow-in + suck-into-core close
+                // (reflow_duration_ms is unused for stacking)
+                ClusterLayoutAnimConfig::new(240, 0, 360, 240),
+            ),
             raise: RaiseAnimationConfig::new(true, 140, 1.025, 0.18),
         }
     }
@@ -1141,6 +1202,7 @@ pub struct CursorConfig {
     pub size: u32,
     pub hide_while_typing: bool,
     pub hide_after_ms: u64,
+    pub hide_on_keyboard_nav: bool,
 }
 
 impl Default for CursorConfig {
@@ -1150,6 +1212,7 @@ impl Default for CursorConfig {
             size: 24,
             hide_while_typing: false,
             hide_after_ms: 0,
+            hide_on_keyboard_nav: true,
         }
     }
 }

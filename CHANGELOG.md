@@ -111,6 +111,27 @@ All notable changes to this project will be documented in this file.
   on the last focused node — a quick "go back" after wandering the field. Wired into the internal
   template, bootstrap backfill, and example configs. The bare-defaults field node-move bindings
   also move from vim `hjkl` to the arrow keys, matching the generated config and freeing `mod+h`.
+- Add `cursor.hide-on-keyboard-nav` (default `true`): any compositor keybind and keyboard-driven
+  window navigation (focus cycle, tile/stack/trail/monitor steps, and Apogee arrow keys) now hides
+  the cursor image — the pointer position is preserved so focus-tracking warps keep working — and
+  any real pointer activity (motion/button/axis, including inside Apogee) reveals it again.
+- Map a client maximize request (e.g. a GTK title-bar maximize button) to fullscreen: edge-to-edge,
+  zoom 1.0, no decorations. An app re-request never clobbers an existing fullscreen or flips its
+  origin, and an app unmaximize only tears down a fullscreen that began from a client maximize — so
+  an app unmaximize can never dismiss a user-initiated (Mod+F) fullscreen.
+- Add cluster workspace open/close animations via a new `animations.cluster` block
+  (`enabled`, `tiling.{open-duration-ms, stagger-ms, close-duration-ms}`,
+  `stacking.{open-duration-ms, close-duration-ms}`). Opening cascades tiling members in
+  from the left with a per-member stagger (slaves first, master last) and tunes the
+  stacking card grow-in; closing captures each visible member as a shrink/fade ghost that
+  glides into the core node ("suck into core"). Wired into defaults, the parser, the
+  validator, bootstrap backfill, and the example configs.
+- Add fullscreen support inside cluster workspaces. The `toggle-fullscreen` keybind is now
+  `Global`-scoped (was `Field`, which is filtered out under cluster scopes) so `Mod+F`
+  works there; when a member fullscreens, its sibling tiles hide and the fullscreen member
+  grows from its visible tile rect, and exiting restores and re-lays-out the workspace.
+- Draw a tinted cluster glyph on a cluster core's bearing chip instead of the app-icon
+  fallback box + first letter, independent of `node-show-app-icons`.
 
 ### Changed
 - Treat field node/core markers as fixed landmarks in passive (idle/zoom) overlap resolution:
@@ -231,6 +252,36 @@ All notable changes to this project will be documented in this file.
   clip), not whenever the whole `decorations` block differs. Border sizes/colours, shadows and
   blur are drawn live per frame, so a colour-only theme reload no longer flushes every window's
   offscreen texture.
+- Drag-and-drop now always raises the dropped window to the front, independent of
+  `input.raise-on-click`, so a window dropped over peers on another monitor no longer lands
+  behind them.
+- Bar maximize for any cluster member — collapsed under a core or laid out in an active
+  workspace — since it conflicts with the cluster's own tiling/stacking session. A maximized
+  window joining a cluster drops its maximize session first, and a client maximize request
+  (e.g. a GTK title-bar button) on a cluster member is silently ignored rather than mapped
+  to fullscreen.
+- Smooth the fullscreen resume-from-soft-suspend re-centre: the camera no longer snaps to
+  the saved centre, instead easing there in lockstep with the re-zoom for a grow-in-place
+  (off the active monitor restores directly).
+- Replace inlined `ease_in_out_cubic` curve bodies with the shared
+  `crate::animation::ease_in_out_cubic` helper and extract `FULLSCREEN_MIN_W`/`H` constants
+  (no behavior change).
+- Replace the tile-track-based reflow hold with an independent three-phase material-bridge
+  handoff for tiled cluster reflows. When a slave is promoted to master or a remaining slave
+  expands into a closed sibling's space, the compositor now: (1) **travels** the old-size
+  material body (rounded fill, blur, border, shadow — no client pixels) from the old slot to
+  the target area over ~200ms; (2) **expands** the material from old size to target size over
+  ~150ms; (3) after a 45ms hold, **reveals** the real target-size client content via a
+  non-linear 175ms crossfade (texture eases in, bridge lingers then fades out). Real client
+  content is fully suppressed until the client has committed the target-size buffer — no
+  stretched textures, no missing bottom halves, no abrupt size snaps.
+- Enable EGL hardware acceleration for Wayland clients by binding the compositor's EGL
+  display to the Wayland display via `bind_wl_display` in both the TTY/DRM and winit
+  backends. This creates the `wl_drm` global and calls `eglBindWaylandDisplayWL`, which
+  Mesa's client-side EGL Wayland platform requires. Without it, GPU-accelerated clients
+  (Qt/EGL apps such as Quickshell, GL applications, Electron) could not create EGL
+  surfaces and crashed with `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE`; only software
+  (`wl_shm`) rendering worked. Requires Smithay's `use_system_lib` feature, now enabled.
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
@@ -397,6 +448,54 @@ All notable changes to this project will be documented in this file.
 - Deliver a press landing on an overflowing popup (e.g. a context menu spilling past its parent
   window) to the popup without also raising or focusing the toplevel beneath it. The window-side
   raise/drag/resize path is now skipped when a popup is under the pointer.
+- Stop field hover-focus and window drags from yanking a soft-suspended fullscreen session (a game
+  you alt+tabbed away from) back to fullscreen just by moving the pointer into its windowed area;
+  only a deliberate click, alt+tab, or Apogee pick resumes it.
+- Fix a back window's border bleeding over a front window when more than one window sits above a
+  fullscreen surface. Above-fullscreen windows now render as atomic per-window stack units (content
+  + border together, sorted by draw order) instead of a flat batched-content-then-batched-borders
+  pass.
+- Stop a minimizing/collapse-to-node window from flashing to the front: it now shrinks behind the
+  live windows it was stacked under. Field node/core markers likewise draw beneath live windows so
+  a collapsing window can't momentarily hide its target marker.
+- Fix the first `Mod+Enter` in a freshly-created cluster doing nothing: the cluster-name prompt's
+  confirm path trapped the key release but left the key in `intercepted_keys`, swallowing the next
+  compositor keybind on the same key until a later release freed it.
+- Fix the fullscreen toggle wedging a corrupt second session after a soft-suspend (alt-tab away):
+  the toggle now uses the active-OR-suspended session predicate so it always exits a fullscreen
+  you're in.
+- Fix dangling, unexitable fullscreen state when a fullscreen cluster member is collapsed or
+  minimized — fullscreen is now torn down before the workspace collapses.
+- Fix a dropped tiled cluster member glitching into place: the cluster layout now owns the dropped
+  window's final position (carry authority cleared before re-layout, release-position static lock
+  skipped for tiled members), mirroring the keybind-move path.
+- Fix a stale shrink-ghost texture lingering over the window that grows to fill a closed tiled
+  cluster member's slot (most visible when the master closes) — the reflow now carries the
+  transition.
+- Fix the "zoom stretch" during a tiled cluster reflow: a size change is never deferred, so the
+  offscreen cache rebuilds at the live buffer size and fills the new slot crisply, and a tile
+  transition with no warm cache renders the live surface at the transition pose instead of leaving
+  the cluster looking empty on open.
+- Reject tiny or empty client cursor surfaces (e.g. a broken 1×1 `wl_surface` set as the pointer
+  cursor) and fall back to the themed default pointer, eliminating a stray square cursor artifact
+  most visible near terminal text inputs.
+- Fix remaining flashes and abrupt size snaps during tiled cluster reflows (slave-to-master
+  promotion, slave-close expansion) by routing all reflow visuals through the material-bridge
+  handoff instead of sharing the tile animation track with real content. The handoff is a fully
+  independent state — real window content is hidden entirely during travel and expand, and only
+  appears via a non-linear crossfade during reveal, so stale client pixels are never scaled or
+  snapped into the new slot.
+- Fix hover-focus (`input.focus-mode "hover"`) being permanently disabled when a persistent
+  layer-shell client such as Quickshell/Noctalia was running. Halley previously blocked
+  hover-focus whenever *any* layer-shell surface held keyboard focus or was hit by the
+  pointer, treating persistent shells the same as modal launchers. Layer surfaces are now
+  classified: only modal roles (the Lift launcher, `KeyboardInteractivity::Exclusive`, session
+  lock) block hover-focus; `OnDemand` persistent shells do not, so moving the mouse over
+  windows correctly focuses them even while a panel or bar has keyboard focus.
+- Fix GPU-accelerated Wayland clients (Quickshell, Qt/EGL apps) crashing under Halley with
+  `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE` because the compositor never bound its EGL display
+  to the Wayland display, so Mesa's EGL Wayland platform had no server-side `wl_drm`
+  infrastructure. The TTY and winit backends now call `bind_wl_display` at startup.
 
 ## [v0.4.0] - 2026-06-12
 
