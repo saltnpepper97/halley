@@ -519,6 +519,12 @@ All notable changes to this project will be documented in this file.
   `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE` because the compositor never bound its EGL display
   to the Wayland display, so Mesa's EGL Wayland platform had no server-side `wl_drm`
   infrastructure. The TTY and winit backends now call `bind_wl_display` at startup.
+- Make same-layer layer-shell placement deterministic: exclusive-zone surfaces (e.g. a
+  reserved bar) now establish their reservation before non-exclusive decorative surfaces on
+  the same layer, so split-shell UIs such as Quickshell place panels and decoration correctly
+  instead of depending on incidental iterator order. Non-modal background layer surfaces also
+  no longer swallow pointer focus meant for toplevels and the desktop. Thanks to
+  @binarylinuxx (#148).
 - Maximize and fullscreen camera zoom now eases on the same fixed `ease_in_out_cubic` as the
   window grow/shrink instead of the exponential zoom smoothing, whose asymptotic tail made
   the grow/shrink visibly "stick" near the end (worse the further the zoom had to settle).
