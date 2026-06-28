@@ -109,7 +109,10 @@ fn source_approximately_full(source: WindowPreviewSource, full: WindowPreviewSou
         && (source.h - full.h).abs() <= 1.0
 }
 
-fn center_crop_to_aspect(source: WindowPreviewSource, target_aspect: f32) -> WindowPreviewSource {
+pub(super) fn center_crop_to_aspect(
+    source: WindowPreviewSource,
+    target_aspect: f32,
+) -> WindowPreviewSource {
     let target_aspect = target_aspect.clamp(0.25, 4.5);
     let source_aspect = source.aspect();
     if (source_aspect - target_aspect).abs() <= 0.01 {
@@ -172,5 +175,41 @@ mod tests {
         assert_eq!(source.y, 0.0);
         assert!((source.w - 576.0).abs() <= 0.5);
         assert_eq!(source.h, 1024.0);
+    }
+
+    #[test]
+    fn cover_crop_wide_source_to_tall_slot_crops_width() {
+        let source = center_crop_to_aspect(
+            WindowPreviewSource {
+                x: 0.0,
+                y: 0.0,
+                w: 1600.0,
+                h: 900.0,
+            },
+            9.0 / 16.0,
+        );
+
+        assert_eq!(source.y, 0.0);
+        assert_eq!(source.h, 900.0);
+        assert!((source.w - 506.25).abs() <= 0.5);
+        assert!((source.x - 546.875).abs() <= 0.5);
+    }
+
+    #[test]
+    fn cover_crop_tall_source_to_wide_slot_crops_height() {
+        let source = center_crop_to_aspect(
+            WindowPreviewSource {
+                x: 0.0,
+                y: 0.0,
+                w: 900.0,
+                h: 1600.0,
+            },
+            16.0 / 9.0,
+        );
+
+        assert_eq!(source.x, 0.0);
+        assert_eq!(source.w, 900.0);
+        assert!((source.h - 506.25).abs() <= 0.5);
+        assert!((source.y - 546.875).abs() <= 0.5);
     }
 }

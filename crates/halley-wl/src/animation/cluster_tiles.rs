@@ -210,6 +210,32 @@ pub(crate) fn set_cluster_tile_target(
     );
 }
 
+pub(crate) fn set_cluster_tile_target_from_anim_rect(
+    tracks: &mut ClusterTileTracks,
+    from: ClusterTileAnimRect,
+    node_id: NodeId,
+    target_rect: Rect,
+    now: Instant,
+    duration_ms: u64,
+    start_delay_ms: u64,
+) {
+    let target = anim_rect_from_tile_rect(target_rect, 1.0);
+    if same_rect(from, target) {
+        tracks.remove(&node_id);
+        return;
+    }
+    tracks.insert(
+        node_id,
+        ClusterTileTrack {
+            from,
+            to: target,
+            started_at: now,
+            start_delay: Duration::from_millis(start_delay_ms),
+            duration: Duration::from_millis(duration_ms.max(1)),
+        },
+    );
+}
+
 /// Pin a tile at a fixed pose (from == to) so it neither moves nor scales. Used to
 /// hold a growing tile at its old slot while we wait for the client to commit the
 /// bigger buffer — moving it before the buffer arrives would upscale the small

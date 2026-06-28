@@ -377,6 +377,24 @@ fn maximize_target_for_monitor(
     )
 }
 
+/// The monitor's current camera center and its base (1.0-zoom) view size — the
+/// targets a maximize grow eases the camera toward (center held, zoom to base).
+fn monitor_center_and_base_size(
+    st: &Halley,
+    monitor: &str,
+) -> (halley_core::field::Vec2, halley_core::field::Vec2) {
+    if st.model.monitor_state.current_monitor == monitor {
+        (st.model.viewport.center, st.model.viewport.size)
+    } else {
+        st.model
+            .monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| (space.viewport.center, space.viewport.size))
+            .unwrap_or((st.model.viewport.center, st.model.viewport.size))
+    }
+}
+
 fn start_restore_maximize_session(
     st: &mut Halley,
     monitor: &str,
@@ -395,6 +413,19 @@ fn start_restore_maximize_session(
         crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
             st, monitor, camera,
         );
+        // Ease the camera back to the pre-maximize zoom/center on the same fixed
+        // cubic as the shrink (mirroring the fullscreen exit), not the exponential
+        // smoothing tail.
+        if st.runtime.tuning.maximize_animation_enabled() {
+            crate::compositor::focus::system::animate_camera_center_zoom_on_monitor(
+                st,
+                monitor,
+                camera.center,
+                camera.view_size,
+                st.runtime.tuning.maximize_animation_duration_ms(),
+                now,
+            );
+        }
     }
     crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
     for (node_id, snapshot) in &node_snapshots {
@@ -491,6 +522,19 @@ fn start_active_maximize_session(
                 start_ms: st.now_ms(now),
                 duration_ms: st.runtime.tuning.maximize_animation_duration_ms(),
             },
+        );
+        // Ease the camera zoom-to-1.0 on the same fixed cubic as the maximize rect
+        // (matching the fullscreen grow) instead of the exponential smoothing whose
+        // tail makes the zoom "stick" near the end. `reset_monitor_zoom_for_maximize`
+        // above already set the resting target; this drives the live easing.
+        let (center, base_size) = monitor_center_and_base_size(st, monitor);
+        crate::compositor::focus::system::animate_camera_center_zoom_on_monitor(
+            st,
+            monitor,
+            center,
+            base_size,
+            st.runtime.tuning.maximize_animation_duration_ms(),
+            now,
         );
     }
     st.set_recent_top_node(target_id, now + std::time::Duration::from_millis(1200));
@@ -658,9 +702,17 @@ pub(crate) fn toggle_node_maximize_state(
         return false;
     }
 
-    // If a trail/camera pan is in flight, let it finish first and run the maximize afterwards so
+    // If a focus/trail pan is in flight, let it finish first and run the maximize afterwards so
     // the two animations stay sequential (pan, then maximize) instead of snapping simultaneously.
-    if st.input.interaction_state.viewport_pan_anim.is_some() {
+    // A fullscreen camera-zoom transition does NOT defer here: maximize is mutually exclusive with
+    // fullscreen and must be able to exit it immediately.
+    if st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.is_focus_pan())
+    {
         st.input.interaction_state.pending_maximize =
             Some(crate::compositor::interaction::state::PendingMaximize {
                 node_id: id,
@@ -691,7 +743,13 @@ pub(crate) fn toggle_node_maximize_state(
 /// Run a maximize that was deferred while a trail/camera pan was animating. Once the pan has
 /// cleared, re-enter `toggle_node_maximize_state` so the camera is already settled on the target.
 pub(crate) fn tick_pending_maximize(st: &mut Halley, now: Instant) {
-    if st.input.interaction_state.viewport_pan_anim.is_some() {
+    if st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.is_focus_pan())
+    {
         return;
     }
     let Some(pending) = st.input.interaction_state.pending_maximize.take() else {

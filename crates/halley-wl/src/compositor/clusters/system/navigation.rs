@@ -46,7 +46,13 @@ pub(crate) fn process_pending_cluster_slot_transition_for_current_monitor(
     st: &mut Halley,
     now: Instant,
 ) -> bool {
-    if st.input.interaction_state.viewport_pan_anim.is_some() {
+    if st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.is_focus_pan())
+    {
         return false;
     }
     let monitor = st.model.monitor_state.current_monitor.clone();

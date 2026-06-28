@@ -696,7 +696,7 @@ fn transform_rect_about_center(
 
 /// On-top closing pass: node markers (the landmark a window collapses toward)
 /// plus the shrink for real window closes (`behind == false`).
-fn draw_closing_window_animations(
+pub(super) fn draw_closing_window_animations(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,

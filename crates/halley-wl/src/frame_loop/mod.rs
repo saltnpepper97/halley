@@ -52,6 +52,9 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
     st.ui
         .render_state
         .retain_node_hover_mix(|id, _| alive.contains(id));
+    st.ui
+        .render_state
+        .retain_apogee_core_hover_mix(|id, _| alive.contains(id));
     st.ui.render_state.retain_node_preview_hover(|_, state| {
         state.node = state.node.filter(|id| alive.contains(id));
         state.node.is_some() || state.mix > 0.002
@@ -1090,6 +1093,8 @@ mod tests {
                     x: state.model.viewport.center.x + 100.0,
                     y: state.model.viewport.center.y,
                 },
+                from_view_size: None,
+                to_view_size: None,
             });
         let _ = state.activate_monitor("left");
 

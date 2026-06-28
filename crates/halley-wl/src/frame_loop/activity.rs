@@ -205,7 +205,8 @@ pub(crate) fn tty_output_animation_redraw_state(
             st.ui.render_state.cluster_tile_tracks(),
             now,
         );
-    let close_window_active = st.runtime.tuning.window_close_animation_enabled()
+    let close_window_active = (st.runtime.tuning.window_close_animation_enabled()
+        || st.runtime.tuning.cluster_animation_enabled())
         && st
             .ui
             .render_state

@@ -452,6 +452,48 @@ pub fn animate_viewport_center_to_on_monitor_delayed(
         duration_ms: VIEWPORT_PAN_DURATION_MS,
         from_center: from,
         to_center: target_center,
+        from_view_size: None,
+        to_view_size: None,
+    });
+    true
+}
+
+/// Start a fixed-duration camera transition that eases BOTH the center and the
+/// zoom (view size) along the same `ease_in_out_cubic`, taking over from the
+/// exponential zoom smoothing for its duration. Used by maximize/fullscreen
+/// enter+exit so the grow/shrink completes uniformly with the window animation
+/// and there is no asymptotic zoom "settling" tail. No-op (returns false) for an
+/// unknown monitor.
+pub(crate) fn animate_camera_center_zoom_on_monitor(
+    st: &mut Halley,
+    monitor: &str,
+    to_center: Vec2,
+    to_view_size: Vec2,
+    duration_ms: u64,
+    now: Instant,
+) -> bool {
+    if !st.model.monitor_state.monitors.contains_key(monitor) {
+        return false;
+    }
+    let (from_center, from_view_size) = if st.model.monitor_state.current_monitor == monitor {
+        (st.model.viewport.center, st.model.zoom_ref_size)
+    } else {
+        st.model
+            .monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| (space.viewport.center, space.zoom_ref_size))
+            .unwrap_or((st.model.viewport.center, st.model.zoom_ref_size))
+    };
+    st.input.interaction_state.viewport_pan_anim = Some(ViewportPanAnim {
+        monitor: monitor.to_string(),
+        start_ms: st.now_ms(now),
+        delay_ms: 0,
+        duration_ms: duration_ms.max(1),
+        from_center,
+        to_center,
+        from_view_size: Some(from_view_size),
+        to_view_size: Some(to_view_size),
     });
     true
 }
@@ -488,8 +530,36 @@ pub(crate) fn tick_viewport_pan_animation(st: &mut Halley, now_ms: u64) {
         }
     };
 
+    // Optional zoom track: ease the camera view size along the same cubic so a
+    // maximize/fullscreen grow zooms in lockstep with its rect, with no
+    // exponential-settle tail. Keeps both the live zoom and its target in sync so
+    // the smoothing pass (which yields while a pan anim is live) has nothing to
+    // chase once we finish.
+    let set_view_size = |st: &mut Halley, size: Vec2| {
+        if st.model.monitor_state.current_monitor == anim.monitor {
+            st.model.zoom_ref_size = size;
+            st.model.camera_target_view_size = size;
+            st.runtime.tuning.viewport_size = size;
+        }
+        if let Some(space) = st
+            .model
+            .monitor_state
+            .monitors
+            .get_mut(anim.monitor.as_str())
+        {
+            // `space.zoom_ref_size` is the live zoom; `space.viewport.size` is the
+            // fixed base monitor size (camera_render_scale denominator) and must
+            // be left alone.
+            space.zoom_ref_size = size;
+            space.camera_target_view_size = size;
+        }
+    };
+
     if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
         set_center(st, anim.from_center);
+        if let Some(from_size) = anim.from_view_size {
+            set_view_size(st, from_size);
+        }
         return;
     }
     let dur = anim.duration_ms.max(1);
@@ -501,6 +571,13 @@ pub(crate) fn tick_viewport_pan_animation(st: &mut Halley, now_ms: u64) {
         y: anim.from_center.y + (anim.to_center.y - anim.from_center.y) * e,
     };
     set_center(st, center);
+    if let (Some(from_size), Some(to_size)) = (anim.from_view_size, anim.to_view_size) {
+        let size = Vec2 {
+            x: from_size.x + (to_size.x - from_size.x) * e,
+            y: from_size.y + (to_size.y - from_size.y) * e,
+        };
+        set_view_size(st, size);
+    }
     if t >= 1.0 {
         st.input.interaction_state.viewport_pan_anim = None;
     }

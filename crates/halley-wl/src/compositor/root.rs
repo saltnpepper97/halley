@@ -372,6 +372,7 @@ impl Halley {
                         bearings_visible: false,
                         bearings_mix: HashMap::new(),
                         cluster_bloom_mix: HashMap::new(),
+                        apogee_core_hover_mix: HashMap::new(),
                     },
                     overlays: crate::render::state::RenderOverlayState {
                         overlay_banner: HashMap::new(),

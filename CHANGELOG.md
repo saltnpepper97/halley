@@ -130,6 +130,11 @@ All notable changes to this project will be documented in this file.
   `Global`-scoped (was `Field`, which is filtered out under cluster scopes) so `Mod+F`
   works there; when a member fullscreens, its sibling tiles hide and the fullscreen member
   grows from its visible tile rect, and exiting restores and re-lays-out the workspace.
+- Auto-fullscreen game-like windows (`steam_app_*`, gamescope) on top of whatever layout they
+  joined — cluster tiling or free-floating field — once their `app_id` arrives. Most games
+  request `xdg_toplevel set_fullscreen` themselves; this mirrors it for the ones that don't,
+  so a launched game goes fullscreen without an extra step while still joining the cluster
+  like any other window.
 - Draw a tinted cluster glyph on a cluster core's bearing chip instead of the app-icon
   fallback box + first letter, independent of `node-show-app-icons`.
 
@@ -150,6 +155,20 @@ All notable changes to this project will be documented in this file.
   card motion between selections, while keeping the existing bounded snapshot prewarm behavior.
 - Open Apogee on every active monitor at once, with each monitor showing only its own windows and
   cluster cores, and close all monitor views together when selecting a target.
+- Apogee now always renders the field overview, even when a cluster workspace is open. Previously
+  opening Apogee over an opened cluster expanded the cluster's member tiles into the mosaic (a
+  workspace view); the opened cluster is now shown collapsed as a single core icon while the
+  regular field windows hidden behind the workspace reappear at their field positions. The
+  per-window "select a cluster member in Apogee to promote it to master" behaviour has been
+  removed along with it, since cluster members are no longer surfaced as Apogee tiles.
+- Apogee cluster cores now always show their label beneath the icon. Hovering or
+  keyboard-focusing a core dissolves the icon away in place and expands the tile into a
+  small live window into that cluster: each member's real offscreen thumbnail is laid out
+  just like the cluster's workspace (master + stack for tiling, layered cards for stacking,
+  with a "+N" tail for overflow). The Apogee core band grew slightly to reserve room for the
+  expanded viewport, so the window mosaic starts lower and the hovered cluster expands in
+  place rather than as a detached popover. Member textures are kept warm, so collapsed
+  clusters preview immediately.
 - Rework Apogee preview capture so each active monitor fills missing snapshots in small batches,
   prioritizes the hovered live preview, and rate-limits live refreshes to keep the overview
   responsive with many windows.
@@ -500,6 +519,17 @@ All notable changes to this project will be documented in this file.
   `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE` because the compositor never bound its EGL display
   to the Wayland display, so Mesa's EGL Wayland platform had no server-side `wl_drm`
   infrastructure. The TTY and winit backends now call `bind_wl_display` at startup.
+- Maximize and fullscreen camera zoom now eases on the same fixed `ease_in_out_cubic` as the
+  window grow/shrink instead of the exponential zoom smoothing, whose asymptotic tail made
+  the grow/shrink visibly "stick" near the end (worse the further the zoom had to settle).
+- Fix exact-fullscreen rendering filling only the top-left of the output with black margins on
+  entry from a zoomed-out camera (worst on XWayland/Steam, where buffer geometry also lags):
+  once the grow animation ends the live buffer is scaled to fill the output directly, instead
+  of via `visual_size * cam_scale` while the camera is still easing to 1.0.
+- Closing a fullscreened cluster member (e.g. surface destroy) now restores the monitor
+  camera target and re-lays out the cluster workspace, matching the `Mod+F` exit path.
+  Previously the camera stayed anchored on the deleted node and the subsequent re-layout
+  projected surviving members offscreen.
 
 ## [v0.4.0] - 2026-06-12
 

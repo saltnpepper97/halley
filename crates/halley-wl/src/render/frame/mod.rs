@@ -37,8 +37,8 @@ use crate::window::{
 };
 use draw::{
     FrameBlurContext, draw_apogee_aperture_layers, draw_apogee_background_layers,
-    draw_cursor_layer, draw_debug_frame_scene, draw_scene_below_windows,
-    draw_scene_windows_and_hud,
+    draw_closing_window_animations, draw_cursor_layer, draw_debug_frame_scene,
+    draw_scene_below_windows, draw_scene_windows_and_hud,
 };
 use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame_state};
 
@@ -334,6 +334,16 @@ pub(crate) fn draw_debug_frame_to_target(
             collect_layer_surfaces(renderer, st, size, prepared.now);
         let cursor = draw_software_cursor
             .then(|| collect_cursor_scene(renderer, cursor_screen, cursor_image));
+        let current_monitor = st.model.monitor_state.current_monitor.clone();
+        let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled()
+            || st.runtime.tuning.cluster_animation_enabled()
+        {
+            st.ui
+                .render_state
+                .closing_window_animation_snapshots(current_monitor.as_str(), prepared.now)
+        } else {
+            Vec::new()
+        };
 
         // Optional backdrop blur for overlay chrome (apogee tile labels). Mirrors
         // the main path's FrameBlurContext setup; no layer mask is needed here.
@@ -411,6 +421,13 @@ pub(crate) fn draw_debug_frame_to_target(
                 },
             )?;
         }
+        draw_closing_window_animations(
+            &mut frame,
+            size,
+            prepared.damage,
+            &closing_window_animations,
+            st,
+        )?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_background)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_bottom)?;
         draw_apogee_aperture_layers(&mut frame, prepared.damage, &layer_top)?;
@@ -659,12 +676,24 @@ pub(crate) fn draw_debug_frame_to_target(
             prepared.now,
         );
         let total_ms = crate::perf::elapsed_ms(start);
-        if total_ms > budget_ms || tile_anim {
+        // Flag frames that coincide with a fullscreen grow/shrink so the
+        // fullscreen-at-new-zoom stutter is unambiguous in the log, along with the
+        // live camera zoom (the stutter is reported as zoom-level dependent).
+        let fs_anim = st
+            .model
+            .fullscreen_state
+            .fullscreen_scale_anim
+            .values()
+            .any(|anim| anim.monitor == current_monitor);
+        let cam_zoom = crate::compositor::monitor::camera::camera_render_scale(st);
+        if total_ms > budget_ms || tile_anim || fs_anim {
             eventline::warn!(
-                "perf frame took={:.2}ms budget={:.2} tile_anim={} (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
+                "perf frame took={:.2}ms budget={:.2} tile_anim={} fs_anim={} cam_zoom={:.3} (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
                 total_ms,
                 budget_ms,
                 tile_anim,
+                fs_anim,
+                cam_zoom,
                 prewarm_ms.unwrap_or_default(),
                 collect_ms.unwrap_or_default(),
                 resources_ms.unwrap_or_default(),
