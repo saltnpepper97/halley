@@ -31,6 +31,7 @@ smithay = { git = "https://github.com/Smithay/smithay.git", rev = "ff5fa7df392ce
   "renderer_gl",
   "renderer_multi",
   "wayland_frontend",
+  "use_system_lib",
   "desktop",
 ] }
 calloop = "0.14.4"

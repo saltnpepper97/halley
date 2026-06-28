@@ -24,7 +24,7 @@ pub(crate) fn apply_hover_focus_mode(
     if !hover_focus_enabled(
         st.runtime.tuning.input.focus_mode,
         blocked,
-        crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st),
+        crate::compositor::monitor::layer_shell::layer_keyboard_focus_is_modal(st),
     ) {
         return;
     }

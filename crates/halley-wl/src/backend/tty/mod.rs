@@ -8,6 +8,7 @@ mod stats;
 use super::*;
 
 use crate::input::ctx::InputCtx;
+use smithay::backend::renderer::ImportEgl;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -817,6 +818,23 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 &drm_probe.gpu_manager,
                 drm_probe.primary_render_node,
             ));
+            {
+                let mut gpu_manager = drm_probe.gpu_manager.borrow_mut();
+                match gpu_manager.single_renderer(&drm_probe.primary_render_node) {
+                    Ok(mut renderer) => match renderer.as_mut().bind_wl_display(&dh) {
+                        Ok(_) => eventline::info!(
+                            "EGL hardware acceleration for Wayland clients enabled"
+                        ),
+                        Err(err) => eventline::warn!(
+                            "failed to enable EGL hardware acceleration for Wayland clients: {err}"
+                        ),
+                    },
+                    Err(err) => eventline::warn!(
+                        "failed to borrow primary renderer for EGL Wayland binding: {:?}",
+                        err
+                    ),
+                }
+            }
             if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(&drm_probe.primary_dev_fd) {
                 state.platform.drm_syncobj_state = Some(
                     smithay::wayland::drm_syncobj::DrmSyncobjState::new::<Halley>(

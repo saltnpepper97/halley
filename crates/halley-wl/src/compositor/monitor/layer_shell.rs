@@ -757,6 +757,77 @@ pub(crate) fn keyboard_focus_is_lift_layer_surface(st: &Halley) -> bool {
         .is_some_and(|focus| is_lift_layer_surface(st, &focus))
 }
 
+/// Returns true when the layer-shell surface that currently holds keyboard
+/// focus is **modal** — i.e. it should block hover-focus and compositor
+/// shortcuts the way a launcher or lock screen does.
+///
+/// Returns true for:
+/// - The Lift launcher (`halley-lift` namespace)
+/// - Layer surfaces with `KeyboardInteractivity::Exclusive`
+/// - Session lock surfaces
+///
+/// Returns false for persistent shells that use `OnDemand` interactivity
+/// (e.g. Quickshell/Noctalia panels) so that hover-focus and compositor
+/// shortcuts continue to work while the shell is present.
+pub(crate) fn layer_keyboard_focus_is_modal(st: &Halley) -> bool {
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        return true;
+    }
+    let Some(focus_id) = st.model.monitor_state.layer_keyboard_focus.as_ref() else {
+        // No tracked layer keyboard focus — but also check the seat's actual
+        // current focus in case state drifted. If the seat focus is not on a
+        // layer surface at all, there is nothing modal.
+        return false;
+    };
+    if st
+        .model
+        .monitor_state
+        .layer_surface_namespace
+        .get(focus_id)
+        .is_some_and(|ns| ns == HALLEY_LIFT_LAYER_NAMESPACE)
+    {
+        return true;
+    }
+    let exclusive = st
+        .platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .find_map(|layer| {
+            (layer.wl_surface().id() == *focus_id)
+                .then_some(layer_cached_state(&layer).keyboard_interactivity)
+        })
+        .is_some_and(|i| i == KeyboardInteractivity::Exclusive);
+    exclusive
+}
+
+/// Returns true when a layer-shell pointer hit should suppress desktop hover
+/// focus. Persistent shells (Quickshell/Noctalia panels) often keep an OnDemand
+/// layer surface alive for the whole session; treating every such hit as modal
+/// makes `input.focus-mode "hover"` unusable. Only modal layer roles should
+/// block hover focus behind them.
+pub(crate) fn layer_surface_blocks_desktop_hover(st: &Halley, surface: &WlSurface) -> bool {
+    let Some(root) = layer_surface_root_for_surface(st, surface) else {
+        return false;
+    };
+    if st
+        .model
+        .monitor_state
+        .layer_surface_namespace
+        .get(&root.id())
+        .is_some_and(|ns| ns == HALLEY_LIFT_LAYER_NAMESPACE)
+    {
+        return true;
+    }
+    st.platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .find_map(|layer| {
+            (layer.wl_surface().id() == root.id())
+                .then_some(layer_cached_state(&layer).keyboard_interactivity)
+        })
+        .is_some_and(|i| i == KeyboardInteractivity::Exclusive)
+}
+
 fn layer_focus_surface(st: &Halley) -> Option<WlSurface> {
     let focus_id = st.model.monitor_state.layer_keyboard_focus.clone()?;
     st.platform

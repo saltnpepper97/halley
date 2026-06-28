@@ -162,7 +162,7 @@ fn click_focus_mode_keeps_hover_focus_disabled() {
 }
 
 #[test]
-fn hover_focus_gate_disables_focus_follows_mouse_while_layer_shell_is_active() {
+fn hover_focus_gate_disables_focus_follows_mouse_while_modal_layer_shell_is_active() {
     assert!(!super::focus::hover_focus_enabled(
         InputFocusMode::Hover,
         false,

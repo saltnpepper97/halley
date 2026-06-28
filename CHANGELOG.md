@@ -275,6 +275,13 @@ All notable changes to this project will be documented in this file.
   non-linear 175ms crossfade (texture eases in, bridge lingers then fades out). Real client
   content is fully suppressed until the client has committed the target-size buffer — no
   stretched textures, no missing bottom halves, no abrupt size snaps.
+- Enable EGL hardware acceleration for Wayland clients by binding the compositor's EGL
+  display to the Wayland display via `bind_wl_display` in both the TTY/DRM and winit
+  backends. This creates the `wl_drm` global and calls `eglBindWaylandDisplayWL`, which
+  Mesa's client-side EGL Wayland platform requires. Without it, GPU-accelerated clients
+  (Qt/EGL apps such as Quickshell, GL applications, Electron) could not create EGL
+  surfaces and crashed with `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE`; only software
+  (`wl_shm`) rendering worked. Requires Smithay's `use_system_lib` feature, now enabled.
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
@@ -478,6 +485,17 @@ All notable changes to this project will be documented in this file.
   independent state — real window content is hidden entirely during travel and expand, and only
   appears via a non-linear crossfade during reveal, so stale client pixels are never scaled or
   snapped into the new slot.
+- Fix hover-focus (`input.focus-mode "hover"`) being permanently disabled when a persistent
+  layer-shell client such as Quickshell/Noctalia was running. Halley previously blocked
+  hover-focus whenever *any* layer-shell surface held keyboard focus or was hit by the
+  pointer, treating persistent shells the same as modal launchers. Layer surfaces are now
+  classified: only modal roles (the Lift launcher, `KeyboardInteractivity::Exclusive`, session
+  lock) block hover-focus; `OnDemand` persistent shells do not, so moving the mouse over
+  windows correctly focuses them even while a panel or bar has keyboard focus.
+- Fix GPU-accelerated Wayland clients (Quickshell, Qt/EGL apps) crashing under Halley with
+  `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE` because the compositor never bound its EGL display
+  to the Wayland display, so Mesa's EGL Wayland platform had no server-side `wl_drm`
+  infrastructure. The TTY and winit backends now call `bind_wl_display` at startup.
 
 ## [v0.4.0] - 2026-06-12
 
