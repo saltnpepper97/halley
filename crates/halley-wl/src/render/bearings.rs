@@ -205,7 +205,7 @@ pub(crate) fn ensure_bearing_icon_resources(
             .then_some(id)
         })
         .collect::<Vec<_>>();
-    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids.into_iter())
+    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids)
 }
 
 pub(crate) fn collect_bearing_layouts(

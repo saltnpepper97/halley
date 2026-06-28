@@ -384,10 +384,8 @@ pub(crate) fn commit_focus_cycle(st: &mut Halley, now: Instant) -> bool {
             })
         {
             let _ = st.raise_overlap_policy_node(target);
-            let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
-                st, target, now,
-            );
-            changed
+
+            crate::compositor::actions::window::focus_surface_node_without_reveal(st, target, now)
         } else {
             crate::compositor::actions::window::focus_from_presentation_navigation(st, target, now)
                 || crate::compositor::actions::window::focus_or_reveal_surface_node(st, target, now)

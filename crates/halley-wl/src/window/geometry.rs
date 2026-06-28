@@ -312,7 +312,10 @@ mod tests {
         assert!((w - 200.0).abs() < 1e-6, "width cropped to dst aspect");
         assert!((x - 100.0).abs() < 1e-6, "centered horizontally");
         assert!((y - 0.0).abs() < 1e-6);
-        assert!((aspect(w, h) - 1.0).abs() < 1e-3, "src now matches dst aspect");
+        assert!(
+            (aspect(w, h) - 1.0).abs() < 1e-3,
+            "src now matches dst aspect"
+        );
     }
 
     #[test]
@@ -322,7 +325,10 @@ mod tests {
         let (x, y, w, h) = cover_crop_src(0.0, 0.0, 200.0, 400.0, 200, 100);
         assert!((w - 200.0).abs() < 1e-6, "full width kept");
         assert!((h - 100.0).abs() < 1e-6, "height cropped to dst aspect");
-        assert!((x - 0.0).abs() < 1e-6 && (y - 0.0).abs() < 1e-6, "top-left anchored");
+        assert!(
+            (x - 0.0).abs() < 1e-6 && (y - 0.0).abs() < 1e-6,
+            "top-left anchored"
+        );
         assert!((aspect(w, h) - 2.0).abs() < 1e-3);
     }
 }

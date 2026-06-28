@@ -985,7 +985,7 @@ impl Field {
 
         let core_id = match existing_core {
             Some(cid) => {
-                if !self.nodes.contains_key(&cid) {
+                self.nodes.entry(cid).or_insert_with(|| {
                     let core = Node {
                         id: cid,
                         kind: NodeKind::Core,
@@ -1001,8 +1001,8 @@ impl Field {
                         last_touch_ms: 0,
                         decay: DecayLevel::Hot,
                     };
-                    self.nodes.insert(cid, core);
-                }
+                    core
+                });
                 cid
             }
             None => {

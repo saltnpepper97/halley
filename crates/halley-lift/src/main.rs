@@ -608,11 +608,11 @@ impl LiftApp {
             return;
         }
         let (mode, _) = self.effective_search();
-        if mode == LiftMode::Clusters {
-            if matches!(result.kind, LiftResultKind::App | LiftResultKind::Node) {
-                self.toggle_selected();
-                return;
-            }
+        if mode == LiftMode::Clusters
+            && matches!(result.kind, LiftResultKind::App | LiftResultKind::Node)
+        {
+            self.toggle_selected();
+            return;
         }
         match activate_result(&self.index, &result) {
             Ok(()) => self.exit("activate"),
@@ -801,10 +801,9 @@ impl LiftApp {
                 if !self.modifiers.ctrl
                     && !self.modifiers.alt
                     && let Some(text) = event.utf8.as_deref()
+                    && !text.chars().any(char::is_control)
                 {
-                    if !text.chars().any(char::is_control) {
-                        self.handle_text(text);
-                    }
+                    self.handle_text(text);
                 }
             }
         }
@@ -927,10 +926,11 @@ impl SeatHandler for LiftApp {
                 self.keyboard = Some(keyboard);
             }
         }
-        if capability == Capability::Pointer && self.pointer.is_none() {
-            if let Ok(pointer) = self.seat_state.get_pointer(qh, &seat) {
-                self.pointer = Some(pointer);
-            }
+        if capability == Capability::Pointer
+            && self.pointer.is_none()
+            && let Ok(pointer) = self.seat_state.get_pointer(qh, &seat)
+        {
+            self.pointer = Some(pointer);
         }
     }
     fn remove_capability(

@@ -168,11 +168,8 @@ impl Halley {
         self.input.interaction_state.apogee_live_preview_last_at = None;
         self.ui.render_state.view.apogee_core_hover_mix.clear();
         let monitor_names = apogee_monitor_names(self);
-        let collapsed_clusters = collapse_active_cluster_workspaces_for_apogee(
-            self,
-            monitor_names.as_slice(),
-            now,
-        );
+        let collapsed_clusters =
+            collapse_active_cluster_workspaces_for_apogee(self, monitor_names.as_slice(), now);
         let mut monitors = Vec::new();
         let mut has_content = false;
         for monitor in monitor_names {
@@ -469,7 +466,8 @@ pub(crate) fn apogee_render_pending(st: &Halley) -> bool {
     }
     // A cluster core is mid expand/collapse: keep drawing so the in-place
     // viewport cross-fade animates instead of snapping.
-    if st.ui
+    if st
+        .ui
         .render_state
         .view
         .apogee_core_hover_mix
@@ -853,7 +851,10 @@ pub(crate) fn apogee_navigate(
     best.map(|(_, id)| id).or_else(|| {
         // Nothing in the travel direction: only seed from the nearest tile when the
         // cursor isn't already on a tile (so a dead-end press at an edge is a no-op).
-        exclude.is_none().then(|| nearest.map(|(_, id)| id)).flatten()
+        exclude
+            .is_none()
+            .then(|| nearest.map(|(_, id)| id))
+            .flatten()
     })
 }
 
@@ -861,13 +862,18 @@ pub(crate) fn apogee_navigate(
 /// No-op for window tiles. Run after navigation lands on a (possibly scrolled-off) core,
 /// before warping the cursor to it.
 pub(crate) fn apogee_reveal_tile(st: &mut Halley, node_id: NodeId) {
-    let monitor = st.input.interaction_state.apogee_session.as_ref().and_then(|session| {
-        session
-            .monitors
-            .iter()
-            .find(|ms| ms.core_tiles.iter().any(|tile| tile.node_id == node_id))
-            .map(|ms| ms.monitor.clone())
-    });
+    let monitor = st
+        .input
+        .interaction_state
+        .apogee_session
+        .as_ref()
+        .and_then(|session| {
+            session
+                .monitors
+                .iter()
+                .find(|ms| ms.core_tiles.iter().any(|tile| tile.node_id == node_id))
+                .map(|ms| ms.monitor.clone())
+        });
     if let Some(monitor) = monitor {
         apogee_reveal_core(st, monitor.as_str(), node_id);
     }
@@ -1031,15 +1037,15 @@ fn restore_apogee_collapsed_cluster(
     if st.model.field.cluster_id_for_core_public(collapsed.core_id) != Some(collapsed.cluster_id) {
         return false;
     }
-    let core_rect = st
-        .model
-        .field
-        .node(collapsed.core_id)
-        .map(|core| crate::animation::ClusterTileAnimRect {
-            center: core.pos,
-            size: core.footprint,
-            alpha: 0.0,
-        });
+    let core_rect =
+        st.model
+            .field
+            .node(collapsed.core_id)
+            .map(|core| crate::animation::ClusterTileAnimRect {
+                center: core.pos,
+                size: core.footprint,
+                alpha: 0.0,
+            });
     for member in &collapsed.members {
         st.ui.render_state.remove_closing_window_animation(*member);
     }
@@ -1082,8 +1088,8 @@ fn seed_apogee_cluster_restore_animation(
         && let Some(from) = core_rect
     {
         for member in &collapsed.members {
-            if let Some(target) = st
-                .active_cluster_tile_rect_for_member(collapsed.monitor.as_str(), *member)
+            if let Some(target) =
+                st.active_cluster_tile_rect_for_member(collapsed.monitor.as_str(), *member)
             {
                 crate::animation::set_cluster_tile_target_from_anim_rect(
                     st.ui.render_state.cluster_tile_tracks_mut(),
@@ -1100,12 +1106,7 @@ fn seed_apogee_cluster_restore_animation(
         return;
     }
     for member in &collapsed.members {
-        crate::compositor::workspace::state::mark_active_transition(
-            st,
-            *member,
-            now,
-            duration_ms,
-        );
+        crate::compositor::workspace::state::mark_active_transition(st, *member, now, duration_ms);
     }
 }
 
@@ -1236,7 +1237,15 @@ fn build_apogee_tiles(
             w: (core_footprint.x * scale_x).max(8.0),
             h: (core_footprint.y * scale_y).max(8.0),
         };
-        core_raw.push((core_id, ApogeeTileKind::Core, false, core_pos, 1.0, 0.15, from));
+        core_raw.push((
+            core_id,
+            ApogeeTileKind::Core,
+            false,
+            core_pos,
+            1.0,
+            0.15,
+            from,
+        ));
     }
 
     // Surface an active cluster workspace's overflow-bar members as window tiles.
@@ -1250,7 +1259,8 @@ fn build_apogee_tiles(
         && matches!(
             crate::compositor::clusters::system::active_cluster_layout_kind(st),
             halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-        ) && let Some(overflow_ids) = st
+        )
+        && let Some(overflow_ids) = st
             .model
             .cluster_state
             .cluster_overflow_members
@@ -2427,7 +2437,10 @@ mod tests {
         assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
 
         state.open_apogee(now);
-        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
 
         let session = state
             .input
@@ -2444,14 +2457,13 @@ mod tests {
 
         // The opened cluster's members are NOT surfaced as window tiles — it is
         // shown collapsed, as a single core icon in the core rail.
-        assert!(monitor
-            .tiles
-            .iter()
-            .all(|tile| tile.node_id != master && tile.node_id != stack));
-        assert!(monitor
-            .core_tiles
-            .iter()
-            .any(|tile| tile.node_id == core));
+        assert!(
+            monitor
+                .tiles
+                .iter()
+                .all(|tile| tile.node_id != master && tile.node_id != stack)
+        );
+        assert!(monitor.core_tiles.iter().any(|tile| tile.node_id == core));
 
         // The detached standalone field window reappears at its field position:
         // Apogee renders the field overview, not the workspace.
@@ -2490,7 +2502,10 @@ mod tests {
         assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
 
         state.open_apogee(now);
-        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
         select_apogee_target(&mut state, target, now);
         let close_duration = state
             .input
@@ -2501,7 +2516,10 @@ mod tests {
             .duration;
         state.tick_apogee(now + close_duration + std::time::Duration::from_millis(50));
 
-        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(target)
@@ -2534,7 +2552,10 @@ mod tests {
         assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
 
         state.open_apogee(now);
-        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
         select_apogee_target(&mut state, core, now);
         let close_duration = state
             .input
@@ -2570,7 +2591,9 @@ mod tests {
         );
         state.assign_node_to_monitor(member, "monitor_a");
         state.assign_node_to_monitor(sibling, "monitor_a");
-        let cid = state.create_cluster(vec![member, sibling]).expect("cluster");
+        let cid = state
+            .create_cluster(vec![member, sibling])
+            .expect("cluster");
         let core = state.collapse_cluster(cid).expect("core");
         state.assign_node_to_monitor(core, "monitor_a");
         state.ui.render_state.start_closing_window_animation(

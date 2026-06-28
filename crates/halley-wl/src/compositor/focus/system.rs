@@ -201,7 +201,10 @@ pub fn apply_wayland_focus_state(st: &mut Halley, id: Option<NodeId>) {
     // merely moving the pointer into a soft-suspended game's area doesn't yank it back
     // to fullscreen. Deliberate selection — a click, alt+tab, or apogee pick — leaves
     // the flag clear and resumes the session here.
-    if !st.input.interaction_state.suppress_fullscreen_resume_on_focus
+    if !st
+        .input
+        .interaction_state
+        .suppress_fullscreen_resume_on_focus
         && let Some(fid) = focus_id
         && node_is_suspended_fullscreen(st, fid)
     {

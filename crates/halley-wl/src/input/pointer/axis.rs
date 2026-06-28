@@ -163,7 +163,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     if exit_confirm::active(&*st) {
         return;
     }
-    if screenshot::screenshot_session_active(&mut *st) {
+    if screenshot::screenshot_session_active(&*st) {
         return;
     }
     if crate::compositor::portal_chooser::portal_chooser_active(&*st) {
@@ -445,15 +445,16 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             return;
         }
 
-        if pointer.current_focus().is_none() {
-            if let Some(focus) = target_focus {
-                if locked_surface.is_none() {
-                    let location = if crate::compositor::monitor::layer_shell::is_layer_surface_tree(
-                        st, &focus.0,
-                    )
+        if pointer.current_focus().is_none()
+            && let Some(focus) = target_focus
+        {
+            if locked_surface.is_none() {
+                let location =
+                    if crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, &focus.0)
                         || crate::protocol::wayland::session_lock::is_session_lock_surface(
                             st, &focus.0,
-                        ) {
+                        )
+                    {
                         (context.local_sx as f64, context.local_sy as f64).into()
                     } else {
                         let cam_scale = st.camera_render_scale() as f64;
@@ -463,28 +464,27 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                         )
                             .into()
                     };
-                    pointer.motion(
-                        st,
-                        Some(focus),
-                        &MotionEvent {
-                            location,
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: now_millis_u32(),
-                        },
-                    );
-                } else {
-                    // Locked, just set the focus without motion events if possible
-                    // Smithay usually needs motion() to set focus.
-                    pointer.motion(
-                        st,
-                        Some((locked_surface.unwrap(), pointer.current_location())),
-                        &MotionEvent {
-                            location: pointer.current_location(),
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: now_millis_u32(),
-                        },
-                    );
-                }
+                pointer.motion(
+                    st,
+                    Some(focus),
+                    &MotionEvent {
+                        location,
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: now_millis_u32(),
+                    },
+                );
+            } else {
+                // Locked, just set the focus without motion events if possible
+                // Smithay usually needs motion() to set focus.
+                pointer.motion(
+                    st,
+                    Some((locked_surface.unwrap(), pointer.current_location())),
+                    &MotionEvent {
+                        location: pointer.current_location(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: now_millis_u32(),
+                    },
+                );
             }
         }
         if pointer.current_focus().is_some() {

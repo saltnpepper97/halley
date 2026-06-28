@@ -17,8 +17,8 @@ use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::window::{
-    ActiveBorderRect, CroppedClippedSurfaceElement,
-    OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect, collect_active_surfaces,
+    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
+    WindowShadowRect, collect_active_surfaces,
 };
 
 pub(super) type SurfaceElement =
@@ -249,7 +249,6 @@ pub(super) fn collect_debug_frame_scene(
         .nodes()
         .keys()
         .copied()
-        .into_iter()
         .filter_map(|id| {
             let node = st.model.field.node(id)?;
             if crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*st, id)

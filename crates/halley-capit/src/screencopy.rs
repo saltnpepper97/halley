@@ -170,7 +170,6 @@ impl CaptureApp {
         let mut out = self
             .output_state
             .outputs()
-            .into_iter()
             .filter_map(|output| {
                 let info = self.output_state.info(&output)?;
                 Some((
@@ -179,8 +178,8 @@ impl CaptureApp {
                         name: info.name.clone(),
                         x: info.logical_position.map(|(x, _)| x).unwrap_or(0),
                         y: info.logical_position.map(|(_, y)| y).unwrap_or(0),
-                        width: info.logical_size.map(|(w, _)| w as i32).unwrap_or(0),
-                        height: info.logical_size.map(|(_, h)| h as i32).unwrap_or(0),
+                        width: info.logical_size.map(|(w, _)| w).unwrap_or(0),
+                        height: info.logical_size.map(|(_, h)| h).unwrap_or(0),
                         scale: info.scale_factor.max(1),
                     },
                 ))

@@ -167,10 +167,10 @@ fn ensure_app_icon_resource(
     Ok(())
 }
 
-pub(crate) fn node_app_icon_entry<'a>(
-    st: &'a Halley,
+pub(crate) fn node_app_icon_entry(
+    st: &Halley,
     node_id: halley_core::field::NodeId,
-) -> Option<&'a NodeAppIconCacheEntry> {
+) -> Option<&NodeAppIconCacheEntry> {
     st.model
         .node_app_ids
         .get(&node_id)

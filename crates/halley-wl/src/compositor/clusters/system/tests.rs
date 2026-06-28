@@ -1130,14 +1130,16 @@ fn tiled_cluster_reflow_grow_holds_then_morphs_from_old_size() {
         .expect("old stack rect");
     let old_visual = crate::animation::cluster_tile_rect_from_field(&st.model.field, stack_a)
         .expect("old visual stack rect");
-    st.ui.render_state.cache.window_geometry.insert(
-        stack_a,
-        (0.0, 0.0, old_rect.w, old_rect.h),
-    );
-    st.ui.render_state.cache.window_geometry.insert(
-        stack_b,
-        (0.0, 0.0, old_rect.w, old_rect.h),
-    );
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(stack_a, (0.0, 0.0, old_rect.w, old_rect.h));
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(stack_b, (0.0, 0.0, old_rect.w, old_rect.h));
 
     assert!(super::detach_member_from_cluster(
         &mut st,
@@ -1171,20 +1173,22 @@ fn tiled_cluster_reflow_grow_holds_then_morphs_from_old_size() {
 
     // Commit the bigger buffer, then run the layout again: the hold releases into a
     // real morph that targets the new master size but starts from the old size.
-    st.ui.render_state.cache.window_geometry.insert(
-        stack_a,
-        (0.0, 0.0, target_size.x, target_size.y),
-    );
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(stack_a, (0.0, 0.0, target_size.x, target_size.y));
     let stack_b_target = st
         .model
         .field
         .node(stack_b)
         .expect("remaining stack node")
         .intrinsic_size;
-    st.ui.render_state.cache.window_geometry.insert(
-        stack_b,
-        (0.0, 0.0, stack_b_target.x, stack_b_target.y),
-    );
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(stack_b, (0.0, 0.0, stack_b_target.x, stack_b_target.y));
     st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
 
     let morph_target = crate::animation::cluster_tile_target_rect(
@@ -1240,9 +1244,7 @@ fn tiled_cluster_reflow_shrink_morphs_from_old_size_immediately() {
     for id in [master, slave_a, slave_b] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, slave_a])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, slave_a]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     let now = Instant::now();
@@ -1259,14 +1261,16 @@ fn tiled_cluster_reflow_shrink_morphs_from_old_size_immediately() {
     let master_rect = st
         .active_cluster_tile_rect_for_member("monitor_a", master)
         .expect("master rect");
-    st.ui.render_state.cache.window_geometry.insert(
-        slave_a,
-        (0.0, 0.0, slave_a_full.w, slave_a_full.h),
-    );
-    st.ui.render_state.cache.window_geometry.insert(
-        master,
-        (0.0, 0.0, master_rect.w, master_rect.h),
-    );
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(slave_a, (0.0, 0.0, slave_a_full.w, slave_a_full.h));
+    st.ui
+        .render_state
+        .cache
+        .window_geometry
+        .insert(master, (0.0, 0.0, master_rect.w, master_rect.h));
 
     // Add a third window: slave_a now shares the column and must shrink.
     assert!(super::absorb_node_into_cluster(&mut st, cid, slave_b, now));

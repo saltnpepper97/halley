@@ -181,37 +181,30 @@ pub(super) fn resolve_node_selector(
 ) -> Result<NodeId, ApiError> {
     let requested_output = output.map(|name| validate_output(st, name)).transpose()?;
     match selector {
-        None => resolve_default_node(st, requested_output.as_deref()),
-        Some(NodeSelector::Focused) => resolve_focused_node(st, requested_output.as_deref()),
-        Some(NodeSelector::Latest) => resolve_latest_node(st, requested_output.as_deref()),
-        Some(NodeSelector::Id(id)) => resolve_node_match(
-            st,
-            requested_output.as_deref(),
-            &format!("id:{id}"),
-            |node_id| node_id.as_u64() == *id,
-        ),
-        Some(NodeSelector::Title(text)) => resolve_node_match(
-            st,
-            requested_output.as_deref(),
-            &format!("title:{text}"),
-            |node_id| {
+        None => resolve_default_node(st, requested_output),
+        Some(NodeSelector::Focused) => resolve_focused_node(st, requested_output),
+        Some(NodeSelector::Latest) => resolve_latest_node(st, requested_output),
+        Some(NodeSelector::Id(id)) => {
+            resolve_node_match(st, requested_output, &format!("id:{id}"), |node_id| {
+                node_id.as_u64() == *id
+            })
+        }
+        Some(NodeSelector::Title(text)) => {
+            resolve_node_match(st, requested_output, &format!("title:{text}"), |node_id| {
                 st.model
                     .field
                     .node(node_id)
                     .is_some_and(|node| contains_case_insensitive(node.label.as_str(), text))
-            },
-        ),
-        Some(NodeSelector::App(text)) => resolve_node_match(
-            st,
-            requested_output.as_deref(),
-            &format!("app:{text}"),
-            |node_id| {
+            })
+        }
+        Some(NodeSelector::App(text)) => {
+            resolve_node_match(st, requested_output, &format!("app:{text}"), |node_id| {
                 st.model
                     .node_app_ids
                     .get(&node_id)
                     .is_some_and(|app_id| contains_case_insensitive(app_id.as_str(), text))
-            },
-        ),
+            })
+        }
     }
 }
 

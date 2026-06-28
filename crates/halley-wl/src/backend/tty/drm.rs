@@ -1144,12 +1144,10 @@ pub(crate) fn select_tty_scanouts(
             && enc_info.crtc() == Some(crtc)
             && let Ok(crtc_info) = dev.get_crtc(crtc)
             && let Some(current_mode) = crtc_info.mode()
+            && current_mode.size() == selected_mode.size()
+            && current_mode.vrefresh() == selected_mode.vrefresh()
         {
-            if current_mode.size() == selected_mode.size()
-                && current_mode.vrefresh() == selected_mode.vrefresh()
-            {
-                selected_mode = current_mode;
-            }
+            selected_mode = current_mode;
         }
 
         used_crtcs.insert(crtc);
@@ -1487,8 +1485,7 @@ pub(crate) fn queue_tty_drm_frame(
                         1.0,
                         Kind::Unspecified,
                     )
-                    .into_iter()
-                    .map(Into::into),
+                    .into_iter(),
                 );
                 match compositor.render_frame(
                     renderer_ref,
@@ -1949,8 +1946,7 @@ fn render_tty_direct_elements(
             1.0,
             surface_kind,
         )
-        .into_iter()
-        .map(Into::into),
+        .into_iter(),
     );
     Ok(elements)
 }
@@ -1989,7 +1985,6 @@ fn direct_scanout_cursor_elements(
                     Kind::Cursor,
                 )
                 .into_iter()
-                .map(Into::into)
                 .collect(),
             )
         }
@@ -2235,12 +2230,12 @@ fn active_surface_frontmost_on_monitor(
         {
             return true;
         }
-        if !st
+        if st
             .model
             .monitor_state
             .node_monitor
             .get(&other_id)
-            .is_some_and(|monitor| monitor == output_name)
+            .is_none_or(|monitor| monitor != output_name)
         {
             return true;
         }

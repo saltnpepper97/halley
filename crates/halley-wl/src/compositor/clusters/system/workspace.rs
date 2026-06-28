@@ -44,7 +44,8 @@ pub(super) fn clear_cluster_shell_state(st: &mut Halley, cid: ClusterId) {
         .cluster_state
         .active_cluster_workspaces
         .iter()
-        .filter_map(|(monitor, active_cid)| (*active_cid == cid).then(|| monitor.clone()))
+        .filter(|&(monitor, active_cid)| (*active_cid == cid))
+        .map(|(monitor, active_cid)| monitor.clone())
         .collect::<Vec<_>>();
     for monitor in &active_monitors {
         for id in st
@@ -269,7 +270,12 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
     // Defense-in-depth: tear down any fullscreen still active on a member before
     // the workspace collapses, so collapsing a cluster never leaves dangling
     // fullscreen state pointing at a node that ends up collapsed under a core.
-    if let Some(members) = st.model.field.cluster(plan.cid).map(|c| c.members().to_vec()) {
+    if let Some(members) = st
+        .model
+        .field
+        .cluster(plan.cid)
+        .map(|c| c.members().to_vec())
+    {
         for member in members {
             if st.is_fullscreen_session_node(member) {
                 st.exit_xdg_fullscreen(member, now);
@@ -284,7 +290,9 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
     // reverse of apogee fanning windows out. Captured here, started after restore
     // so the core's on-screen position is known in the restored viewport.
     let close_duration_ms = match active_cluster_layout_kind(st) {
-        ClusterWorkspaceLayoutKind::Stacking => st.runtime.tuning.cluster_stacking_close_duration_ms(),
+        ClusterWorkspaceLayoutKind::Stacking => {
+            st.runtime.tuning.cluster_stacking_close_duration_ms()
+        }
         ClusterWorkspaceLayoutKind::Tiling => st.runtime.tuning.cluster_tiling_close_duration_ms(),
     };
     let close_style = st.runtime.tuning.window_close_style();
@@ -496,7 +504,7 @@ pub(crate) fn update_tiled_cluster_animation_targets(
         // *shrink* holds the old (bigger) capture and downscales it. Classify "bigger
         // on both axes" as a grow; pure shrink (and the rare mixed case) hold the old
         // capture, so treat them as a shrink.
-        let grows = current_rect.map_or(true, |rect| {
+        let grows = current_rect.is_none_or(|rect| {
             placement.rect.w >= rect.size.x - 0.5 && placement.rect.h >= rect.size.y - 0.5
         });
         let visible_reflow = !entering
@@ -623,7 +631,10 @@ fn visible_tile_waits_for_committed_resize(
     if !rect_size_changed(current, placement.rect) {
         return false;
     }
-    !surface_size_ready(visible_surface_sizes.get(&placement.node_id), placement.rect)
+    !surface_size_ready(
+        visible_surface_sizes.get(&placement.node_id),
+        placement.rect,
+    )
 }
 
 pub(crate) fn current_surface_size_map_for_members(

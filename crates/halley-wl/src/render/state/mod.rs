@@ -197,11 +197,7 @@ impl RenderState {
     /// can cross-fade the icon into the cluster viewport.
     pub(crate) fn apogee_core_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
         let target = if hovered { 1.0 } else { 0.0 };
-        let mix = self
-            .view
-            .apogee_core_hover_mix
-            .entry(id)
-            .or_insert(target);
+        let mix = self.view.apogee_core_hover_mix.entry(id).or_insert(target);
         let k = if hovered { 0.22 } else { 0.16 };
         *mix += (target - *mix) * k;
         if (*mix - target).abs() < 0.005 {
@@ -415,7 +411,10 @@ impl RenderState {
         else {
             return false;
         };
-        let ClosingWindowAnimationKind::Window { pull_to: target, .. } = &mut state.kind else {
+        let ClosingWindowAnimationKind::Window {
+            pull_to: target, ..
+        } = &mut state.kind
+        else {
             return false;
         };
         *target = Some(pull_to);
@@ -485,9 +484,9 @@ impl RenderState {
                 (now.saturating_duration_since(anim.started_at).as_millis() as u64)
                     < LANDMARK_SLIDE_DURATION_MS
                     && field.is_visible(id)
-                    && !node_monitor
+                    && node_monitor
                         .get(&id)
-                        .is_some_and(|node_monitor| node_monitor != monitor)
+                        .is_none_or(|node_monitor| node_monitor == monitor)
             })
     }
 

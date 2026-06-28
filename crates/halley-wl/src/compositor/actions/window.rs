@@ -878,16 +878,16 @@ pub(crate) fn toggle_node_state(
         }
     }
 
-    if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
-        if st.active_cluster_workspace_for_monitor(focused_monitor) == Some(cid) {
-            // A fullscreen member must be torn down before the workspace collapses,
-            // otherwise fullscreen state is left pointing at a node that gets
-            // collapsed under a core (corrupt, unexitable session).
-            if st.is_fullscreen_session_node(id) {
-                st.exit_xdg_fullscreen(id, now);
-            }
-            return st.collapse_active_cluster_workspace(now);
+    if let Some(cid) = st.model.field.cluster_id_for_member_public(id)
+        && st.active_cluster_workspace_for_monitor(focused_monitor) == Some(cid)
+    {
+        // A fullscreen member must be torn down before the workspace collapses,
+        // otherwise fullscreen state is left pointing at a node that gets
+        // collapsed under a core (corrupt, unexitable session).
+        if st.is_fullscreen_session_node(id) {
+            st.exit_xdg_fullscreen(id, now);
         }
+        return st.collapse_active_cluster_workspace(now);
     }
 
     match n.state {

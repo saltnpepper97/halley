@@ -668,8 +668,8 @@ pub(crate) fn collect_active_surfaces(
                 .map(|cache| (cache.key.width, cache.key.height));
             let size_changed =
                 cached_size.is_some_and(|(cw, ch)| cw != bbox.size.w || ch != bbox.size.h);
-            let live_smaller_than_cache = cached_size
-                .is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
+            let live_smaller_than_cache =
+                cached_size.is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
             let hold_bigger_capture =
                 tiling_tile_transition.is_some() && size_changed && live_smaller_than_cache;
             let defer = defer_offscreen_rebuild && (!size_changed || hold_bigger_capture);

@@ -430,19 +430,10 @@ impl Default for BlurConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct EffectsConfig {
     pub blur: BlurConfig,
     pub shadows: ShadowsConfig,
-}
-
-impl Default for EffectsConfig {
-    fn default() -> Self {
-        Self {
-            blur: BlurConfig::default(),
-            shadows: ShadowsConfig::default(),
-        }
-    }
 }
 
 /// Whether a compositor-owned overlay should be drawn with backdrop blur.
@@ -574,7 +565,7 @@ mod blur_policy_tests {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct DecorationsConfig {
     pub border: PrimaryBorderConfig,
     pub secondary_border: SecondaryBorderConfig,
@@ -666,16 +657,6 @@ impl Default for ShadowsConfig {
     }
 }
 
-impl Default for DecorationsConfig {
-    fn default() -> Self {
-        Self {
-            border: PrimaryBorderConfig::default(),
-            secondary_border: SecondaryBorderConfig::default(),
-            resize_using_border: false,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PanToNewMode {
     Never,
@@ -760,21 +741,11 @@ impl Default for PlacementRevealConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct PlacementConfig {
     pub expanded: ExpandedPlacementConfig,
     pub landmarks: LandmarkPlacementConfig,
     pub reveal: PlacementRevealConfig,
-}
-
-impl Default for PlacementConfig {
-    fn default() -> Self {
-        Self {
-            expanded: ExpandedPlacementConfig::default(),
-            landmarks: LandmarkPlacementConfig::default(),
-            reveal: PlacementRevealConfig::default(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

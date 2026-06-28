@@ -31,8 +31,7 @@ use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
 use crate::render::layer_shell::LayerSurfaceRenderGroup;
 use crate::render::shadow::draw_shadow_rect;
 use crate::window::{
-    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit,
-    WindowShadowRect,
+    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect,
 };
 
 pub(crate) struct FrameBlurContext<'a> {
@@ -250,7 +249,7 @@ pub(super) fn draw_scene_below_windows(
         frame,
         prepared.damage,
         &scene.layer_bottom_elements,
-        blur_ctx.as_deref_mut(),
+        blur_ctx,
     )?;
 
     // Node/core markers used to be drawn here, beneath windows, which let a window
@@ -530,11 +529,7 @@ pub(super) fn draw_scene_windows_and_hud(
         )?;
     }
 
-    let overlay_blur_ctx = if overlay_blur_enabled {
-        blur_ctx.as_deref_mut()
-    } else {
-        None
-    };
+    let overlay_blur_ctx = if overlay_blur_enabled { blur_ctx } else { None };
     crate::overlay::with_overlay_blur_context(overlay_blur_ctx, || {
         draw_monitor_hud(frame, st, size.w, size.h, prepared.damage, prepared.now)
     })?;
@@ -566,10 +561,9 @@ pub(super) fn draw_layer_groups(
     for group in groups {
         if group.blur
             && let Some(ctx) = blur_ctx.as_deref_mut()
+            && let Err(err) = ctx.draw_layer_group_blur(frame, damage, group)
         {
-            if let Err(err) = ctx.draw_layer_group_blur(frame, damage, group) {
-                eventline::warn!("layer-shell blur skipped this frame: {err}");
-            }
+            eventline::warn!("layer-shell blur skipped this frame: {err}");
         }
         let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
     }
@@ -741,7 +735,11 @@ fn draw_closing_window_shrink(
         // drift, then accelerates and collapses tightly onto the core node in the
         // final stretch. Plain window closes keep the symmetric ease-in-out.
         let pulling = pull_to.is_some();
-        let shrink_curve = if pulling { p * p } else { crate::animation::ease_in_out_cubic(p) };
+        let shrink_curve = if pulling {
+            p * p
+        } else {
+            crate::animation::ease_in_out_cubic(p)
+        };
         // Travel is even more back-loaded (t^3) than the shrink, so the window
         // rushes into the node right as it vanishes — selling the "sucked in" feel.
         let pull_t = pull_to.map(|_| p * p * p);
@@ -754,12 +752,14 @@ fn draw_closing_window_shrink(
         // Fold in the window's live scale/alpha at close time so the tween continues seamlessly
         // from the open animation instead of snapping to full size.
         let (scale, alpha) = match style {
-            halley_config::WindowCloseAnimationStyle::Shrink => {
-                (start_scale * (1.0 - shrink_curve).clamp(0.0, 1.0), *start_alpha)
-            }
-            halley_config::WindowCloseAnimationStyle::Fade => {
-                (*start_scale, start_alpha * (1.0 - shrink_curve).clamp(0.0, 1.0))
-            }
+            halley_config::WindowCloseAnimationStyle::Shrink => (
+                start_scale * (1.0 - shrink_curve).clamp(0.0, 1.0),
+                *start_alpha,
+            ),
+            halley_config::WindowCloseAnimationStyle::Fade => (
+                *start_scale,
+                start_alpha * (1.0 - shrink_curve).clamp(0.0, 1.0),
+            ),
         };
         if scale <= 0.001 || alpha <= 0.001 {
             continue;
@@ -1062,12 +1062,11 @@ fn draw_hover_preview(
     damage: Rectangle<i32, Physical>,
     scene: &SceneCollections,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
-    if let Some(card) = scene.hover_preview_card {
-        if let Err(err) =
+    if let Some(card) = scene.hover_preview_card
+        && let Err(err) =
             draw_overlay_hover_preview_card(frame, st, card.rect, card.node_id, card.alpha, damage)
-        {
-            eventline::warn!("hover preview card skipped this frame: {err}");
-        }
+    {
+        eventline::warn!("hover preview card skipped this frame: {err}");
     }
 
     Ok(())

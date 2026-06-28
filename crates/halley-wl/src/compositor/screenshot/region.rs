@@ -91,9 +91,8 @@ fn screenshot_window_capture_screen_rect(
     let (mut left, mut top, mut right, mut bottom) =
         active_node_screen_rect(st, width, height, node_id, now, None)?;
     let fullscreen_on_monitor = st.fullscreen_monitor_for_node(node_id) == Some(monitor);
-    let stacked_on_monitor = active_stacking_visible_members_for_monitor(st, monitor)
-        .iter()
-        .any(|&visible_id| visible_id == node_id);
+    let stacked_on_monitor =
+        active_stacking_visible_members_for_monitor(st, monitor).contains(&node_id);
     if fullscreen_on_monitor || stacked_on_monitor {
         return Some((left, top, right, bottom));
     }

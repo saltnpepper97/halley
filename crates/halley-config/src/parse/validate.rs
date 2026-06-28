@@ -484,7 +484,7 @@ impl ConfigSchema {
 
     fn scalar_allowed(&self, path: &str) -> bool {
         self.scalars.contains(path)
-            || viewport_output_path(path).is_some_and(|rest| viewport_output_scalar_allowed(rest))
+            || viewport_output_path(path).is_some_and(viewport_output_scalar_allowed)
             || input_device_setting_key(path).is_some_and(input_device_setting_key_allowed)
             || input_gesture_swipe_binding_key(path).is_some()
             || input_apogee_gesture_swipe_binding_key(path).is_some()

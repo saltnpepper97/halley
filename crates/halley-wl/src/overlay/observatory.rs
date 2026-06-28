@@ -373,7 +373,6 @@ fn stacking_member_slots(n: usize) -> (Vec<MemberSlot>, usize) {
     (slots, overflow)
 }
 
-
 fn draw_tile_label(
     frame: &mut GlesFrame<'_, '_>,
     overlay: &OverlayView<'_>,
@@ -508,10 +507,7 @@ fn expanded_core_rect(
     let target_h = EXPANDED_CORE_H.min(screen_h.max(1) as f32 * 0.20);
     let w = lerp_f32(rest_w, target_w, mix).round().max(1.0) as i32;
     let h = lerp_f32(rest_h, target_h, mix).round().max(1.0) as i32;
-    Rectangle::<i32, Physical>::new(
-        (cx - w / 2, cy - h / 2).into(),
-        (w, h).into(),
-    )
+    Rectangle::<i32, Physical>::new((cx - w / 2, cy - h / 2).into(), (w, h).into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -536,7 +532,9 @@ fn draw_core_tile(
     let viewport_alpha = alpha * mix;
 
     if icon_alpha > 0.01 {
-        draw_core_icon(frame, st, overlay, visuals, tile, slot_rect, hovered, icon_alpha, damage)?;
+        draw_core_icon(
+            frame, st, overlay, visuals, tile, slot_rect, hovered, icon_alpha, damage,
+        )?;
     }
 
     // The expanded rect is always computed so the label slides down with it.
@@ -636,7 +634,12 @@ fn draw_core_icon(
         1,
         rect.size.w - 10,
     );
-    let (text_w, text_h) = ui_text_size_in(overlay.render_state, &overlay.tuning.font, label.as_str(), 1);
+    let (text_w, text_h) = ui_text_size_in(
+        overlay.render_state,
+        &overlay.tuning.font,
+        label.as_str(),
+        1,
+    );
     draw_ui_text_in(
         frame,
         overlay.render_state,
@@ -650,7 +653,6 @@ fn draw_core_icon(
     )?;
     Ok(())
 }
-
 
 /// Always-on compact name chip beneath a core tile. Strengthens slightly on
 /// hover/focus so the expanded cluster's label reads clearly, but stays
@@ -679,8 +681,12 @@ fn draw_core_persistent_label(
         1,
         max_w - 14,
     );
-    let (text_w, text_h) =
-        ui_text_size_in(overlay.render_state, &overlay.tuning.font, label.as_str(), 1);
+    let (text_w, text_h) = ui_text_size_in(
+        overlay.render_state,
+        &overlay.tuning.font,
+        label.as_str(),
+        1,
+    );
     let chip_w = (text_w + 14).clamp(40, max_w);
     let chip_h = (text_h + 8).clamp(18, 26);
     let chip = Rectangle::<i32, Physical>::new(
@@ -896,7 +902,6 @@ fn draw_member_thumbnail(
     Ok(())
 }
 
-
 pub(crate) fn draw_observatory(
     frame: &mut GlesFrame<'_, '_>,
     st: &mut Halley,
@@ -908,51 +913,65 @@ pub(crate) fn draw_observatory(
     // Extract everything needed from the session up front so the immutable
     // borrow of `st` ends before the hover-mix advancement below mutates
     // `st.ui.render_state` (which the `OverlayView` would otherwise alias).
-    let (tiles, core_tiles, core_offset, progress, overlay_alpha, tile_alpha, phase_open, hovered_node, hovered_overlay_node) =
-        match st.input.interaction_state.apogee_session.as_ref() {
-            None => return Ok(false),
-            Some(session) => {
-                let current_monitor = st.model.monitor_state.current_monitor.clone();
-                let Some(monitor_session) = session.monitor_session(current_monitor.as_str())
-                else {
-                    return Ok(false);
-                };
-                let progress = ease_in_out_cubic(session.progress(now));
-                let overlay_alpha = match session.phase {
-                    ApogeePhase::Opening => progress,
-                    ApogeePhase::Open => 1.0,
-                    ApogeePhase::Closing => 1.0 - progress,
-                };
-                let tile_alpha = match session.phase {
-                    ApogeePhase::Opening => (0.35 + 0.65 * progress).clamp(0.0, 1.0),
-                    ApogeePhase::Open => 1.0,
-                    ApogeePhase::Closing => 1.0,
-                };
-                (
-                    monitor_session.tiles.clone(),
-                    monitor_session.core_tiles.clone(),
-                    monitor_session.core_scroll_offset,
-                    progress,
-                    overlay_alpha,
-                    tile_alpha,
-                    matches!(session.phase, ApogeePhase::Open),
-                    st.input.interaction_state.apogee_live_preview_node,
-                    st.input.interaction_state.apogee_hover_node,
-                )
-            }
-        };
+    let (
+        tiles,
+        core_tiles,
+        core_offset,
+        progress,
+        overlay_alpha,
+        tile_alpha,
+        phase_open,
+        hovered_node,
+        hovered_overlay_node,
+    ) = match st.input.interaction_state.apogee_session.as_ref() {
+        None => return Ok(false),
+        Some(session) => {
+            let current_monitor = st.model.monitor_state.current_monitor.clone();
+            let Some(monitor_session) = session.monitor_session(current_monitor.as_str()) else {
+                return Ok(false);
+            };
+            let progress = ease_in_out_cubic(session.progress(now));
+            let overlay_alpha = match session.phase {
+                ApogeePhase::Opening => progress,
+                ApogeePhase::Open => 1.0,
+                ApogeePhase::Closing => 1.0 - progress,
+            };
+            let tile_alpha = match session.phase {
+                ApogeePhase::Opening => (0.35 + 0.65 * progress).clamp(0.0, 1.0),
+                ApogeePhase::Open => 1.0,
+                ApogeePhase::Closing => 1.0,
+            };
+            (
+                monitor_session.tiles.clone(),
+                monitor_session.core_tiles.clone(),
+                monitor_session.core_scroll_offset,
+                progress,
+                overlay_alpha,
+                tile_alpha,
+                matches!(session.phase, ApogeePhase::Open),
+                st.input.interaction_state.apogee_live_preview_node,
+                st.input.interaction_state.apogee_hover_node,
+            )
+        }
+    };
 
     // Advance each core's expand/collapse mix. Only the hovered/keyboard-focused
     // core trends toward 1.0 (and only while the overview is fully open); every
     // other core decays back to its resting icon.
-    let hovered_core_id = if phase_open { hovered_overlay_node } else { None };
+    let hovered_core_id = if phase_open {
+        hovered_overlay_node
+    } else {
+        None
+    };
     let mut core_mixes: std::collections::HashMap<NodeId, f32> =
         std::collections::HashMap::with_capacity(core_tiles.len());
     for tile in &core_tiles {
         let hovered = hovered_core_id == Some(tile.node_id);
         core_mixes.insert(
             tile.node_id,
-            st.ui.render_state.apogee_core_hover_mix(tile.node_id, hovered),
+            st.ui
+                .render_state
+                .apogee_core_hover_mix(tile.node_id, hovered),
         );
     }
 
@@ -994,18 +1013,8 @@ pub(crate) fn draw_observatory(
             continue;
         }
         draw_core_tile(
-            frame,
-            &*st,
-            &overlay,
-            &visuals,
-            tile,
-            rect,
-            tile_alpha,
-            hovered,
-            mix,
-            screen_w,
-            screen_h,
-            damage,
+            frame, &*st, &overlay, &visuals, tile, rect, tile_alpha, hovered, mix, screen_w,
+            screen_h, damage,
         )?;
     }
 
@@ -1030,18 +1039,8 @@ pub(crate) fn draw_observatory(
     // The expanding core draws last so its viewport floats above the rail.
     if let Some((tile, rect, hovered, mix)) = deferred_core {
         draw_core_tile(
-            frame,
-            &*st,
-            &overlay,
-            &visuals,
-            &tile,
-            rect,
-            tile_alpha,
-            hovered,
-            mix,
-            screen_w,
-            screen_h,
-            damage,
+            frame, &*st, &overlay, &visuals, &tile, rect, tile_alpha, hovered, mix, screen_w,
+            screen_h, damage,
         )?;
     }
 

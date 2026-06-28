@@ -479,10 +479,12 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
     } else if crate::protocol::wayland::session_lock::is_session_lock_surface(st, &root_surface) {
         crate::protocol::wayland::session_lock::monitor_for_surface(st, &root_surface)
-    } else if let Some(monitor) = st.model.monitor_state.layer_surface_monitor.get(&root_key) {
-        Some(monitor.clone())
     } else {
-        None
+        st.model
+            .monitor_state
+            .layer_surface_monitor
+            .get(&root_key)
+            .map(|monitor| monitor.clone())
     }
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
     st.request_tty_redraw_for_monitor(target_monitor.as_str());

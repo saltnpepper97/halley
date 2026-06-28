@@ -118,7 +118,9 @@ pub enum CompositorBindingAction {
     /// after wandering the field.
     CenterLastFocused,
     FocusCycle(FocusCycleBindingAction),
-    Quit { requires_shift: bool },
+    Quit {
+        requires_shift: bool,
+    },
     ZoomIn,
     ZoomOut,
     ZoomReset,

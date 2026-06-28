@@ -360,10 +360,10 @@ pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> 
 /// (`NAMESPACE` in `crates/halley-lift/src/main.rs`) follows the cursor; every
 /// other namespace falls back to the current (focused) monitor.
 fn assigned_monitor_for_no_output(st: &Halley, namespace: &str) -> String {
-    if namespace == "halley-lift" {
-        if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
-            return st.monitor_for_screen_or_current(sx, sy);
-        }
+    if namespace == "halley-lift"
+        && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+    {
+        return st.monitor_for_screen_or_current(sx, sy);
     }
     st.model.monitor_state.current_monitor.clone()
 }
@@ -561,7 +561,7 @@ pub(crate) fn layer_output_size_for_monitor(st: &Halley, monitor_name: &str) -> 
         .monitor_state
         .monitors
         .get(monitor_name)
-        .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
+        .map(|monitor| (monitor.width, monitor.height).into())
         .unwrap_or_else(|| {
             (
                 st.model.zoom_ref_size.x.round().max(1.0) as i32,
@@ -818,16 +818,15 @@ pub(crate) fn layer_keyboard_focus_is_modal(st: &Halley) -> bool {
     {
         return true;
     }
-    let exclusive = st
-        .platform
+
+    st.platform
         .wlr_layer_shell_state
         .layer_surfaces()
         .find_map(|layer| {
             (layer.wl_surface().id() == *focus_id)
                 .then_some(layer_cached_state(&layer).keyboard_interactivity)
         })
-        .is_some_and(|i| i == KeyboardInteractivity::Exclusive);
-    exclusive
+        .is_some_and(|i| i == KeyboardInteractivity::Exclusive)
 }
 
 /// Returns true when a layer-shell pointer hit should suppress desktop hover

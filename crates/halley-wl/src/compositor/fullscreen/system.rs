@@ -308,8 +308,14 @@ mod tests {
         assert_eq!(anim.to_pos, Vec2 { x: 140.0, y: 150.0 });
         assert_eq!(anim.to_size, Vec2 { x: 800.0, y: 600.0 });
         // The camera is retargeted to centre on the window at zoom 1.0.
-        assert_eq!(state.model.camera_target_center, Vec2 { x: 140.0, y: 150.0 });
-        assert_eq!(state.model.camera_target_view_size, Vec2 { x: 800.0, y: 600.0 });
+        assert_eq!(
+            state.model.camera_target_center,
+            Vec2 { x: 140.0, y: 150.0 }
+        );
+        assert_eq!(
+            state.model.camera_target_view_size,
+            Vec2 { x: 800.0, y: 600.0 }
+        );
     }
 
     #[test]
@@ -806,14 +812,16 @@ mod tests {
         tuning.cluster_default_layout = ClusterDefaultLayout::Stacking;
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let card = state
-            .model
-            .field
-            .spawn_surface("card", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let card = state.model.field.spawn_surface(
+            "card",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(card, "monitor_a");
         let cid = state.create_cluster(vec![master, card]).expect("cluster");
@@ -823,16 +831,16 @@ mod tests {
 
         let now = Instant::now();
         state.set_interaction_focus(Some(master), 30_000, now);
-        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
-            &mut state
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
         assert!(
             state.is_fullscreen_active(master),
             "master should be fullscreen in a stacking cluster"
         );
-        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
-            &mut state
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
         assert!(!state.is_fullscreen_session_node(master));
     }
 
@@ -846,14 +854,16 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let stack = state
-            .model
-            .field
-            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(stack, "monitor_a");
         let cid = state.create_cluster(vec![master, stack]).expect("cluster");
@@ -868,7 +878,10 @@ mod tests {
             "",
             "",
         );
-        assert!(applied, "ToggleFullscreen action should apply in a cluster workspace");
+        assert!(
+            applied,
+            "ToggleFullscreen action should apply in a cluster workspace"
+        );
         assert!(
             state.is_fullscreen_active(master),
             "master should be fullscreen after the ToggleFullscreen action"
@@ -892,14 +905,16 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let stack = state
-            .model
-            .field
-            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(stack, "monitor_a");
         let cid = state.create_cluster(vec![master, stack]).expect("cluster");
@@ -911,16 +926,22 @@ mod tests {
         state.set_interaction_focus(Some(master), 30_000, now);
 
         // Enter fullscreen via the keybind path.
-        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
-            &mut state
-        ));
-        assert!(state.is_fullscreen_active(master), "master should be fullscreen after keybind");
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        assert!(
+            state.is_fullscreen_active(master),
+            "master should be fullscreen after keybind"
+        );
 
         // Exit fullscreen via the keybind path.
-        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
-            &mut state
-        ));
-        assert!(!state.is_fullscreen_session_node(master), "master should exit fullscreen");
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        assert!(
+            !state.is_fullscreen_session_node(master),
+            "master should exit fullscreen"
+        );
     }
 
     #[test]
@@ -949,14 +970,26 @@ mod tests {
         assert!(!state.is_fullscreen_active(node));
         assert!(state.is_fullscreen_session_node(node));
 
-        assert!(crate::compositor::actions::window::toggle_focused_fullscreen_node_state(
-            &mut state
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(760));
 
         assert!(!state.is_fullscreen_session_node(node));
-        assert!(state.model.fullscreen_state.fullscreen_active_node.is_empty());
-        assert!(state.model.fullscreen_state.fullscreen_suspended_node.is_empty());
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .is_empty()
+        );
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .is_empty()
+        );
         assert!(state.model.fullscreen_state.fullscreen_restore.is_empty());
     }
 
@@ -965,14 +998,16 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let stack = state
-            .model
-            .field
-            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(stack, "monitor_a");
         let cid = state.create_cluster(vec![master, stack]).expect("cluster");
@@ -1020,14 +1055,16 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let stack = state
-            .model
-            .field
-            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(stack, "monitor_a");
         let cid = state.create_cluster(vec![master, stack]).expect("cluster");
@@ -1054,7 +1091,11 @@ mod tests {
 
         // Closing the fullscreen member must restore the camera and unhide
         // siblings, mirroring `exit_xdg_fullscreen_inner`.
-        drop_fullscreen_surface(&mut state, master, now + std::time::Duration::from_millis(40));
+        drop_fullscreen_surface(
+            &mut state,
+            master,
+            now + std::time::Duration::from_millis(40),
+        );
 
         assert_eq!(state.model.camera_target_view_size, zoomed);
         assert!(
@@ -1079,14 +1120,16 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
-        let master = state
-            .model
-            .field
-            .spawn_surface("master", Vec2 { x: 100.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
-        let stack = state
-            .model
-            .field
-            .spawn_surface("stack", Vec2 { x: 300.0, y: 100.0 }, Vec2 { x: 320.0, y: 240.0 });
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
         state.assign_node_to_monitor(master, "monitor_a");
         state.assign_node_to_monitor(stack, "monitor_a");
         let cid = state.create_cluster(vec![master, stack]).expect("cluster");
@@ -1108,9 +1151,18 @@ mod tests {
         ));
 
         assert!(!state.is_fullscreen_session_node(master));
-        assert!(state.model.fullscreen_state.fullscreen_active_node.is_empty());
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .is_empty()
+        );
         assert!(state.model.fullscreen_state.fullscreen_restore.is_empty());
-        assert_eq!(state.active_cluster_workspace_for_monitor("monitor_a"), None);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
         let _ = cid;
     }
 
@@ -1190,24 +1242,30 @@ mod tests {
             .intrinsic_size;
 
         // Maximize the window.
-        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
-            &mut state,
-            target,
-            now,
-            "monitor_a"
-        ));
-        assert!(crate::compositor::workspace::state::maximize_session_active_on_monitor(
-            &state,
-            "monitor_a"
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                now,
+                "monitor_a"
+            )
+        );
+        assert!(
+            crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
 
         // Fullscreening the same window must abort the maximize session (mutual
         // exclusivity per monitor), not preserve it underneath.
         state.enter_xdg_fullscreen(target, None, now + std::time::Duration::from_millis(20));
-        assert!(!crate::compositor::workspace::state::maximize_session_active_on_monitor(
-            &state,
-            "monitor_a"
-        ));
+        assert!(
+            !crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
         assert!(state.is_fullscreen_active(target));
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
 
@@ -1219,10 +1277,12 @@ mod tests {
         let restored = state.model.field.node(target).expect("target");
         assert_eq!(restored.pos, original_pos);
         assert_eq!(restored.intrinsic_size, original_size);
-        assert!(!crate::compositor::workspace::state::maximize_session_active_on_monitor(
-            &state,
-            "monitor_a"
-        ));
+        assert!(
+            !crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
         assert!(!restored.pinned);
     }
 
@@ -1248,9 +1308,14 @@ mod tests {
             .intrinsic_size;
 
         // 1. maximize
-        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
-            &mut state, target, now, "monitor_a"
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                now,
+                "monitor_a"
+            )
+        );
         // Simulate the real client whose committed surface geometry lags behind: the
         // `window_geometry` cache still reports a large (maximized/fullscreen) size that
         // the client has not yet shrunk. This is captured as the fullscreen restore's
@@ -1268,21 +1333,25 @@ mod tests {
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
         assert!(state.is_fullscreen_active(target));
         // 3. maximize again (must exit fullscreen, re-snapshot the *windowed* size)
-        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
-            &mut state,
-            target,
-            now + std::time::Duration::from_millis(300),
-            "monitor_a"
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                now + std::time::Duration::from_millis(300),
+                "monitor_a"
+            )
+        );
         assert!(!state.is_fullscreen_active(target));
         state.tick_fullscreen_motion(now + std::time::Duration::from_millis(560));
         // 4. unmaximize
-        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
-            &mut state,
-            target,
-            now + std::time::Duration::from_millis(600),
-            "monitor_a"
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                now + std::time::Duration::from_millis(600),
+                "monitor_a"
+            )
+        );
 
         let restored = state.model.field.node(target).expect("target");
         assert_eq!(restored.pos, original_pos, "pos must return to windowed");
@@ -1319,17 +1388,21 @@ mod tests {
         assert!(state.is_fullscreen_active(a));
 
         // Maximizing window B must exit A's fullscreen (mutual exclusivity).
-        assert!(crate::compositor::actions::window::toggle_node_maximize_state(
-            &mut state,
-            b,
-            now + std::time::Duration::from_millis(300),
-            "monitor_a"
-        ));
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                b,
+                now + std::time::Duration::from_millis(300),
+                "monitor_a"
+            )
+        );
         assert!(!state.is_fullscreen_active(a));
-        assert!(crate::compositor::workspace::state::maximize_session_active_on_monitor(
-            &state,
-            "monitor_a"
-        ));
+        assert!(
+            crate::compositor::workspace::state::maximize_session_active_on_monitor(
+                &state,
+                "monitor_a"
+            )
+        );
     }
 }
 
@@ -1635,9 +1708,7 @@ fn exit_xdg_fullscreen_inner(
     // Invalidate the offscreen texture so the next capture (Apogee/Alt+Tab or the
     // main render path) rebuilds it at the post-fullscreen geometry instead of
     // reusing the fullscreen-sized snapshot for a now-windowed surface.
-    st.ui
-        .render_state
-        .clear_window_offscreen_cache_for(node_id);
+    st.ui.render_state.clear_window_offscreen_cache_for(node_id);
 
     st.model
         .fullscreen_state
@@ -1937,8 +2008,7 @@ fn restore_cluster_workspace_after_fullscreen(st: &mut Halley, node_id: NodeId, 
         return;
     };
     let monitor = st.monitor_for_node_or_current(node_id);
-    let workspace_still_active =
-        st.active_cluster_workspace_for_monitor(&monitor) == Some(cid);
+    let workspace_still_active = st.active_cluster_workspace_for_monitor(&monitor) == Some(cid);
     st.model
         .fullscreen_state
         .fullscreen_hidden_cluster_siblings
@@ -2066,12 +2136,13 @@ fn enter_fullscreen(
     // Also capture the maximized window's current on-screen rect before the abort, so
     // the fullscreen grow eases from the maximized rect up to full-screen instead of
     // snapping to the small windowed size first (the abort restores windowed geometry).
-    let maximize_pre_visual = crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
-        st,
-        node_id,
-        monitor_name.as_str(),
-        now,
-    );
+    let maximize_pre_visual =
+        crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+            st,
+            node_id,
+            monitor_name.as_str(),
+            now,
+        );
     if crate::compositor::workspace::state::maximize_session_active_on_monitor(
         st,
         monitor_name.as_str(),
@@ -2111,9 +2182,7 @@ fn enter_fullscreen(
     // self-heals on size change (`ensure_window_offscreen_cache` → `matches_size`).
     // NOTE: this does NOT fix the live field render — that corruption is the scale
     // math using stale CSD geometry, handled by `render_window_geometry_for_node`.
-    st.ui
-        .render_state
-        .clear_window_offscreen_cache_for(node_id);
+    st.ui.render_state.clear_window_offscreen_cache_for(node_id);
 
     // Animate the monitor camera to centre on the window AND ease the zoom to 1.0
     // together, so the window grows in place to fill the screen. The old behaviour

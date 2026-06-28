@@ -295,7 +295,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     if pressed {
         st.input.interaction_state.keys_physically_down.insert(code);
     } else {
-        st.input.interaction_state.keys_physically_down.remove(&code);
+        st.input
+            .interaction_state
+            .keys_physically_down
+            .remove(&code);
     }
     handle_keyboard_input_inner(st, ctx, code, pressed);
     reconcile_forwarded_keys(st);
@@ -371,7 +374,7 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
         }
     }
 
-    if screenshot::screenshot_session_active(&mut *st) {
+    if screenshot::screenshot_session_active(&*st) {
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
@@ -644,9 +647,7 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
                     // truth: warping it drives the same hover path the mouse uses, and
                     // updates the pointer accumulator so a later physical move continues
                     // from here — one focus, not two.
-                    if let Some(target) =
-                        crate::compositor::overview::apogee_navigate(st, dir)
-                    {
+                    if let Some(target) = crate::compositor::overview::apogee_navigate(st, dir) {
                         crate::compositor::overview::apogee_reveal_tile(st, target);
                         if let Some((gsx, gsy)) =
                             crate::compositor::overview::apogee_tile_global_center(st, target)
@@ -847,12 +848,11 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
     } else {
         let mut ms = ctx.mod_state.borrow_mut();
         let intercepted = ms.intercepted_keys.remove(&code);
-        if intercepted {
-            if let Some(action) = ms.intercepted_compositor_actions.remove(&code)
-                && apply_compositor_action_release(st, action)
-            {
-                ctx.backend.request_redraw();
-            }
+        if intercepted
+            && let Some(action) = ms.intercepted_compositor_actions.remove(&code)
+            && apply_compositor_action_release(st, action)
+        {
+            ctx.backend.request_redraw();
         }
         intercepted
     };

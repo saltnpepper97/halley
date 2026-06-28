@@ -47,7 +47,10 @@ impl<'a> OverlayView<'a> {
     /// still be treated as fullscreen, i.e. no CSD-geometry crop).
     pub(crate) fn node_is_fullscreen(&self, node_id: NodeId) -> bool {
         self.fullscreen_active.values().any(|&n| n == node_id)
-            || self.fullscreen_soft_suspended.values().any(|&n| n == node_id)
+            || self
+                .fullscreen_soft_suspended
+                .values()
+                .any(|&n| n == node_id)
     }
 
     pub(crate) fn cluster_overflow_visible_for_monitor(&self, monitor: &str, now_ms: u64) -> bool {

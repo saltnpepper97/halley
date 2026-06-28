@@ -350,14 +350,18 @@ pub(crate) fn draw_debug_frame_to_target(
         // `blur_textures` is taken from `gpu` for the frame and restored after
         // `finish` so it isn't reallocated every frame.
         let blur_cfg = st.runtime.tuning.effects.blur;
-        let blur_ready = halley_config::overlay_blur_enabled(
-            &blur_cfg,
-            &st.runtime.tuning.overlay_style,
-        ) && !st.ui.render_state.gpu.blur_programs_failed
-            && st.ui.render_state.gpu.blur_down_program.is_some()
-            && st.ui.render_state.gpu.blur_up_program.is_some()
-            && st.ui.render_state.gpu.blur_composite_program.is_some()
-            && st.ui.render_state.gpu.blur_composite_masked_program.is_some();
+        let blur_ready =
+            halley_config::overlay_blur_enabled(&blur_cfg, &st.runtime.tuning.overlay_style)
+                && !st.ui.render_state.gpu.blur_programs_failed
+                && st.ui.render_state.gpu.blur_down_program.is_some()
+                && st.ui.render_state.gpu.blur_up_program.is_some()
+                && st.ui.render_state.gpu.blur_composite_program.is_some()
+                && st
+                    .ui
+                    .render_state
+                    .gpu
+                    .blur_composite_masked_program
+                    .is_some();
         let down = st.ui.render_state.gpu.blur_down_program.clone();
         let up = st.ui.render_state.gpu.blur_up_program.clone();
         let composite = st.ui.render_state.gpu.blur_composite_program.clone();

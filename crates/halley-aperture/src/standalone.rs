@@ -213,11 +213,11 @@ impl StandaloneAperture {
             }
             AperturePlacement::Monitor => {
                 let monitor = self.runtime.config().monitor.clone();
-                if let Some(monitor) = monitor.as_deref() {
-                    if self.output_name_exists(monitor) {
-                        self.monitor_fallback_warned = false;
-                        return vec![Some(monitor.to_string())];
-                    }
+                if let Some(monitor) = monitor.as_deref()
+                    && self.output_name_exists(monitor)
+                {
+                    self.monitor_fallback_warned = false;
+                    return vec![Some(monitor.to_string())];
                 }
 
                 if !self.monitor_fallback_warned {
@@ -239,7 +239,6 @@ impl StandaloneAperture {
     fn output_names(&self) -> Vec<Option<String>> {
         self.output_state
             .outputs()
-            .into_iter()
             .filter_map(|output| self.output_state.info(&output))
             .filter_map(|info| info.name.clone().map(Some))
             .collect()
@@ -280,11 +279,11 @@ impl StandaloneAperture {
         self.status_modes = modes;
         self.runtime.set_mode(mode);
         let mode_changed = self.update_layer_modes();
-        let changed = self.desired_output_name != previous_output
+
+        self.desired_output_name != previous_output
             || mode != previous_mode
             || self.status_modes != previous_modes
-            || mode_changed;
-        changed
+            || mode_changed
     }
 
     fn update_layer_modes(&mut self) -> bool {

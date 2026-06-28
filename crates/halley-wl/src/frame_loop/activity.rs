@@ -318,12 +318,12 @@ fn node_icon_fade_active_for_monitor(st: &Halley, monitor: &str, now: Instant) -
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
         ) || !st.model.field.participates_in_field_view(id)
             || !st.model.field.is_visible(id)
-            || !st
+            || st
                 .model
                 .monitor_state
                 .node_monitor
                 .get(&id)
-                .is_some_and(|node_monitor| node_monitor == monitor)
+                .is_none_or(|node_monitor| node_monitor != monitor)
         {
             return false;
         }

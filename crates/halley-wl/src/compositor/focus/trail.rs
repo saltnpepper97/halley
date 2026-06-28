@@ -11,7 +11,7 @@ pub(crate) fn trail_for_monitor_mut<'a>(
         .focus_state
         .focus_trail
         .entry(monitor.to_string())
-        .or_insert_with(Trail::new)
+        .or_default()
 }
 
 pub(crate) fn record_focus_trail_visit(st: &mut Halley, id: NodeId) {

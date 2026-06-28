@@ -252,7 +252,7 @@ pub(crate) fn viewport_for_monitor(st: &Halley, monitor: &str) -> Option<Viewpor
     if st.model.monitor_state.current_monitor == monitor {
         return Some(Viewport::new(
             st.model.viewport.center,
-            crate::compositor::monitor::camera::camera_view_size(&*st),
+            crate::compositor::monitor::camera::camera_view_size(st),
         ));
     }
     st.model

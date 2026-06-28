@@ -359,8 +359,8 @@ pub(crate) fn cycle_active_cluster_layout_for_monitor(
     let previous_layout_kind = active_cluster_layout_kind(st);
     let tile_to_stack_transition =
         if matches!(previous_layout_kind, ClusterWorkspaceLayoutKind::Tiling) {
-            crate::compositor::clusters::read::plan_active_cluster_layout(st, monitor)
-                .map(|plan| {
+            crate::compositor::clusters::read::plan_active_cluster_layout(st, monitor).and_then(
+                |plan| {
                     let source_rects = plan
                         .tiles
                         .iter()
@@ -372,8 +372,8 @@ pub(crate) fn cycle_active_cluster_layout_for_monitor(
                         .map(|tile| tile.node_id)
                         .collect::<Vec<_>>();
                     (!source_rects.is_empty()).then_some((old_visible, source_rects))
-                })
-                .flatten()
+                },
+            )
         } else {
             None
         };
@@ -393,7 +393,7 @@ pub(crate) fn cycle_active_cluster_layout_for_monitor(
             .model
             .field
             .cluster(cid)
-            .map(|c| c.members().iter().copied().collect::<Vec<_>>())
+            .map(|c| c.members().to_vec())
             .unwrap_or_default();
         for member in members {
             let should_float = st

@@ -169,10 +169,10 @@ pub(super) fn monotonic_now_duration() -> Duration {
 }
 
 pub(super) fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
-    if let Some(metadata) = metadata {
-        if let DrmEventTime::Monotonic(timestamp) = metadata.time {
-            return timestamp;
-        }
+    if let Some(metadata) = metadata
+        && let DrmEventTime::Monotonic(timestamp) = metadata.time
+    {
+        return timestamp;
     }
 
     monotonic_now_duration()
