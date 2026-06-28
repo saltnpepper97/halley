@@ -476,9 +476,11 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             } else {
                 // Locked, just set the focus without motion events if possible
                 // Smithay usually needs motion() to set focus.
+                #[allow(clippy::unnecessary_unwrap)]
+                let locked = locked_surface.unwrap();
                 pointer.motion(
                     st,
-                    Some((locked_surface.unwrap(), pointer.current_location())),
+                    Some((locked, pointer.current_location())),
                     &MotionEvent {
                         location: pointer.current_location(),
                         serial: SERIAL_COUNTER.next_serial(),

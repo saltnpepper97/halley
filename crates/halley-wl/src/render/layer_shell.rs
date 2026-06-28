@@ -112,6 +112,7 @@ pub(crate) fn collect_layer_surfaces(
         );
         let mut layer_popups = Vec::new();
         let mut layer_popups_blur = false;
+        #[allow(clippy::mutable_key_type)]
         let mut rendered_popups = HashSet::new();
         let mut popups: Vec<_> = PopupManager::popups_for_surface(&placement.wl_surface).collect();
         popups.reverse();

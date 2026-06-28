@@ -1476,17 +1476,17 @@ pub(crate) fn queue_tty_drm_frame(
                     cursor_image,
                     &st.runtime.tuning.cursor,
                 )?;
-                elements.extend(
-                    render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-                        renderer_ref,
-                        &candidate.surface,
-                        candidate.surface_loc,
-                        1.0,
-                        1.0,
-                        Kind::Unspecified,
-                    )
-                    .into_iter(),
-                );
+                elements.extend(render_elements_from_surface_tree::<
+                    _,
+                    HalleyDirectScanoutElement,
+                >(
+                    renderer_ref,
+                    &candidate.surface,
+                    candidate.surface_loc,
+                    1.0,
+                    1.0,
+                    Kind::Unspecified,
+                ));
                 match compositor.render_frame(
                     renderer_ref,
                     &elements,
@@ -1937,17 +1937,10 @@ fn render_tty_direct_elements(
 ) -> Result<Vec<HalleyDirectScanoutElement>, Box<dyn Error>> {
     let mut elements =
         direct_scanout_cursor_elements(renderer, local_cursor, cursor_image, cursor_config)?;
-    elements.extend(
-        render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-            renderer,
-            surface,
-            surface_loc,
-            1.0,
-            1.0,
-            surface_kind,
-        )
-        .into_iter(),
-    );
+    elements.extend(render_elements_from_surface_tree::<
+        _,
+        HalleyDirectScanoutElement,
+    >(renderer, surface, surface_loc, 1.0, 1.0, surface_kind));
     Ok(elements)
 }
 

@@ -53,19 +53,13 @@ fn active_stacking_member_drop(
     ) {
         return None;
     }
-    let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
-        return None;
-    };
-    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id) else {
-        return None;
-    };
+    let cid = st.model.field.cluster_id_for_member_public(node_id)?;
+    let monitor = st.model.monitor_state.node_monitor.get(&node_id)?;
     if st.active_cluster_workspace_for_monitor(monitor.as_str()) != Some(cid) {
         return None;
     }
 
-    let Some(cluster) = st.model.field.cluster(cid) else {
-        return None;
-    };
+    let cluster = st.model.field.cluster(cid)?;
     let inside_stack = cluster.members().iter().copied().any(|member| {
         st.active_cluster_tile_rect_for_member(monitor.as_str(), member)
             .is_some_and(|rect| {

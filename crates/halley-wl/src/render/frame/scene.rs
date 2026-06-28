@@ -258,14 +258,7 @@ pub(super) fn collect_debug_frame_scene(
             {
                 return None;
             }
-            let pos = if matches!(
-                node.state,
-                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-            ) {
-                node.pos
-            } else {
-                node.pos
-            };
+            let pos = node.pos;
             Some(NodeSnapshot {
                 id,
                 state: node.state.clone(),

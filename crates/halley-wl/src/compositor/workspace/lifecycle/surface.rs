@@ -484,7 +484,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             .monitor_state
             .layer_surface_monitor
             .get(&root_key)
-            .map(|monitor| monitor.clone())
+            .cloned()
     }
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
     st.request_tty_redraw_for_monitor(target_monitor.as_str());

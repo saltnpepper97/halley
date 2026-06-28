@@ -523,9 +523,7 @@ pub(crate) fn take_presentation_feedback_for_output(
     st: &Halley,
     output_name: &str,
 ) -> Option<OutputPresentationFeedback> {
-    let Some(output) = st.model.monitor_state.outputs.get(output_name).cloned() else {
-        return None;
-    };
+    let output = st.model.monitor_state.outputs.get(output_name).cloned()?;
 
     let mut feedback = OutputPresentationFeedback::new(&output);
 

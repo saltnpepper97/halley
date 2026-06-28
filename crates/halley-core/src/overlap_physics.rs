@@ -88,9 +88,8 @@ pub fn resolve_contact_pair(
         return;
     }
 
-    let normal_impulse = (-(1.0 + CONTACT_RESTITUTION) * rel_normal / total_inv)
-        .min(MAX_CONTACT_IMPULSE)
-        .max(0.0);
+    let normal_impulse =
+        (-(1.0 + CONTACT_RESTITUTION) * rel_normal / total_inv).clamp(0.0, MAX_CONTACT_IMPULSE);
     let impulse_x = normal.x * normal_impulse;
     let impulse_y = normal.y * normal_impulse;
 

@@ -191,9 +191,7 @@ pub(crate) fn previous_window_from_trail_on_close(
             trail.back()
         };
 
-        let Some(id) = next else {
-            return None;
-        };
+        let id = next?;
         if id == closing_id {
             continue;
         }

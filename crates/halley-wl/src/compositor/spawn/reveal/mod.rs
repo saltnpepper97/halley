@@ -204,9 +204,7 @@ pub(crate) fn activate_node_monitor_for_spawn_pan(
     node_id: NodeId,
 ) -> Option<String> {
     let previous_monitor = current_monitor_name(st);
-    let Some(spawn_monitor) = monitor_for_node(st, node_id) else {
-        return None;
-    };
+    let spawn_monitor = monitor_for_node(st, node_id)?;
     if spawn_monitor == previous_monitor {
         return None;
     }

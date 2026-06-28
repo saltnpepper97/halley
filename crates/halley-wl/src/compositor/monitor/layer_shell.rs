@@ -962,12 +962,8 @@ pub(crate) fn layer_surface_root_for_surface(
             current = parent;
             continue;
         }
-        let Some(popup) = st.platform.popup_manager.find_popup(&current) else {
-            return None;
-        };
-        let Some(parent) = popup_parent_surface(&popup) else {
-            return None;
-        };
+        let popup = st.platform.popup_manager.find_popup(&current)?;
+        let parent = popup_parent_surface(&popup)?;
         current = parent;
     }
 }

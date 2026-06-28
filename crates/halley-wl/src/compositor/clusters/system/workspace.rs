@@ -44,8 +44,8 @@ pub(super) fn clear_cluster_shell_state(st: &mut Halley, cid: ClusterId) {
         .cluster_state
         .active_cluster_workspaces
         .iter()
-        .filter(|&(monitor, active_cid)| (*active_cid == cid))
-        .map(|(monitor, active_cid)| monitor.clone())
+        .filter(|&(_monitor, active_cid)| *active_cid == cid)
+        .map(|(monitor, _active_cid)| monitor.clone())
         .collect::<Vec<_>>();
     for monitor in &active_monitors {
         for id in st

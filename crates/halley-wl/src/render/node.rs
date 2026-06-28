@@ -430,24 +430,16 @@ pub(crate) fn collect_hover_preview(
     let preview_target = overlay_hover_preview
         .map(|preview| preview.0)
         .or(hovered_preview_id);
-    let Some((preview_id, preview_mix_raw)) = st
+    let (preview_id, preview_mix_raw) = st
         .ui
         .render_state
-        .node_preview_hover_anim_for_monitor(monitor, preview_target)
-    else {
-        return None;
-    };
-    let Some(wl) = node_surface_map.get(&preview_id) else {
-        return None;
-    };
-    let Some((node_state, node_pos, label_len)) = st
+        .node_preview_hover_anim_for_monitor(monitor, preview_target)?;
+    let wl = node_surface_map.get(&preview_id)?;
+    let (node_state, node_pos, label_len) = st
         .model
         .field
         .node(preview_id)
-        .map(|n| (n.state.clone(), n.pos, n.label.len()))
-    else {
-        return None;
-    };
+        .map(|n| (n.state.clone(), n.pos, n.label.len()))?;
 
     let live_overlay_anchor = overlay_hover_preview
         .filter(|preview| preview.0 == preview_id)

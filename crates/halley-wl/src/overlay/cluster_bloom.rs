@@ -84,8 +84,7 @@ fn cluster_bloom_layouts_for_cluster(
     if overlay
         .cluster_state
         .active_cluster_workspaces
-        .get(monitor)
-        .is_some()
+        .contains_key(monitor)
     {
         return Vec::new();
     }

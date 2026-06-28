@@ -117,6 +117,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
     const STALE_SURFACE_GRACE_MS: u64 = 1500;
     let now = Instant::now();
 
+    #[allow(clippy::mutable_key_type)]
     let alive: HashSet<ObjectId> = st
         .platform
         .xdg_shell_state

@@ -942,6 +942,7 @@ pub(crate) fn select_apogee_target(st: &mut Halley, node_id: NodeId, now: Instan
 
 /// Fly the camera to a picked overview tile and focus/activate it. Reuses the same
 /// reveal path as clicking a node on the Field, so you land *at* the window.
+#[allow(dead_code)]
 pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Instant) {
     activate_apogee_target_with_collapsed_clusters(st, node_id, now, Vec::new());
 }
@@ -1867,7 +1868,7 @@ fn pack_scaled(
         let mut w = sizes[idx].w * scale;
         let mut h = sizes[idx].h * scale;
         if items[idx].marker {
-            let side = w.min(h).min(96.0).max(28.0);
+            let side = w.min(h).clamp(28.0, 96.0);
             w = side;
             h = side;
         }

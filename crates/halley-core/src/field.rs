@@ -798,9 +798,7 @@ impl Field {
         id: ClusterId,
         member: NodeId,
     ) -> Option<ClusterRemoveMemberOutcome> {
-        let Some(cluster) = self.clusters.get_mut(&id) else {
-            return None;
-        };
+        let cluster = self.clusters.get_mut(&id)?;
         cluster.remove_member(member)
     }
 
@@ -985,23 +983,20 @@ impl Field {
 
         let core_id = match existing_core {
             Some(cid) => {
-                self.nodes.entry(cid).or_insert_with(|| {
-                    let core = Node {
-                        id: cid,
-                        kind: NodeKind::Core,
-                        state: NodeState::Core,
-                        label: format!("Cluster {}", id.as_u64()),
-                        pos: core_pos,
-                        intrinsic_size: Vec2 { x: 48.0, y: 48.0 },
-                        footprint: Vec2 { x: 48.0, y: 48.0 },
-                        resize_footprint: None,
-                        pinned: false,
-                        anchor: false,
-                        visibility: Visibility::NONE,
-                        last_touch_ms: 0,
-                        decay: DecayLevel::Hot,
-                    };
-                    core
+                self.nodes.entry(cid).or_insert_with(|| Node {
+                    id: cid,
+                    kind: NodeKind::Core,
+                    state: NodeState::Core,
+                    label: format!("Cluster {}", id.as_u64()),
+                    pos: core_pos,
+                    intrinsic_size: Vec2 { x: 48.0, y: 48.0 },
+                    footprint: Vec2 { x: 48.0, y: 48.0 },
+                    resize_footprint: None,
+                    pinned: false,
+                    anchor: false,
+                    visibility: Visibility::NONE,
+                    last_touch_ms: 0,
+                    decay: DecayLevel::Hot,
                 });
                 cid
             }

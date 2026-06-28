@@ -71,6 +71,7 @@ pub(crate) fn is_active_stacking_workspace_member(
     active_stacking_visible_members_for_monitor(st, monitor.as_str()).contains(&node_id)
 }
 
+#[allow(clippy::nonminimal_bool)]
 pub(crate) fn node_allows_interactive_resize(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .field

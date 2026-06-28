@@ -413,7 +413,6 @@ pub(super) fn draw_scene_windows_and_hud(
                 prepared.damage,
                 st.now_ms(prepared.now),
             )?;
-            drop(overlay);
             draw_overlay_hover_label(frame, st, size.w, size.h, prepared.damage)?;
 
             if st.cluster_mode_active() {
