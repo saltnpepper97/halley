@@ -1,7 +1,7 @@
 mod config;
 pub(crate) mod core;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use eventline::{debug, warn};
@@ -938,6 +938,6 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
     a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
 }
 
-pub(crate) fn log_aperture_config_startup(path: &PathBuf) {
+pub(crate) fn log_aperture_config_startup(path: &Path) {
     debug!("aperture config path: {}", path.display());
 }

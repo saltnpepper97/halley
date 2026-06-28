@@ -126,6 +126,9 @@ impl Halley {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
+        #[cfg(feature = "aperture")]
+        let initial_aperture_config = crate::aperture::core::ApertureConfig::default();
+        #[cfg(not(feature = "aperture"))]
         let initial_aperture_config = crate::aperture::core::ApertureConfig;
         let mut monitors = HashMap::new();
         for viewport in tuning
