@@ -31,7 +31,8 @@ use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
 use crate::render::layer_shell::LayerSurfaceRenderGroup;
 use crate::render::shadow::draw_shadow_rect;
 use crate::window::{
-    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect,
+    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit,
+    WindowShadowRect,
 };
 
 pub(crate) struct FrameBlurContext<'a> {
@@ -84,7 +85,13 @@ impl FrameBlurContext<'_> {
             (tex.dst_x, tex.dst_y).into(),
             (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
         );
-        if let Err(err) = self.draw_patch(frame, damage, dst, tex.corner_radius, 1.0) {
+        if let Err(err) = self.draw_patch(
+            frame,
+            damage,
+            dst,
+            tex.corner_radius,
+            tex.blur_alpha.clamp(0.0, 1.0),
+        ) {
             eventline::warn!("window blur skipped this frame: {err}");
         }
         Ok(())

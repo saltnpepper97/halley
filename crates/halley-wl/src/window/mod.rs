@@ -97,6 +97,10 @@ pub(crate) struct OffscreenNodeTexture {
     pub alpha: f32,
     /// Whether this window opted into backdrop blur (resolved via `node_wants_blur`).
     pub blur: bool,
+    /// Strength to draw the backdrop blur at, tracking the window's *fade* alpha
+    /// (open/tile-transition animation, excluding rule opacity). Keeps the blurred
+    /// patch from showing ahead of a fading-in window — `1.0` once fully settled.
+    pub blur_alpha: f32,
     pub corner_radius: f32,
     pub src_x: f64,
     pub src_y: f64,
@@ -642,20 +646,33 @@ pub(crate) fn collect_active_surfaces(
                 .window_offscreen_cache
                 .get(&node_id)
                 .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
-            // A *size* change means the client resized into a new slot (e.g. a window
-            // sliding into the freed master). The cached texture is the old size and
-            // would be stretched onto the new slot — the "zoom stretch". Never defer
-            // a size change: rebuild the offscreen cache at the live buffer size so it
-            // tracks the resize and fills the slot crisply. Content-only churn (same
-            // size) still defers during a slide so we don't rebuild every commit.
-            let size_changed = st
+            // A *size* change means the client resized into a new slot. The render path
+            // scales this single capture onto the animated tile footprint, so it stays
+            // crisp only while the footprint never exceeds the capture. So during a tile
+            // transition, hold the *larger* capture and only ever downscale it:
+            //   * Grow (live buffer bigger than the cache): rebuild up to the new buffer
+            //     so the bigger slot is filled crisply.
+            //   * Shrink (live buffer smaller than the cache): keep the old, bigger
+            //     capture and downscale it onto the shrinking footprint — rebuilding to
+            //     the small buffer now would upscale it onto the still-big footprint (the
+            //     "blown up" texture). The steady-state rebuild resumes once the morph
+            //     ends and the transition clears.
+            // Content-only churn (same size) still defers during a slide so we don't
+            // rebuild every commit.
+            let cached_size = st
                 .ui
                 .render_state
                 .cache
                 .window_offscreen_cache
                 .get(&node_id)
-                .is_some_and(|cache| !cache.matches_size(bbox.size.w, bbox.size.h));
-            let defer = defer_offscreen_rebuild && !size_changed;
+                .map(|cache| (cache.key.width, cache.key.height));
+            let size_changed =
+                cached_size.is_some_and(|(cw, ch)| cw != bbox.size.w || ch != bbox.size.h);
+            let live_smaller_than_cache = cached_size
+                .is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
+            let hold_bigger_capture =
+                tiling_tile_transition.is_some() && size_changed && live_smaller_than_cache;
+            let defer = defer_offscreen_rebuild && (!size_changed || hold_bigger_capture);
             let cache_miss = if defer {
                 !stale_cache_available
             } else {
@@ -1024,6 +1041,7 @@ pub(crate) fn collect_active_surfaces(
                         texture,
                         alpha,
                         blur: node_wants_blur(st, node_id) || surface_wants_background_blur(&wl),
+                        blur_alpha: animation_alpha,
                         corner_radius: decoration_metrics.content_corner_radius_px as f32,
                         src_x,
                         src_y,
@@ -1183,6 +1201,7 @@ pub(crate) fn collect_active_surfaces(
                             texture: offscreen.texture,
                             alpha,
                             blur: surface_wants_background_blur(popup.wl_surface()),
+                            blur_alpha: 1.0,
                             corner_radius: 0.0,
                             src_x,
                             src_y,

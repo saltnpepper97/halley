@@ -59,6 +59,16 @@ fn anim_rect_from_tile_rect(rect: Rect, alpha: f32) -> ClusterTileAnimRect {
 }
 
 #[inline]
+fn tile_rect_from_anim_rect(rect: ClusterTileAnimRect) -> Rect {
+    Rect {
+        x: rect.center.x - rect.size.x * 0.5,
+        y: rect.center.y - rect.size.y * 0.5,
+        w: rect.size.x.max(1.0),
+        h: rect.size.y.max(1.0),
+    }
+}
+
+#[inline]
 fn entry_rect_for_target(target: ClusterTileAnimRect) -> ClusterTileAnimRect {
     // Each member slides in horizontally from the left of its slot, near full
     // size (a slide, not a zoom), fading in. Combined with the per-member start
@@ -198,6 +208,37 @@ pub(crate) fn set_cluster_tile_target(
             duration: Duration::from_millis(duration_ms.max(1)),
         },
     );
+}
+
+/// Pin a tile at a fixed pose (from == to) so it neither moves nor scales. Used to
+/// hold a growing tile at its old slot while we wait for the client to commit the
+/// bigger buffer — moving it before the buffer arrives would upscale the small
+/// capture. The reflow replaces this with a real morph track once the buffer lands.
+pub(crate) fn hold_cluster_tile_rect(
+    tracks: &mut ClusterTileTracks,
+    node_id: NodeId,
+    rect: ClusterTileAnimRect,
+    now: Instant,
+) {
+    tracks.insert(
+        node_id,
+        ClusterTileTrack {
+            from: rect,
+            to: rect,
+            started_at: now,
+            start_delay: Duration::ZERO,
+            duration: Duration::from_millis(10_000),
+        },
+    );
+}
+
+pub(crate) fn cluster_tile_target_rect(
+    tracks: &ClusterTileTracks,
+    node_id: NodeId,
+) -> Option<Rect> {
+    tracks
+        .get(&node_id)
+        .map(|track| tile_rect_from_anim_rect(track.to))
 }
 
 pub(crate) fn cluster_tile_rect_for(

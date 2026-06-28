@@ -266,6 +266,15 @@ All notable changes to this project will be documented in this file.
 - Replace inlined `ease_in_out_cubic` curve bodies with the shared
   `crate::animation::ease_in_out_cubic` helper and extract `FULLSCREEN_MIN_W`/`H` constants
   (no behavior change).
+- Replace the tile-track-based reflow hold with an independent three-phase material-bridge
+  handoff for tiled cluster reflows. When a slave is promoted to master or a remaining slave
+  expands into a closed sibling's space, the compositor now: (1) **travels** the old-size
+  material body (rounded fill, blur, border, shadow — no client pixels) from the old slot to
+  the target area over ~200ms; (2) **expands** the material from old size to target size over
+  ~150ms; (3) after a 45ms hold, **reveals** the real target-size client content via a
+  non-linear 175ms crossfade (texture eases in, bridge lingers then fades out). Real client
+  content is fully suppressed until the client has committed the target-size buffer — no
+  stretched textures, no missing bottom halves, no abrupt size snaps.
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
@@ -460,6 +469,15 @@ All notable changes to this project will be documented in this file.
   offscreen cache rebuilds at the live buffer size and fills the new slot crisply, and a tile
   transition with no warm cache renders the live surface at the transition pose instead of leaving
   the cluster looking empty on open.
+- Reject tiny or empty client cursor surfaces (e.g. a broken 1×1 `wl_surface` set as the pointer
+  cursor) and fall back to the themed default pointer, eliminating a stray square cursor artifact
+  most visible near terminal text inputs.
+- Fix remaining flashes and abrupt size snaps during tiled cluster reflows (slave-to-master
+  promotion, slave-close expansion) by routing all reflow visuals through the material-bridge
+  handoff instead of sharing the tile animation track with real content. The handoff is a fully
+  independent state — real window content is hidden entirely during travel and expand, and only
+  appears via a non-linear crossfade during reveal, so stale client pixels are never scaled or
+  snapped into the new slot.
 
 ## [v0.4.0] - 2026-06-12
 

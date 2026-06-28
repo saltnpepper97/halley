@@ -502,6 +502,20 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             .window_geometry
             .insert(node_id, window_geometry);
         if is_active_cluster_workspace_member(st, node_id) {
+            // If this member is mid-reflow (has a live tile track — e.g. a growing
+            // tile held at its old slot waiting for exactly this bigger buffer), run
+            // the cluster layout now so the commit can release it into its morph.
+            if st
+                .ui
+                .render_state
+                .cluster_tile_tracks()
+                .contains_key(&node_id)
+                && let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned()
+            {
+                st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+            } else {
+                st.request_maintenance();
+            }
             let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
             return;
         }

@@ -269,6 +269,12 @@ impl RenderState {
             .or_insert(geometry);
     }
 
+    pub(crate) fn forget_cluster_tile_frozen_geometry(&mut self, node_id: NodeId) {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .remove(&node_id);
+    }
+
     pub(crate) fn overlay_toast_state(&self, monitor: &str) -> Option<&OverlayToastState> {
         self.overlays.overlay_toast.get(monitor)
     }

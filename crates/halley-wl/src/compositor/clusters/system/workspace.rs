@@ -417,6 +417,7 @@ pub(crate) fn update_tiled_cluster_animation_targets(
     st: &mut Halley,
     plan: &ClusterLayoutPlan,
     dragged_member: Option<NodeId>,
+    visible_surface_sizes: &HashMap<NodeId, Vec2>,
     now: Instant,
 ) {
     let stagger_ms = st.runtime.tuning.cluster_tiling_stagger_ms();
@@ -453,14 +454,27 @@ pub(crate) fn update_tiled_cluster_animation_targets(
             continue;
         }
 
-        let current_rect = if st
+        let has_live_track = st
             .ui
             .render_state
-            .remove_cluster_tile_entry_pending(placement.node_id)
-        {
+            .cluster_tile_tracks()
+            .contains_key(&placement.node_id);
+        let entry_pending_without_track = !has_live_track
+            && st
+                .ui
+                .render_state
+                .remove_cluster_tile_entry_pending(placement.node_id);
+        let current_rect = if entry_pending_without_track {
             None
         } else {
-            crate::animation::cluster_tile_rect_from_field(&st.model.field, placement.node_id)
+            crate::animation::cluster_tile_rect_for(
+                st.ui.render_state.cluster_tile_tracks(),
+                placement.node_id,
+                now,
+            )
+            .or_else(|| {
+                crate::animation::cluster_tile_rect_from_field(&st.model.field, placement.node_id)
+            })
         };
         let frozen_geo = st
             .ui
@@ -469,28 +483,42 @@ pub(crate) fn update_tiled_cluster_animation_targets(
             .window_geometry
             .get(&placement.node_id)
             .copied();
-        if current_rect.is_some_and(|rect| rect.alpha > crate::animation::ALPHA_INVISIBLE)
-            && let Some(geo) = frozen_geo
-        {
-            st.ui
-                .render_state
-                .remember_cluster_tile_frozen_geometry(placement.node_id, geo);
-        }
         // A member that is currently hidden/invisible is entering the workspace
         // (the cluster is opening): give it the slower per-member "slide into
         // place" timing + a staggered start so the tiles arrive one by one. An
         // already-visible member is just reflowing (e.g. a sibling closed), so it
-        // moves immediately with the snappier tile duration.
-        let entering = !st
-            .ui
-            .render_state
-            .cluster_tile_tracks()
-            .contains_key(&placement.node_id)
+        // moves immediately with the snappier reflow duration.
+        let entering = !has_live_track
             && current_rect.is_none_or(|rect| rect.alpha <= crate::animation::ALPHA_INVISIBLE);
+        // Reflow direction. The render path scales one capture onto the animated
+        // footprint, so it stays crisp only while the footprint never exceeds the
+        // capture. A *grow* rebuilds the capture up to the new (bigger) buffer; a
+        // *shrink* holds the old (bigger) capture and downscales it. Classify "bigger
+        // on both axes" as a grow; pure shrink (and the rare mixed case) hold the old
+        // capture, so treat them as a shrink.
+        let grows = current_rect.map_or(true, |rect| {
+            placement.rect.w >= rect.size.x - 0.5 && placement.rect.h >= rect.size.y - 0.5
+        });
+        let visible_reflow = !entering
+            && current_rect.is_some_and(|rect| rect.alpha > crate::animation::ALPHA_INVISIBLE);
+        // Only a shrinking reflow holds the old bigger capture, so only it needs the
+        // old geometry pinned so the crop matches that capture. Grows (and entries)
+        // track the live buffer, so make sure no stale frozen geometry lingers.
+        if visible_reflow && !grows {
+            if let Some(geo) = frozen_geo {
+                st.ui
+                    .render_state
+                    .remember_cluster_tile_frozen_geometry(placement.node_id, geo);
+            }
+        } else {
+            st.ui
+                .render_state
+                .forget_cluster_tile_frozen_geometry(placement.node_id);
+        }
         let duration_ms = if entering {
             st.runtime.tuning.cluster_tiling_open_duration_ms()
         } else {
-            st.runtime.tuning.tile_animation_duration_ms()
+            st.runtime.tuning.cluster_tiling_reflow_duration_ms()
         };
         // Cascade the slaves in first, then the master last. plan.tiles[0] is the
         // master and [1..] are the stack slaves (cluster_layout::layout_tiling_workspace),
@@ -502,6 +530,31 @@ pub(crate) fn update_tiled_cluster_animation_targets(
         } else {
             0
         };
+        // A growing tile waits for the client to commit the bigger buffer before it
+        // starts expanding — moving the footprint past the still-small capture would
+        // upscale it ("blown up" texture). Hold it pinned at the old slot until the
+        // commit lands. A shrink never waits: the old big capture is already in hand
+        // and the footprint only ever gets smaller, so it can move immediately.
+        let waits_for_grow = visible_reflow
+            && grows
+            && visible_tile_waits_for_committed_resize(
+                st,
+                placement,
+                dragged_member,
+                visible_surface_sizes,
+            );
+        if waits_for_grow {
+            if let Some(current) = current_rect {
+                crate::animation::hold_cluster_tile_rect(
+                    st.ui.render_state.cluster_tile_tracks_mut(),
+                    placement.node_id,
+                    current,
+                    now,
+                );
+            }
+            st.request_window_animation_prewarm(placement.node_id, now);
+            continue;
+        }
         if st.runtime.tuning.tile_animation_enabled() {
             crate::animation::set_cluster_tile_target(
                 st.ui.render_state.cluster_tile_tracks_mut(),
@@ -519,6 +572,58 @@ pub(crate) fn update_tiled_cluster_animation_targets(
                 .remove_cluster_tile_track(placement.node_id);
         }
     }
+}
+
+fn rect_from_anim_rect(rect: crate::animation::ClusterTileAnimRect) -> Rect {
+    Rect {
+        x: rect.center.x - rect.size.x * 0.5,
+        y: rect.center.y - rect.size.y * 0.5,
+        w: rect.size.x.max(1.0),
+        h: rect.size.y.max(1.0),
+    }
+}
+
+fn rect_size_changed(a: Rect, b: Rect) -> bool {
+    (a.w - b.w).abs() > 0.5 || (a.h - b.h).abs() > 0.5
+}
+
+fn surface_size_ready(size: Option<&Vec2>, target: Rect) -> bool {
+    size.is_some_and(|size| {
+        (size.x - target.w.max(1.0)).abs() <= 1.5 && (size.y - target.h.max(1.0)).abs() <= 1.5
+    })
+}
+
+fn visible_tile_waits_for_committed_resize(
+    st: &Halley,
+    placement: &ClusterTilePlacement,
+    dragged_member: Option<NodeId>,
+    visible_surface_sizes: &HashMap<NodeId, Vec2>,
+) -> bool {
+    if Some(placement.node_id) == dragged_member
+        || st
+            .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .contains_key(&placement.node_id)
+    {
+        return false;
+    }
+
+    let current = crate::animation::cluster_tile_target_rect(
+        st.ui.render_state.cluster_tile_tracks(),
+        placement.node_id,
+    )
+    .or_else(|| {
+        crate::animation::cluster_tile_rect_from_field(&st.model.field, placement.node_id)
+            .map(rect_from_anim_rect)
+    });
+    let Some(current) = current else {
+        return false;
+    };
+    if !rect_size_changed(current, placement.rect) {
+        return false;
+    }
+    !surface_size_ready(visible_surface_sizes.get(&placement.node_id), placement.rect)
 }
 
 pub(crate) fn current_surface_size_map_for_members(
@@ -634,10 +739,6 @@ pub(crate) fn layout_active_cluster_workspace_for_monitor(
     else {
         return;
     };
-    let now = Instant::now();
-    if matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
-        update_tiled_cluster_animation_targets(st, &plan, dragged_member, now);
-    }
     let visible_members = plan
         .tiles
         .iter()
@@ -650,6 +751,16 @@ pub(crate) fn layout_active_cluster_workspace_for_monitor(
         })
         .collect::<HashSet<_>>();
     let visible_surface_sizes = current_surface_size_map_for_members(st, &visible_members);
+    let now = Instant::now();
+    if matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
+        update_tiled_cluster_animation_targets(
+            st,
+            &plan,
+            dragged_member,
+            &visible_surface_sizes,
+            now,
+        );
+    }
     if let Some(cluster) = st.model.field.cluster_mut(cid) {
         for member_id in &members {
             if let Some(node) = cluster.workspace_member_mut(*member_id) {

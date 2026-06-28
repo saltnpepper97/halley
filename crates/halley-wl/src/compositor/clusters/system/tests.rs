@@ -1087,6 +1087,241 @@ fn tiled_cluster_focus_retargets_replacement_tile_by_index() {
     );
 }
 
+// A growing tile (e.g. a slave promoted to master when the master closes) holds at
+// its old slot until the client commits the bigger buffer — moving the footprint
+// past the still-small capture would upscale it. Once the buffer lands it morphs
+// from the old size up to the new size in one continuous track (no placeholder).
+#[test]
+fn tiled_cluster_reflow_grow_holds_then_morphs_from_old_size() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack_a = st.model.field.spawn_surface(
+        "stack-a",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack_b = st.model.field.spawn_surface(
+        "stack-b",
+        Vec2 { x: 500.0, y: 400.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    for id in [master, stack_a, stack_b] {
+        st.assign_node_to_monitor(id, "monitor_a");
+    }
+    let cid = st
+        .create_cluster(vec![master, stack_a, stack_b])
+        .expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+    let now = Instant::now();
+    assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+    for id in [master, stack_a, stack_b] {
+        st.ui.render_state.remove_cluster_tile_track(id);
+    }
+
+    let old_rect = st
+        .active_cluster_tile_rect_for_member("monitor_a", stack_a)
+        .expect("old stack rect");
+    let old_visual = crate::animation::cluster_tile_rect_from_field(&st.model.field, stack_a)
+        .expect("old visual stack rect");
+    st.ui.render_state.cache.window_geometry.insert(
+        stack_a,
+        (0.0, 0.0, old_rect.w, old_rect.h),
+    );
+    st.ui.render_state.cache.window_geometry.insert(
+        stack_b,
+        (0.0, 0.0, old_rect.w, old_rect.h),
+    );
+
+    assert!(super::detach_member_from_cluster(
+        &mut st,
+        cid,
+        master,
+        Vec2 { x: 0.0, y: 0.0 },
+        now,
+    ));
+    st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
+    let target_size = st
+        .model
+        .field
+        .node(stack_a)
+        .expect("promoted stack node")
+        .intrinsic_size;
+    assert!(target_size.y > old_rect.h + 1.0);
+
+    // Phase 1: the grow is held at the old slot (a hold track whose target is still
+    // the old size) while it waits for the bigger committed buffer.
+    let held_target = crate::animation::cluster_tile_target_rect(
+        st.ui.render_state.cluster_tile_tracks(),
+        stack_a,
+    )
+    .expect("grow should hold a tile track while waiting");
+    assert!(
+        (held_target.h - old_visual.size.y).abs() <= 0.5,
+        "held grow target {} should still be the old size {} (waiting for buffer)",
+        held_target.h,
+        old_visual.size.y,
+    );
+
+    // Commit the bigger buffer, then run the layout again: the hold releases into a
+    // real morph that targets the new master size but starts from the old size.
+    st.ui.render_state.cache.window_geometry.insert(
+        stack_a,
+        (0.0, 0.0, target_size.x, target_size.y),
+    );
+    let stack_b_target = st
+        .model
+        .field
+        .node(stack_b)
+        .expect("remaining stack node")
+        .intrinsic_size;
+    st.ui.render_state.cache.window_geometry.insert(
+        stack_b,
+        (0.0, 0.0, stack_b_target.x, stack_b_target.y),
+    );
+    st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
+
+    let morph_target = crate::animation::cluster_tile_target_rect(
+        st.ui.render_state.cluster_tile_tracks(),
+        stack_a,
+    )
+    .expect("grow should morph after commit");
+    assert!(
+        (morph_target.h - target_size.y).abs() <= 0.5,
+        "morph target {} should be the promoted master size {}",
+        morph_target.h,
+        target_size.y,
+    );
+    let started = crate::animation::cluster_tile_rect_for(
+        st.ui.render_state.cluster_tile_tracks(),
+        stack_a,
+        Instant::now(),
+    )
+    .expect("started grow track");
+    assert!(
+        started.size.y < target_size.y - 1.0,
+        "grow should start from the old size {} and morph up to {}, got {}",
+        old_visual.size.y,
+        target_size.y,
+        started.size.y,
+    );
+}
+
+// A shrinking tile (a slave making room for a newly added window) moves immediately
+// — no wait — morphing the footprint from the old (bigger) size down to the new
+// size. The render path holds the old bigger capture and downscales it, so the size
+// can animate smoothly without ever upscaling.
+#[test]
+fn tiled_cluster_reflow_shrink_morphs_from_old_size_immediately() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let slave_a = st.model.field.spawn_surface(
+        "slave-a",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let slave_b = st.model.field.spawn_surface(
+        "slave-b",
+        Vec2 { x: 500.0, y: 400.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    for id in [master, slave_a, slave_b] {
+        st.assign_node_to_monitor(id, "monitor_a");
+    }
+    let cid = st
+        .create_cluster(vec![master, slave_a])
+        .expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+    let now = Instant::now();
+    assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+    for id in [master, slave_a] {
+        st.ui.render_state.remove_cluster_tile_track(id);
+    }
+
+    // slave_a currently owns the full stack column. Mark both members' committed
+    // surface sizes as matching their current slots so nothing is mid-resize yet.
+    let slave_a_full = st
+        .active_cluster_tile_rect_for_member("monitor_a", slave_a)
+        .expect("full-column slave rect");
+    let master_rect = st
+        .active_cluster_tile_rect_for_member("monitor_a", master)
+        .expect("master rect");
+    st.ui.render_state.cache.window_geometry.insert(
+        slave_a,
+        (0.0, 0.0, slave_a_full.w, slave_a_full.h),
+    );
+    st.ui.render_state.cache.window_geometry.insert(
+        master,
+        (0.0, 0.0, master_rect.w, master_rect.h),
+    );
+
+    // Add a third window: slave_a now shares the column and must shrink.
+    assert!(super::absorb_node_into_cluster(&mut st, cid, slave_b, now));
+    st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
+
+    let target = st
+        .model
+        .field
+        .node(slave_a)
+        .expect("shrunk slave node")
+        .intrinsic_size;
+    assert!(
+        target.y < slave_a_full.h - 1.0,
+        "slave_a should shrink (full {} -> target {})",
+        slave_a_full.h,
+        target.y,
+    );
+
+    // No wait: the shrink morphs immediately. The track targets the new (smaller)
+    // size but starts from the old (bigger) size, animating down.
+    let morph_target = crate::animation::cluster_tile_target_rect(
+        st.ui.render_state.cluster_tile_tracks(),
+        slave_a,
+    )
+    .expect("shrink should morph immediately");
+    assert!(
+        (morph_target.h - target.y).abs() <= 0.5,
+        "shrink morph target {} should be the new smaller size {}",
+        morph_target.h,
+        target.y,
+    );
+    let started = crate::animation::cluster_tile_rect_for(
+        st.ui.render_state.cluster_tile_tracks(),
+        slave_a,
+        Instant::now(),
+    )
+    .expect("started shrink track");
+    assert!(
+        started.size.y > target.y + 1.0,
+        "shrink should start from the old size {} and morph down to {}, got {}",
+        slave_a_full.h,
+        target.y,
+        started.size.y,
+    );
+    // The old geometry is pinned so the held bigger capture's crop stays correct
+    // while the footprint shrinks.
+    assert!(
+        st.ui
+            .render_state
+            .cluster_tile_frozen_geometry(slave_a)
+            .is_some(),
+        "shrink should pin the old frozen geometry for the held capture"
+    );
+}
+
 #[test]
 fn tile_focus_moves_between_visible_neighbors() {
     let dh = Display::<Halley>::new().expect("display").handle();

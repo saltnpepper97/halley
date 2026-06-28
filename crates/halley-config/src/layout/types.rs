@@ -197,14 +197,23 @@ pub struct ClusterLayoutAnimConfig {
     /// staggers its tiles; the stacking layout ignores this field.
     pub stagger_ms: u64,
     pub close_duration_ms: u64,
+    /// Duration for an already-visible tile reflowing as a sibling is added or
+    /// removed (distinct from the open cascade). Only the tiling layout uses this.
+    pub reflow_duration_ms: u64,
 }
 
 impl ClusterLayoutAnimConfig {
-    pub const fn new(open_duration_ms: u64, stagger_ms: u64, close_duration_ms: u64) -> Self {
+    pub const fn new(
+        open_duration_ms: u64,
+        stagger_ms: u64,
+        close_duration_ms: u64,
+        reflow_duration_ms: u64,
+    ) -> Self {
         Self {
             open_duration_ms,
             stagger_ms,
             close_duration_ms,
+            reflow_duration_ms,
         }
     }
 }
@@ -298,10 +307,12 @@ impl Default for AnimationsConfig {
             stack: TimedAnimationConfig::new(true, 220),
             cluster: ClusterAnimationConfig::new(
                 true,
-                // tiling: open cascade (slaves first, master last), suck-into-core close
-                ClusterLayoutAnimConfig::new(300, 55, 420),
+                // tiling: open cascade (slaves first, master last), suck-into-core close,
+                // sibling reflow glides+grows tiles into their new slots
+                ClusterLayoutAnimConfig::new(300, 55, 420, 400),
                 // stacking: tunes the existing card grow-in + suck-into-core close
-                ClusterLayoutAnimConfig::new(240, 0, 360),
+                // (reflow_duration_ms is unused for stacking)
+                ClusterLayoutAnimConfig::new(240, 0, 360, 240),
             ),
             raise: RaiseAnimationConfig::new(true, 140, 1.025, 0.18),
         }

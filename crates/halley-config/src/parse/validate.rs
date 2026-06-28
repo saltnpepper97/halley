@@ -231,6 +231,7 @@ impl ConfigSchema {
             "animations.cluster.tiling.open-duration-ms",
             "animations.cluster.tiling.stagger-ms",
             "animations.cluster.tiling.close-duration-ms",
+            "animations.cluster.tiling.reflow-duration-ms",
             "animations.cluster.stacking.open-duration-ms",
             "animations.cluster.stacking.close-duration-ms",
             "animations.raise.enabled",
@@ -552,6 +553,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "animations.cluster.tiling.open-duration-ms"
             | "animations.cluster.tiling.stagger-ms"
             | "animations.cluster.tiling.close-duration-ms"
+            | "animations.cluster.tiling.reflow-duration-ms"
             | "animations.cluster.stacking.open-duration-ms"
             | "animations.cluster.stacking.close-duration-ms"
             | "animations.raise.duration-ms"

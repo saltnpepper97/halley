@@ -17,8 +17,8 @@ use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::window::{
-    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
-    WindowShadowRect, collect_active_surfaces,
+    ActiveBorderRect, CroppedClippedSurfaceElement,
+    OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect, collect_active_surfaces,
 };
 
 pub(super) type SurfaceElement =

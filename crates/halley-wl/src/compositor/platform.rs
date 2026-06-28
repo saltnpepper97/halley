@@ -232,8 +232,10 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         return CursorImageStatus::Hidden;
     }
 
-    if matches!(cursor_image, CursorImageStatus::Surface(surface) if !surface.alive()) {
-        return CursorImageStatus::default_named();
+    if let CursorImageStatus::Surface(surface) = cursor_image {
+        if !surface.alive() || client_cursor_surface_looks_broken(surface) {
+            return CursorImageStatus::default_named();
+        }
     }
 
     st.input
@@ -241,6 +243,22 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .cursor_override_icon
         .map(CursorImageStatus::Named)
         .unwrap_or_else(|| cursor_image.clone())
+}
+
+fn client_cursor_surface_looks_broken(surface: &WlSurface) -> bool {
+    let bbox = bbox_from_surface_tree(surface, (0, 0));
+    let w = bbox.size.w.max(0);
+    let h = bbox.size.h.max(0);
+    if w == 0 || h == 0 {
+        return true;
+    }
+
+    // Some clients briefly publish a tiny square wl_surface cursor while the
+    // themed shape is unavailable/transitioning. Drawing it reads as a stray
+    // text caret or little box. Keep real client cursors (arrows are normally
+    // larger; I-beams are tall/thin), but fall back for implausible square stubs.
+    let nearly_square = (w - h).abs() <= 2;
+    (w <= 8 && h <= 8) || (nearly_square && w <= 16 && h <= 16)
 }
 
 fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {

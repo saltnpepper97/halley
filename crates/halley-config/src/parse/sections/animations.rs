@@ -22,6 +22,11 @@ fn load_cluster_layout_anim(cfg: &RuneConfig, layout: &str, out: &mut ClusterLay
     out.open_duration_ms = pick("open-duration-ms", "open_duration_ms", out.open_duration_ms);
     out.stagger_ms = pick("stagger-ms", "stagger_ms", out.stagger_ms);
     out.close_duration_ms = pick("close-duration-ms", "close_duration_ms", out.close_duration_ms);
+    out.reflow_duration_ms = pick(
+        "reflow-duration-ms",
+        "reflow_duration_ms",
+        out.reflow_duration_ms,
+    );
 }
 
 pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -277,6 +282,7 @@ animations:
       open-duration-ms 321
       stagger-ms 40
       close-duration-ms 234
+      reflow-duration-ms 277
     end
     stacking:
       open-duration-ms 210
@@ -321,6 +327,7 @@ end
         assert_eq!(out.animations.cluster.tiling.open_duration_ms, 321);
         assert_eq!(out.animations.cluster.tiling.stagger_ms, 40);
         assert_eq!(out.animations.cluster.tiling.close_duration_ms, 234);
+        assert_eq!(out.animations.cluster.tiling.reflow_duration_ms, 277);
         assert_eq!(out.animations.cluster.stacking.open_duration_ms, 210);
         assert_eq!(out.animations.cluster.stacking.close_duration_ms, 222);
         assert!(out.animations.raise.enabled);
@@ -357,6 +364,7 @@ end
         assert_eq!(out.animations.cluster.tiling.open_duration_ms, 300);
         assert_eq!(out.animations.cluster.tiling.stagger_ms, 55);
         assert_eq!(out.animations.cluster.tiling.close_duration_ms, 420);
+        assert_eq!(out.animations.cluster.tiling.reflow_duration_ms, 400);
         assert_eq!(out.animations.cluster.stacking.open_duration_ms, 240);
         assert_eq!(out.animations.cluster.stacking.close_duration_ms, 360);
         assert!(out.animations.raise.enabled);

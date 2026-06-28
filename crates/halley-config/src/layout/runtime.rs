@@ -294,6 +294,10 @@ impl RuntimeTuning {
         self.animations.cluster.tiling.stagger_ms
     }
 
+    pub fn cluster_tiling_reflow_duration_ms(&self) -> u64 {
+        self.animations.cluster.tiling.reflow_duration_ms.max(1)
+    }
+
     pub fn cluster_tiling_close_duration_ms(&self) -> u64 {
         self.animations.cluster.tiling.close_duration_ms.max(1)
     }
@@ -817,6 +821,7 @@ animations:
       open-duration-ms 300   # slide-in cascade
       stagger-ms 55          # per-member delay (slaves first, master last); 0 = together
       close-duration-ms 420  # suck-into-core
+      reflow-duration-ms 400 # visible tile glide+grow as a sibling is added/removed
     end
     stacking:
       open-duration-ms 240   # card grow-in
