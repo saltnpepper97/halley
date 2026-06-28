@@ -397,14 +397,14 @@ fn cleanup_stale_x11_display_files(display_num: u32) {
     }
 
     for path in [&socket_path, &lock_path] {
-        if let Err(err) = std::fs::remove_file(path) {
-            if err.kind() != io::ErrorKind::NotFound {
-                warn!(
-                    "failed to remove stale X11 path {}: {}",
-                    path.display(),
-                    err
-                );
-            }
+        if let Err(err) = std::fs::remove_file(path)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            warn!(
+                "failed to remove stale X11 path {}: {}",
+                path.display(),
+                err
+            );
         }
     }
 }

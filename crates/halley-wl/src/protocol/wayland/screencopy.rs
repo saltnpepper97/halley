@@ -135,7 +135,7 @@ fn init_screencopy_frame(
     );
     if let Some(spec) = spec {
         resource.buffer(
-            spec.format.into(),
+            spec.format,
             spec.width as u32,
             spec.height as u32,
             spec.stride as u32,

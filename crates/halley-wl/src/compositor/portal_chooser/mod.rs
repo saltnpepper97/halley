@@ -396,10 +396,10 @@ fn finish_modal_capture(st: &mut Halley, _session: &PortalChooserState) {
 /// Resolve which monitor the chooser opens on, mirroring the screenshot
 /// picker: explicit pointer monitor → interaction monitor → current monitor.
 fn chooser_monitor(st: &Halley) -> String {
-    if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
-        if let Some(monitor) = st.monitor_for_screen(sx, sy) {
-            return monitor.to_string();
-        }
+    if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+        && let Some(monitor) = st.monitor_for_screen(sx, sy)
+    {
+        return monitor.to_string();
     }
     let interaction = st.interaction_monitor().to_string();
     if st

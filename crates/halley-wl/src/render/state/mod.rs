@@ -123,6 +123,10 @@ pub(crate) struct RenderViewState {
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
+    /// Per-core hover/focus expansion mix for Apogee cluster cores. 0.0 is the
+    /// resting cluster icon, 1.0 is the fully expanded in-place cluster viewport.
+    /// Approaches its target each frame so the expand/collapse eases smoothly.
+    pub(crate) apogee_core_hover_mix: HashMap<NodeId, f32>,
 }
 
 pub(crate) struct RenderOverlayState {
@@ -179,6 +183,27 @@ impl RenderState {
         F: FnMut(&NodeId, &mut f32) -> bool,
     {
         self.view.node_hover_mix.retain(retain);
+    }
+
+    pub(crate) fn retain_apogee_core_hover_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId, &mut f32) -> bool,
+    {
+        self.view.apogee_core_hover_mix.retain(retain);
+    }
+
+    /// Approach the expansion target for an Apogee cluster core: 1.0 when
+    /// hovered/focused, 0.0 otherwise. Returns the current mix so the renderer
+    /// can cross-fade the icon into the cluster viewport.
+    pub(crate) fn apogee_core_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
+        let target = if hovered { 1.0 } else { 0.0 };
+        let mix = self.view.apogee_core_hover_mix.entry(id).or_insert(target);
+        let k = if hovered { 0.22 } else { 0.16 };
+        *mix += (target - *mix) * k;
+        if (*mix - target).abs() < 0.005 {
+            *mix = target;
+        }
+        *mix
     }
 
     pub(crate) fn retain_node_preview_hover<F>(&mut self, retain: F)
@@ -368,6 +393,34 @@ impl RenderState {
         );
     }
 
+    pub(crate) fn remove_closing_window_animation(&mut self, node_id: NodeId) {
+        self.window_animations
+            .closing_window_animations
+            .remove(&node_id);
+    }
+
+    pub(crate) fn retarget_closing_window_animation_pull(
+        &mut self,
+        node_id: NodeId,
+        pull_to: (f32, f32),
+    ) -> bool {
+        let Some(state) = self
+            .window_animations
+            .closing_window_animations
+            .get_mut(&node_id)
+        else {
+            return false;
+        };
+        let ClosingWindowAnimationKind::Window {
+            pull_to: target, ..
+        } = &mut state.kind
+        else {
+            return false;
+        };
+        *target = Some(pull_to);
+        true
+    }
+
     pub(crate) fn start_raise_animation(
         &mut self,
         node_id: NodeId,
@@ -431,9 +484,9 @@ impl RenderState {
                 (now.saturating_duration_since(anim.started_at).as_millis() as u64)
                     < LANDMARK_SLIDE_DURATION_MS
                     && field.is_visible(id)
-                    && !node_monitor
+                    && node_monitor
                         .get(&id)
-                        .is_some_and(|node_monitor| node_monitor != monitor)
+                        .is_none_or(|node_monitor| node_monitor == monitor)
             })
     }
 

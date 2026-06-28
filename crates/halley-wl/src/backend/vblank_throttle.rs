@@ -120,11 +120,7 @@ impl VBlankThrottle {
         self.smoothed_interval = Some(smoothed);
 
         if let Some(refresh) = refresh_interval {
-            let jitter = if passed >= refresh {
-                passed - refresh
-            } else {
-                refresh - passed
-            };
+            let jitter = passed.abs_diff(refresh);
             self.max_jitter = self.max_jitter.max(jitter);
             self.window_max_jitter = self.window_max_jitter.max(jitter);
 
@@ -158,29 +154,29 @@ impl VBlankThrottle {
             let passed = timestamp.saturating_sub(last);
             self.update_metrics(refresh_interval, passed, now);
 
-            if let Some(refresh) = refresh_interval {
-                if passed < refresh / 2 {
-                    if !self.printed_warning {
-                        self.printed_warning = true;
-                        debug!(
-                            "output {} running faster than expected, throttling vblanks: expected refresh {:?}, got vblank after {:?}",
-                            self.output_name, refresh, passed
-                        );
-                    }
-
-                    self.throttled_count = self.throttled_count.saturating_add(1);
-                    self.window_throttled_count = self.window_throttled_count.saturating_add(1);
-                    let remaining = refresh.saturating_sub(passed);
-                    let token = self
-                        .event_loop
-                        .insert_source(Timer::from_duration(remaining), move |_, _, state| {
-                            call_vblank(state);
-                            TimeoutAction::Drop
-                        })
-                        .expect("vblank throttle timer should insert");
-                    self.throttle_timer_token = Some(token);
-                    return true;
+            if let Some(refresh) = refresh_interval
+                && passed < refresh / 2
+            {
+                if !self.printed_warning {
+                    self.printed_warning = true;
+                    debug!(
+                        "output {} running faster than expected, throttling vblanks: expected refresh {:?}, got vblank after {:?}",
+                        self.output_name, refresh, passed
+                    );
                 }
+
+                self.throttled_count = self.throttled_count.saturating_add(1);
+                self.window_throttled_count = self.window_throttled_count.saturating_add(1);
+                let remaining = refresh.saturating_sub(passed);
+                let token = self
+                    .event_loop
+                    .insert_source(Timer::from_duration(remaining), move |_, _, state| {
+                        call_vblank(state);
+                        TimeoutAction::Drop
+                    })
+                    .expect("vblank throttle timer should insert");
+                self.throttle_timer_token = Some(token);
+                return true;
             }
         }
 

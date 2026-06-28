@@ -27,7 +27,7 @@ pub(super) fn handle_screenshot_pointer_button<B: BackendView>(
     local_sy: f32,
     world_now: halley_core::field::Vec2,
 ) -> bool {
-    if !screenshot::screenshot_session_active(&mut *st) {
+    if !screenshot::screenshot_session_active(&*st) {
         return false;
     }
 
@@ -123,10 +123,7 @@ pub(super) fn handle_screenshot_pointer_motion<B: BackendView>(
         .is_some_and(|session| session.mode == CaptureMode::Menu);
     if menu_mode {
         let hit = crate::overlay::screenshot_menu_hit_test(local_w, local_h, local_sx, local_sy);
-        let idx = match hit {
-            Some(crate::overlay::ScreenshotMenuHit::Item(idx)) => Some(idx),
-            None => None,
-        };
+        let idx = hit.map(|crate::overlay::ScreenshotMenuHit::Item(idx)| idx);
         screenshot::hover_screenshot_menu_item(&mut *st, idx);
         crate::compositor::interaction::pointer::set_cursor_override_icon(
             st,

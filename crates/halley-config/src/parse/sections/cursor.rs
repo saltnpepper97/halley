@@ -34,10 +34,7 @@ pub(crate) fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.cursor.hide_on_keyboard_nav = pick_bool(
         cfg,
-        &[
-            "cursor.hide-on-keyboard-nav",
-            "cursor.hide_on_keyboard_nav",
-        ],
+        &["cursor.hide-on-keyboard-nav", "cursor.hide_on_keyboard_nav"],
         out.cursor.hide_on_keyboard_nav,
     );
 }

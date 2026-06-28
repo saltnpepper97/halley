@@ -54,6 +54,7 @@ pub(crate) struct MonitorState {
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
     pub(crate) layer_surface_namespace: HashMap<ObjectId, String>,
+    pub(crate) layer_surface_order: Vec<ObjectId>,
     pub(crate) aperture_layer_monitors: HashSet<String>,
     pub(crate) aperture_layer_heights: HashMap<String, i32>,
     /// Monitors whose aperture-driven `usable_viewport` change has been deferred

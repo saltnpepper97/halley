@@ -205,7 +205,8 @@ pub(crate) fn tty_output_animation_redraw_state(
             st.ui.render_state.cluster_tile_tracks(),
             now,
         );
-    let close_window_active = st.runtime.tuning.window_close_animation_enabled()
+    let close_window_active = (st.runtime.tuning.window_close_animation_enabled()
+        || st.runtime.tuning.cluster_animation_enabled())
         && st
             .ui
             .render_state
@@ -317,12 +318,12 @@ fn node_icon_fade_active_for_monitor(st: &Halley, monitor: &str, now: Instant) -
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
         ) || !st.model.field.participates_in_field_view(id)
             || !st.model.field.is_visible(id)
-            || !st
+            || st
                 .model
                 .monitor_state
                 .node_monitor
                 .get(&id)
-                .is_some_and(|node_monitor| node_monitor == monitor)
+                .is_none_or(|node_monitor| node_monitor != monitor)
         {
             return false;
         }

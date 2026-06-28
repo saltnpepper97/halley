@@ -502,10 +502,10 @@ pub(crate) fn capture_screencast_for_output(
     // Throttle to the target rate: skip this vblank if we captured too recently.
     let now = Instant::now();
     let min_interval = Duration::from_micros(1_000_000 / TARGET_CAPTURE_FPS as u64);
-    if let Some(last) = st.screencast.last_capture.get(output_name) {
-        if now.duration_since(*last) < min_interval {
-            return;
-        }
+    if let Some(last) = st.screencast.last_capture.get(output_name)
+        && now.duration_since(*last) < min_interval
+    {
+        return;
     }
     st.screencast
         .last_capture

@@ -34,7 +34,7 @@ impl IpcView {
                 height: monitor.height,
             })
             .collect();
-        monitors.sort_by(|a, b| monitor_order(a, b));
+        monitors.sort_by(monitor_order);
         Self {
             focused_monitor: st.focused_monitor().to_string(),
             monitors,

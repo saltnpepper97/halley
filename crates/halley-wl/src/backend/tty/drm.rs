@@ -1144,12 +1144,10 @@ pub(crate) fn select_tty_scanouts(
             && enc_info.crtc() == Some(crtc)
             && let Ok(crtc_info) = dev.get_crtc(crtc)
             && let Some(current_mode) = crtc_info.mode()
+            && current_mode.size() == selected_mode.size()
+            && current_mode.vrefresh() == selected_mode.vrefresh()
         {
-            if current_mode.size() == selected_mode.size()
-                && current_mode.vrefresh() == selected_mode.vrefresh()
-            {
-                selected_mode = current_mode;
-            }
+            selected_mode = current_mode;
         }
 
         used_crtcs.insert(crtc);
@@ -1478,18 +1476,17 @@ pub(crate) fn queue_tty_drm_frame(
                     cursor_image,
                     &st.runtime.tuning.cursor,
                 )?;
-                elements.extend(
-                    render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-                        renderer_ref,
-                        &candidate.surface,
-                        candidate.surface_loc,
-                        1.0,
-                        1.0,
-                        Kind::Unspecified,
-                    )
-                    .into_iter()
-                    .map(Into::into),
-                );
+                elements.extend(render_elements_from_surface_tree::<
+                    _,
+                    HalleyDirectScanoutElement,
+                >(
+                    renderer_ref,
+                    &candidate.surface,
+                    candidate.surface_loc,
+                    1.0,
+                    1.0,
+                    Kind::Unspecified,
+                ));
                 match compositor.render_frame(
                     renderer_ref,
                     &elements,
@@ -1940,18 +1937,10 @@ fn render_tty_direct_elements(
 ) -> Result<Vec<HalleyDirectScanoutElement>, Box<dyn Error>> {
     let mut elements =
         direct_scanout_cursor_elements(renderer, local_cursor, cursor_image, cursor_config)?;
-    elements.extend(
-        render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-            renderer,
-            surface,
-            surface_loc,
-            1.0,
-            1.0,
-            surface_kind,
-        )
-        .into_iter()
-        .map(Into::into),
-    );
+    elements.extend(render_elements_from_surface_tree::<
+        _,
+        HalleyDirectScanoutElement,
+    >(renderer, surface, surface_loc, 1.0, 1.0, surface_kind));
     Ok(elements)
 }
 
@@ -1989,7 +1978,6 @@ fn direct_scanout_cursor_elements(
                     Kind::Cursor,
                 )
                 .into_iter()
-                .map(Into::into)
                 .collect(),
             )
         }
@@ -2235,12 +2223,12 @@ fn active_surface_frontmost_on_monitor(
         {
             return true;
         }
-        if !st
+        if st
             .model
             .monitor_state
             .node_monitor
             .get(&other_id)
-            .is_some_and(|monitor| monitor == output_name)
+            .is_none_or(|monitor| monitor != output_name)
         {
             return true;
         }

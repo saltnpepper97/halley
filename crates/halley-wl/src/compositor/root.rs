@@ -126,7 +126,7 @@ impl Halley {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
-        let initial_aperture_config = crate::aperture::core::ApertureConfig::default();
+        let initial_aperture_config = crate::aperture::core::ApertureConfig;
         let mut monitors = HashMap::new();
         for viewport in tuning
             .tty_viewports
@@ -266,6 +266,7 @@ impl Halley {
                     node_monitor: HashMap::new(),
                     layer_surface_monitor: HashMap::new(),
                     layer_surface_namespace: HashMap::new(),
+                    layer_surface_order: Vec::new(),
                     aperture_layer_monitors: HashSet::new(),
                     aperture_layer_heights: HashMap::new(),
                     pending_workarea_refresh: HashSet::new(),
@@ -372,6 +373,7 @@ impl Halley {
                         bearings_visible: false,
                         bearings_mix: HashMap::new(),
                         cluster_bloom_mix: HashMap::new(),
+                        apogee_core_hover_mix: HashMap::new(),
                     },
                     overlays: crate::render::state::RenderOverlayState {
                         overlay_banner: HashMap::new(),
@@ -569,10 +571,9 @@ impl Halley {
             .field
             .cluster(cid)
             .is_some_and(|cluster| cluster.pinned)
+            && let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core)
         {
-            if let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core) {
-                self.model.workspace_state.user_pinned_nodes.insert(core_id);
-            }
+            self.model.workspace_state.user_pinned_nodes.insert(core_id);
         }
 
         Ok(cid)

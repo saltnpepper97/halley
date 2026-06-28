@@ -387,7 +387,12 @@ impl XdgShellHandler for Halley {
         // own tiling/stacking session). Silently ignore a client maximize request
         // (e.g. a GTK title-bar button) on a cluster member rather than mapping it
         // to fullscreen, so the title-bar control reflects that maximize is barred.
-        if self.model.field.cluster_id_for_member_public(node_id).is_some() {
+        if self
+            .model
+            .field
+            .cluster_id_for_member_public(node_id)
+            .is_some()
+        {
             surface.send_configure();
             return;
         }
@@ -413,11 +418,7 @@ impl XdgShellHandler for Halley {
         // Only tear down a fullscreen that we started from a client maximize
         // request, so an app unmaximize can never dismiss a user-initiated
         // (Mod+F) fullscreen.
-        let is_client_origin = self
-            .model
-            .fullscreen_state
-            .fullscreen_origin
-            .get(&node_id)
+        let is_client_origin = self.model.fullscreen_state.fullscreen_origin.get(&node_id)
             == Some(&fullscreen::state::FullscreenOrigin::ClientRequest);
         if self.fullscreen_monitor_for_node(node_id).is_some() && is_client_origin {
             fullscreen::system::exit_xdg_fullscreen(self, node_id, Instant::now());
@@ -453,10 +454,10 @@ impl XdgShellHandler for Halley {
         // popup that overflows the parent window loses pointer focus in the overflow
         // and Qt clients (kdenlive) dismiss it on motion. The installed grab keeps
         // pointer + keyboard focus on the popup chain and dismisses on outside click.
-        let Ok(mut grab) =
-            self.platform
-                .popup_manager
-                .grab_popup::<Self>(root, popup, &seat, serial)
+        let Ok(mut grab) = self
+            .platform
+            .popup_manager
+            .grab_popup::<Self>(root, popup, &seat, serial)
         else {
             return;
         };
@@ -471,11 +472,7 @@ impl XdgShellHandler for Halley {
             }
             // Route popup-grab focus through the choke point so it flushes stale forwarded
             // keys like every other focus change (no surface inherits a stuck repeat).
-            crate::compositor::focus::system::set_keyboard_focus(
-                self,
-                grab.current_grab(),
-                serial,
-            );
+            crate::compositor::focus::system::set_keyboard_focus(self, grab.current_grab(), serial);
             keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
         }
 

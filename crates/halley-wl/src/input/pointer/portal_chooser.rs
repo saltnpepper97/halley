@@ -48,11 +48,10 @@ pub(super) fn handle_portal_chooser_pointer_button<B: BackendView>(
                 let count = portal_chooser_entries(st).len();
                 if let Some(idx) = crate::overlay::portal_chooser_menu_hit_test(
                     local_w, local_h, local_sx, local_sy, count,
-                ) {
-                    if portal_chooser_entries(st)[idx].enabled {
-                        hover_portal_chooser_item(st, Some(idx));
-                        let _ = activate_portal_chooser(st, Instant::now());
-                    }
+                ) && portal_chooser_entries(st)[idx].enabled
+                {
+                    hover_portal_chooser_item(st, Some(idx));
+                    let _ = activate_portal_chooser(st, Instant::now());
                 }
             }
             Some(PortalChooserPhase::ScreenPick) => {

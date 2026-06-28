@@ -1,3 +1,9 @@
+#![allow(
+    clippy::result_large_err,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
+
 mod standalone;
 
 fn main() {

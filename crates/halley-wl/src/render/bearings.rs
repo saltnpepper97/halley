@@ -205,7 +205,7 @@ pub(crate) fn ensure_bearing_icon_resources(
             .then_some(id)
         })
         .collect::<Vec<_>>();
-    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids.into_iter())
+    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids)
 }
 
 pub(crate) fn collect_bearing_layouts(
@@ -993,13 +993,8 @@ fn bearings_collision_extents(
 
 fn truncate_label(label: &str) -> String {
     let mut out = String::new();
-    let mut count = 0usize;
-    for ch in label.chars() {
-        if count >= MAX_LABEL_CHARS {
-            break;
-        }
+    for ch in label.chars().take(MAX_LABEL_CHARS) {
         out.push(ch);
-        count += 1;
     }
     if label.chars().count() > MAX_LABEL_CHARS {
         out.push_str("...");

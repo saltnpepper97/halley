@@ -64,7 +64,7 @@ pub fn layout_stacking_workspace(
 }
 
 pub fn cycle_stacking_members(
-    members: &mut Vec<NodeId>,
+    members: &mut [NodeId],
     direction: ClusterCycleDirection,
 ) -> Option<NodeId> {
     if members.is_empty() {

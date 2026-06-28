@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use halley_api::PortalSourceSelection;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum CursorMode {
+    #[default]
     Hidden,
     Embedded,
     Metadata,
@@ -26,12 +27,6 @@ impl CursorMode {
             Self::Embedded => 2,
             Self::Metadata => 4,
         }
-    }
-}
-
-impl Default for CursorMode {
-    fn default() -> Self {
-        Self::Hidden
     }
 }
 

@@ -638,9 +638,7 @@ fn fuzzy_match(query: &str, haystack: &str) -> Option<f64> {
     let mut last = 0usize;
     for ch in query.chars() {
         let tail = &haystack[last..];
-        let Some(pos) = tail.find(ch) else {
-            return None;
-        };
+        let pos = tail.find(ch)?;
         score += 10.0 - pos.min(8) as f64;
         last += pos + ch.len_utf8();
     }

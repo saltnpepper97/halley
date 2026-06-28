@@ -224,6 +224,13 @@ fn maybe_apply_pending_initial_window_rule(
         halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
     );
 
+    // Game-like windows (steam_app_*, gamescope) still join the cluster tiling
+    // like any other window, but get auto-fullscreened on top of it once their
+    // app_id arrives — see the `enter_xdg_fullscreen` call after the absorb
+    // block. This mirrors what most games request via xdg_toplevel
+    // set_fullscreen anyway.
+    let is_game_like = crate::window::node_is_game_like(st, node_id);
+
     let effective_float = !is_stacking
         && (intent.rule.cluster_participation
             == halley_config::InitialWindowClusterParticipation::Float
@@ -262,6 +269,18 @@ fn maybe_apply_pending_initial_window_rule(
         st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
         st.request_maintenance();
         cluster_local = true;
+    }
+
+    // Auto-fullscreen game-like windows on top of whatever layout they joined
+    // (cluster tiling or free-floating field). Placed after the absorb block so
+    // a tiled game is already a cluster member here; the fullscreen system
+    // handles hiding its siblings. `enter_xdg_fullscreen` is idempotent and
+    // drives the xdg fullscreen protocol state so the client renders at
+    // fullscreen size; the `is_none()` guard avoids re-entering if the client
+    // already issued its own set_fullscreen request.
+    if is_game_like && st.fullscreen_monitor_for_node(node_id).is_none() {
+        prepare_game_like_node_for_auto_fullscreen(st, node_id, monitor.as_str(), now);
+        crate::compositor::fullscreen::system::enter_xdg_fullscreen(st, node_id, None, now);
     }
 
     let rule_size = if !cluster_local {
@@ -308,6 +327,37 @@ fn maybe_apply_pending_initial_window_rule(
         st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
     } else {
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
+    }
+}
+
+fn prepare_game_like_node_for_auto_fullscreen(
+    st: &mut Halley,
+    node_id: NodeId,
+    monitor: &str,
+    now: Instant,
+) {
+    let had_tiled_insert_reveal = st
+        .model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .remove(&node_id)
+        .is_some();
+    st.model
+        .spawn_state
+        .pending_tiled_insert_preserve_focus
+        .remove(&node_id);
+    if let Some(node) = st.model.field.node_mut(node_id) {
+        node.visibility.set(Visibility::DETACHED, false);
+        node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, false);
+    }
+    if had_tiled_insert_reveal
+        && st
+            .model
+            .field
+            .cluster_id_for_member_public(node_id)
+            .is_some_and(|cid| st.active_cluster_workspace_for_monitor(monitor) == Some(cid))
+    {
+        st.layout_active_cluster_workspace_for_monitor(monitor, st.now_ms(now));
     }
 }
 
@@ -429,10 +479,12 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
     } else if crate::protocol::wayland::session_lock::is_session_lock_surface(st, &root_surface) {
         crate::protocol::wayland::session_lock::monitor_for_surface(st, &root_surface)
-    } else if let Some(monitor) = st.model.monitor_state.layer_surface_monitor.get(&root_key) {
-        Some(monitor.clone())
     } else {
-        None
+        st.model
+            .monitor_state
+            .layer_surface_monitor
+            .get(&root_key)
+            .cloned()
     }
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
     st.request_tty_redraw_for_monitor(target_monitor.as_str());

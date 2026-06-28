@@ -21,7 +21,11 @@ fn load_cluster_layout_anim(cfg: &RuneConfig, layout: &str, out: &mut ClusterLay
     };
     out.open_duration_ms = pick("open-duration-ms", "open_duration_ms", out.open_duration_ms);
     out.stagger_ms = pick("stagger-ms", "stagger_ms", out.stagger_ms);
-    out.close_duration_ms = pick("close-duration-ms", "close_duration_ms", out.close_duration_ms);
+    out.close_duration_ms = pick(
+        "close-duration-ms",
+        "close_duration_ms",
+        out.close_duration_ms,
+    );
     out.reflow_duration_ms = pick(
         "reflow-duration-ms",
         "reflow_duration_ms",

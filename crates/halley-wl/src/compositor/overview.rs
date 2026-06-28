@@ -12,7 +12,8 @@
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 
-use halley_core::field::{NodeId, NodeKind, NodeState, Vec2};
+use halley_core::cluster::ClusterId;
+use halley_core::field::{NodeId, NodeKind, NodeState, Vec2, Visibility};
 
 use crate::compositor::root::Halley;
 use crate::overlay::OverlayView;
@@ -72,6 +73,14 @@ pub(crate) struct ApogeeMonitorSession {
     pub(crate) core_tiles: Vec<ApogeeTile>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ApogeeCollapsedCluster {
+    pub(crate) monitor: String,
+    pub(crate) cluster_id: ClusterId,
+    pub(crate) core_id: NodeId,
+    pub(crate) members: Vec<NodeId>,
+}
+
 pub(crate) struct ApogeeSession {
     pub(crate) phase: ApogeePhase,
     pub(crate) started_at: Instant,
@@ -84,6 +93,7 @@ pub(crate) struct ApogeeSession {
     /// When set, the close transition will activate this target after finishing,
     /// so the desktop doesn't mutate underneath the fading overlay.
     pub(crate) pending_selection: Option<NodeId>,
+    pub(crate) collapsed_clusters: Vec<ApogeeCollapsedCluster>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,7 +166,10 @@ impl Halley {
         }
         self.input.interaction_state.apogee_live_preview_node = None;
         self.input.interaction_state.apogee_live_preview_last_at = None;
+        self.ui.render_state.view.apogee_core_hover_mix.clear();
         let monitor_names = apogee_monitor_names(self);
+        let collapsed_clusters =
+            collapse_active_cluster_workspaces_for_apogee(self, monitor_names.as_slice(), now);
         let mut monitors = Vec::new();
         let mut has_content = false;
         for monitor in monitor_names {
@@ -184,6 +197,11 @@ impl Halley {
         if !has_content || monitors.is_empty() {
             return;
         }
+        retarget_apogee_collapsed_cluster_ghosts(
+            self,
+            monitors.as_slice(),
+            collapsed_clusters.as_slice(),
+        );
 
         let duration = Duration::from_millis(self.runtime.tuning.apogee.transition_ms.max(1));
         self.input.interaction_state.apogee_session = Some(ApogeeSession {
@@ -193,6 +211,7 @@ impl Halley {
             monitors,
             manual_progress: None,
             pending_selection: None,
+            collapsed_clusters,
         });
     }
 
@@ -412,11 +431,18 @@ impl Halley {
             ApogeePhase::Closing => {
                 if progress >= 1.0 {
                     let pending = session.pending_selection.take();
+                    let collapsed_clusters = std::mem::take(&mut session.collapsed_clusters);
                     self.input.interaction_state.apogee_session = None;
                     self.input.interaction_state.apogee_live_preview_node = None;
                     self.input.interaction_state.apogee_live_preview_last_at = None;
+                    self.ui.render_state.view.apogee_core_hover_mix.clear();
                     if let Some(node_id) = pending {
-                        activate_apogee_target(self, node_id, now);
+                        activate_apogee_target_with_collapsed_clusters(
+                            self,
+                            node_id,
+                            now,
+                            collapsed_clusters,
+                        );
                         self.request_maintenance();
                     }
                 }
@@ -436,6 +462,18 @@ pub(crate) fn apogee_render_pending(st: &Halley) -> bool {
         return false;
     };
     if session.phase != ApogeePhase::Open {
+        return true;
+    }
+    // A cluster core is mid expand/collapse: keep drawing so the in-place
+    // viewport cross-fade animates instead of snapping.
+    if st
+        .ui
+        .render_state
+        .view
+        .apogee_core_hover_mix
+        .values()
+        .any(|mix| *mix > 0.005 && *mix < 0.995)
+    {
         return true;
     }
     // Still settling captures? Keep drawing until each window preview exists.
@@ -467,6 +505,82 @@ fn apogee_monitor_names(st: &Halley) -> Vec<String> {
         .collect::<Vec<_>>();
     monitors.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
     monitors.into_iter().map(|(name, _, _)| name).collect()
+}
+
+fn collapse_active_cluster_workspaces_for_apogee(
+    st: &mut Halley,
+    monitors: &[String],
+    now: Instant,
+) -> Vec<ApogeeCollapsedCluster> {
+    let mut collapsed = Vec::new();
+    for monitor in monitors {
+        let Some(cluster_id) = st.active_cluster_workspace_for_monitor(monitor.as_str()) else {
+            continue;
+        };
+        let Some((core_id, members)) = st.model.field.cluster(cluster_id).and_then(|cluster| {
+            cluster
+                .core
+                .map(|core_id| (core_id, cluster.members().to_vec()))
+        }) else {
+            continue;
+        };
+        if crate::compositor::clusters::system::exit_cluster_workspace_for_monitor(
+            st,
+            monitor.as_str(),
+            now,
+        ) {
+            collapsed.push(ApogeeCollapsedCluster {
+                monitor: monitor.clone(),
+                cluster_id,
+                core_id,
+                members,
+            });
+        }
+    }
+    collapsed
+}
+
+fn retarget_apogee_collapsed_cluster_ghosts(
+    st: &mut Halley,
+    monitors: &[ApogeeMonitorSession],
+    collapsed_clusters: &[ApogeeCollapsedCluster],
+) {
+    for collapsed in collapsed_clusters {
+        let Some(monitor_session) = monitors
+            .iter()
+            .find(|session| session.monitor == collapsed.monitor)
+        else {
+            continue;
+        };
+        let Some(core_tile) = monitor_session
+            .core_tiles
+            .iter()
+            .find(|tile| tile.node_id == collapsed.core_id)
+        else {
+            continue;
+        };
+        let (screen_w, screen_h) = st
+            .model
+            .monitor_state
+            .monitors
+            .get(collapsed.monitor.as_str())
+            .map(|space| (space.width, space.height))
+            .unwrap_or((1, 1));
+        let target = apogee_project_core_rect(
+            core_tile.to,
+            monitor_session.core_scroll_offset,
+            monitor_session.core_atlas_width,
+            screen_w,
+            screen_h,
+        )
+        .rect;
+        for member in &collapsed.members {
+            let _ = st
+                .ui
+                .render_state
+                .retarget_closing_window_animation_pull(*member, (target.cx, target.cy));
+        }
+    }
 }
 
 #[inline]
@@ -737,7 +851,10 @@ pub(crate) fn apogee_navigate(
     best.map(|(_, id)| id).or_else(|| {
         // Nothing in the travel direction: only seed from the nearest tile when the
         // cursor isn't already on a tile (so a dead-end press at an edge is a no-op).
-        exclude.is_none().then(|| nearest.map(|(_, id)| id)).flatten()
+        exclude
+            .is_none()
+            .then(|| nearest.map(|(_, id)| id))
+            .flatten()
     })
 }
 
@@ -745,13 +862,18 @@ pub(crate) fn apogee_navigate(
 /// No-op for window tiles. Run after navigation lands on a (possibly scrolled-off) core,
 /// before warping the cursor to it.
 pub(crate) fn apogee_reveal_tile(st: &mut Halley, node_id: NodeId) {
-    let monitor = st.input.interaction_state.apogee_session.as_ref().and_then(|session| {
-        session
-            .monitors
-            .iter()
-            .find(|ms| ms.core_tiles.iter().any(|tile| tile.node_id == node_id))
-            .map(|ms| ms.monitor.clone())
-    });
+    let monitor = st
+        .input
+        .interaction_state
+        .apogee_session
+        .as_ref()
+        .and_then(|session| {
+            session
+                .monitors
+                .iter()
+                .find(|ms| ms.core_tiles.iter().any(|tile| tile.node_id == node_id))
+                .map(|ms| ms.monitor.clone())
+        });
     if let Some(monitor) = monitor {
         apogee_reveal_core(st, monitor.as_str(), node_id);
     }
@@ -820,7 +942,17 @@ pub(crate) fn select_apogee_target(st: &mut Halley, node_id: NodeId, now: Instan
 
 /// Fly the camera to a picked overview tile and focus/activate it. Reuses the same
 /// reveal path as clicking a node on the Field, so you land *at* the window.
+#[allow(dead_code)]
 pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Instant) {
+    activate_apogee_target_with_collapsed_clusters(st, node_id, now, Vec::new());
+}
+
+fn activate_apogee_target_with_collapsed_clusters(
+    st: &mut Halley,
+    node_id: NodeId,
+    now: Instant,
+    collapsed_clusters: Vec<ApogeeCollapsedCluster>,
+) {
     // Raise the selected window's tile to the top of its monitor's draw order so
     // the close fly-back shows it coming forward, instead of animating back behind
     // its neighbours and only popping in front once the live (raised) window
@@ -837,31 +969,27 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
         }
     }
 
-    // Any member of an active cluster workspace: promote it into the master slot
-    // (the relayout shifts the old master down; an overflow member becomes visible)
-    // and focus it, rather than revealing it at its windowed field position.
-    let target_monitor = st.monitor_for_node_or_current(node_id);
-    if let Some(cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str()) {
-        let is_member = st
-            .model
-            .field
-            .cluster(cid)
-            .is_some_and(|cluster| cluster.members().contains(&node_id));
-        if is_member {
-            let _ = st
-                .model
-                .field
-                .promote_cluster_member_to_master(cid, node_id);
-            let now_ms = st.now_ms(now);
-            st.layout_active_cluster_workspace_for_monitor(target_monitor.as_str(), now_ms);
-            st.set_interaction_focus(Some(node_id), 30_000, now);
-            return;
+    if st
+        .model
+        .field
+        .node(node_id)
+        .is_some_and(|node| node.kind == NodeKind::Surface)
+    {
+        let target_monitor = st.monitor_for_node_or_current(node_id);
+        let target_cluster = st.model.field.cluster_id_for_member_public(node_id);
+        if let Some(active_cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str())
+            && target_cluster != Some(active_cid)
+        {
+            let _ = crate::compositor::clusters::system::exit_cluster_workspace_for_monitor(
+                st,
+                target_monitor.as_str(),
+                now,
+            );
         }
     }
 
-    if crate::compositor::actions::window::focus_from_presentation_navigation(
-        st, node_id, now,
-    ) || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
+    if crate::compositor::actions::window::focus_from_presentation_navigation(st, node_id, now)
+        || crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now)
     {
         return;
     }
@@ -870,6 +998,13 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
     if st.runtime.tuning.apogee.open_cluster_on_select
         && st.model.field.cluster_id_for_core_public(node_id).is_some()
     {
+        if let Some(collapsed) = collapsed_clusters
+            .iter()
+            .find(|cluster| cluster.core_id == node_id)
+            && restore_apogee_collapsed_cluster(st, collapsed, now)
+        {
+            return;
+        }
         let monitor = st.monitor_for_node_or_current(node_id);
         if st.focused_monitor() != monitor {
             st.focus_monitor_view(monitor.as_str(), now);
@@ -895,6 +1030,87 @@ pub(crate) fn activate_apogee_target(st: &mut Halley, node_id: NodeId, now: Inst
     }
 }
 
+fn restore_apogee_collapsed_cluster(
+    st: &mut Halley,
+    collapsed: &ApogeeCollapsedCluster,
+    now: Instant,
+) -> bool {
+    if st.model.field.cluster_id_for_core_public(collapsed.core_id) != Some(collapsed.cluster_id) {
+        return false;
+    }
+    let core_rect =
+        st.model
+            .field
+            .node(collapsed.core_id)
+            .map(|core| crate::animation::ClusterTileAnimRect {
+                center: core.pos,
+                size: core.footprint,
+                alpha: 0.0,
+            });
+    for member in &collapsed.members {
+        st.ui.render_state.remove_closing_window_animation(*member);
+    }
+    if st.focused_monitor() != collapsed.monitor {
+        st.focus_monitor_view(collapsed.monitor.as_str(), now);
+    }
+    if !crate::compositor::clusters::system::enter_cluster_workspace_by_core(
+        st,
+        collapsed.core_id,
+        collapsed.monitor.as_str(),
+        now,
+    ) {
+        return false;
+    }
+    seed_apogee_cluster_restore_animation(st, collapsed, core_rect, now);
+    true
+}
+
+fn seed_apogee_cluster_restore_animation(
+    st: &mut Halley,
+    collapsed: &ApogeeCollapsedCluster,
+    core_rect: Option<crate::animation::ClusterTileAnimRect>,
+    now: Instant,
+) {
+    if !st.runtime.tuning.cluster_animation_enabled() {
+        return;
+    }
+    let duration_ms = match crate::compositor::clusters::system::active_cluster_layout_kind(st) {
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking => {
+            st.runtime.tuning.cluster_stacking_close_duration_ms()
+        }
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => {
+            st.runtime.tuning.cluster_tiling_close_duration_ms()
+        }
+    };
+    if matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+    ) && st.runtime.tuning.tile_animation_enabled()
+        && let Some(from) = core_rect
+    {
+        for member in &collapsed.members {
+            if let Some(target) =
+                st.active_cluster_tile_rect_for_member(collapsed.monitor.as_str(), *member)
+            {
+                crate::animation::set_cluster_tile_target_from_anim_rect(
+                    st.ui.render_state.cluster_tile_tracks_mut(),
+                    from,
+                    *member,
+                    target,
+                    now,
+                    duration_ms,
+                    0,
+                );
+                st.request_window_animation_prewarm(*member, now);
+            }
+        }
+        return;
+    }
+    for member in &collapsed.members {
+        crate::compositor::workspace::state::mark_active_transition(st, *member, now, duration_ms);
+    }
+}
+
 /// Collect the current monitor's nodes and lay them out into the mosaic.
 fn build_apogee_tiles(
     st: &Halley,
@@ -907,16 +1123,42 @@ fn build_apogee_tiles(
     let scale_x = screen_w as f32 / view.camera_view_size.x.max(1.0);
     let scale_y = screen_h as f32 / view.camera_view_size.y.max(1.0);
 
+    // When a cluster workspace is open on this monitor, the live desktop shows
+    // that cluster's expanded layout. Apogee instead renders the *field* overview:
+    // the opened cluster collapses back to its core icon (a marker tile), and the
+    // regular field nodes that the workspace detached are surfaced again at their
+    // field positions. This keeps Apogee a stable field map regardless of whether
+    // a cluster happens to be opened.
+    let active_cid = st.active_cluster_workspace_for_monitor(monitor);
+    let active_members: std::collections::HashSet<NodeId> = active_cid
+        .and_then(|cid| view.field.cluster(cid))
+        .map(|cluster| cluster.members().iter().copied().collect())
+        .unwrap_or_default();
+
     // (node, kind, collapsed, field_pos, aspect, weight, source_rect)
     let mut raw: Vec<(NodeId, ApogeeTileKind, bool, Vec2, f32, f32, TileRect)> = Vec::new();
     let mut core_raw: Vec<(NodeId, ApogeeTileKind, bool, Vec2, f32, f32, TileRect)> = Vec::new();
     for (node_id, node_monitor) in view.monitor_state.node_monitor.iter() {
-        if node_monitor != monitor || !view.field.is_visible(*node_id) {
+        if node_monitor != monitor {
             continue;
         }
         let Some(node) = view.field.node(*node_id) else {
             continue;
         };
+        // With a workspace open, drop its members (collapsed under the core) but
+        // surface every other field-level node — including those the workspace
+        // detached — by ignoring only the DETACHED flag. HIDDEN_BY_CLUSTER and
+        // HIDDEN_EXPLICIT stay hidden, exactly as in the normal field view.
+        let field_visible = if active_cid.is_some() {
+            !active_members.contains(node_id)
+                && !node.visibility.has(Visibility::HIDDEN_BY_CLUSTER)
+                && !node.visibility.has(Visibility::HIDDEN_EXPLICIT)
+        } else {
+            view.field.is_visible(*node_id)
+        };
+        if !field_visible {
+            continue;
+        }
         let (kind, collapsed) = apogee_tile_class(&node.kind, &node.state);
 
         // Use the presentation visual rect (fullscreen or maximized) when the
@@ -979,19 +1221,52 @@ fn build_apogee_tiles(
         }
     }
 
+    // With a cluster workspace open, the cluster's core node is moved out of the
+    // field's node map (it lives in the cluster's active workspace storage), so
+    // the loop above can't see it. Re-surface it here as the cluster's collapsed
+    // icon — flying in from its recorded field position — so the opened cluster
+    // still appears in the overview, just as a single core marker.
+    if let Some(cid) = active_cid
+        && let Some(core_id) = view.field.cluster(cid).and_then(|c| c.core)
+        && let Some(&core_pos) = st.model.cluster_state.workspace_core_positions.get(monitor)
+    {
+        let core_footprint = Vec2 { x: 48.0, y: 48.0 };
+        let (cx, cy) = view.world_to_screen(screen_w, screen_h, core_pos.x, core_pos.y);
+        let from = TileRect {
+            cx: cx as f32,
+            cy: cy as f32,
+            w: (core_footprint.x * scale_x).max(8.0),
+            h: (core_footprint.y * scale_y).max(8.0),
+        };
+        core_raw.push((
+            core_id,
+            ApogeeTileKind::Core,
+            false,
+            core_pos,
+            1.0,
+            0.15,
+            from,
+        ));
+    }
+
     // Surface an active cluster workspace's overflow-bar members as window tiles.
     // They are HIDDEN_BY_CLUSTER on the desktop (so the loop above skips them) yet
     // still real workspace nodes; showing them lets the overview promote one into
     // the layout. They fly in from the overflow strip.
-    if matches!(
-        crate::compositor::clusters::system::active_cluster_layout_kind(st),
-        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-    ) && let Some(overflow_ids) = st
-        .model
-        .cluster_state
-        .cluster_overflow_members
-        .get(monitor)
-        .cloned()
+    // Skipped in field view (when a workspace is open on this monitor): the
+    // cluster is shown collapsed as a single core icon, so its overflow members
+    // are not surfaced either.
+    if active_cid.is_none()
+        && matches!(
+            crate::compositor::clusters::system::active_cluster_layout_kind(st),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        )
+        && let Some(overflow_ids) = st
+            .model
+            .cluster_state
+            .cluster_overflow_members
+            .get(monitor)
+            .cloned()
     {
         let strip = st
             .model
@@ -1140,7 +1415,7 @@ fn layout_core_rail(count: usize, screen_w: i32, screen_h: i32) -> Vec<TileRect>
     } else {
         screen_w as f32 * 0.08 + side * 0.5
     };
-    let y = (screen_h as f32 * 0.135).max(54.0);
+    let y = (screen_h as f32 * 0.125).max(54.0);
     (0..count)
         .map(|i| TileRect {
             cx: start_x + i as f32 * step,
@@ -1167,7 +1442,10 @@ fn core_bar_width_for_slots(slots: &[TileRect], screen_w: i32) -> f32 {
 }
 
 fn apogee_core_bar_height(screen_h: i32) -> f32 {
-    (screen_h.max(1) as f32 * 0.18).clamp(120.0, 190.0)
+    // Tall enough to reserve room for a hovered cluster core to expand in place
+    // into a small cluster viewport (see EXPANDED_CORE_* in the renderer) plus
+    // its label, without spilling into the window mosaic below.
+    (screen_h.max(1) as f32 * 0.215).clamp(140.0, 236.0)
 }
 
 pub(crate) fn apogee_project_window_rect(rect: TileRect) -> ApogeeProjection {
@@ -1590,7 +1868,7 @@ fn pack_scaled(
         let mut w = sizes[idx].w * scale;
         let mut h = sizes[idx].h * scale;
         if items[idx].marker {
-            let side = w.min(h).min(96.0).max(28.0);
+            let side = w.min(h).clamp(28.0, 96.0);
             w = side;
             h = side;
         }
@@ -1909,6 +2187,24 @@ mod tests {
         tuning
     }
 
+    fn single_monitor_tiling_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
     #[test]
     fn spatial_order_reads_top_left_to_bottom_right() {
         // Two rows of two, deliberately out of order in the input.
@@ -2091,6 +2387,357 @@ mod tests {
 
         assert_eq!(kind, ApogeeTileKind::Core);
         assert!(!collapsed);
+    }
+
+    #[test]
+    fn apogee_shows_field_view_when_cluster_workspace_is_open() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        // A standalone field window that the workspace will detach (hide).
+        let loner = state.model.field.spawn_surface(
+            "loner",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(loner, "monitor_a");
+
+        // A two-member cluster, collapsed to a core, then opened as a workspace.
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 200.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 560.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        state.open_apogee(now);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
+
+        let session = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("apogee session");
+        assert!(session.collapsed_clusters.iter().any(|cluster| {
+            cluster.cluster_id == cid && cluster.core_id == core && cluster.monitor == "monitor_a"
+        }));
+        let monitor = session
+            .monitor_session("monitor_a")
+            .expect("monitor session");
+
+        // The opened cluster's members are NOT surfaced as window tiles — it is
+        // shown collapsed, as a single core icon in the core rail.
+        assert!(
+            monitor
+                .tiles
+                .iter()
+                .all(|tile| tile.node_id != master && tile.node_id != stack)
+        );
+        assert!(monitor.core_tiles.iter().any(|tile| tile.node_id == core));
+
+        // The detached standalone field window reappears at its field position:
+        // Apogee renders the field overview, not the workspace.
+        assert!(monitor.tiles.iter().any(|tile| tile.node_id == loner));
+    }
+
+    #[test]
+    fn apogee_field_node_selection_leaves_opened_cluster_collapsed() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let now = Instant::now();
+
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, "monitor_a");
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 200.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 560.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        state.open_apogee(now);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
+        select_apogee_target(&mut state, target, now);
+        let close_duration = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("session")
+            .duration;
+        state.tick_apogee(now + close_duration + std::time::Duration::from_millis(50));
+
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
+    }
+
+    #[test]
+    fn apogee_core_selection_restores_cluster_collapsed_by_apogee() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let now = Instant::now();
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 200.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 560.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        state.open_apogee(now);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
+        select_apogee_target(&mut state, core, now);
+        let close_duration = state
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .expect("session")
+            .duration;
+        state.tick_apogee(now + close_duration + std::time::Duration::from_millis(50));
+
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
+    }
+
+    #[test]
+    fn apogee_open_retargets_cluster_close_ghosts_to_apogee_core_tile() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let now = Instant::now();
+        let member = state.model.field.spawn_surface(
+            "member",
+            Vec2 { x: 200.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let sibling = state.model.field.spawn_surface(
+            "sibling",
+            Vec2 { x: 560.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(member, "monitor_a");
+        state.assign_node_to_monitor(sibling, "monitor_a");
+        let cid = state
+            .create_cluster(vec![member, sibling])
+            .expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        state.ui.render_state.start_closing_window_animation(
+            member,
+            "monitor_a",
+            now,
+            500,
+            halley_config::WindowCloseAnimationStyle::Shrink,
+            vec![crate::window::ActiveBorderRect {
+                x: 10,
+                y: 20,
+                w: 100,
+                h: 80,
+                inner_offset_x: 2.0,
+                inner_offset_y: 2.0,
+                inner_w: 96.0,
+                inner_h: 76.0,
+                alpha: 1.0,
+                border_px: 2.0,
+                corner_radius: 0.0,
+                inner_corner_radius: 0.0,
+                border_color: smithay::backend::renderer::Color32F::new(1.0, 1.0, 1.0, 1.0),
+            }],
+            Vec::new(),
+            1.0,
+            1.0,
+            false,
+            Some((1.0, 2.0)),
+        );
+        let monitor_session = ApogeeMonitorSession {
+            monitor: "monitor_a".to_string(),
+            core_scroll_offset: 0.0,
+            core_atlas_width: 800.0,
+            tiles: Vec::new(),
+            core_tiles: vec![ApogeeTile {
+                node_id: core,
+                kind: ApogeeTileKind::Core,
+                collapsed: false,
+                from: TileRect {
+                    cx: 0.0,
+                    cy: 0.0,
+                    w: 48.0,
+                    h: 48.0,
+                },
+                to: TileRect {
+                    cx: 420.0,
+                    cy: 72.0,
+                    w: 68.0,
+                    h: 68.0,
+                },
+            }],
+        };
+        let expected = apogee_project_core_rect(
+            monitor_session.core_tiles[0].to,
+            monitor_session.core_scroll_offset,
+            monitor_session.core_atlas_width,
+            800,
+            600,
+        )
+        .rect;
+        let collapsed = ApogeeCollapsedCluster {
+            monitor: "monitor_a".to_string(),
+            cluster_id: cid,
+            core_id: core,
+            members: vec![member],
+        };
+
+        retarget_apogee_collapsed_cluster_ghosts(&mut state, &[monitor_session], &[collapsed]);
+
+        let anim = state
+            .ui
+            .render_state
+            .window_animations
+            .closing_window_animations
+            .get(&member)
+            .expect("closing animation");
+        let crate::render::state::ClosingWindowAnimationKind::Window { pull_to, .. } = &anim.kind
+        else {
+            panic!("expected window animation");
+        };
+        assert_eq!(*pull_to, Some((expected.cx, expected.cy)));
+    }
+
+    #[test]
+    fn apogee_activation_collapses_open_cluster_workspace_for_surface_target() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, "monitor_a");
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 200.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 560.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
+
+        activate_apogee_target(&mut state, target, now);
+
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            None
+        );
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
     }
 
     #[test]

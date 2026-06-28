@@ -698,8 +698,9 @@ pub(crate) fn ensure_xwayland_satellite(
         });
     }
 
-    if inherited_display.is_some() && mode != XwaylandMode::On {
-        let display = inherited_display.expect("checked above");
+    if let Some(display) = inherited_display.as_ref()
+        && mode != XwaylandMode::On
+    {
         debug!(
             "reusing inherited DISPLAY={} and skipping xwayland-satellite startup",
             display
@@ -708,7 +709,7 @@ pub(crate) fn ensure_xwayland_satellite(
             mode,
             satellite_bin: String::new(),
             wayland_display: wayland_display.to_string(),
-            display,
+            display: display.clone(),
             x11_sockets: None,
             child: None,
             restart_delay: Duration::from_millis(1500),

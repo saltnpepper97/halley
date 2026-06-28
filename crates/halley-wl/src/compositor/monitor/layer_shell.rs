@@ -360,10 +360,10 @@ pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> 
 /// (`NAMESPACE` in `crates/halley-lift/src/main.rs`) follows the cursor; every
 /// other namespace falls back to the current (focused) monitor.
 fn assigned_monitor_for_no_output(st: &Halley, namespace: &str) -> String {
-    if namespace == "halley-lift" {
-        if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
-            return st.monitor_for_screen_or_current(sx, sy);
-        }
+    if namespace == "halley-lift"
+        && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+    {
+        return st.monitor_for_screen_or_current(sx, sy);
     }
     st.model.monitor_state.current_monitor.clone()
 }
@@ -395,6 +395,17 @@ fn register_layer_surface_impl(
         .monitor_state
         .layer_surface_namespace
         .insert(surface.wl_surface().id(), namespace.clone());
+    if !st
+        .model
+        .monitor_state
+        .layer_surface_order
+        .contains(&surface.wl_surface().id())
+    {
+        st.model
+            .monitor_state
+            .layer_surface_order
+            .push(surface.wl_surface().id());
+    }
 
     if let Some(requested_output) = output.as_ref() {
         for output in st.model.monitor_state.outputs.values() {
@@ -502,6 +513,10 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
         .monitor_state
         .layer_surface_last_configured_size
         .remove(&surface.wl_surface().id());
+    st.model
+        .monitor_state
+        .layer_surface_order
+        .retain(|id| id != &surface.wl_surface().id());
     if removed_focused_layer {
         st.model.monitor_state.layer_keyboard_focus = None;
     }
@@ -546,7 +561,7 @@ pub(crate) fn layer_output_size_for_monitor(st: &Halley, monitor_name: &str) -> 
         .monitor_state
         .monitors
         .get(monitor_name)
-        .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
+        .map(|monitor| (monitor.width, monitor.height).into())
         .unwrap_or_else(|| {
             (
                 st.model.zoom_ref_size.x.round().max(1.0) as i32,
@@ -721,7 +736,22 @@ fn layer_shell_surfaces_sorted(st: &Halley) -> Vec<LayerSurface> {
         .layer_surfaces()
         .filter(|surface| surface.alive())
         .collect();
-    surfaces.sort_by_key(|surface| layer_depth(layer_cached_state(surface).layer));
+    surfaces.sort_by_key(|surface| {
+        let id = surface.wl_surface().id();
+        let order = st
+            .model
+            .monitor_state
+            .layer_surface_order
+            .iter()
+            .position(|surface_id| surface_id == &id)
+            .unwrap_or(usize::MAX);
+        let data = layer_cached_state(surface);
+        (
+            layer_depth(data.layer),
+            layer_reservation_priority(data),
+            order,
+        )
+    });
     surfaces
 }
 
@@ -788,16 +818,15 @@ pub(crate) fn layer_keyboard_focus_is_modal(st: &Halley) -> bool {
     {
         return true;
     }
-    let exclusive = st
-        .platform
+
+    st.platform
         .wlr_layer_shell_state
         .layer_surfaces()
         .find_map(|layer| {
             (layer.wl_surface().id() == *focus_id)
                 .then_some(layer_cached_state(&layer).keyboard_interactivity)
         })
-        .is_some_and(|i| i == KeyboardInteractivity::Exclusive);
-    exclusive
+        .is_some_and(|i| i == KeyboardInteractivity::Exclusive)
 }
 
 /// Returns true when a layer-shell pointer hit should suppress desktop hover
@@ -933,12 +962,8 @@ pub(crate) fn layer_surface_root_for_surface(
             current = parent;
             continue;
         }
-        let Some(popup) = st.platform.popup_manager.find_popup(&current) else {
-            return None;
-        };
-        let Some(parent) = popup_parent_surface(&popup) else {
-            return None;
-        };
+        let popup = st.platform.popup_manager.find_popup(&current)?;
+        let parent = popup_parent_surface(&popup)?;
         current = parent;
     }
 }
@@ -1187,6 +1212,14 @@ fn exclusive_zone_amount(zone: ExclusiveZone) -> i32 {
     match zone {
         ExclusiveZone::Exclusive(v) => v as i32,
         _ => 0,
+    }
+}
+
+fn layer_reservation_priority(data: LayerSurfaceCachedState) -> i32 {
+    if exclusive_zone_amount(data.exclusive_zone) > 0 {
+        0
+    } else {
+        1
     }
 }
 

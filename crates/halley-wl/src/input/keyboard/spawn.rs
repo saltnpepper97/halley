@@ -71,8 +71,7 @@ fn augmented_spawn_path() -> OsString {
 }
 
 fn shell_single_quote(raw: &str) -> String {
-    raw.replace('"', "\"")
-        .replace('`', "\\`")
+    raw.replace('`', "\\`")
         .replace('$', "\\$")
         .replace('\\', "\\\\")
 }

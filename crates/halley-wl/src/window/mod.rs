@@ -668,8 +668,8 @@ pub(crate) fn collect_active_surfaces(
                 .map(|cache| (cache.key.width, cache.key.height));
             let size_changed =
                 cached_size.is_some_and(|(cw, ch)| cw != bbox.size.w || ch != bbox.size.h);
-            let live_smaller_than_cache = cached_size
-                .is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
+            let live_smaller_than_cache =
+                cached_size.is_some_and(|(cw, ch)| bbox.size.w < cw || bbox.size.h < ch);
             let hold_bigger_capture =
                 tiling_tile_transition.is_some() && size_changed && live_smaller_than_cache;
             let defer = defer_offscreen_rebuild && (!size_changed || hold_bigger_capture);
@@ -952,6 +952,7 @@ pub(crate) fn collect_active_surfaces(
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
+                            false,
                         )
                     } else {
                         offscreen_visual_crop_and_dst(
@@ -971,6 +972,9 @@ pub(crate) fn collect_active_surfaces(
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
+                            // Cover-crop (uniform scale, no squish) only while this tile
+                            // is mid-reflow; steady-state rendering keeps the plain fill.
+                            tiling_tile_transition.is_some(),
                         )
                     };
                     log_window_render_path(

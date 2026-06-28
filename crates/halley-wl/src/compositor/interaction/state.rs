@@ -67,6 +67,23 @@ pub(crate) struct ViewportPanAnim {
     pub(crate) duration_ms: u64,
     pub(crate) from_center: Vec2,
     pub(crate) to_center: Vec2,
+    /// Optional camera-zoom track. When `Some`, the camera view size is eased
+    /// along the SAME fixed-duration cubic as the center, instead of being left
+    /// to the exponential zoom smoothing (whose asymptotic tail reads as the
+    /// window "sticking" near the end of a maximize/fullscreen grow). `None`
+    /// preserves the pure-pan behaviour (zoom untouched) used by focus pans.
+    pub(crate) from_view_size: Option<Vec2>,
+    pub(crate) to_view_size: Option<Vec2>,
+}
+
+impl ViewportPanAnim {
+    /// A focus/trail pan (center-only). Distinguished from the maximize/fullscreen
+    /// camera-zoom transition (which carries a zoom track) so the maximize-deferral
+    /// and cluster-slot gates only wait on genuine focus pans — a fullscreen grow's
+    /// camera transition must NOT defer the mutually-exclusive maximize that exits it.
+    pub(crate) fn is_focus_pan(&self) -> bool {
+        self.from_view_size.is_none()
+    }
 }
 
 #[derive(Clone)]

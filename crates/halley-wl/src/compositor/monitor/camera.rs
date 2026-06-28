@@ -125,7 +125,7 @@ fn pan_decay_rate(st: &Halley) -> f32 {
 /// and decays the velocity with friction.
 pub(crate) fn fling_pan(st: &mut Halley, vel: Vec2) {
     let speed = vel.x.hypot(vel.y);
-    st.model.pan_vel = if speed > PAN_VEL_MAX && speed > 0.0 {
+    st.model.pan_vel = if speed > PAN_VEL_MAX {
         Vec2 {
             x: vel.x / speed * PAN_VEL_MAX,
             y: vel.y / speed * PAN_VEL_MAX,

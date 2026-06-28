@@ -267,9 +267,7 @@ pub(crate) fn advance_resize_anim(
     ps: &mut PointerState,
     now: Instant,
 ) -> Option<halley_core::field::NodeId> {
-    let Some(mut resize) = ps.resize.take() else {
-        return None;
-    };
+    let mut resize = ps.resize.take()?;
     if !resize.drag_started {
         ps.resize = Some(resize);
         return None;

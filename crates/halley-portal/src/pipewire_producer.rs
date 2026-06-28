@@ -515,7 +515,7 @@ fn dmabuf_buffer_info(
         planes.push(PortalDmabufPlane {
             fd_index: fds.len() as u32,
             plane_index: idx as u32,
-            offset: data.mapoffset as u32,
+            offset: data.mapoffset,
             stride,
         });
         fds.push(data.fd as RawFd);

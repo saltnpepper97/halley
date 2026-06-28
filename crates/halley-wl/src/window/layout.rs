@@ -304,7 +304,21 @@ pub(super) fn resolve_window_render_layout(
             .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))
     };
 
-    let render_scale = if let Some((_, visual_size)) = fullscreen_visual {
+    let render_scale = if exact_fullscreen_output {
+        // The fullscreen grow animation has expired, so the dst rect/clip is
+        // snapped to the full output (see `exact_fullscreen_output` branches
+        // below and in `window/mod.rs`). Scale the live buffer to fill the
+        // output DIRECTLY rather than via `visual_size * cam_scale`: on entry
+        // from a zoomed-out camera, `cam_scale` is still easing toward 1.0
+        // independently of the scale animation, so the camera-derived scale
+        // renders the texture smaller than the output and pinned top-left while
+        // the clip already covers the whole monitor — leaving black margins
+        // (the "only top-left shows" glitch, worst when zoomed out and on
+        // XWayland/Steam where buffer geometry also lags).
+        let scale_x = output_clip.size.w as f32 / local_geo.2.max(1.0);
+        let scale_y = output_clip.size.h as f32 / local_geo.3.max(1.0);
+        scale_x.min(scale_y).max(0.001)
+    } else if let Some((_, visual_size)) = fullscreen_visual {
         let scale_x = visual_size.x * cam_scale / local_geo.2.max(1.0);
         let scale_y = visual_size.y * cam_scale / local_geo.3.max(1.0);
         scale_x.min(scale_y).max(0.001)

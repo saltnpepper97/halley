@@ -190,10 +190,9 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
 
     if let Some((_, locked)) =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+        && locked
     {
-        if locked {
-            return CursorImageStatus::Hidden;
-        }
+        return CursorImageStatus::Hidden;
     }
 
     // Keyboard-driven navigation hides the cursor image (position is preserved).
@@ -232,10 +231,10 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         return CursorImageStatus::Hidden;
     }
 
-    if let CursorImageStatus::Surface(surface) = cursor_image {
-        if !surface.alive() || client_cursor_surface_looks_broken(surface) {
-            return CursorImageStatus::default_named();
-        }
+    if let CursorImageStatus::Surface(surface) = cursor_image
+        && (!surface.alive() || client_cursor_surface_looks_broken(surface))
+    {
+        return CursorImageStatus::default_named();
     }
 
     st.input

@@ -183,10 +183,10 @@ fn load_runtime_tuning() -> RuntimeTuning {
 }
 
 fn resolve_config_path() -> Option<String> {
-    if let Ok(path) = env::var("HALLEY_WL_CONFIG") {
-        if !path.trim().is_empty() {
-            return Some(path);
-        }
+    if let Ok(path) = env::var("HALLEY_WL_CONFIG")
+        && !path.trim().is_empty()
+    {
+        return Some(path);
     }
     let user = RuntimeTuning::default_home_config_path();
     if Path::new(&user).is_file() {
