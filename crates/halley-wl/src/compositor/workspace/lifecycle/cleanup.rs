@@ -355,7 +355,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     offscreen_textures,
                     start_scale,
                     start_alpha,
-                    false,
+                    true,
                     None,
                 );
             }

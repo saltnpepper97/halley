@@ -272,9 +272,9 @@ pub(super) fn draw_scene_windows_and_hud(
     hover_node: Option<halley_core::field::NodeId>,
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
-    // Minimize/collapse-to-node shrinks draw beneath live windows so a minimizing
-    // window drops behind the windows it was stacked under instead of flashing to
-    // the front. Real closes stay in the on-top pass below.
+    // Lower-phase close/minimize ghosts draw beneath live windows so a window
+    // that was already under another window does not flash to the front while
+    // shrinking out.
     draw_closing_window_shrink(
         frame,
         size,
@@ -688,7 +688,8 @@ fn transform_rect_about_center(
 }
 
 /// On-top closing pass: node markers (the landmark a window collapses toward)
-/// plus the shrink for real window closes (`behind == false`).
+/// plus any explicitly top-phase close ghosts (`behind == false`, e.g. cluster
+/// collapse pull-to-core ghosts).
 pub(super) fn draw_closing_window_animations(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
@@ -700,9 +701,11 @@ pub(super) fn draw_closing_window_animations(
     draw_closing_window_shrink(frame, size, damage, animations, st, false)
 }
 
-/// Window shrink/fade tween. `behind` selects which animations to draw: minimize
-/// (collapse-to-node) animations are drawn beneath live windows, real closes on
-/// top. Called once per z-phase from `draw_scene_windows_and_hud`.
+/// Window shrink/fade tween. `behind` selects which z-phase to draw. Normal
+/// closes and minimize/collapse-to-node animations use the lower phase so they
+/// preserve their visible stacking relative to live windows; explicit overlay
+/// close ghosts use the top phase. Called once per z-phase from
+/// `draw_scene_windows_and_hud`.
 fn draw_closing_window_shrink(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,

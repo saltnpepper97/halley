@@ -65,6 +65,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     if st.input.interaction_state.apogee_session.is_some()
         && !crate::protocol::wayland::session_lock::session_lock_active(st)
     {
+        let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, sx, sy);
         // Real pointer motion over the overview reveals a keyboard-hidden cursor.
         // (The programmatic arrow-key warp also funnels through here, but the
         // keyboard path re-arms the hide immediately after the warp.)
