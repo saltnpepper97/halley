@@ -280,6 +280,14 @@ pub(crate) fn layer_surface_focus_for_screen(
         else {
             continue;
         };
+        if matches!(
+            placement.layer,
+            smithay::wayland::shell::wlr_layer::Layer::Background
+        ) && !crate::compositor::monitor::layer_shell::layer_surface_blocks_desktop_hover(
+            st, &surface,
+        ) {
+            continue;
+        }
         let focus_origin = Point::<f64, Logical>::from((
             (placement.origin.x + surface_loc.x) as f64,
             (placement.origin.y + surface_loc.y) as f64,
