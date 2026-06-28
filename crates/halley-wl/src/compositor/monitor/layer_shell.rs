@@ -395,6 +395,17 @@ fn register_layer_surface_impl(
         .monitor_state
         .layer_surface_namespace
         .insert(surface.wl_surface().id(), namespace.clone());
+    if !st
+        .model
+        .monitor_state
+        .layer_surface_order
+        .contains(&surface.wl_surface().id())
+    {
+        st.model
+            .monitor_state
+            .layer_surface_order
+            .push(surface.wl_surface().id());
+    }
 
     if let Some(requested_output) = output.as_ref() {
         for output in st.model.monitor_state.outputs.values() {
@@ -502,6 +513,10 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
         .monitor_state
         .layer_surface_last_configured_size
         .remove(&surface.wl_surface().id());
+    st.model
+        .monitor_state
+        .layer_surface_order
+        .retain(|id| id != &surface.wl_surface().id());
     if removed_focused_layer {
         st.model.monitor_state.layer_keyboard_focus = None;
     }
@@ -721,7 +736,22 @@ fn layer_shell_surfaces_sorted(st: &Halley) -> Vec<LayerSurface> {
         .layer_surfaces()
         .filter(|surface| surface.alive())
         .collect();
-    surfaces.sort_by_key(|surface| layer_depth(layer_cached_state(surface).layer));
+    surfaces.sort_by_key(|surface| {
+        let id = surface.wl_surface().id();
+        let order = st
+            .model
+            .monitor_state
+            .layer_surface_order
+            .iter()
+            .position(|surface_id| surface_id == &id)
+            .unwrap_or(usize::MAX);
+        let data = layer_cached_state(surface);
+        (
+            layer_depth(data.layer),
+            layer_reservation_priority(data),
+            order,
+        )
+    });
     surfaces
 }
 
@@ -1187,6 +1217,14 @@ fn exclusive_zone_amount(zone: ExclusiveZone) -> i32 {
     match zone {
         ExclusiveZone::Exclusive(v) => v as i32,
         _ => 0,
+    }
+}
+
+fn layer_reservation_priority(data: LayerSurfaceCachedState) -> i32 {
+    if exclusive_zone_amount(data.exclusive_zone) > 0 {
+        0
+    } else {
+        1
     }
 }
 

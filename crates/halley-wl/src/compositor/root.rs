@@ -266,6 +266,7 @@ impl Halley {
                     node_monitor: HashMap::new(),
                     layer_surface_monitor: HashMap::new(),
                     layer_surface_namespace: HashMap::new(),
+                    layer_surface_order: Vec::new(),
                     aperture_layer_monitors: HashSet::new(),
                     aperture_layer_heights: HashMap::new(),
                     pending_workarea_refresh: HashSet::new(),
