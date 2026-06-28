@@ -952,6 +952,7 @@ pub(crate) fn collect_active_surfaces(
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
+                            false,
                         )
                     } else {
                         offscreen_visual_crop_and_dst(
@@ -971,6 +972,9 @@ pub(crate) fn collect_active_surfaces(
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
+                            // Cover-crop (uniform scale, no squish) only while this tile
+                            // is mid-reflow; steady-state rendering keeps the plain fill.
+                            tiling_tile_transition.is_some(),
                         )
                     };
                     log_window_render_path(

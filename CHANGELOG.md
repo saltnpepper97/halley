@@ -282,6 +282,10 @@ All notable changes to this project will be documented in this file.
   (Qt/EGL apps such as Quickshell, GL applications, Electron) could not create EGL
   surfaces and crashed with `EGL_BAD_DISPLAY` / `EGL_BAD_SURFACE`; only software
   (`wl_shm`) rendering worked. Requires Smithay's `use_system_lib` feature, now enabled.
+- Cover-crop (object-fit: cover) the offscreen texture to the destination aspect
+  ratio during tiled cluster reflow transitions, preventing texture squish when
+  the animated box's aspect differs from the capture. Only active during tile
+  transitions; steady-state rendering keeps the plain fill.
 
 ### Fixed
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes

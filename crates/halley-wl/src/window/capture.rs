@@ -216,6 +216,7 @@ pub(crate) fn capture_closing_window_animation(
             output_clip,
             preserve_visual_margin,
             lock_dst_to_geometry,
+            false,
         );
     let (geo_offset_x, geo_offset_y, geo_w_px, geo_h_px) = if lock_dst_to_geometry {
         (0.0, 0.0, dst_w.max(1) as f32, dst_h.max(1) as f32)

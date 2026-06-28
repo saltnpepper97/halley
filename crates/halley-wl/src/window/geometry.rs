@@ -167,6 +167,36 @@ pub(super) fn wrap_direct_surface_elements(
         .collect()
 }
 
+/// Crop `src` to the destination's aspect ratio (object-fit: cover) so the eventual
+/// fill render is a *uniform* scale instead of a squish. Width crops are centered;
+/// height crops anchor near the top, matching how tiling slots stack from the top-left.
+/// Because callers only enable this while holding a capture at least as large as the
+/// footprint, cover only ever crops/downscales — it never upscales.
+fn cover_crop_src(
+    src_x: f64,
+    src_y: f64,
+    src_w: f64,
+    src_h: f64,
+    dst_w: i32,
+    dst_h: i32,
+) -> (f64, f64, f64, f64) {
+    let dst_aspect = dst_w.max(1) as f64 / dst_h.max(1) as f64;
+    let src_aspect = src_w / src_h.max(1e-3);
+    if (src_aspect - dst_aspect).abs() < 1e-3 {
+        return (src_x, src_y, src_w, src_h);
+    }
+    if src_aspect > dst_aspect {
+        // Capture is wider than the slot — crop the sides, keep full height, center.
+        let new_w = (src_h * dst_aspect).clamp(1.0, src_w);
+        (src_x + (src_w - new_w) * 0.5, src_y, new_w, src_h)
+    } else {
+        // Capture is taller than the slot — crop the bottom, keep full width, top-anchor.
+        let new_h = (src_w / dst_aspect).clamp(1.0, src_h);
+        (src_x, src_y, src_w, new_h)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn offscreen_visual_crop_and_dst(
     bbox_loc_x: i32,
     bbox_loc_y: i32,
@@ -184,6 +214,7 @@ pub(super) fn offscreen_visual_crop_and_dst(
     clip: Rectangle<i32, Physical>,
     preserve_visual_margin: bool,
     lock_dst_to_geometry: bool,
+    cover_src_to_dst_aspect: bool,
 ) -> (f64, f64, f64, f64, i32, i32, i32, i32, i32, i32, i32, i32) {
     const VISUAL_MARGIN_CAP: f32 = 4.0;
 
@@ -231,12 +262,17 @@ pub(super) fn offscreen_visual_crop_and_dst(
         )
     };
 
-    // The src (cached buffer crop) is mapped straight onto the animated dst box.
-    // During a tile reflow the box tweens from the member's *old* geometry to the
-    // new slot, so early frames are ~1:1 and any stretch only grows as the box
-    // approaches full size — by which point the client's resized buffer has
-    // usually committed and swaps in crisp. This is the Hyprland-style fill: brief,
-    // motion-masked, never an empty band or a zoom-cropped blow-up.
+    // The src (cached buffer crop) is mapped onto the animated dst box. A straight
+    // fill stretches src→dst, which squishes the texture whenever the box's aspect
+    // differs from the capture's (e.g. a tiling reflow tweening between two slot
+    // shapes). When `cover_src_to_dst_aspect` is set, crop src to the dst aspect first
+    // so the fill becomes a uniform scale (object-fit: cover) — no squish, and for a
+    // same-width height change it stays a crisp 1:1 vertical crop.
+    let (src_x, src_y, src_w, src_h) = if cover_src_to_dst_aspect {
+        cover_crop_src(src_x, src_y, src_w, src_h, final_dst_w, final_dst_h)
+    } else {
+        (src_x, src_y, src_w, src_h)
+    };
     (
         src_x,
         src_y,
@@ -251,4 +287,42 @@ pub(super) fn offscreen_visual_crop_and_dst(
         clip.size.w,
         clip.size.h,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cover_crop_src;
+
+    fn aspect(w: f64, h: f64) -> f64 {
+        w / h
+    }
+
+    #[test]
+    fn cover_keeps_matching_aspect_untouched() {
+        let (x, y, w, h) = cover_crop_src(0.0, 0.0, 320.0, 240.0, 640, 480);
+        assert!((x - 0.0).abs() < 1e-6 && (y - 0.0).abs() < 1e-6);
+        assert!((w - 320.0).abs() < 1e-6 && (h - 240.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cover_crops_width_centered_when_capture_too_wide() {
+        // Capture 400x200 (2.0) into a 1.0 slot → keep height, crop width to 200, centered.
+        let (x, y, w, h) = cover_crop_src(0.0, 0.0, 400.0, 200.0, 100, 100);
+        assert!((h - 200.0).abs() < 1e-6, "height kept");
+        assert!((w - 200.0).abs() < 1e-6, "width cropped to dst aspect");
+        assert!((x - 100.0).abs() < 1e-6, "centered horizontally");
+        assert!((y - 0.0).abs() < 1e-6);
+        assert!((aspect(w, h) - 1.0).abs() < 1e-3, "src now matches dst aspect");
+    }
+
+    #[test]
+    fn cover_crops_height_top_anchored_when_capture_too_tall() {
+        // Same-width height shrink: capture 200x400 into a 200x100-aspect (2.0) slot →
+        // keep full width, crop height to 100, anchored at the top (y unchanged).
+        let (x, y, w, h) = cover_crop_src(0.0, 0.0, 200.0, 400.0, 200, 100);
+        assert!((w - 200.0).abs() < 1e-6, "full width kept");
+        assert!((h - 100.0).abs() < 1e-6, "height cropped to dst aspect");
+        assert!((x - 0.0).abs() < 1e-6 && (y - 0.0).abs() < 1e-6, "top-left anchored");
+        assert!((aspect(w, h) - 2.0).abs() < 1e-3);
+    }
 }
