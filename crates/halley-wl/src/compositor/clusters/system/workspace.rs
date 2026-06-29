@@ -407,7 +407,7 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
                 offscreen_textures,
                 start_scale,
                 start_alpha,
-                false,
+                crate::window::CloseAnimationLayer::Top,
                 pull_to,
             );
         }

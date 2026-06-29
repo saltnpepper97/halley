@@ -16,7 +16,7 @@ use crate::overlay::{
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastKind, OverlayToastSnapshot, OverlayToastState,
 };
-use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
+use crate::window::{ActiveBorderRect, CloseAnimationLayer, OffscreenNodeTexture};
 
 const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
 const ANIMATION_PREWARM_TTL_MS: u64 = 1_500;
@@ -82,10 +82,9 @@ pub(crate) enum ClosingWindowAnimationKind {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
-        /// Draw the shrink beneath live windows instead of on top. Set for
-        /// minimize/collapse-to-node so a minimizing window drops behind the
-        /// windows it was stacked under rather than flashing to the front.
-        behind: bool,
+        /// The captured render layer the live window occupied when the close
+        /// animation was started.
+        layer: CloseAnimationLayer,
         /// When set, the ghost is also translated toward this screen-space point
         /// (in physical px) as it shrinks — used to "suck" a closing cluster's
         /// windows into the core node they collapse to.
@@ -108,6 +107,7 @@ pub(crate) struct ClosingWindowAnimationState {
 
 #[derive(Clone)]
 pub(crate) struct ClosingWindowAnimationSnapshot {
+    pub(crate) node_id: NodeId,
     pub(crate) progress: f32,
     pub(crate) kind: ClosingWindowAnimationKind,
 }
@@ -368,7 +368,7 @@ impl RenderState {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
-        behind: bool,
+        layer: CloseAnimationLayer,
         pull_to: Option<(f32, f32)>,
     ) {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
@@ -386,7 +386,7 @@ impl RenderState {
                     offscreen_textures,
                     start_scale,
                     start_alpha,
-                    behind,
+                    layer,
                     pull_to,
                 },
             },
@@ -621,11 +621,12 @@ impl RenderState {
             });
         self.window_animations
             .closing_window_animations
-            .values()
-            .filter(|state| state.monitor == monitor)
-            .map(|state| {
+            .iter()
+            .filter(|(_, state)| state.monitor == monitor)
+            .map(|(&node_id, state)| {
                 let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
                 ClosingWindowAnimationSnapshot {
+                    node_id,
                     progress: (elapsed_ms as f32 / state.duration_ms.max(1) as f32).clamp(0.0, 1.0),
                     kind: state.kind.clone(),
                 }

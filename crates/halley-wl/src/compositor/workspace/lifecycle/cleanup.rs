@@ -288,7 +288,11 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
     st.runtime.surface_activity.retain(|k, _| alive.contains(k));
 }
 
-pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
+pub(super) fn drop_surface_impl(
+    st: &mut Halley,
+    surface: &WlSurface,
+    close_animation_layer: Option<crate::window::CloseAnimationLayer>,
+) {
     for output in st.model.monitor_state.outputs.values() {
         output.leave(surface);
     }
@@ -351,6 +355,14 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             } else if let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
                 crate::window::capture_closing_window_animation(st, monitor, id)
             {
+                let layer = close_animation_layer.unwrap_or_else(|| {
+                    crate::window::closing_window_animation_layer_for_node(
+                        st,
+                        monitor,
+                        id,
+                        Instant::now(),
+                    )
+                });
                 st.ui.render_state.start_closing_window_animation(
                     id,
                     monitor,
@@ -361,7 +373,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     offscreen_textures,
                     start_scale,
                     start_alpha,
-                    true,
+                    layer,
                     None,
                 );
             }

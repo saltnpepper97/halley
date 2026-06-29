@@ -1537,6 +1537,21 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             config_path: config_path.as_str(),
                             wayland_display: sock_name.as_str(),
                         };
+                        // Raw libinput delta straight off the device, before any
+                        // routing/constraint handling. Compare against the
+                        // `locked_relative` delta to see if motion is quantized or
+                        // shrunk on the way to a locked game (TF2 mouselook debug).
+                        if std::env::var_os("HALLEY_POINTER_TRACE")
+                            .is_some_and(|value| value != "0")
+                        {
+                            eventline::info!(
+                                "libinput_motion delta={:.3},{:.3} unaccel={:.3},{:.3}",
+                                event.delta_x(),
+                                event.delta_y(),
+                                event.delta_x_unaccel(),
+                                event.delta_y_unaccel(),
+                            );
+                        }
                         handle_backend_input_event(
                             st,
                             &input_ctx,

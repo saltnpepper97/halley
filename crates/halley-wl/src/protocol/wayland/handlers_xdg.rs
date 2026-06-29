@@ -213,6 +213,7 @@ impl XdgShellHandler for Halley {
         } else {
             self.spawn_target_monitor_for_intent(&intent)
         };
+        monitor::state::sync_xwayland_primary(self, monitor.as_str());
 
         let view = self.usable_viewport_for_monitor(&monitor);
         let bounds_w = view.size.x as i32;

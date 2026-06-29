@@ -6,6 +6,7 @@ use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
 use smithay::reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface};
+use smithay::utils::{Logical, Point};
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
@@ -346,6 +347,7 @@ pub(crate) struct InteractionState {
     pub(crate) last_pointer_screen_global: Option<(f32, f32)>,
     pub(crate) pointer_contents: PointerContents,
     pub(crate) pointer_surface_origin: Option<(ObjectId, f64, f64)>,
+    pub(crate) pointer_focus: Option<(WlSurface, Point<f64, Logical>)>,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,

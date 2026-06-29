@@ -143,6 +143,14 @@ pub(crate) struct StackWindowDrawUnit {
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CloseAnimationLayer {
+    Below,
+    Stack { draw_order: i32 },
+    AboveFullscreenStack { draw_order: i32 },
+    Top,
+}
+
 pub(crate) struct WindowRenderPlan {
     pub(crate) active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(crate) resized_active_elements: Vec<CroppedClippedSurfaceElement>,
@@ -177,6 +185,48 @@ impl StackWindowDrawUnit {
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
         }
+    }
+}
+
+pub(crate) fn closing_window_animation_layer_for_node(
+    st: &mut Halley,
+    monitor: &str,
+    node_id: NodeId,
+    now: Instant,
+) -> CloseAnimationLayer {
+    let stack_layout = build_stack_render_layout(st, monitor, now);
+    if stack_layout.render_set.contains(&node_id) {
+        return CloseAnimationLayer::Stack {
+            draw_order: stack_layout
+                .draw_orders
+                .get(&node_id)
+                .copied()
+                .unwrap_or_default(),
+        };
+    }
+
+    let resizing_this_node = st.input.interaction_state.resize_active == Some(node_id);
+    let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
+    let persistent_rule_top = is_persistent_rule_top(st, node_id);
+    let overlap_policy_stack_this_node =
+        crate::compositor::spawn::state::node_has_overlap_policy(st, node_id);
+    let draw_top_this_node = resizing_this_node
+        || dragging_this_node
+        || (persistent_rule_top && !overlap_policy_stack_this_node);
+    let draw_above_fullscreen_this_node =
+        st.node_draws_above_fullscreen_on_monitor(node_id, monitor);
+    let draw_order = overlap_policy_draw_order(st, node_id);
+
+    if overlap_policy_stack_this_node && draw_above_fullscreen_this_node {
+        CloseAnimationLayer::AboveFullscreenStack { draw_order }
+    } else if overlap_policy_stack_this_node {
+        CloseAnimationLayer::Stack { draw_order }
+    } else if draw_above_fullscreen_this_node {
+        CloseAnimationLayer::AboveFullscreenStack { draw_order }
+    } else if draw_top_this_node {
+        CloseAnimationLayer::Top
+    } else {
+        CloseAnimationLayer::Stack { draw_order }
     }
 }
 

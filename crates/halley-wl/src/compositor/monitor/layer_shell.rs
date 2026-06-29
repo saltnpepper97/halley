@@ -1004,6 +1004,9 @@ mod tests {
     use halley_core::field::Vec2;
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner;
     use smithay::utils::{Logical, Rectangle, Size};
+    use smithay::wayland::shell::wlr_layer::{
+        Anchor, ExclusiveZone, KeyboardInteractivity, Layer, LayerSurfaceCachedState, Margins,
+    };
 
     use super::Halley;
 
@@ -1193,6 +1196,41 @@ mod tests {
         ));
         assert!(super::rectangle_fits_within(target, geometry));
     }
+
+    #[test]
+    fn dont_care_all_anchored_layer_ignores_reserved_zone() {
+        let output_rect = Rectangle::<i32, Logical>::from_size((2560, 1440).into());
+        let mut zone = output_rect;
+        let top_bar = LayerSurfaceCachedState {
+            size: (0, 30).into(),
+            anchor: Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
+            exclusive_zone: ExclusiveZone::Exclusive(30),
+            exclusive_edge: None,
+            margin: Margins::default(),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            layer: Layer::Top,
+            last_acked: None,
+        };
+        let background = LayerSurfaceCachedState {
+            size: (0, 0).into(),
+            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+            exclusive_zone: ExclusiveZone::DontCare,
+            exclusive_edge: None,
+            margin: Margins::default(),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            layer: Layer::Top,
+            last_acked: None,
+        };
+
+        let _ = super::compute_layer_placement(output_rect, &mut zone, top_bar);
+        assert_eq!(zone.loc.y, 30);
+        assert_eq!(zone.size.h, 1410);
+
+        let (origin, size) = super::compute_layer_placement(output_rect, &mut zone, background);
+
+        assert_eq!(origin, (0, 0).into());
+        assert_eq!(size, (2560, 1440).into());
+    }
 }
 
 fn layer_surface_can_take_keyboard_focus(interactivity: KeyboardInteractivity) -> bool {
@@ -1235,7 +1273,8 @@ fn compute_layer_placement(
     let anchored_right = data.anchor.contains(Anchor::RIGHT);
     let anchored_top = data.anchor.contains(Anchor::TOP);
     let anchored_bottom = data.anchor.contains(Anchor::BOTTOM);
-    let fill_full_output = data.layer == Layer::Overlay;
+    let fill_full_output =
+        data.layer == Layer::Overlay || matches!(data.exclusive_zone, ExclusiveZone::DontCare);
     let placement_zone = if fill_full_output { output_rect } else { *zone };
 
     if width == 0 && anchored_left && anchored_right {

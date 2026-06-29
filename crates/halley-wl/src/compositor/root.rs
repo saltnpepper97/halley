@@ -409,6 +409,7 @@ impl Halley {
                     last_pointer_screen_global: None,
                     pointer_contents: Default::default(),
                     pointer_surface_origin: None,
+                    pointer_focus: None,
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,

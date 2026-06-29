@@ -404,6 +404,7 @@ pub(crate) fn update_pointer_contents_from_focus(
 ) -> bool {
     let contents = pointer_contents_for_focus(st, monitor, focus);
     st.input.interaction_state.pointer_surface_origin = pointer_surface_origin_for_focus(focus);
+    st.input.interaction_state.pointer_focus = focus.cloned();
     if st.input.interaction_state.pointer_contents == contents {
         return false;
     }
@@ -443,6 +444,7 @@ pub(crate) fn update_pointer_contents_at_last_screen(
     st.input.interaction_state.pointer_contents = contents;
     st.input.interaction_state.pointer_surface_origin =
         pointer_surface_origin_for_focus(focus.as_ref());
+    st.input.interaction_state.pointer_focus = focus;
     maybe_activate_pointer_constraint(st, now);
     true
 }
@@ -468,6 +470,7 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     pointer.frame(st);
     st.input.interaction_state.pointer_contents = PointerContents::default();
     st.input.interaction_state.pointer_surface_origin = None;
+    st.input.interaction_state.pointer_focus = None;
 }
 
 pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Instant) -> bool {
@@ -532,6 +535,25 @@ pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Inst
     true
 }
 
+fn pointer_trace_enabled() -> bool {
+    std::env::var_os("HALLEY_POINTER_TRACE").is_some_and(|value| value != "0")
+}
+
+fn trace_cursor_position_hint(
+    label: &str,
+    surface: &WlSurface,
+    root: &WlSurface,
+    detail: impl std::fmt::Display,
+) {
+    if pointer_trace_enabled() {
+        eventline::info!(
+            "cursor_position_hint {label} surface={:?} root={:?} {detail}",
+            surface.id(),
+            root.id(),
+        );
+    }
+}
+
 pub(crate) fn apply_cursor_position_hint(
     st: &mut Halley,
     surface: &WlSurface,
@@ -559,11 +581,28 @@ pub(crate) fn apply_cursor_position_hint(
     }
 
     let root = surface_tree_root(surface);
+    let root_id = root.id();
     let pointer_focus_matches = pointer
         .current_focus()
         .as_ref()
-        .is_some_and(|focus| surface_tree_root(focus).id() == root.id());
-    if !pointer_focus_matches {
+        .is_some_and(|focus| surface_tree_root(focus).id() == root_id);
+    let pointer_contents_matches = st
+        .input
+        .interaction_state
+        .pointer_contents
+        .root_surface
+        .as_ref()
+        .is_some_and(|contents_root| contents_root == &root_id);
+    if !pointer_focus_matches && !pointer_contents_matches {
+        trace_cursor_position_hint(
+            "reject",
+            surface,
+            &root,
+            format_args!(
+                "focus_match=false contents_match=false location={:.1},{:.1}",
+                location.x, location.y,
+            ),
+        );
         return;
     }
 
@@ -595,6 +634,15 @@ pub(crate) fn apply_cursor_position_hint(
         .clamp(0.0, (ws_w.max(1) - 1) as f32);
     let sy = (xform.origin_y + (surface_offset.y + location.y) as f32 * xform.scale)
         .clamp(0.0, (ws_h.max(1) - 1) as f32);
+    trace_cursor_position_hint(
+        "accept",
+        surface,
+        &root,
+        format_args!(
+            "focus_match={} contents_match={} location={:.1},{:.1} screen={:.1},{:.1}",
+            pointer_focus_matches, pointer_contents_matches, location.x, location.y, sx, sy,
+        ),
+    );
     let (global_sx, global_sy) = st
         .model
         .monitor_state
@@ -616,6 +664,19 @@ fn surface_tree_root(surface: &WlSurface) -> WlSurface {
         root = parent;
     }
     root
+}
+
+fn trace_pointer_constraint_active(source: &str, constraint: &ActivePointerConstraint) {
+    if pointer_trace_enabled() {
+        eventline::info!(
+            "pointer_constraint active source={} surface={:?} locked={} origin={:.1},{:.1}",
+            source,
+            constraint.surface.id(),
+            constraint.locked,
+            constraint.origin.x,
+            constraint.origin.y,
+        );
+    }
 }
 
 pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
@@ -679,8 +740,64 @@ pub(crate) fn pointer_holds_game_constraint(st: &Halley) -> bool {
         })
 }
 
+fn active_pointer_constraint_for_focus(
+    pointer: &PointerHandle<Halley>,
+    focus: &(WlSurface, Point<f64, Logical>),
+) -> Option<ActivePointerConstraint> {
+    let mut current = focus.0.clone();
+    let mut current_origin = Some(focus.1);
+    loop {
+        let res = with_pointer_constraint(&current, pointer, |constraint| {
+            let constraint = constraint.as_deref()?;
+            if !constraint.is_active() {
+                return None;
+            }
+            let origin = current_origin.unwrap_or_else(|| pointer.current_location());
+            if let Some(region) = constraint.region() {
+                let pos_within_surface = pointer.current_location() - origin;
+                if !region.contains(pos_within_surface.to_i32_round()) {
+                    return None;
+                }
+            }
+            Some(ActivePointerConstraint {
+                surface: current.clone(),
+                origin,
+                locked: matches!(constraint, PointerConstraint::Locked(_)),
+                region: constraint.region().cloned(),
+            })
+        });
+        if res.is_some() {
+            return res;
+        }
+        if let Some(parent) = get_parent(&current) {
+            if let Some(origin) = current_origin.as_mut() {
+                let location = with_states(&current, |states| {
+                    states
+                        .cached_state
+                        .get::<SubsurfaceCachedState>()
+                        .current()
+                        .location
+                });
+                origin.x -= location.x as f64;
+                origin.y -= location.y as f64;
+            }
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
 pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerConstraint> {
     let pointer = st.platform.seat.get_pointer()?;
+    if let Some(focus) = st.input.interaction_state.pointer_focus.as_ref()
+        && let Some(constraint) = active_pointer_constraint_for_focus(&pointer, focus)
+    {
+        trace_pointer_constraint_active("tracked", &constraint);
+        return Some(constraint);
+    }
+
     let focus = pointer.current_focus()?;
     let mut current = focus;
     let mut current_origin = st
@@ -725,6 +842,21 @@ pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerCons
         }
     }
     None
+}
+
+/// Second-chance lock detection seeded from a *fresh* pointer focus (e.g. the
+/// surface a hit-test just landed on) rather than the tracked/last focus that
+/// [`active_pointer_constraint`] uses. The tracked focus can momentarily go stale
+/// and miss an active lock; if that miss reaches the absolute-motion path it sends
+/// `pointer.motion()` with a changed focus, which makes Smithay deactivate the
+/// constraint and breaks XWayland-game mouselook (the "wiggle in place" bug).
+/// Returns the active *locked* constraint covering `focus`, if any.
+pub(crate) fn locked_constraint_for_focus(
+    st: &Halley,
+    focus: &(WlSurface, Point<f64, Logical>),
+) -> Option<ActivePointerConstraint> {
+    let pointer = st.platform.seat.get_pointer()?;
+    active_pointer_constraint_for_focus(&pointer, focus).filter(|constraint| constraint.locked)
 }
 
 pub(crate) fn find_constrained_surface_in_hierarchy(

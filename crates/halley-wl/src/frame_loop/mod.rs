@@ -1130,7 +1130,7 @@ mod tests {
             Vec::new(),
             1.0,
             1.0,
-            false,
+            crate::window::CloseAnimationLayer::Top,
             None,
         );
 
