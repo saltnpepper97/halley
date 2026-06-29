@@ -182,6 +182,14 @@ fn plan_toplevel_destroy_close_restore(
         crate::compositor::spawn::state::node_has_overlap_policy(st, closing_id)
             || st.is_fullscreen_active(closing_id);
 
+    if facts.closing_fullscreen
+        && let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor)
+        && st.model.field.cluster_id_for_member_public(closing_id) == Some(cid)
+    {
+        apply_non_tiled_cluster_close_focus_restore(st, cid, focused_monitor, closing_id, now);
+        return None;
+    }
+
     if facts.closing_fullscreen {
         return non_cluster_close_restore_target(st, focused_monitor, closing_id).map(|target| {
             CloseRestorePlan {

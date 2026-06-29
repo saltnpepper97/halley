@@ -49,6 +49,113 @@ mod tests {
         tuning
     }
 
+    fn cluster_tuning(layout: halley_config::ClusterDefaultLayout) -> halley_config::RuntimeTuning {
+        let mut tuning = single_monitor_tuning();
+        tuning.cluster_default_layout = layout;
+        tuning
+    }
+
+    fn active_cluster_monitor(state: &mut Halley) -> (String, halley_core::cluster::ClusterId) {
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 120.0, y: 120.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 400.0, y: 120.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        state.assign_node_to_monitor(a, monitor.as_str());
+        state.assign_node_to_monitor(b, monitor.as_str());
+        let cid = state.create_cluster(vec![a, b]).expect("cluster");
+        state
+            .model
+            .cluster_state
+            .active_cluster_workspaces
+            .insert(monitor.clone(), cid);
+        (monitor, cid)
+    }
+
+    fn spawn_member_candidate(state: &mut Halley, monitor: &str) -> NodeId {
+        let node = state.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 50.0, y: 50.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        state.assign_node_to_monitor(node, monitor);
+        node
+    }
+
+    #[test]
+    fn fullscreen_target_joins_active_tiled_cluster_first() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(
+            &dh,
+            cluster_tuning(halley_config::ClusterDefaultLayout::Tiling),
+        );
+        let (monitor, cid) = active_cluster_monitor(&mut state);
+        let game = spawn_member_candidate(&mut state, monitor.as_str());
+        assert!(
+            state
+                .model
+                .field
+                .cluster_id_for_member_public(game)
+                .is_none()
+        );
+
+        ensure_cluster_membership_before_fullscreen(&mut state, game, Instant::now());
+
+        assert_eq!(
+            state.model.field.cluster_id_for_member_public(game),
+            Some(cid),
+            "a window fullscreening into an active tiled cluster must join it first"
+        );
+    }
+
+    #[test]
+    fn fullscreen_target_joins_active_stacking_cluster_first() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(
+            &dh,
+            cluster_tuning(halley_config::ClusterDefaultLayout::Stacking),
+        );
+        let (monitor, cid) = active_cluster_monitor(&mut state);
+        let game = spawn_member_candidate(&mut state, monitor.as_str());
+
+        ensure_cluster_membership_before_fullscreen(&mut state, game, Instant::now());
+
+        assert_eq!(
+            state.model.field.cluster_id_for_member_public(game),
+            Some(cid),
+            "a window fullscreening into an active stacking cluster must join it first"
+        );
+    }
+
+    #[test]
+    fn fullscreen_without_active_cluster_does_not_join() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(
+            &dh,
+            cluster_tuning(halley_config::ClusterDefaultLayout::Tiling),
+        );
+        // A cluster exists but is NOT the active workspace on this monitor.
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let game = spawn_member_candidate(&mut state, monitor.as_str());
+
+        ensure_cluster_membership_before_fullscreen(&mut state, game, Instant::now());
+
+        assert!(
+            state
+                .model
+                .field
+                .cluster_id_for_member_public(game)
+                .is_none(),
+            "with no active cluster workspace there is nothing to join - ordinary fullscreen"
+        );
+    }
+
     #[test]
     fn overlap_policy_focus_preserves_same_monitor_fullscreen_lock() {
         let mut tuning = halley_config::RuntimeTuning::default();
@@ -254,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn client_request_on_user_fullscreen_updates_origin() {
+    fn client_request_on_user_fullscreen_preserves_user_origin() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
         let window = state.model.field.spawn_surface(
@@ -276,7 +383,7 @@ mod tests {
         assert!(state.is_fullscreen_active(window));
         assert_eq!(
             state.model.fullscreen_state.fullscreen_origin.get(&window),
-            Some(&crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest)
+            Some(&crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind)
         );
     }
 
@@ -945,6 +1052,79 @@ mod tests {
     }
 
     #[test]
+    fn client_fullscreen_rerequest_after_user_exit_stays_windowed_in_cluster() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(master), 30_000, now);
+        state.enter_xdg_fullscreen(master, None, now);
+        assert!(state.is_fullscreen_active(master));
+
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        assert!(!state.is_fullscreen_session_node(master));
+        assert_eq!(
+            state.model.field.cluster_id_for_member_public(master),
+            Some(cid)
+        );
+
+        state.enter_xdg_fullscreen(master, None, now + std::time::Duration::from_millis(40));
+        assert!(
+            !state.is_fullscreen_session_node(master),
+            "client fullscreen re-request should be suppressed after user exit"
+        );
+        assert_eq!(
+            state.model.field.cluster_id_for_member_public(master),
+            Some(cid)
+        );
+
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        assert!(
+            state.is_fullscreen_active(master),
+            "the user keybind should still be able to re-enter fullscreen"
+        );
+        assert_eq!(
+            state.model.fullscreen_state.fullscreen_origin.get(&master),
+            Some(&crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind)
+        );
+
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        assert!(
+            !state.is_fullscreen_session_node(master),
+            "second user keybind exit should leave the game windowed"
+        );
+
+        state.enter_xdg_fullscreen(master, None, now + std::time::Duration::from_millis(80));
+        assert!(
+            !state.is_fullscreen_session_node(master),
+            "client fullscreen re-request should also be suppressed after exiting a user-owned fullscreen"
+        );
+    }
+
+    #[test]
     fn fullscreen_keybind_exits_after_soft_suspend() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -1112,6 +1292,158 @@ mod tests {
                 .fullscreen_state
                 .fullscreen_hidden_cluster_siblings
                 .is_empty()
+        );
+
+        let remove_now_ms = state.now_ms(now + std::time::Duration::from_millis(80));
+        let removed = state.remove_node_from_field(master, remove_now_ms);
+        assert!(removed);
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
+        assert!(state.model.field.node(stack).is_some());
+        assert!(!cluster_sibling_hidden_for_fullscreen(&state, stack));
+    }
+
+    #[test]
+    fn fullscreen_cluster_member_exit_snaps_camera_no_pan() {
+        // Regression: exiting fullscreen on a cluster member started a camera
+        // animation that fought the survivor reflow ("slides from left, stops
+        // partway"). The camera must snap synchronously and no viewport pan may
+        // remain after the exit.
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(master, None, now);
+        assert!(state.is_fullscreen_active(master));
+
+        // Exiting must snap the camera, not leave a pan animation alive.
+        state.exit_xdg_fullscreen(master, now + std::time::Duration::from_millis(20));
+        assert!(
+            state.input.interaction_state.viewport_pan_anim.is_none(),
+            "no viewport pan should remain after a cluster member exits fullscreen"
+        );
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
+    }
+
+    #[test]
+    fn fullscreen_cluster_member_exit_preserves_frozen_usable_viewport() {
+        // Regression: forcing a workarea refresh on fullscreen exit rewrote the
+        // active cluster's frozen usable viewport from the current camera base,
+        // causing the top gap to grow on repeated fullscreen exits.
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let frozen = halley_core::viewport::Viewport::new(
+            Vec2 { x: 400.0, y: 330.0 },
+            Vec2 { x: 800.0, y: 540.0 },
+        );
+        state
+            .model
+            .monitor_state
+            .monitors
+            .get_mut("monitor_a")
+            .expect("monitor")
+            .usable_viewport = frozen;
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(master, None, now);
+        state.exit_xdg_fullscreen(master, now + std::time::Duration::from_millis(20));
+
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .monitors
+                .get("monitor_a")
+                .expect("monitor")
+                .usable_viewport,
+            frozen,
+            "fullscreen exit must not rewrite an active cluster's frozen usable viewport"
+        );
+    }
+
+    #[test]
+    fn fullscreen_cluster_member_close_snaps_camera_no_pan() {
+        // Regression: closing a fullscreen cluster member while a camera
+        // animation is in flight left the survivors sliding. The drop path must
+        // settle the camera and clear any pan before the removal reflow.
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 300.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(master, "monitor_a");
+        state.assign_node_to_monitor(stack, "monitor_a");
+        let cid = state.create_cluster(vec![master, stack]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(master, None, now);
+
+        // Simulate the user keybind exit (starts a camera animation), then the
+        // game closing mid-animation.
+        assert!(
+            crate::compositor::actions::window::toggle_focused_fullscreen_node_state(&mut state)
+        );
+        // A pan may be alive here from the exit. Closing the surface must settle
+        // the camera and clear it.
+        drop_fullscreen_surface(
+            &mut state,
+            master,
+            now + std::time::Duration::from_millis(10),
+        );
+        assert!(
+            state.input.interaction_state.viewport_pan_anim.is_none(),
+            "no viewport pan should remain after a fullscreen cluster member closes"
         );
     }
 
@@ -1765,11 +2097,18 @@ fn exit_xdg_fullscreen_inner(
         && st.runtime.tuning.fullscreen_animation_enabled()
         && st.model.monitor_state.current_monitor == monitor_name;
 
-    // Only ease the camera back when the exit itself is animated. A non-animated
-    // exit (notably the fullscreen→maximize handoff via `exit_xdg_fullscreen_no_anim`)
-    // must leave the camera to whatever takes over next, so we don't fight it with
-    // a transition toward the pre-fullscreen zoom.
-    if should_animate && let Some(camera) = restored_camera {
+    // For a cluster member, the active cluster layout owns the camera: snap it
+    // synchronously to the restored target and cancel any in-flight pan so the
+    // survivor reflow projects against a settled viewport instead of one still
+    // easing back from fullscreen. Otherwise, ease the camera back when the exit
+    // itself is animated. A non-animated exit (notably the fullscreen→maximize
+    // handoff via `exit_xdg_fullscreen_no_anim`) must leave the camera to
+    // whatever takes over next, so we don't fight it with a transition toward
+    // the pre-fullscreen zoom.
+    let cluster_member_exit = node_is_active_cluster_member_on_monitor(st, node_id, &monitor_name);
+    if cluster_member_exit {
+        settle_cluster_camera_after_fullscreen(st, &monitor_name, restored_camera);
+    } else if should_animate && let Some(camera) = restored_camera {
         animate_camera_restore_after_fullscreen(st, &monitor_name, camera, now);
     }
     let exit_anim_from = should_animate.then(|| {
@@ -1858,7 +2197,7 @@ fn exit_xdg_fullscreen_inner(
     // and re-lay out the workspace. Soft-suspend keeps the siblings hidden because
     // the fullscreen session is still alive from the user's point of view.
     if !suspend && !preserve_client_fullscreen {
-        restore_cluster_workspace_after_fullscreen(st, node_id, now);
+        restore_cluster_workspace_after_fullscreen(st, node_id, now, true);
     }
     st.request_maintenance();
 }
@@ -1996,10 +2335,60 @@ fn animate_camera_restore_after_fullscreen(
     );
 }
 
+/// Whether `node_id` is a member of the active cluster workspace on `monitor`.
+fn node_is_active_cluster_member_on_monitor(st: &Halley, node_id: NodeId, monitor: &str) -> bool {
+    st.model
+        .field
+        .cluster_id_for_member_public(node_id)
+        .is_some_and(|cid| st.active_cluster_workspace_for_monitor(monitor) == Some(cid))
+}
+
+/// Snap the monitor camera to a restored fullscreen snapshot synchronously
+/// (no easing) and cancel any in-flight viewport pan for that monitor. Used
+/// when a fullscreen cluster member exits or dies: the active cluster layout
+/// owns the camera, so a lingering camera animation would slide the survivor
+/// tiles as the cluster re-lays out ("slides from the left and stops partway").
+/// If `camera` is `None` (snapshot already consumed by an earlier exit), snaps
+/// the live viewport to the current camera targets instead.
+fn settle_cluster_camera_after_fullscreen(
+    st: &mut Halley,
+    monitor_name: &str,
+    camera: Option<crate::compositor::workspace::state::MaximizeCameraSnapshot>,
+) {
+    if let Some(camera) = camera {
+        crate::compositor::workspace::state::apply_monitor_camera_snapshot(
+            st,
+            monitor_name,
+            camera,
+        );
+    } else if st.model.monitor_state.current_monitor == monitor_name {
+        st.model.viewport.center = st.model.camera_target_center;
+        st.model.zoom_ref_size = st.model.camera_target_view_size;
+    } else if let Some(space) = st.model.monitor_state.monitors.get_mut(monitor_name) {
+        space.viewport.center = space.camera_target_center;
+        space.zoom_ref_size = space.camera_target_view_size;
+    }
+    if st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.monitor == monitor_name)
+    {
+        st.input.interaction_state.viewport_pan_anim = None;
+    }
+}
+
 /// Reverse of `hide_cluster_workspace_siblings_for_fullscreen`: clear the hidden
-/// sibling set for `node_id` and, if its cluster workspace is still active, re-lay
-/// it out so the tiles reappear. Called from the fullscreen exit path.
-fn restore_cluster_workspace_after_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+/// sibling set for `node_id` and optionally re-lay out the active cluster. The
+/// close path skips the immediate layout because member removal will reflow the
+/// survivors after the closing node is actually gone.
+fn restore_cluster_workspace_after_fullscreen(
+    st: &mut Halley,
+    node_id: NodeId,
+    now: Instant,
+    relayout: bool,
+) {
     let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
         st.model
             .fullscreen_state
@@ -2013,8 +2402,50 @@ fn restore_cluster_workspace_after_fullscreen(st: &mut Halley, node_id: NodeId, 
         .fullscreen_state
         .fullscreen_hidden_cluster_siblings
         .remove(&node_id);
-    if workspace_still_active {
+    if workspace_still_active && relayout {
         st.layout_active_cluster_workspace_for_monitor(&monitor, st.now_ms(now));
+    }
+}
+
+fn client_fullscreen_blocked_for_cluster_node(st: &mut Halley, node_id: NodeId) -> bool {
+    if !st
+        .model
+        .fullscreen_state
+        .client_fullscreen_blocked_nodes
+        .contains(&node_id)
+    {
+        return false;
+    }
+
+    let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
+        st.model
+            .fullscreen_state
+            .client_fullscreen_blocked_nodes
+            .remove(&node_id);
+        return false;
+    };
+    let monitor = st.monitor_for_node_or_current(node_id);
+    if st.active_cluster_workspace_for_monitor(&monitor) == Some(cid) {
+        return true;
+    }
+
+    st.model
+        .fullscreen_state
+        .client_fullscreen_blocked_nodes
+        .remove(&node_id);
+    false
+}
+
+pub(crate) fn block_client_fullscreen_for_cluster_node(st: &mut Halley, node_id: NodeId) {
+    let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
+        return;
+    };
+    let monitor = st.monitor_for_node_or_current(node_id);
+    if st.active_cluster_workspace_for_monitor(&monitor) == Some(cid) {
+        st.model
+            .fullscreen_state
+            .client_fullscreen_blocked_nodes
+            .insert(node_id);
     }
 }
 
@@ -2048,6 +2479,37 @@ pub(crate) fn enter_user_fullscreen(
     )
 }
 
+/// A window must join the active cluster layout *before* fullscreening, so the fullscreen
+/// (a game going into "game mode") sits inside the cluster as a real tile/stack member:
+/// siblings hidden, camera grows from its slot, and exiting or closing returns cleanly to
+/// the cluster. Games drive their own `set_fullscreen`, often before they've joined the
+/// cluster: a late app_id (Wine/XWayland/gamescope), a `Float` rule, or simply spawning
+/// then immediately fullscreening can all leave the window a non-member. When that
+/// happens the fullscreen sits *outside* the cluster and, on close,
+/// `restore_cluster_workspace_after_fullscreen` finds no membership and never re-lays the
+/// cluster out, so it gets "stuck". This chokepoint guarantees membership regardless of
+/// how the window got here.
+///
+/// Idempotent and safe: a no-op when the node is already a cluster member or when its
+/// monitor has no active cluster workspace (an ordinary fullscreen with nothing to join).
+/// `absorb_node_into_cluster` handles both Tiling and Stacking layouts and performs the
+/// monitor-assign + re-layout internally.
+fn ensure_cluster_membership_before_fullscreen(st: &mut Halley, node_id: NodeId, now: Instant) {
+    if st
+        .model
+        .field
+        .cluster_id_for_member_public(node_id)
+        .is_some()
+    {
+        return;
+    }
+    let monitor = st.monitor_for_node_or_current(node_id);
+    let Some(cid) = st.active_cluster_workspace_for_monitor(&monitor) else {
+        return;
+    };
+    let _ = st.absorb_node_into_cluster(cid, node_id, now);
+}
+
 fn enter_fullscreen(
     st: &mut Halley,
     node_id: NodeId,
@@ -2055,6 +2517,20 @@ fn enter_fullscreen(
     now: Instant,
     origin: crate::compositor::fullscreen::state::FullscreenOrigin,
 ) {
+    // Join the active cluster first so the fullscreen lands inside the cluster layout.
+    ensure_cluster_membership_before_fullscreen(st, node_id, now);
+
+    if origin == crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind {
+        st.model
+            .fullscreen_state
+            .client_fullscreen_blocked_nodes
+            .remove(&node_id);
+    } else if client_fullscreen_blocked_for_cluster_node(st, node_id) {
+        request_toplevel_fullscreen_state(st, node_id, false, None, None);
+        st.request_maintenance();
+        return;
+    }
+
     let monitor_name = fullscreen_monitor_name(st, node_id, output.as_ref());
 
     st.model
@@ -2069,10 +2545,21 @@ fn enter_fullscreen(
         .get(&monitor_name)
         == Some(&node_id)
     {
-        st.model
+        let existing_origin = st
+            .model
             .fullscreen_state
             .fullscreen_origin
-            .insert(node_id, origin);
+            .get(&node_id)
+            .copied();
+        if existing_origin
+            != Some(crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind)
+            || origin == crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind
+        {
+            st.model
+                .fullscreen_state
+                .fullscreen_origin
+                .insert(node_id, origin);
+        }
         if origin == crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest {
             let target_size = fullscreen_target_size_for(st, monitor_name.as_str());
             request_toplevel_fullscreen_state(st, node_id, true, output, Some(target_size));
@@ -2408,21 +2895,22 @@ pub(crate) fn drop_fullscreen_surface(st: &mut Halley, id: NodeId, now: Instant)
 
         clear_non_target_fullscreen_restore_entries(st, &monitor_name, id);
 
-        // Mirror `exit_xdg_fullscreen_inner`: ease the monitor camera back to the
-        // pre-fullscreen snapshot and re-lay out the cluster workspace so the
-        // hidden siblings reappear at the correct on-screen positions. Without
-        // this the camera stays anchored on the now-deleted fullscreen node and
-        // the subsequent `remove_node_from_field` re-layout projects survivors
-        // offscreen via `world_to_screen`. The node is still a cluster member
-        // here (removal happens later in the cleanup path), so the workspace
-        // restore correctly unhides its siblings before the final reflow. The
-        // window is being torn down here, so just restore the camera target (the
-        // existing smoothing eases it) rather than starting a grow/shrink camera
-        // transition for a node that is going away.
-        let _ = restore_monitor_camera_after_fullscreen(st, &monitor_name);
-        restore_cluster_workspace_after_fullscreen(st, id, now);
+        // Mirror `exit_xdg_fullscreen_inner`: restore the monitor camera and
+        // unhide cluster siblings before the member-removal path performs the
+        // survivor reflow. For a cluster member the camera is snapped
+        // synchronously and any in-flight pan is cancelled so the survivor
+        // reflow projects against a settled viewport.
+        let camera = restore_monitor_camera_after_fullscreen(st, &monitor_name);
+        if node_is_active_cluster_member_on_monitor(st, id, &monitor_name) {
+            settle_cluster_camera_after_fullscreen(st, &monitor_name, camera);
+        }
+        restore_cluster_workspace_after_fullscreen(st, id, now, false);
     }
 
+    st.model
+        .fullscreen_state
+        .client_fullscreen_blocked_nodes
+        .remove(&id);
     st.model.fullscreen_state.fullscreen_restore.remove(&id);
     st.model.fullscreen_state.fullscreen_origin.remove(&id);
     st.model.fullscreen_state.fullscreen_motion.remove(&id);

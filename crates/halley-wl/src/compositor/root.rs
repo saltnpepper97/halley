@@ -338,6 +338,7 @@ impl Halley {
                     fullscreen_camera_restore: HashMap::new(),
                     direct_scanout: HashMap::new(),
                     fullscreen_hidden_cluster_siblings: HashMap::new(),
+                    client_fullscreen_blocked_nodes: HashSet::new(),
                 },
                 spawn_state: SpawnState {
                     pending_spawn_activate_at_ms: HashMap::new(),

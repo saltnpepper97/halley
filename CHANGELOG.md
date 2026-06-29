@@ -536,6 +536,51 @@ All notable changes to this project will be documented in this file.
   camera target and re-lays out the cluster workspace, matching the `Mod+F` exit path.
   Previously the camera stayed anchored on the deleted node and the subsequent re-layout
   projected surviving members offscreen.
+- Fix fullscreen games (Wine/Proton/gamescope) launched inside a cluster tiling workspace
+  landing *outside* the cluster layout: a window that requests fullscreen before its app_id
+  resolves or before it joins the cluster is now absorbed into the active cluster as a real
+  tile/stack member first, so siblings are hidden, the camera grows from its slot, and
+  exiting or closing returns cleanly to the cluster. Previously the fullscreen sat outside
+  the cluster and on close `restore_cluster_workspace_after_fullscreen` found no membership,
+  so the workspace got "stuck".
+- Suppress client fullscreen re-requests after the user explicitly exits fullscreen via the
+  `Mod+F` keybind on a cluster member. Games (gamescope, SDL, Wine) frequently call
+  `xdg_toplevel::set_fullscreen` immediately after the compositor un-fullscreens them,
+  trapping the window back in fullscreen and making the keybind feel like it did nothing.
+  The block is cleared when the user re-enters fullscreen via the keybind, and expires when
+  the node leaves the active cluster context, so only automatic re-requests are affected.
+- Fix the `Mod+F` keybind requiring two presses to exit fullscreen after the first cycle:
+  the re-request block was only installed for `ClientRequest`-origin sessions, so after
+  re-entering via the keybind (which sets `UserKeybind` origin and clears the block) a
+  subsequent game re-request slipped back in. The keybind exit now always installs the
+  block for active cluster members regardless of session origin.
+- A client `set_fullscreen` request no longer converts a user-owned (`Mod+F`) fullscreen
+  session into a client-owned one: the origin is preserved so the compositor keeps
+  authority over sessions the user initiated.
+- Fix survivor tiles "sliding from the left and stopping partway" when a fullscreen cluster
+  member exits or closes: the fullscreen camera restore animation (a viewport pan with a
+  zoom track) kept running while the cluster re-laid out, projecting tiles against a moving
+  camera. For active cluster members the camera now snaps synchronously to the restored
+  target and any in-flight viewport pan for that monitor is cancelled before the reflow.
+- Fix the cluster top gap growing larger on every fullscreen exit: a forced work-area
+  refresh on fullscreen exit/drop rewrote the active cluster's frozen `usable_viewport`
+  from the current camera base, compounding the reservation offset. The forced refresh has
+  been removed from both the fullscreen exit and surface-destroy paths; the active cluster
+  work-area lock now stays frozen through fullscreen for the whole session.
+- Fix the `Mod+F` keybind sometimes acting on the wrong cluster member instead of the
+  fullscreen session node: the toggle now resolves its target by checking the monitor's
+  active and then suspended fullscreen node before falling back to normal focus or the
+  fullscreen focus override, so a stale monitor focus (e.g. a chat window) can no longer
+  intercept the keybind.
+- Closing a fullscreened cluster member now uses cluster-aware close-restore (focus the next
+  cluster member) instead of the non-cluster close-restore path that could restore focus to
+  a field window and re-trigger a pan.
+- Stale-surface reaping (Wine/Proton/gamescope crash paths) now tears down fullscreen state
+  before removing the dead node, mirroring the normal destroy path. Previously a fullscreen
+  cluster member killed via the stale-surface reaper left `fullscreen_active_node` stale,
+  the camera anchored on the gone window, and the cluster siblings hidden.
+- Remove temporary diagnostic logging from the cleanup and spawn-rule paths that was added
+  during fullscreen-cluster debugging.
 
 ## [v0.4.0] - 2026-06-12
 

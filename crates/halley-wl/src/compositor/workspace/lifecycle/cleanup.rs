@@ -263,6 +263,12 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             st.input.interaction_state.smoothed_render_pos.remove(&id);
             let now = Instant::now();
             let now_ms = st.now_ms(now);
+            // Tear down fullscreen state before removing the node, mirroring
+            // `drop_surface_impl`. Without this, a fullscreen cluster member that dies via
+            // the stale-surface path (common for Wine/Proton/gamescope) leaves
+            // `fullscreen_active_node` stale, the camera anchored on the gone window, and
+            // the cluster siblings hidden, so the cluster gets "stuck re-adjusting".
+            crate::compositor::fullscreen::system::drop_fullscreen_surface(st, id, now);
             let _ = st.remove_node_from_field(id, now_ms);
             if let Some(promotion) = queued_promotion {
                 arm_queued_overflow_promotion(st, promotion, now_ms);

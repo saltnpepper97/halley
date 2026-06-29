@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use halley_core::field::{NodeId, Vec2};
 
@@ -65,6 +65,9 @@ pub(crate) struct FullscreenState {
     /// fullscreen window is the only cluster tile showing. Cleared on exit, which
     /// also re-lays out the cluster workspace so the tiles reappear.
     pub(crate) fullscreen_hidden_cluster_siblings: HashMap<NodeId, Vec<NodeId>>,
+    /// Cluster members whose client fullscreen requests are ignored because the
+    /// user explicitly exited fullscreen via the compositor keybind.
+    pub(crate) client_fullscreen_blocked_nodes: HashSet<NodeId>,
 }
 
 impl FullscreenState {
