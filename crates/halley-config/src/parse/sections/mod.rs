@@ -1,6 +1,7 @@
 mod animations;
 mod apogee;
 mod autostart;
+mod background;
 mod bearings;
 mod clusters;
 mod cursor;
@@ -28,6 +29,7 @@ mod viewport;
 pub(crate) use animations::*;
 pub(crate) use apogee::*;
 pub(crate) use autostart::*;
+pub(crate) use background::*;
 pub(crate) use bearings::*;
 pub(crate) use clusters::*;
 pub(crate) use cursor::*;

@@ -185,9 +185,9 @@ pub(super) fn dispatch_pointer_motion(
                 // different client than the constraint surface, the game never sees
                 // the motion. Log both to confirm they match.
                 let current_focus = pointer.current_focus();
-                let same_client = current_focus.as_ref().is_some_and(|focus| {
-                    focus.id().same_client_as(&constraint.surface.id())
-                });
+                let same_client = current_focus
+                    .as_ref()
+                    .is_some_and(|focus| focus.id().same_client_as(&constraint.surface.id()));
                 eventline::info!(
                     "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
                     constraint.surface.id(),

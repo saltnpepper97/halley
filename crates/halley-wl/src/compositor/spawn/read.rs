@@ -19,6 +19,9 @@ pub(crate) struct SpawnReadContext<'a> {
     interaction_monitor: &'a str,
     pointer_monitor: Option<String>,
     input_focus_mode: InputFocusMode,
+    /// An explicit `monitor-focus` keybind has pinned the spawn target to
+    /// `focused_monitor` until the pointer moves; overrides hover focus-mode.
+    monitor_focus_pinned: bool,
     pan_to_new: PanToNewMode,
 }
 
@@ -44,7 +47,11 @@ impl<'a> SpawnReadContext<'a> {
     }
 
     pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
+        // A deliberate monitor-focus keybind wins over hover focus-mode until the
+        // pointer moves, so spawning after switching monitors lands on the
+        // keyboard-focused monitor instead of wherever the cursor is parked.
         if self.input_focus_mode == InputFocusMode::Hover
+            && !self.monitor_focus_pinned
             && let Some(pointer_monitor) = self.pointer_monitor.as_deref()
             && self.monitor_state.monitors.contains_key(pointer_monitor)
         {
@@ -251,6 +258,7 @@ pub(crate) fn spawn_read_context(st: &Halley) -> SpawnReadContext<'_> {
             .last_pointer_screen_global
             .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy)),
         input_focus_mode: st.runtime.tuning.input.focus_mode,
+        monitor_focus_pinned: st.input.interaction_state.monitor_focus_pinned,
         pan_to_new: st.runtime.tuning.pan_to_new,
     }
 }

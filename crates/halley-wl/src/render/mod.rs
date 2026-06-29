@@ -1,4 +1,5 @@
 pub(crate) mod app_icon;
+pub(crate) mod background;
 mod bearings;
 pub(crate) mod blur;
 pub(crate) mod clipped_surface;
@@ -11,6 +12,7 @@ mod icon_tint;
 pub mod layer_shell;
 mod node;
 pub(crate) mod pin_icon;
+pub(crate) mod rescale;
 mod screenshot_icon;
 pub(crate) mod shadow;
 pub(crate) mod state;

@@ -8,6 +8,22 @@ pub(super) struct QueuedOverflowPromotion {
     pub(super) source_icon_rect: halley_core::tiling::Rect,
 }
 
+fn screen_pos_for_monitor(st: &Halley, monitor: &str, pos: halley_core::field::Vec2) -> (i32, i32) {
+    let Some(space) = st.model.monitor_state.monitors.get(monitor) else {
+        return (pos.x.round() as i32, pos.y.round() as i32);
+    };
+    let (center, view_size) = if st.model.monitor_state.current_monitor == monitor {
+        (st.model.viewport.center, st.model.zoom_ref_size)
+    } else {
+        (space.viewport.center, space.zoom_ref_size)
+    };
+    let vw = view_size.x.max(1.0);
+    let vh = view_size.y.max(1.0);
+    let sx = (((pos.x - center.x) / vw) + 0.5) * space.width.max(1) as f32;
+    let sy = (((pos.y - center.y) / vh) + 0.5) * space.height.max(1) as f32;
+    (sx.round() as i32, sy.round() as i32)
+}
+
 pub(super) fn capture_queued_overflow_promotion(
     st: &Halley,
     id: NodeId,
@@ -341,16 +357,25 @@ pub(super) fn drop_surface_impl(
             && !closing_is_tiled_member
             && st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
+            && !st
+                .ui
+                .render_state
+                .closing_window_animation_active_for_node(id, Instant::now())
         {
+            // World camera center the ghost is projected against, so the close
+            // animation stays anchored in the world if the camera pans during it.
+            let capture_center = st.view_center_for_monitor(monitor);
             if let Some((pos, label, state)) = closing_node_snapshot {
+                let screen_pos = screen_pos_for_monitor(st, monitor, pos);
                 st.ui.render_state.start_closing_node_animation(
                     id,
                     monitor,
                     Instant::now(),
                     close_anim_duration_ms,
-                    pos,
+                    screen_pos,
                     label,
                     state,
+                    capture_center,
                 );
             } else if let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
                 crate::window::capture_closing_window_animation(st, monitor, id)
@@ -375,6 +400,7 @@ pub(super) fn drop_surface_impl(
                     start_alpha,
                     layer,
                     None,
+                    capture_center,
                 );
             }
         }

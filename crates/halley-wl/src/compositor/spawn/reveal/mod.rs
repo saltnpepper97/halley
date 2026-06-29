@@ -1132,6 +1132,68 @@ mod tests {
     }
 
     #[test]
+    fn pending_spawn_monitor_survives_focus_churn_until_toplevel_maps() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let left = state.model.field.spawn_surface(
+            "left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(left, "left");
+        let right = state.model.field.spawn_surface(
+            "right",
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(right, "right");
+
+        state.model.spawn_state.pending_spawn_monitor = Some("right".to_string());
+        state.set_interaction_focus(Some(left), 30_000, Instant::now());
+        assert_eq!(
+            state.model.spawn_state.pending_spawn_monitor.as_deref(),
+            Some("right")
+        );
+
+        let (monitor, _, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+        assert_eq!(monitor, "right");
+        assert!(state.model.spawn_state.pending_spawn_monitor.is_none());
+    }
+
+    #[test]
     fn focused_cardinal_spawn_candidates_include_frame_pad() {
         let dirs = [
             ("right", Vec2 { x: 1.0, y: 0.0 }),

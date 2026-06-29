@@ -26,6 +26,14 @@ pub(crate) struct RenderGpuState {
     pub(crate) blur_programs_failed: bool,
     pub(crate) blur_textures: Option<BlurTextures>,
     pub(crate) layer_mask_texture: Option<GlesTexture>,
+    pub(crate) background_unit_texture: Option<GlesTexture>,
+    pub(crate) background_shader_program: Option<GlesTexProgram>,
+    pub(crate) background_shader_key: Option<String>,
+    pub(crate) background_shader_failed_key: Option<String>,
+    pub(crate) background_image_texture: Option<GlesTexture>,
+    pub(crate) background_image_size: (i32, i32),
+    pub(crate) background_image_key: Option<String>,
+    pub(crate) background_image_failed_key: Option<String>,
 }
 
 impl RenderGpuState {

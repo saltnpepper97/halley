@@ -345,6 +345,12 @@ pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
     pub(crate) last_pointer_screen_global: Option<(f32, f32)>,
+    /// When set, an explicit `monitor-focus` keybind has pinned the spawn-target
+    /// monitor to `focused_monitor`, overriding hover focus-mode until the pointer
+    /// actually moves (cleared in the pointer-motion handler). Keeps a deliberate
+    /// keyboard monitor switch from being ignored when the cursor sits on another
+    /// monitor under `focus-mode "hover"`.
+    pub(crate) monitor_focus_pinned: bool,
     pub(crate) pointer_contents: PointerContents,
     pub(crate) pointer_surface_origin: Option<(ObjectId, f64, f64)>,
     pub(crate) pointer_focus: Option<(WlSurface, Point<f64, Logical>)>,

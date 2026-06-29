@@ -10,13 +10,13 @@ use super::keybinds::{
 };
 use super::rules::load_rules_section;
 use super::sections::{
-    load_animations_section, load_apogee_section, load_autostart_section, load_bearings_section,
-    load_clusters_section, load_cursor_section, load_debug_section, load_decay_section,
-    load_decorations_section, load_effects_section, load_env_section, load_field_section,
-    load_focus_ring_section, load_font_section, load_gamescope_section, load_input_section,
-    load_keybind_sections, load_nodes_section, load_overlays_section, load_physics_section,
-    load_placement_section, load_screenshot_section, load_stacking_section, load_tile_section,
-    load_trail_section, load_viewport_section,
+    load_animations_section, load_apogee_section, load_autostart_section, load_background_section,
+    load_bearings_section, load_clusters_section, load_cursor_section, load_debug_section,
+    load_decay_section, load_decorations_section, load_effects_section, load_env_section,
+    load_field_section, load_focus_ring_section, load_font_section, load_gamescope_section,
+    load_input_section, load_keybind_sections, load_nodes_section, load_overlays_section,
+    load_physics_section, load_placement_section, load_screenshot_section, load_stacking_section,
+    load_tile_section, load_trail_section, load_viewport_section,
 };
 use super::validate::validate_known_config_keys;
 
@@ -128,6 +128,7 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     load_font_section(cfg, out);
     load_debug_section(cfg, out);
     load_apogee_section(cfg, out);
+    load_background_section(cfg, out);
     load_viewport_section(cfg, out);
     load_focus_ring_section(cfg, out);
     load_bearings_section(cfg, out);

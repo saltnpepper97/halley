@@ -17,8 +17,8 @@ use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::window::{
-    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
-    WindowShadowRect, collect_active_surfaces,
+    ActiveBorderRect, CroppedClippedSurfaceElement, DirectWindowBlurRect, OffscreenNodeTexture,
+    StackWindowDrawUnit, WindowShadowRect, collect_active_surfaces,
 };
 
 pub(super) type SurfaceElement =
@@ -52,6 +52,15 @@ fn collect_blur_rects(textures: &[OffscreenNodeTexture], out: &mut Vec<BlurRect>
     }
 }
 
+fn collect_direct_blur_rects(rects: &[DirectWindowBlurRect], out: &mut Vec<BlurRect>) {
+    for rect in rects {
+        out.push(BlurRect {
+            dst: rect.dst,
+            corner_radius: rect.corner_radius,
+        });
+    }
+}
+
 fn collect_layer_blur_rects(
     groups: &[super::super::layer_shell::LayerSurfaceRenderGroup],
     out: &mut Vec<BlurRect>,
@@ -79,18 +88,21 @@ pub(super) struct SceneCollections {
     pub(super) resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(super) popup_blur_rects: Vec<DirectWindowBlurRect>,
     pub(super) popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     pub(super) fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(super) fullscreen_popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     pub(super) above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(super) above_fullscreen_popup_blur_rects: Vec<DirectWindowBlurRect>,
     pub(super) above_fullscreen_popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     pub(super) stack_window_units: Vec<StackWindowDrawUnit>,
     pub(super) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
     pub(super) shadow_rects: Vec<WindowShadowRect>,
     pub(super) resized_shadow_rects: Vec<WindowShadowRect>,
+    pub(super) resized_blur_rects: Vec<DirectWindowBlurRect>,
     pub(super) border_rects: Vec<ActiveBorderRect>,
     pub(super) resized_border_rects: Vec<ActiveBorderRect>,
     pub(super) closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
@@ -164,15 +176,18 @@ pub(super) fn collect_debug_frame_scene(
             resized_offscreen_textures: Vec::new(),
             fullscreen_offscreen_textures: Vec::new(),
             popup_offscreen_textures: Vec::new(),
+            popup_blur_rects: Vec::new(),
             popup_elements: Vec::new(),
             fullscreen_popup_offscreen_textures: Vec::new(),
             fullscreen_popup_elements: Vec::new(),
             above_fullscreen_popup_offscreen_textures: Vec::new(),
+            above_fullscreen_popup_blur_rects: Vec::new(),
             above_fullscreen_popup_elements: Vec::new(),
             stack_window_units: Vec::new(),
             above_fullscreen_stack_window_units: Vec::new(),
             shadow_rects: Vec::new(),
             resized_shadow_rects: Vec::new(),
+            resized_blur_rects: Vec::new(),
             border_rects: Vec::new(),
             resized_border_rects: Vec::new(),
             closing_window_animations: Vec::new(),
@@ -200,9 +215,13 @@ pub(super) fn collect_debug_frame_scene(
     let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled()
         || st.runtime.tuning.cluster_animation_enabled()
     {
-        st.ui
-            .render_state
-            .closing_window_animation_snapshots(render_monitor.as_str(), now)
+        st.ui.render_state.closing_window_animation_snapshots(
+            render_monitor.as_str(),
+            now,
+            st.model.viewport.center,
+            st.model.zoom_ref_size,
+            (size.w as f32, size.h as f32),
+        )
     } else {
         Vec::new()
     };
@@ -279,6 +298,7 @@ pub(super) fn collect_debug_frame_scene(
     collect_blur_rects(&window_plan.resized_offscreen_textures, &mut blur_rects);
     collect_blur_rects(&window_plan.fullscreen_offscreen_textures, &mut blur_rects);
     collect_blur_rects(&window_plan.popup_offscreen_textures, &mut blur_rects);
+    collect_direct_blur_rects(&window_plan.popup_blur_rects, &mut blur_rects);
     collect_blur_rects(
         &window_plan.fullscreen_popup_offscreen_textures,
         &mut blur_rects,
@@ -287,12 +307,19 @@ pub(super) fn collect_debug_frame_scene(
         &window_plan.above_fullscreen_popup_offscreen_textures,
         &mut blur_rects,
     );
+    collect_direct_blur_rects(
+        &window_plan.above_fullscreen_popup_blur_rects,
+        &mut blur_rects,
+    );
     for unit in &window_plan.stack_window_units {
         collect_blur_rects(&unit.offscreen_textures, &mut blur_rects);
+        collect_direct_blur_rects(&unit.blur_rects, &mut blur_rects);
     }
     for unit in &window_plan.above_fullscreen_stack_window_units {
         collect_blur_rects(&unit.offscreen_textures, &mut blur_rects);
+        collect_direct_blur_rects(&unit.blur_rects, &mut blur_rects);
     }
+    collect_direct_blur_rects(&window_plan.resized_blur_rects, &mut blur_rects);
 
     SceneCollections {
         session_lock_elements: Vec::new(),
@@ -307,16 +334,19 @@ pub(super) fn collect_debug_frame_scene(
         resized_offscreen_textures: window_plan.resized_offscreen_textures,
         fullscreen_offscreen_textures: window_plan.fullscreen_offscreen_textures,
         popup_offscreen_textures: window_plan.popup_offscreen_textures,
+        popup_blur_rects: window_plan.popup_blur_rects,
         popup_elements: window_plan.popup_elements,
         fullscreen_popup_offscreen_textures: window_plan.fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements: window_plan.fullscreen_popup_elements,
         above_fullscreen_popup_offscreen_textures: window_plan
             .above_fullscreen_popup_offscreen_textures,
+        above_fullscreen_popup_blur_rects: window_plan.above_fullscreen_popup_blur_rects,
         above_fullscreen_popup_elements: window_plan.above_fullscreen_popup_elements,
         stack_window_units: window_plan.stack_window_units,
         above_fullscreen_stack_window_units: window_plan.above_fullscreen_stack_window_units,
         shadow_rects: window_plan.shadow_rects,
         resized_shadow_rects: window_plan.resized_shadow_rects,
+        resized_blur_rects: window_plan.resized_blur_rects,
         border_rects: window_plan.border_rects,
         resized_border_rects: window_plan.resized_border_rects,
         closing_window_animations,

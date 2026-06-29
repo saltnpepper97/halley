@@ -33,7 +33,7 @@ use crate::render::bearings::ensure_bearing_icon_resources;
 use crate::text::ensure_ui_text_resources;
 use crate::window::{
     prewarm_apogee_previews, prewarm_focus_cycle_previews,
-    prewarm_visible_active_window_offscreen_caches,
+    prewarm_visible_close_animation_snapshots,
 };
 use draw::{
     FrameBlurContext, draw_apogee_aperture_layers, draw_apogee_background_layers,
@@ -308,6 +308,7 @@ pub(crate) fn draw_debug_frame_to_target(
     }
 
     ensure_node_circle_resources(renderer, st)?;
+    crate::render::background::ensure_background_resources(renderer, st)?;
     ensure_window_texture_program(renderer, st);
     ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
@@ -330,6 +331,7 @@ pub(crate) fn draw_debug_frame_to_target(
         ensure_cluster_core_icon_resources(renderer, st)?;
         ensure_ui_text_resources(renderer, st)?;
         prewarm_apogee_previews(renderer, st, prepared.now);
+        crate::render::background::ensure_background_resources(renderer, st)?;
         let (layer_background, layer_bottom, layer_top, layer_overlay) =
             collect_layer_surfaces(renderer, st, size, prepared.now);
         let cursor = draw_software_cursor
@@ -338,9 +340,13 @@ pub(crate) fn draw_debug_frame_to_target(
         let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled()
             || st.runtime.tuning.cluster_animation_enabled()
         {
-            st.ui
-                .render_state
-                .closing_window_animation_snapshots(current_monitor.as_str(), prepared.now)
+            st.ui.render_state.closing_window_animation_snapshots(
+                current_monitor.as_str(),
+                prepared.now,
+                st.model.viewport.center,
+                st.model.zoom_ref_size,
+                (size.w as f32, size.h as f32),
+            )
         } else {
             Vec::new()
         };
@@ -381,6 +387,13 @@ pub(crate) fn draw_debug_frame_to_target(
 
         let mut frame = renderer.render(framebuffer, size, frame_transform)?;
         frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
+        crate::render::background::draw_background(
+            &mut frame,
+            st,
+            size,
+            prepared.damage,
+            prepared.now,
+        )?;
         draw_apogee_background_layers(
             &mut frame,
             prepared.damage,
@@ -455,11 +468,18 @@ pub(crate) fn draw_debug_frame_to_target(
     }
 
     let frame_perf_start = crate::perf::start();
-    let prewarm_start = crate::perf::start();
-    if st.input.interaction_state.apogee_session.is_none() {
-        prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
+
+    // Direct field rendering no longer consumes per-window offscreen textures.
+    // Keep a lightweight snapshot cache warm only so client-initiated destroys
+    // (GTK/Qt CSD close buttons) can still play close animations after the
+    // surface is gone.
+    let snapshot_prewarm_start = crate::perf::start();
+    if st.runtime.tuning.window_close_animation_enabled()
+        && st.input.interaction_state.apogee_session.is_none()
+    {
+        prewarm_visible_close_animation_snapshots(renderer, st, prepared.now);
     }
-    let prewarm_ms = prewarm_start.map(crate::perf::elapsed_ms);
+    let snapshot_prewarm_ms = snapshot_prewarm_start.map(crate::perf::elapsed_ms);
 
     let collect_start = crate::perf::start();
     let scene = collect_debug_frame_scene(
@@ -599,6 +619,13 @@ pub(crate) fn draw_debug_frame_to_target(
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(clear_color, &[prepared.damage])?;
+    crate::render::background::draw_background(
+        &mut frame,
+        st,
+        size,
+        prepared.damage,
+        prepared.now,
+    )?;
 
     if let (Some(down), Some(up), Some(composite), Some(masked_composite), Some(textures)) = (
         down.as_ref(),
@@ -692,13 +719,13 @@ pub(crate) fn draw_debug_frame_to_target(
         let cam_zoom = crate::compositor::monitor::camera::camera_render_scale(st);
         if total_ms > budget_ms || tile_anim || fs_anim {
             eventline::warn!(
-                "perf frame took={:.2}ms budget={:.2} tile_anim={} fs_anim={} cam_zoom={:.3} (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
+                "perf frame took={:.2}ms budget={:.2} tile_anim={} fs_anim={} cam_zoom={:.3} (snapshot_prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
                 total_ms,
                 budget_ms,
                 tile_anim,
                 fs_anim,
                 cam_zoom,
-                prewarm_ms.unwrap_or_default(),
+                snapshot_prewarm_ms.unwrap_or_default(),
                 collect_ms.unwrap_or_default(),
                 resources_ms.unwrap_or_default(),
                 draw_ms.unwrap_or_default(),

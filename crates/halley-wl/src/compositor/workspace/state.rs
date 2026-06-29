@@ -153,6 +153,7 @@ pub(crate) fn start_active_to_node_close_animation(
         return false;
     };
 
+    let capture_center = st.view_center_for_monitor(monitor.as_str());
     st.ui.render_state.start_closing_window_animation(
         id,
         monitor.as_str(),
@@ -165,6 +166,7 @@ pub(crate) fn start_active_to_node_close_animation(
         start_alpha,
         crate::window::CloseAnimationLayer::Below,
         None,
+        capture_center,
     );
     st.ui.render_state.finish_window_animation_prewarm(id);
     st.ui

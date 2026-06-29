@@ -31,8 +31,8 @@ use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
 use crate::render::layer_shell::LayerSurfaceRenderGroup;
 use crate::render::shadow::draw_shadow_rect;
 use crate::window::{
-    ActiveBorderRect, CloseAnimationLayer, OffscreenNodeTexture, StackWindowDrawUnit,
-    WindowShadowRect,
+    ActiveBorderRect, CloseAnimationLayer, DirectWindowBlurRect, OffscreenNodeTexture,
+    StackWindowDrawUnit, WindowShadowRect,
 };
 
 pub(crate) struct FrameBlurContext<'a> {
@@ -330,6 +330,12 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.resized_shadow_rects,
         st,
     )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.resized_blur_rects,
+        blur_ctx.as_deref_mut(),
+    )?;
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -359,6 +365,12 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
+    )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.popup_blur_rects,
         blur_ctx.as_deref_mut(),
     )?;
 
@@ -491,6 +503,12 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.above_fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
+    )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.above_fullscreen_popup_blur_rects,
         blur_ctx.as_deref_mut(),
     )?;
     if !scene.above_fullscreen_popup_elements.is_empty() {
@@ -823,6 +841,8 @@ fn scaled_closing_window_parts(
             tex.geo_h *= scale;
             tex.corner_radius *= scale;
             tex.alpha *= alpha;
+            tex.blur_alpha *= alpha;
+            tex.blur &= tex.blur_alpha > 0.001;
             tex
         })
         .collect::<Vec<_>>();
@@ -873,6 +893,32 @@ fn draw_stack_window_units(
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
         draw_stack_window_unit(frame, size, damage, unit, st, blur_ctx.as_deref_mut())?;
+    }
+    Ok(())
+}
+
+fn draw_direct_blur_rects(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    rects: &[DirectWindowBlurRect],
+    blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(ctx) = blur_ctx else {
+        return Ok(());
+    };
+    for rect in rects {
+        if rect.alpha <= 0.0 || rect.dst.size.w <= 0 || rect.dst.size.h <= 0 {
+            continue;
+        }
+        if let Err(err) = ctx.draw_patch(
+            frame,
+            damage,
+            rect.dst,
+            rect.corner_radius,
+            rect.alpha.clamp(0.0, 1.0),
+        ) {
+            eventline::warn!("window blur skipped this frame: {err}");
+        }
     }
     Ok(())
 }
@@ -938,6 +984,7 @@ fn closing_stack_window_units(
                 node_id: animation.node_id,
                 draw_order,
                 shadow_rects: Vec::new(),
+                blur_rects: Vec::new(),
                 border_rects,
                 pin_badges: Vec::new(),
                 active_elements: Vec::new(),
@@ -959,9 +1006,10 @@ fn draw_stack_window_unit(
     damage: Rectangle<i32, Physical>,
     unit: &StackWindowDrawUnit,
     st: &mut Halley,
-    blur_ctx: Option<&mut FrameBlurContext<'_>>,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
     draw_window_shadows(frame, size, damage, &unit.shadow_rects, st)?;
+    draw_direct_blur_rects(frame, damage, &unit.blur_rects, blur_ctx.as_deref_mut())?;
     if !unit.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
     }

@@ -2623,6 +2623,7 @@ mod tests {
             1.0,
             crate::window::CloseAnimationLayer::Top,
             Some((1.0, 2.0)),
+            state.model.viewport.center,
         );
         let monitor_session = ApogeeMonitorSession {
             monitor: "monitor_a".to_string(),
