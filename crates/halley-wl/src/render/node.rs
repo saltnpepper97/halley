@@ -871,12 +871,17 @@ mod tests {
 pub(crate) fn draw_closing_node_markers(
     frame: &mut GlesFrame<'_, '_>,
     st: &mut Halley,
-    size: Size<i32, Physical>,
+    _size: Size<i32, Physical>,
     animations: &[ClosingWindowAnimationSnapshot],
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     for animation in animations {
-        let ClosingWindowAnimationKind::Node { pos, label, state } = &animation.kind else {
+        let ClosingWindowAnimationKind::Node {
+            screen_pos,
+            label,
+            state,
+        } = &animation.kind
+        else {
             continue;
         };
 
@@ -885,7 +890,7 @@ pub(crate) fn draw_closing_node_markers(
             continue;
         }
 
-        let (sx, sy) = world_to_screen(st, size.w, size.h, pos.x, pos.y);
+        let (sx, sy) = *screen_pos;
         let is_core = *state == halley_core::field::NodeState::Core;
         let anim_scale = 0.30;
         let (dot_half, _, _, _) = node_marker_metrics(st, label.len(), anim_scale);

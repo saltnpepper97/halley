@@ -12,6 +12,7 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::spatial::{hit_nodes_at, pick_hit_node_at};
+use crate::window::{pinned_popup_origin_for_camera, popup_origin_from_parent_visual};
 
 use super::super::resize::active_node_surface_transform_screen_details;
 
@@ -149,13 +150,47 @@ pub(crate) fn popup_focus_for_screen(
 
         for (popup, popup_offset) in popups_top_to_bottom(st, &wl) {
             let popup_geo = popup.geometry();
-            let popup_sx = xform.origin_x
-                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * scale).round();
-            let popup_sy = xform.origin_y
-                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * scale).round();
+            let pinned_anchor = if st.fullscreen_monitor_for_node(node_id).is_some() {
+                None
+            } else {
+                st.model
+                    .pinned_popup_anchor
+                    .get(&popup.wl_surface().id())
+                    .copied()
+            };
+            let (popup_sx, popup_sy, popup_scale) = if let Some(target_loc) = pinned_anchor {
+                let monitor = st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node_id)
+                    .map(String::as_str)
+                    .unwrap_or(st.model.monitor_state.current_monitor.as_str());
+                let viewport = st.usable_viewport_for_monitor(monitor);
+                pinned_popup_origin_for_camera(
+                    smithay::utils::Rectangle::<i32, smithay::utils::Physical>::new(
+                        (0, 0).into(),
+                        (ws_w.max(1), ws_h.max(1)).into(),
+                    ),
+                    viewport.size,
+                    target_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    st.camera_render_scale(),
+                )
+            } else {
+                let (popup_sx, popup_sy) = popup_origin_from_parent_visual(
+                    (xform.origin_x.round() as i32, xform.origin_y.round() as i32),
+                    parent_geo_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    scale,
+                );
+                (popup_sx, popup_sy, scale)
+            };
             let popup_local = Point::<f64, Logical>::from((
-                ((sx - popup_sx) / scale) as f64,
-                ((sy - popup_sy) / scale) as f64,
+                ((sx - popup_sx as f32) / popup_scale) as f64,
+                ((sy - popup_sy as f32) / popup_scale) as f64,
             ));
             let Some((surface, surface_loc)) = under_from_surface_tree(
                 popup.wl_surface(),

@@ -11,6 +11,17 @@ screenshot:
   background-colour "auto"
 end
 
+background:
+  mode "field-shader"
+  shader "stars"
+  path ""
+  fit "cover"
+  colour "#181a26"
+  accent-colour "#8fa8d8"
+  intensity 1.0
+  animated true
+end
+
 decorations:
   border:
     size 3

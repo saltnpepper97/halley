@@ -103,17 +103,66 @@ pub(crate) fn request_close_node_toplevel(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
 ) -> bool {
-    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
-        let wl = top.wl_surface();
-        let key = wl.id();
-        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
-            continue;
-        }
-        top.send_close();
-        return true;
-    }
+    let target = st
+        .platform
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .find(|top| {
+            st.model
+                .surface_to_node
+                .get(&top.wl_surface().id())
+                .copied()
+                == Some(node_id)
+        })
+        .cloned();
+    let Some(target) = target else {
+        return false;
+    };
 
-    false
+    start_request_close_ghost_if_available(st, node_id);
+    target.send_close();
+    true
+}
+
+fn start_request_close_ghost_if_available(st: &mut Halley, node_id: halley_core::field::NodeId) {
+    if !st.runtime.tuning.window_close_animation_enabled() {
+        return;
+    }
+    let now = std::time::Instant::now();
+    if st
+        .ui
+        .render_state
+        .closing_window_animation_active_for_node(node_id, now)
+    {
+        return;
+    }
+    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned() else {
+        return;
+    };
+    let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
+        crate::window::capture_closing_window_animation(st, monitor.as_str(), node_id)
+    else {
+        st.request_window_animation_prewarm(node_id, now);
+        return;
+    };
+    let layer =
+        crate::window::closing_window_animation_layer_for_node(st, monitor.as_str(), node_id, now);
+    let capture_center = st.view_center_for_monitor(monitor.as_str());
+    st.ui.render_state.start_closing_window_animation(
+        node_id,
+        monitor.as_str(),
+        now,
+        st.runtime.tuning.window_close_duration_ms(),
+        st.runtime.tuning.window_close_style(),
+        border_rects,
+        offscreen_textures,
+        start_scale,
+        start_alpha,
+        layer,
+        None,
+        capture_center,
+    );
 }
 
 #[cfg(test)]
@@ -450,6 +499,30 @@ pub(crate) fn current_surface_size_for_node(
             x: node.intrinsic_size.x.max(1.0),
             y: node.intrinsic_size.y.max(1.0),
         })
+}
+
+/// The actual committed surface-tree pixel size for a node's toplevel, ignoring
+/// the `window_geometry` cache (which the fullscreen/maximize exit forcibly
+/// rewrites to the windowed rect before the client has resized). The settle hold
+/// uses this to detect when the client has genuinely committed a non-fullscreen
+/// buffer — i.e. when the live surface can be revealed without flashing its
+/// full-size buffer. `None` if the node has no live toplevel surface.
+pub(crate) fn committed_surface_buffer_size_for_node(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> Option<halley_core::field::Vec2> {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        if st.model.surface_to_node.get(&wl.id()).copied() != Some(node_id) {
+            continue;
+        }
+        let bbox = bbox_from_surface_tree(wl, (0, 0));
+        return Some(halley_core::field::Vec2 {
+            x: bbox.size.w.max(1) as f32,
+            y: bbox.size.h.max(1) as f32,
+        });
+    }
+    None
 }
 
 /// Geometry to use when *rendering* a node's surface to the output.

@@ -573,6 +573,16 @@ fn apply_tty_reload(
             active.insert(name.clone(), false);
         }
     }
+    {
+        let now_ms = st.now_ms(Instant::now());
+        for name in next_modes.keys() {
+            st.ui.render_state.pause_background_animation_for_monitor(
+                name.as_str(),
+                now_ms,
+                crate::render::state::BACKGROUND_ANIMATION_STARTUP_GRACE_MS,
+            );
+        }
+    }
 
     for name in output_advertise_order(outputs.borrow().as_slice(), &st.runtime.tuning) {
         if let Some(mode) = next_modes.get(name.as_str()) {
@@ -1008,6 +1018,19 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let active_modes = Rc::new(RefCell::new(active_mode_map(&outputs.borrow())));
             let dpms_enabled = Rc::new(RefCell::new(HashMap::new()));
             sync_tty_dpms_state(outputs.borrow().as_slice(), &dpms_enabled);
+            {
+                let now_ms = state.now_ms(Instant::now());
+                for output in outputs.borrow().iter() {
+                    state
+                        .ui
+                        .render_state
+                        .pause_background_animation_for_monitor(
+                            output.connector_name.as_str(),
+                            now_ms,
+                            crate::render::state::BACKGROUND_ANIMATION_STARTUP_GRACE_MS,
+                        );
+                }
+            }
             publish_tty_outputs_snapshot_for_devices(
                 &drm_devices.borrow(),
                 &active_modes.borrow(),
@@ -1537,6 +1560,21 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             config_path: config_path.as_str(),
                             wayland_display: sock_name.as_str(),
                         };
+                        // Raw libinput delta straight off the device, before any
+                        // routing/constraint handling. Compare against the
+                        // `locked_relative` delta to see if motion is quantized or
+                        // shrunk on the way to a locked game (TF2 mouselook debug).
+                        if std::env::var_os("HALLEY_POINTER_TRACE")
+                            .is_some_and(|value| value != "0")
+                        {
+                            eventline::info!(
+                                "libinput_motion delta={:.3},{:.3} unaccel={:.3},{:.3}",
+                                event.delta_x(),
+                                event.delta_y(),
+                                event.delta_x_unaccel(),
+                                event.delta_y_unaccel(),
+                            );
+                        }
                         handle_backend_input_event(
                             st,
                             &input_ctx,
@@ -2193,6 +2231,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             .collect();
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
+                        {
+                            let now_ms = st.now_ms(now);
+                            let mut composed_cache = composed_frame_cache_for_timer.borrow_mut();
+                            for output_name in &woke_outputs {
+                                composed_cache.remove(output_name.as_str());
+                                st.ui.render_state.pause_background_animation_for_monitor(
+                                    output_name.as_str(),
+                                    now_ms,
+                                    crate::render::state::BACKGROUND_ANIMATION_DPMS_GRACE_MS,
+                                );
+                            }
+                        }
                         crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(
                             st,
                             (1, 1).into(),

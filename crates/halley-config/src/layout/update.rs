@@ -648,6 +648,19 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_background_section() {
+        let raw = "field:\n  gap 20.0\nend\n";
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("background:"));
+        assert!(updated.contains("mode \"field-shader\""));
+        assert!(updated.contains("shader \"stars\""));
+        assert!(RuntimeTuning::from_rune_str(&updated).is_some());
+    }
+
+    #[test]
     fn updater_injects_gamescope_when_absent() {
         let raw = "field:\n  gap 20.0\nend\n";
         let updated = RuntimeTuning::update_user_config_text(raw, &[])

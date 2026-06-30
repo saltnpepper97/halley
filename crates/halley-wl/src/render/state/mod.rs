@@ -16,10 +16,13 @@ use crate::overlay::{
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastKind, OverlayToastSnapshot, OverlayToastState,
 };
-use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
+use crate::window::{ActiveBorderRect, CloseAnimationLayer, OffscreenNodeTexture};
 
 const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
 const ANIMATION_PREWARM_TTL_MS: u64 = 1_500;
+pub(crate) const BACKGROUND_ANIMATION_STARTUP_GRACE_MS: u64 = 1_500;
+pub(crate) const BACKGROUND_ANIMATION_DPMS_GRACE_MS: u64 = 1_500;
+const BACKGROUND_ANIMATION_MIN_FRAME_MS: u64 = 16;
 
 pub(crate) use cache::{
     BearingClusterIconCache, ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture,
@@ -82,17 +85,16 @@ pub(crate) enum ClosingWindowAnimationKind {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
-        /// Draw the shrink beneath live windows instead of on top. Set for
-        /// minimize/collapse-to-node so a minimizing window drops behind the
-        /// windows it was stacked under rather than flashing to the front.
-        behind: bool,
+        /// The captured render layer the live window occupied when the close
+        /// animation was started.
+        layer: CloseAnimationLayer,
         /// When set, the ghost is also translated toward this screen-space point
         /// (in physical px) as it shrinks — used to "suck" a closing cluster's
         /// windows into the core node they collapse to.
         pull_to: Option<(f32, f32)>,
     },
     Node {
-        pos: Vec2,
+        screen_pos: (i32, i32),
         label: String,
         state: halley_core::field::NodeState,
     },
@@ -103,13 +105,82 @@ pub(crate) struct ClosingWindowAnimationState {
     pub(crate) monitor: String,
     pub(crate) started_at: Instant,
     pub(crate) duration_ms: u64,
+    /// Camera center (world units) at capture time. The baked screen-space
+    /// geometry was projected with this center, so re-projecting against the live
+    /// camera lets the ghost stay anchored to its world spot as the camera pans
+    /// (e.g. a close-restore pan) instead of riding along with the screen.
+    pub(crate) capture_center: Vec2,
     pub(crate) kind: ClosingWindowAnimationKind,
 }
 
 #[derive(Clone)]
 pub(crate) struct ClosingWindowAnimationSnapshot {
+    pub(crate) node_id: NodeId,
     pub(crate) progress: f32,
     pub(crate) kind: ClosingWindowAnimationKind,
+}
+
+/// Shift a closing-animation ghost's baked screen geometry by `offset` (physical
+/// px), so it stays anchored to its world position as the camera pans during the
+/// close. Pure translation: scaling/fade is applied later in the draw path.
+fn translate_closing_window_kind(
+    kind: &ClosingWindowAnimationKind,
+    offset: (f32, f32),
+) -> ClosingWindowAnimationKind {
+    let (ox, oy) = offset;
+    if ox.abs() < 0.5 && oy.abs() < 0.5 {
+        return kind.clone();
+    }
+    let oxi = ox.round() as i32;
+    let oyi = oy.round() as i32;
+    match kind {
+        ClosingWindowAnimationKind::Window {
+            style,
+            border_rects,
+            offscreen_textures,
+            start_scale,
+            start_alpha,
+            layer,
+            pull_to,
+        } => {
+            let border_rects = border_rects
+                .iter()
+                .cloned()
+                .map(|mut r| {
+                    r.x += oxi;
+                    r.y += oyi;
+                    r
+                })
+                .collect();
+            let offscreen_textures = offscreen_textures
+                .iter()
+                .cloned()
+                .map(|mut t| {
+                    t.dst_x += oxi;
+                    t.dst_y += oyi;
+                    t
+                })
+                .collect();
+            ClosingWindowAnimationKind::Window {
+                style: *style,
+                border_rects,
+                offscreen_textures,
+                start_scale: *start_scale,
+                start_alpha: *start_alpha,
+                layer: *layer,
+                pull_to: pull_to.map(|(tx, ty)| (tx + ox, ty + oy)),
+            }
+        }
+        ClosingWindowAnimationKind::Node {
+            screen_pos,
+            label,
+            state,
+        } => ClosingWindowAnimationKind::Node {
+            screen_pos: (screen_pos.0 + oxi, screen_pos.1 + oyi),
+            label: label.clone(),
+            state: state.clone(),
+        },
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -149,6 +220,8 @@ pub(crate) struct RenderWindowAnimationState {
 pub(crate) struct RenderTelemetryState {
     pub(crate) fps_samplers: HashMap<String, FpsSamplerState>,
     pub(crate) render_last_tick: Instant,
+    pub(crate) background_animation_resume_at_ms: HashMap<String, u64>,
+    pub(crate) background_animation_last_frame_at_ms: HashMap<String, u64>,
 }
 
 pub(crate) struct RenderState {
@@ -176,6 +249,45 @@ impl RenderState {
 
     pub(crate) fn render_last_tick(&self) -> Instant {
         self.telemetry.render_last_tick
+    }
+
+    pub(crate) fn pause_background_animation_for_monitor(
+        &mut self,
+        monitor: &str,
+        now_ms: u64,
+        grace_ms: u64,
+    ) {
+        self.telemetry
+            .background_animation_resume_at_ms
+            .insert(monitor.to_string(), now_ms.saturating_add(grace_ms));
+        self.telemetry
+            .background_animation_last_frame_at_ms
+            .remove(monitor);
+    }
+
+    pub(crate) fn background_animation_ready_for_monitor(
+        &self,
+        monitor: &str,
+        now_ms: u64,
+    ) -> bool {
+        if self
+            .telemetry
+            .background_animation_resume_at_ms
+            .get(monitor)
+            .is_some_and(|resume_at| now_ms < *resume_at)
+        {
+            return false;
+        }
+        self.telemetry
+            .background_animation_last_frame_at_ms
+            .get(monitor)
+            .is_none_or(|last| now_ms.saturating_sub(*last) >= BACKGROUND_ANIMATION_MIN_FRAME_MS)
+    }
+
+    pub(crate) fn note_background_animation_frame(&mut self, monitor: &str, now_ms: u64) {
+        self.telemetry
+            .background_animation_last_frame_at_ms
+            .insert(monitor.to_string(), now_ms);
     }
 
     pub(crate) fn retain_node_hover_mix<F>(&mut self, retain: F)
@@ -324,17 +436,32 @@ impl RenderState {
         sampler.fps
     }
 
-    pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
+    /// Returns `true` only when a *new* prewarm request was armed (the node had no
+    /// live request). A redundant refresh of an already-pending request returns
+    /// `false` so the caller does not re-arm maintenance — otherwise the cluster
+    /// tiling layout, which re-issues a prewarm for every tile on every maintenance
+    /// pass, would spin maintenance (and full-rate repaints) indefinitely.
+    pub(crate) fn request_window_animation_prewarm(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+    ) -> bool {
         let until = now
             .checked_add(std::time::Duration::from_millis(ANIMATION_PREWARM_TTL_MS))
             .unwrap_or(now);
-        self.window_animations
+        if let Some(request) = self
+            .window_animations
             .animation_prewarm_requests
-            .entry(node_id)
-            .and_modify(|request| {
-                request.until = request.until.max(until);
-            })
-            .or_insert(AnimationPrewarmRequest { until });
+            .get_mut(&node_id)
+        {
+            request.until = request.until.max(until);
+            false
+        } else {
+            self.window_animations
+                .animation_prewarm_requests
+                .insert(node_id, AnimationPrewarmRequest { until });
+            true
+        }
     }
 
     pub(crate) fn requested_window_animation_prewarm_nodes(
@@ -368,8 +495,9 @@ impl RenderState {
         offscreen_textures: Vec<OffscreenNodeTexture>,
         start_scale: f32,
         start_alpha: f32,
-        behind: bool,
+        layer: CloseAnimationLayer,
         pull_to: Option<(f32, f32)>,
+        capture_center: Vec2,
     ) {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
@@ -380,13 +508,14 @@ impl RenderState {
                 monitor: monitor.to_string(),
                 started_at: now,
                 duration_ms: duration_ms.max(1),
+                capture_center,
                 kind: ClosingWindowAnimationKind::Window {
                     style,
                     border_rects,
                     offscreen_textures,
                     start_scale,
                     start_alpha,
-                    behind,
+                    layer,
                     pull_to,
                 },
             },
@@ -397,6 +526,20 @@ impl RenderState {
         self.window_animations
             .closing_window_animations
             .remove(&node_id);
+    }
+
+    pub(crate) fn closing_window_animation_active_for_node(
+        &self,
+        node_id: NodeId,
+        now: Instant,
+    ) -> bool {
+        self.window_animations
+            .closing_window_animations
+            .get(&node_id)
+            .is_some_and(|state| {
+                (now.saturating_duration_since(state.started_at).as_millis() as u64)
+                    < state.duration_ms
+            })
     }
 
     pub(crate) fn retarget_closing_window_animation_pull(
@@ -578,9 +721,10 @@ impl RenderState {
         monitor: &str,
         now: Instant,
         duration_ms: u64,
-        pos: Vec2,
+        screen_pos: (i32, i32),
         label: String,
         state: halley_core::field::NodeState,
+        capture_center: Vec2,
     ) {
         self.window_animations.closing_window_animations.insert(
             node_id,
@@ -588,7 +732,12 @@ impl RenderState {
                 monitor: monitor.to_string(),
                 started_at: now,
                 duration_ms: duration_ms.max(1),
-                kind: ClosingWindowAnimationKind::Node { pos, label, state },
+                capture_center,
+                kind: ClosingWindowAnimationKind::Node {
+                    screen_pos,
+                    label,
+                    state,
+                },
             },
         );
     }
@@ -612,6 +761,9 @@ impl RenderState {
         &mut self,
         monitor: &str,
         now: Instant,
+        current_center: Vec2,
+        current_view_size: Vec2,
+        monitor_px: (f32, f32),
     ) -> Vec<ClosingWindowAnimationSnapshot> {
         self.window_animations
             .closing_window_animations
@@ -619,15 +771,26 @@ impl RenderState {
                 (now.saturating_duration_since(state.started_at).as_millis() as u64)
                     < state.duration_ms
             });
+        let vw = current_view_size.x.max(1.0);
+        let vh = current_view_size.y.max(1.0);
         self.window_animations
             .closing_window_animations
-            .values()
-            .filter(|state| state.monitor == monitor)
-            .map(|state| {
+            .iter()
+            .filter(|(_, state)| state.monitor == monitor)
+            .map(|(&node_id, state)| {
                 let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
+                // World-anchor the ghost: shift the baked screen geometry by the
+                // camera's screen-space displacement since capture. For a pure pan
+                // this is exact; under a simultaneous zoom it is a close
+                // approximation (the ghost translates but is not re-scaled).
+                let offset = (
+                    monitor_px.0 * (state.capture_center.x - current_center.x) / vw,
+                    monitor_px.1 * (state.capture_center.y - current_center.y) / vh,
+                );
                 ClosingWindowAnimationSnapshot {
+                    node_id,
                     progress: (elapsed_ms as f32 / state.duration_ms.max(1) as f32).clamp(0.0, 1.0),
-                    kind: state.kind.clone(),
+                    kind: translate_closing_window_kind(&state.kind, offset),
                 }
             })
             .collect()

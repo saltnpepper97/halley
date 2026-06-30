@@ -25,6 +25,13 @@ pub(super) struct WindowRenderLayout {
     pub(super) texture_rect: (i32, i32, i32, i32),
     pub(super) geometry_rect: (i32, i32, i32, i32),
     pub(super) element_scale: f32,
+    /// Stable surface scale for the direct-field-render path. Open/raise/camera
+    /// visual transforms are applied by mapping this base window rect into the
+    /// current visual geometry, so content and border animate as one actor.
+    pub(super) base_scale: f32,
+    pub(super) sx_base: i32,
+    pub(super) sy_base: i32,
+    pub(super) base_geometry_rect: (i32, i32, i32, i32),
     pub(super) fullscreen_like_for_render: bool,
     pub(super) open_anim_active: bool,
     pub(super) rule_opacity: f32,
@@ -284,21 +291,6 @@ pub(super) fn resolve_window_render_layout(
         // the live surface bbox so render_scale maps the actual buffer to the output.
         // (`render_window_geometry_for_node` returns None for fullscreen by design.)
         render_window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
-    } else if stack_member_rendered {
-        let base_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
-        let target_size = stack_transition_pose
-            .map(|pose| pose.size)
-            .or_else(|| st.model.field.node(node_id).map(|node| node.intrinsic_size))
-            .unwrap_or(Vec2 {
-                x: base_geo.2,
-                y: base_geo.3,
-            });
-        (
-            base_geo.0,
-            base_geo.1,
-            target_size.x.max(1.0),
-            target_size.y.max(1.0),
-        )
     } else {
         frozen_tiling_geometry
             .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))
@@ -332,15 +324,19 @@ pub(super) fn resolve_window_render_layout(
 
     let (_cx, _cy, sx, sy, texture_rect, geometry_rect) = if let Some(active_resize) = active_resize
     {
-        let (cx, cy) = active_resize.center_px();
-        let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
-        let frame = active_resize.frame_rect_px();
-        (cx, cy, surface_origin_x, surface_origin_y, frame, frame)
+        let (rx, ry, rw, rh) = active_resize.live_frame_rect_px(render_scale);
+        let cx = rx + rw / 2;
+        let cy = ry + rh / 2;
+        let sx = rx - (local_geo.0 * render_scale).round() as i32;
+        let sy = ry - (local_geo.1 * render_scale).round() as i32;
+        let frame = (rx, ry, rw, rh);
+        (cx, cy, sx, sy, frame, frame)
     } else {
         let (cx, cy) = world_to_screen(st, output_size.w, output_size.h, p.x, p.y);
 
         let (render_geo_w, render_geo_h) = tiling_tile_transition
             .map(|rect| (rect.size.x, rect.size.y))
+            .or_else(|| stack_transition_pose.map(|pose| (pose.size.x, pose.size.y)))
             .unwrap_or((local_geo.2, local_geo.3));
         let rw = (render_geo_w * render_scale).round().max(1.0) as i32;
         let rh = (render_geo_h * render_scale).round().max(1.0) as i32;
@@ -367,10 +363,36 @@ pub(super) fn resolve_window_render_layout(
         (cx, cy, sx, sy, texture_rect, geometry_rect)
     };
 
-    let element_scale = if active_resize.is_some() {
-        scale
+    let element_scale = render_scale;
+
+    // Stable base geometry for the direct-field-render path. The live surface
+    // tree is rendered at base size, then `RescaledSurfaceElement` maps it into
+    // `geometry_rect`, matching the compositor-owned border/shadow animation.
+    let base_scale =
+        if exact_fullscreen_output || fullscreen_visual.is_some() || maximized_visual.is_some() {
+            render_scale
+        } else {
+            fit_scale.max(0.001)
+        };
+    let (sx_base, sy_base, base_geometry_rect) = if active_resize.is_some() {
+        let (vx, vy, _vw, _vh) = geometry_rect;
+        let rw = (local_geo.2 * base_scale).round().max(1.0) as i32;
+        let rh = (local_geo.3 * base_scale).round().max(1.0) as i32;
+        let rx = vx;
+        let ry = vy;
+        let sx = rx - (local_geo.0 * base_scale).round() as i32;
+        let sy = ry - (local_geo.1 * base_scale).round() as i32;
+        (sx, sy, (rx, ry, rw, rh))
     } else {
-        render_scale
+        let (render_geo_w, render_geo_h) = (local_geo.2, local_geo.3);
+        let (vx, vy, vw, vh) = geometry_rect;
+        let bw = (render_geo_w * base_scale).round().max(1.0) as i32;
+        let bh = (render_geo_h * base_scale).round().max(1.0) as i32;
+        let rx = vx + ((vw - bw) / 2);
+        let ry = vy + ((vh - bh) / 2);
+        let sx_base = rx - (local_geo.0 * base_scale).round() as i32;
+        let sy_base = ry - (local_geo.1 * base_scale).round() as i32;
+        (sx_base, sy_base, (rx, ry, bw, bh))
     };
 
     let (gx, gy, gw, gh) = geometry_rect;
@@ -406,6 +428,10 @@ pub(super) fn resolve_window_render_layout(
         texture_rect,
         geometry_rect,
         element_scale,
+        base_scale,
+        sx_base,
+        sy_base,
+        base_geometry_rect,
         fullscreen_like_for_render,
         open_anim_active,
         rule_opacity,

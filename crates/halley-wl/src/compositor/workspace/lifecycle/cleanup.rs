@@ -8,6 +8,22 @@ pub(super) struct QueuedOverflowPromotion {
     pub(super) source_icon_rect: halley_core::tiling::Rect,
 }
 
+fn screen_pos_for_monitor(st: &Halley, monitor: &str, pos: halley_core::field::Vec2) -> (i32, i32) {
+    let Some(space) = st.model.monitor_state.monitors.get(monitor) else {
+        return (pos.x.round() as i32, pos.y.round() as i32);
+    };
+    let (center, view_size) = if st.model.monitor_state.current_monitor == monitor {
+        (st.model.viewport.center, st.model.zoom_ref_size)
+    } else {
+        (space.viewport.center, space.zoom_ref_size)
+    };
+    let vw = view_size.x.max(1.0);
+    let vh = view_size.y.max(1.0);
+    let sx = (((pos.x - center.x) / vw) + 0.5) * space.width.max(1) as f32;
+    let sy = (((pos.y - center.y) / vh) + 0.5) * space.height.max(1) as f32;
+    (sx.round() as i32, sy.round() as i32)
+}
+
 pub(super) fn capture_queued_overflow_promotion(
     st: &Halley,
     id: NodeId,
@@ -263,6 +279,12 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             st.input.interaction_state.smoothed_render_pos.remove(&id);
             let now = Instant::now();
             let now_ms = st.now_ms(now);
+            // Tear down fullscreen state before removing the node, mirroring
+            // `drop_surface_impl`. Without this, a fullscreen cluster member that dies via
+            // the stale-surface path (common for Wine/Proton/gamescope) leaves
+            // `fullscreen_active_node` stale, the camera anchored on the gone window, and
+            // the cluster siblings hidden, so the cluster gets "stuck re-adjusting".
+            crate::compositor::fullscreen::system::drop_fullscreen_surface(st, id, now);
             let _ = st.remove_node_from_field(id, now_ms);
             if let Some(promotion) = queued_promotion {
                 arm_queued_overflow_promotion(st, promotion, now_ms);
@@ -282,7 +304,11 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
     st.runtime.surface_activity.retain(|k, _| alive.contains(k));
 }
 
-pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
+pub(super) fn drop_surface_impl(
+    st: &mut Halley,
+    surface: &WlSurface,
+    close_animation_layer: Option<crate::window::CloseAnimationLayer>,
+) {
     for output in st.model.monitor_state.outputs.values() {
         output.leave(surface);
     }
@@ -331,20 +357,37 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             && !closing_is_tiled_member
             && st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
+            && !st
+                .ui
+                .render_state
+                .closing_window_animation_active_for_node(id, Instant::now())
         {
+            // World camera center the ghost is projected against, so the close
+            // animation stays anchored in the world if the camera pans during it.
+            let capture_center = st.view_center_for_monitor(monitor);
             if let Some((pos, label, state)) = closing_node_snapshot {
+                let screen_pos = screen_pos_for_monitor(st, monitor, pos);
                 st.ui.render_state.start_closing_node_animation(
                     id,
                     monitor,
                     Instant::now(),
                     close_anim_duration_ms,
-                    pos,
+                    screen_pos,
                     label,
                     state,
+                    capture_center,
                 );
             } else if let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
                 crate::window::capture_closing_window_animation(st, monitor, id)
             {
+                let layer = close_animation_layer.unwrap_or_else(|| {
+                    crate::window::closing_window_animation_layer_for_node(
+                        st,
+                        monitor,
+                        id,
+                        Instant::now(),
+                    )
+                });
                 st.ui.render_state.start_closing_window_animation(
                     id,
                     monitor,
@@ -355,8 +398,9 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     offscreen_textures,
                     start_scale,
                     start_alpha,
-                    true,
+                    layer,
                     None,
+                    capture_center,
                 );
             }
         }

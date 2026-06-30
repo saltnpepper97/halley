@@ -70,11 +70,10 @@ pub(crate) struct ModelState {
     pub(crate) camera_target_view_size: Vec2,
     pub(crate) surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
-    /// For window-parented popups that should render pinned to the screen (e.g.
-    /// Steam's install-complete notification), the frozen configure-time anchor
-    /// `target.loc` (= `-(parent_tl - viewport_tl)` against the fixed monitor
-    /// frame), keyed by the popup surface. Lets the render path reproject the
-    /// popup onto the monitor output immune to camera zoom/pan. See
+    /// For window-parented popups that should stay anchored to the monitor while
+    /// still following camera zoom (e.g. Steam's install-complete notification),
+    /// the frozen configure-time anchor `target.loc` (= `-(parent_tl - viewport_tl)`
+    /// against the fixed monitor frame), keyed by the popup surface. See
     /// `configure_popup_position`.
     pub(crate) pinned_popup_anchor: HashMap<ObjectId, Point<i32, Logical>>,
 }
@@ -338,6 +337,7 @@ impl Halley {
                     fullscreen_camera_restore: HashMap::new(),
                     direct_scanout: HashMap::new(),
                     fullscreen_hidden_cluster_siblings: HashMap::new(),
+                    client_fullscreen_blocked_nodes: HashSet::new(),
                 },
                 spawn_state: SpawnState {
                     pending_spawn_activate_at_ms: HashMap::new(),
@@ -397,6 +397,8 @@ impl Halley {
                     telemetry: crate::render::state::RenderTelemetryState {
                         fps_samplers: HashMap::new(),
                         render_last_tick: now,
+                        background_animation_resume_at_ms: HashMap::new(),
+                        background_animation_last_frame_at_ms: HashMap::new(),
                     },
                 },
             },
@@ -406,8 +408,10 @@ impl Halley {
                     reset_input_state_requested: false,
                     pending_pointer_screen_hint: None,
                     last_pointer_screen_global: None,
+                    monitor_focus_pinned: false,
                     pointer_contents: Default::default(),
                     pointer_surface_origin: None,
+                    pointer_focus: None,
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,
@@ -531,10 +535,17 @@ impl Halley {
     }
 
     pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
-        self.ui
+        // Only wake maintenance when a genuinely new prewarm is armed. Re-requesting
+        // for an already-pending node (the cluster tiling layout does this for every
+        // tile, every pass) must not re-arm maintenance, or it self-perpetuates into
+        // a busy loop that also forces continuous full-screen repaints.
+        if self
+            .ui
             .render_state
-            .request_window_animation_prewarm(node_id, now);
-        self.request_maintenance();
+            .request_window_animation_prewarm(node_id, now)
+        {
+            self.request_maintenance();
+        }
     }
 
     pub(crate) fn node_user_pinned(&self, id: NodeId) -> bool {

@@ -394,6 +394,7 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
                     crate::presentation::world_to_screen(st, ow, oh, core_world.x, core_world.y);
                 (sx as f32, sy as f32)
             });
+        let capture_center = st.view_center_for_monitor(monitor);
         for (member, border_rects, offscreen_textures, start_scale, start_alpha) in
             captured_close_ghosts
         {
@@ -407,8 +408,9 @@ pub(crate) fn exit_cluster_workspace_for_monitor(
                 offscreen_textures,
                 start_scale,
                 start_alpha,
-                false,
+                crate::window::CloseAnimationLayer::Top,
                 pull_to,
+                capture_center,
             );
         }
     }
@@ -498,20 +500,15 @@ pub(crate) fn update_tiled_cluster_animation_targets(
         // moves immediately with the snappier reflow duration.
         let entering = !has_live_track
             && current_rect.is_none_or(|rect| rect.alpha <= crate::animation::ALPHA_INVISIBLE);
-        // Reflow direction. The render path scales one capture onto the animated
+        // Reflow direction. Snapshot consumers scale one capture onto the animated
         // footprint, so it stays crisp only while the footprint never exceeds the
         // capture. A *grow* rebuilds the capture up to the new (bigger) buffer; a
-        // *shrink* holds the old (bigger) capture and downscales it. Classify "bigger
-        // on both axes" as a grow; pure shrink (and the rare mixed case) hold the old
-        // capture, so treat them as a shrink.
+        // *shrink* holds the old (bigger) capture and downscales it.
         let grows = current_rect.is_none_or(|rect| {
             placement.rect.w >= rect.size.x - 0.5 && placement.rect.h >= rect.size.y - 0.5
         });
         let visible_reflow = !entering
             && current_rect.is_some_and(|rect| rect.alpha > crate::animation::ALPHA_INVISIBLE);
-        // Only a shrinking reflow holds the old bigger capture, so only it needs the
-        // old geometry pinned so the crop matches that capture. Grows (and entries)
-        // track the live buffer, so make sure no stale frozen geometry lingers.
         if visible_reflow && !grows {
             if let Some(geo) = frozen_geo {
                 st.ui
@@ -538,11 +535,6 @@ pub(crate) fn update_tiled_cluster_animation_targets(
         } else {
             0
         };
-        // A growing tile waits for the client to commit the bigger buffer before it
-        // starts expanding — moving the footprint past the still-small capture would
-        // upscale it ("blown up" texture). Hold it pinned at the old slot until the
-        // commit lands. A shrink never waits: the old big capture is already in hand
-        // and the footprint only ever gets smaller, so it can move immediately.
         let waits_for_grow = visible_reflow
             && grows
             && visible_tile_waits_for_committed_resize(

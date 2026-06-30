@@ -976,6 +976,54 @@ mod tests {
     }
 
     #[test]
+    fn camera_smoothing_marks_non_current_monitor_active_when_its_camera_is_unsettled() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+        {
+            let left = state
+                .model
+                .monitor_state
+                .monitors
+                .get_mut("left")
+                .expect("left monitor");
+            left.camera_target_view_size.x *= 1.4;
+            left.zoom_log_vel = 0.5;
+        }
+
+        let now = Instant::now();
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn animated_background_marks_non_current_monitor_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+        state.runtime.tuning.background.mode = halley_config::BackgroundMode::FieldShader;
+        state.runtime.tuning.background.animated = true;
+
+        let now = Instant::now();
+
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn animated_background_grace_suppresses_target_monitor_redraw() {
+        let mut state = multi_monitor_state();
+        state.runtime.tuning.background.mode = halley_config::BackgroundMode::FieldShader;
+        state.runtime.tuning.background.animated = true;
+        let now = Instant::now();
+        let now_ms = state.now_ms(now);
+        state
+            .ui
+            .render_state
+            .pause_background_animation_for_monitor("left", now_ms, 100);
+
+        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+    }
+
+    #[test]
     fn monitor_transfer_moves_cluster_member_between_active_layouts() {
         let mut state = multi_monitor_state();
         let left_cid = open_test_cluster(&mut state, "left", &["left-a", "left-b", "left-c"]);
@@ -1102,6 +1150,34 @@ mod tests {
     }
 
     #[test]
+    fn settled_cluster_bloom_does_not_mark_monitor_active() {
+        let mut state = multi_monitor_state();
+        let now = Instant::now();
+
+        // A bloom mid-open (mix below its target) must keep the output animating.
+        state.ui.render_state.view.cluster_bloom_mix.insert(
+            "right".to_string(),
+            crate::overlay::ClusterBloomAnimState {
+                cluster_id: None,
+                visible: true,
+                mix: 0.5,
+            },
+        );
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+
+        // Once it settles fully open (mix == target), it must stop scheduling frames.
+        state.ui.render_state.view.cluster_bloom_mix.insert(
+            "right".to_string(),
+            crate::overlay::ClusterBloomAnimState {
+                cluster_id: None,
+                visible: true,
+                mix: 1.0,
+            },
+        );
+        assert!(!tty_output_animation_redraw_state(&state, "right", now).active);
+    }
+
+    #[test]
     fn closing_window_animation_only_marks_target_monitor_active() {
         let mut state = multi_monitor_state();
         let start = Instant::now();
@@ -1130,8 +1206,9 @@ mod tests {
             Vec::new(),
             1.0,
             1.0,
-            false,
+            crate::window::CloseAnimationLayer::Top,
             None,
+            state.model.viewport.center,
         );
 
         assert!(tty_output_animation_redraw_state(&state, "right", start).active);
@@ -1156,9 +1233,10 @@ mod tests {
             "right",
             start,
             250,
-            Vec2 { x: 100.0, y: 120.0 },
+            (100, 120),
             "node".to_string(),
             halley_core::field::NodeState::Node,
+            state.model.viewport.center,
         );
 
         assert!(tty_output_animation_redraw_state(&state, "right", start).active);

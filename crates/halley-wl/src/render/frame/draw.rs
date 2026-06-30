@@ -31,7 +31,8 @@ use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
 use crate::render::layer_shell::LayerSurfaceRenderGroup;
 use crate::render::shadow::draw_shadow_rect;
 use crate::window::{
-    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect,
+    ActiveBorderRect, CloseAnimationLayer, DirectWindowBlurRect, OffscreenNodeTexture,
+    StackWindowDrawUnit, WindowShadowRect,
 };
 
 pub(crate) struct FrameBlurContext<'a> {
@@ -272,16 +273,15 @@ pub(super) fn draw_scene_windows_and_hud(
     hover_node: Option<halley_core::field::NodeId>,
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
-    // Lower-phase close/minimize ghosts draw beneath live windows so a window
-    // that was already under another window does not flash to the front while
-    // shrinking out.
+    // Lower-phase ghosts are reserved for collapse/minimize style animations.
+    // Normal closes are drawn in their captured stack layer below.
     draw_closing_window_shrink(
         frame,
         size,
         prepared.damage,
         &scene.closing_window_animations,
         st,
-        true,
+        CloseAnimationLayer::Below,
     )?;
 
     // Node/core markers (landmarks: standalone nodes + cluster cores) draw beneath the
@@ -313,11 +313,13 @@ pub(super) fn draw_scene_windows_and_hud(
         blur_ctx.as_deref_mut(),
     )?;
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
-    draw_stack_window_units(
+    draw_stack_window_units_with_closing(
         frame,
         size,
         prepared.damage,
         &scene.stack_window_units,
+        &scene.closing_window_animations,
+        false,
         st,
         blur_ctx.as_deref_mut(),
     )?;
@@ -327,6 +329,12 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.resized_shadow_rects,
         st,
+    )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.resized_blur_rects,
+        blur_ctx.as_deref_mut(),
     )?;
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
@@ -357,6 +365,12 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
+    )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.popup_blur_rects,
         blur_ctx.as_deref_mut(),
     )?;
 
@@ -474,11 +488,13 @@ pub(super) fn draw_scene_windows_and_hud(
     // Above-fullscreen windows all render as atomic stack units (content + border
     // drawn together, sorted by draw_order) so a back window's border can't bleed
     // over a front window the way a flat batched border pass would.
-    draw_stack_window_units(
+    draw_stack_window_units_with_closing(
         frame,
         size,
         prepared.damage,
         &scene.above_fullscreen_stack_window_units,
+        &scene.closing_window_animations,
+        true,
         st,
         blur_ctx.as_deref_mut(),
     )?;
@@ -487,6 +503,12 @@ pub(super) fn draw_scene_windows_and_hud(
         prepared.damage,
         &scene.above_fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
+    )?;
+    draw_direct_blur_rects(
+        frame,
+        prepared.damage,
+        &scene.above_fullscreen_popup_blur_rects,
         blur_ctx.as_deref_mut(),
     )?;
     if !scene.above_fullscreen_popup_elements.is_empty() {
@@ -688,8 +710,8 @@ fn transform_rect_about_center(
 }
 
 /// On-top closing pass: node markers (the landmark a window collapses toward)
-/// plus any explicitly top-phase close ghosts (`behind == false`, e.g. cluster
-/// collapse pull-to-core ghosts).
+/// plus explicit top-layer close ghosts (e.g. cluster collapse pull-to-core
+/// ghosts). Stack-layer close ghosts are drawn inside their live stack batch.
 pub(super) fn draw_closing_window_animations(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
@@ -698,143 +720,167 @@ pub(super) fn draw_closing_window_animations(
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     draw_closing_node_markers(frame, st, size, animations, damage)?;
-    draw_closing_window_shrink(frame, size, damage, animations, st, false)
+    draw_closing_window_shrink(
+        frame,
+        size,
+        damage,
+        animations,
+        st,
+        CloseAnimationLayer::Top,
+    )
 }
 
-/// Window shrink/fade tween. `behind` selects which z-phase to draw. Normal
-/// closes and minimize/collapse-to-node animations use the lower phase so they
-/// preserve their visible stacking relative to live windows; explicit overlay
-/// close ghosts use the top phase. Called once per z-phase from
-/// `draw_scene_windows_and_hud`.
+/// Window shrink/fade tween for non-stack layers. Normal stack closes are drawn
+/// by `draw_stack_window_units_with_closing` so they keep their live z slot.
 fn draw_closing_window_shrink(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,
     animations: &[ClosingWindowAnimationSnapshot],
     st: &mut Halley,
-    behind: bool,
+    layer: CloseAnimationLayer,
 ) -> Result<(), Box<dyn Error>> {
     for animation in animations {
-        let ClosingWindowAnimationKind::Window {
-            style,
-            border_rects,
-            offscreen_textures,
-            start_scale,
-            start_alpha,
-            behind: anim_behind,
-            pull_to,
-        } = &animation.kind
+        let Some((animation_layer, border_rects, offscreen_textures)) =
+            scaled_closing_window_parts(animation)
         else {
             continue;
         };
-        if *anim_behind != behind {
+        if animation_layer != layer {
             continue;
         }
 
-        let p = animation.progress.clamp(0.0, 1.0);
-        // Cluster close ("suck into core") drives scale + travel with back-loaded
-        // ease-in curves so each ghost holds near full-size while it starts to
-        // drift, then accelerates and collapses tightly onto the core node in the
-        // final stretch. Plain window closes keep the symmetric ease-in-out.
-        let pulling = pull_to.is_some();
-        let shrink_curve = if pulling {
-            p * p
-        } else {
-            crate::animation::ease_in_out_cubic(p)
-        };
-        // Travel is even more back-loaded (t^3) than the shrink, so the window
-        // rushes into the node right as it vanishes — selling the "sucked in" feel.
-        let pull_t = pull_to.map(|_| p * p * p);
-        let pull_offset = |cx: f32, cy: f32| -> (f32, f32) {
-            match (pull_to, pull_t) {
-                (Some((tx, ty)), Some(t)) => ((tx - cx) * t, (ty - cy) * t),
-                _ => (0.0, 0.0),
-            }
-        };
-        // Fold in the window's live scale/alpha at close time so the tween continues seamlessly
-        // from the open animation instead of snapping to full size.
-        let (scale, alpha) = match style {
-            halley_config::WindowCloseAnimationStyle::Shrink => (
-                start_scale * (1.0 - shrink_curve).clamp(0.0, 1.0),
-                *start_alpha,
-            ),
-            halley_config::WindowCloseAnimationStyle::Fade => (
-                *start_scale,
-                start_alpha * (1.0 - shrink_curve).clamp(0.0, 1.0),
-            ),
-        };
-        if scale <= 0.001 || alpha <= 0.001 {
-            continue;
-        }
-
-        let scaled_textures = offscreen_textures
-            .iter()
-            .cloned()
-            .map(|mut tex| {
-                let cx = tex.dst_x as f32 + tex.dst_w as f32 * 0.5;
-                let cy = tex.dst_y as f32 + tex.dst_h as f32 * 0.5;
-                let (ox, oy) = pull_offset(cx, cy);
-                let center = (cx + ox, cy + oy);
-                let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
-                    tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
-                );
-                tex.dst_x = dst_x;
-                tex.dst_y = dst_y;
-                tex.dst_w = dst_w;
-                tex.dst_h = dst_h;
-                tex.geo_offset_x *= scale;
-                tex.geo_offset_y *= scale;
-                tex.geo_w *= scale;
-                tex.geo_h *= scale;
-                tex.corner_radius *= scale;
-                tex.alpha *= alpha;
-                tex
-            })
-            .collect::<Vec<_>>();
         draw_offscreen_textures(
             frame,
             damage,
-            &scaled_textures,
+            &offscreen_textures,
             st.ui.render_state.gpu.window_texture_program.as_ref(),
             None,
         )?;
         if !border_rects.is_empty() {
-            let scaled_border_rects = border_rects
-                .iter()
-                .map(|border_rect| {
-                    let bcx = border_rect.x as f32 + border_rect.w as f32 * 0.5;
-                    let bcy = border_rect.y as f32 + border_rect.h as f32 * 0.5;
-                    let (ox, oy) = pull_offset(bcx, bcy);
-                    let center = (bcx + ox, bcy + oy);
-                    let (x, y, w, h) = transform_rect_about_center(
-                        border_rect.x,
-                        border_rect.y,
-                        border_rect.w,
-                        border_rect.h,
-                        center,
-                        scale,
-                    );
-                    ActiveBorderRect {
-                        x,
-                        y,
-                        w,
-                        h,
-                        inner_offset_x: border_rect.inner_offset_x * scale,
-                        inner_offset_y: border_rect.inner_offset_y * scale,
-                        inner_w: (border_rect.inner_w * scale).max(1.0),
-                        inner_h: (border_rect.inner_h * scale).max(1.0),
-                        alpha: border_rect.alpha * alpha,
-                        border_px: border_rect.border_px * scale,
-                        corner_radius: border_rect.corner_radius * scale,
-                        inner_corner_radius: border_rect.inner_corner_radius * scale,
-                        border_color: border_rect.border_color,
-                    }
-                })
-                .collect::<Vec<_>>();
-            draw_window_borders(frame, size, damage, &scaled_border_rects, st)?;
+            draw_window_borders(frame, size, damage, &border_rects, st)?;
         }
     }
     Ok(())
+}
+
+fn scaled_closing_window_parts(
+    animation: &ClosingWindowAnimationSnapshot,
+) -> Option<(
+    CloseAnimationLayer,
+    Vec<ActiveBorderRect>,
+    Vec<OffscreenNodeTexture>,
+)> {
+    let ClosingWindowAnimationKind::Window {
+        style,
+        border_rects,
+        offscreen_textures,
+        start_scale,
+        start_alpha,
+        layer,
+        pull_to,
+    } = &animation.kind
+    else {
+        return None;
+    };
+
+    let p = animation.progress.clamp(0.0, 1.0);
+    // Cluster close ("suck into core") drives scale + travel with back-loaded
+    // ease-in curves so each ghost holds near full-size while it starts to
+    // drift, then accelerates and collapses tightly onto the core node in the
+    // final stretch. Plain window closes keep the symmetric ease-in-out.
+    let pulling = pull_to.is_some();
+    let shrink_curve = if pulling {
+        p * p
+    } else {
+        crate::animation::ease_in_out_cubic(p)
+    };
+    // Travel is even more back-loaded (t^3) than the shrink, so the window
+    // rushes into the node right as it vanishes — selling the "sucked in" feel.
+    let pull_t = pull_to.map(|_| p * p * p);
+    let pull_offset = |cx: f32, cy: f32| -> (f32, f32) {
+        match (pull_to, pull_t) {
+            (Some((tx, ty)), Some(t)) => ((tx - cx) * t, (ty - cy) * t),
+            _ => (0.0, 0.0),
+        }
+    };
+    // Fold in the window's live scale/alpha at close time so the tween continues seamlessly
+    // from the open animation instead of snapping to full size.
+    let (scale, alpha) = match style {
+        halley_config::WindowCloseAnimationStyle::Shrink => (
+            start_scale * (1.0 - shrink_curve).clamp(0.0, 1.0),
+            *start_alpha,
+        ),
+        halley_config::WindowCloseAnimationStyle::Fade => (
+            *start_scale,
+            start_alpha * (1.0 - shrink_curve).clamp(0.0, 1.0),
+        ),
+    };
+    if scale <= 0.001 || alpha <= 0.001 {
+        return None;
+    }
+
+    let scaled_textures = offscreen_textures
+        .iter()
+        .cloned()
+        .map(|mut tex| {
+            let cx = tex.dst_x as f32 + tex.dst_w as f32 * 0.5;
+            let cy = tex.dst_y as f32 + tex.dst_h as f32 * 0.5;
+            let (ox, oy) = pull_offset(cx, cy);
+            let center = (cx + ox, cy + oy);
+            let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
+                tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
+            );
+            tex.dst_x = dst_x;
+            tex.dst_y = dst_y;
+            tex.dst_w = dst_w;
+            tex.dst_h = dst_h;
+            tex.geo_offset_x *= scale;
+            tex.geo_offset_y *= scale;
+            tex.geo_w *= scale;
+            tex.geo_h *= scale;
+            tex.corner_radius *= scale;
+            tex.alpha *= alpha;
+            tex.blur_alpha *= alpha;
+            tex.blur &= tex.blur_alpha > 0.001;
+            tex
+        })
+        .collect::<Vec<_>>();
+
+    let scaled_border_rects = border_rects
+        .iter()
+        .map(|border_rect| {
+            let bcx = border_rect.x as f32 + border_rect.w as f32 * 0.5;
+            let bcy = border_rect.y as f32 + border_rect.h as f32 * 0.5;
+            let (ox, oy) = pull_offset(bcx, bcy);
+            let center = (bcx + ox, bcy + oy);
+            let (x, y, w, h) = transform_rect_about_center(
+                border_rect.x,
+                border_rect.y,
+                border_rect.w,
+                border_rect.h,
+                center,
+                scale,
+            );
+            ActiveBorderRect {
+                x,
+                y,
+                w,
+                h,
+                inner_offset_x: border_rect.inner_offset_x * scale,
+                inner_offset_y: border_rect.inner_offset_y * scale,
+                inner_w: (border_rect.inner_w * scale).max(1.0),
+                inner_h: (border_rect.inner_h * scale).max(1.0),
+                alpha: border_rect.alpha * alpha,
+                border_px: border_rect.border_px * scale,
+                corner_radius: border_rect.corner_radius * scale,
+                inner_corner_radius: border_rect.inner_corner_radius * scale,
+                border_color: border_rect.border_color,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Some((*layer, scaled_border_rects, scaled_textures))
 }
 
 fn draw_stack_window_units(
@@ -846,23 +892,139 @@ fn draw_stack_window_units(
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
-        draw_window_shadows(frame, size, damage, &unit.shadow_rects, st)?;
-        if !unit.active_elements.is_empty() {
-            let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
+        draw_stack_window_unit(frame, size, damage, unit, st, blur_ctx.as_deref_mut())?;
+    }
+    Ok(())
+}
+
+fn draw_direct_blur_rects(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    rects: &[DirectWindowBlurRect],
+    blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(ctx) = blur_ctx else {
+        return Ok(());
+    };
+    for rect in rects {
+        if rect.alpha <= 0.0 || rect.dst.size.w <= 0 || rect.dst.size.h <= 0 {
+            continue;
         }
-        draw_offscreen_textures(
+        if let Err(err) = ctx.draw_patch(
             frame,
             damage,
-            &unit.offscreen_textures,
-            st.ui.render_state.gpu.window_texture_program.as_ref(),
-            blur_ctx.as_deref_mut(),
-        )?;
-        if !unit.border_rects.is_empty() {
-            draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
+            rect.dst,
+            rect.corner_radius,
+            rect.alpha.clamp(0.0, 1.0),
+        ) {
+            eventline::warn!("window blur skipped this frame: {err}");
         }
-        if !unit.pin_badges.is_empty() {
-            draw_pin_badges(frame, st, &unit.pin_badges, damage)?;
+    }
+    Ok(())
+}
+
+fn draw_stack_window_units_with_closing(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    stack_window_units: &[StackWindowDrawUnit],
+    closing_animations: &[ClosingWindowAnimationSnapshot],
+    above_fullscreen: bool,
+    st: &mut Halley,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
+    let closing_units = closing_stack_window_units(closing_animations, above_fullscreen);
+    if closing_units.is_empty() {
+        return draw_stack_window_units(frame, size, damage, stack_window_units, st, blur_ctx);
+    }
+
+    let mut live_index = 0;
+    let mut closing_index = 0;
+    while live_index < stack_window_units.len() || closing_index < closing_units.len() {
+        let draw_closing = match (
+            stack_window_units.get(live_index),
+            closing_units.get(closing_index),
+        ) {
+            (Some(live), Some(closing)) => {
+                stack_window_unit_key(closing) <= stack_window_unit_key(live)
+            }
+            (None, Some(_)) => true,
+            (Some(_), None) => false,
+            (None, None) => break,
+        };
+
+        if draw_closing {
+            let unit = &closing_units[closing_index];
+            draw_stack_window_unit(frame, size, damage, unit, st, blur_ctx.as_deref_mut())?;
+            closing_index += 1;
+        } else {
+            let unit = &stack_window_units[live_index];
+            draw_stack_window_unit(frame, size, damage, unit, st, blur_ctx.as_deref_mut())?;
+            live_index += 1;
         }
+    }
+
+    Ok(())
+}
+
+fn closing_stack_window_units(
+    animations: &[ClosingWindowAnimationSnapshot],
+    above_fullscreen: bool,
+) -> Vec<StackWindowDrawUnit> {
+    let mut units = animations
+        .iter()
+        .filter_map(|animation| {
+            let (layer, border_rects, offscreen_textures) = scaled_closing_window_parts(animation)?;
+            let draw_order = match (layer, above_fullscreen) {
+                (CloseAnimationLayer::Stack { draw_order }, false)
+                | (CloseAnimationLayer::AboveFullscreenStack { draw_order }, true) => draw_order,
+                _ => return None,
+            };
+            Some(StackWindowDrawUnit {
+                node_id: animation.node_id,
+                draw_order,
+                shadow_rects: Vec::new(),
+                blur_rects: Vec::new(),
+                border_rects,
+                pin_badges: Vec::new(),
+                active_elements: Vec::new(),
+                offscreen_textures,
+            })
+        })
+        .collect::<Vec<_>>();
+    units.sort_by_key(stack_window_unit_key);
+    units
+}
+
+fn stack_window_unit_key(unit: &StackWindowDrawUnit) -> (i32, u64) {
+    (unit.draw_order, unit.node_id.as_u64())
+}
+
+fn draw_stack_window_unit(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    unit: &StackWindowDrawUnit,
+    st: &mut Halley,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
+    draw_window_shadows(frame, size, damage, &unit.shadow_rects, st)?;
+    draw_direct_blur_rects(frame, damage, &unit.blur_rects, blur_ctx.as_deref_mut())?;
+    if !unit.active_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
+    }
+    draw_offscreen_textures(
+        frame,
+        damage,
+        &unit.offscreen_textures,
+        st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx,
+    )?;
+    if !unit.border_rects.is_empty() {
+        draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
+    }
+    if !unit.pin_badges.is_empty() {
+        draw_pin_badges(frame, st, &unit.pin_badges, damage)?;
     }
     Ok(())
 }

@@ -10,12 +10,12 @@ use crate::keybinds::{
 };
 
 use super::{
-    AnimationsConfig, ApogeeConfig, BearingsConfig, ClickCollapsedOutsideFocusMode,
-    ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
-    CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig,
-    InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RuntimeTuning, ScreenshotConfig,
-    ShapeStyle,
+    AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
+    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
+    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
+    EffectsConfig, FontConfig, GamescopeConfig, InputConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
+    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -26,6 +26,7 @@ impl Default for RuntimeTuning {
                 x: 1920.0,
                 y: 1080.0,
             },
+            background: BackgroundConfig::default(),
 
             focus_ring_rx: 820.0,
             focus_ring_ry: 420.0,

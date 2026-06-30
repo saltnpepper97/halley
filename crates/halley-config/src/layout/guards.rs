@@ -1,4 +1,4 @@
-use super::{CursorConfig, FontConfig, KeyboardConfig, RuntimeTuning};
+use super::{BackgroundConfig, CursorConfig, FontConfig, KeyboardConfig, RuntimeTuning};
 
 impl RuntimeTuning {
     pub fn enforce_guards(&mut self) {
@@ -10,6 +10,18 @@ impl RuntimeTuning {
         self.viewport_center.y = self.viewport_center.y.clamp(-100_000.0, 100_000.0);
         self.viewport_size.x = self.viewport_size.x.clamp(320.0, 16_000.0);
         self.viewport_size.y = self.viewport_size.y.clamp(240.0, 16_000.0);
+        self.background.path = self.background.path.trim().to_string();
+        self.background.shader = self.background.shader.trim().to_string();
+        if self.background.shader.is_empty() {
+            self.background.shader = BackgroundConfig::default().shader;
+        }
+        self.background.intensity = self.background.intensity.clamp(0.0, 4.0);
+        self.background.color.r = self.background.color.r.clamp(0.0, 1.0);
+        self.background.color.g = self.background.color.g.clamp(0.0, 1.0);
+        self.background.color.b = self.background.color.b.clamp(0.0, 1.0);
+        self.background.accent_color.r = self.background.accent_color.r.clamp(0.0, 1.0);
+        self.background.accent_color.g = self.background.accent_color.g.clamp(0.0, 1.0);
+        self.background.accent_color.b = self.background.accent_color.b.clamp(0.0, 1.0);
 
         self.focus_ring_rx = self.focus_ring_rx.clamp(8.0, 16_000.0);
         self.focus_ring_ry = self.focus_ring_ry.clamp(8.0, 16_000.0);

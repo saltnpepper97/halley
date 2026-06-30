@@ -77,18 +77,16 @@ fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) 
     if now_ms < st.runtime.screenshot_full_repaint_until_ms || st.runtime.tuning.debug.overlay_fps {
         return true;
     }
-    st.cluster_mode_active_for_monitor(monitor)
-        || st
-            .model
-            .cluster_state
-            .cluster_bloom_open
-            .contains_key(monitor)
-        || st
-            .model
-            .cluster_state
-            .cluster_overflow_visible_until_ms
-            .get(monitor)
-            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
+    // NB: a *settled* cluster bloom or held selection mode is static — it must not
+    // schedule continuous repaints (that pegged CPU at the monitor's refresh rate).
+    // Those states still force a *full* repaint when a frame is drawn (see
+    // `monitor_overlay_requires_full_repaint_at`), but the bloom only drives frames
+    // while its mix is mid-transition (handled in `tty_output_animation_redraw_state`).
+    st.model
+        .cluster_state
+        .cluster_overflow_visible_until_ms
+        .get(monitor)
+        .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
         || st
             .model
             .cluster_state
@@ -135,22 +133,12 @@ fn cluster_name_prompt_hover_animating(st: &Halley, monitor: &str) -> bool {
 
 fn node_hover_ui_animating(st: &Halley, monitor: &str) -> bool {
     if st
-        .input
-        .interaction_state
-        .overlay_hover_target
-        .as_ref()
-        .is_some_and(|target| target.monitor == monitor)
-    {
-        return true;
-    }
-
-    if st
         .ui
         .render_state
         .view
         .node_preview_hover
         .get(monitor)
-        .is_some_and(|state| state.mix > 0.002)
+        .is_some_and(|state| state.mix > 0.002 && state.mix < 0.998)
     {
         return true;
     }
@@ -240,7 +228,6 @@ pub(crate) fn tty_output_animation_redraw_state(
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let maximize_motion_active =
         crate::compositor::workspace::state::maximize_animation_active_for_monitor(st, monitor);
-    let current_monitor = st.model.monitor_state.current_monitor.as_str();
     let viewport_pan_active = st
         .input
         .interaction_state
@@ -259,11 +246,7 @@ pub(crate) fn tty_output_animation_redraw_state(
                     .get(&pan.node_id)
                     .is_some_and(|node_monitor| node_monitor == monitor)
             });
-    let camera_smoothing_active = monitor == current_monitor
-        && ((st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
-            || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
-            || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
-            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
+    let camera_smoothing_active = camera_smoothing_active_for_monitor(st, monitor);
     let overlay_active = monitor_overlay_animation_active_at(st, monitor, now_ms)
         || node_hover_ui_animating(st, monitor)
         || st
@@ -272,7 +255,12 @@ pub(crate) fn tty_output_animation_redraw_state(
             .view
             .cluster_bloom_mix
             .get(monitor)
-            .is_some_and(|state| state.mix > 0.01)
+            .is_some_and(|state| {
+                // Animate only while the bloom is opening/closing, not while it sits
+                // fully open (mix == target) — a settled bloom needs no repaints.
+                let target = if state.visible { 1.0 } else { 0.0 };
+                (state.mix - target).abs() > 0.01
+            })
         || st
             .ui
             .render_state
@@ -280,6 +268,11 @@ pub(crate) fn tty_output_animation_redraw_state(
             .bearings_mix
             .get(monitor)
             .is_some_and(|mix| *mix > 0.02);
+    let background_active = crate::render::background::background_animates(st)
+        && st
+            .ui
+            .render_state
+            .background_animation_ready_for_monitor(monitor, now_ms);
     let fade_related = node_transition_active
         || node_icon_fade_active
         || active_transition_active
@@ -295,12 +288,38 @@ pub(crate) fn tty_output_animation_redraw_state(
         || landmark_slide_active
         || viewport_pan_active
         || camera_smoothing_active
-        || overlay_active;
+        || overlay_active
+        || background_active;
 
     TtyOutputAnimationRedrawState {
         active,
         force_full_repaint: active,
     }
+}
+
+fn camera_smoothing_active_for_monitor(st: &Halley, monitor: &str) -> bool {
+    if monitor == st.model.monitor_state.current_monitor.as_str() {
+        return (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
+            || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
+            || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
+            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05
+            || st.model.zoom_log_vel.abs() > 0.02
+            || st.model.pan_vel.x.abs() > 4.0
+            || st.model.pan_vel.y.abs() > 4.0;
+    }
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .is_some_and(|space| {
+            (space.viewport.center.x - space.camera_target_center.x).abs() > 0.05
+                || (space.viewport.center.y - space.camera_target_center.y).abs() > 0.05
+                || (space.zoom_ref_size.x - space.camera_target_view_size.x).abs() > 0.05
+                || (space.zoom_ref_size.y - space.camera_target_view_size.y).abs() > 0.05
+                || space.zoom_log_vel.abs() > 0.02
+                || space.pan_vel.x.abs() > 4.0
+                || space.pan_vel.y.abs() > 4.0
+        })
 }
 
 fn node_icon_fade_active_for_monitor(st: &Halley, monitor: &str, now: Instant) -> bool {

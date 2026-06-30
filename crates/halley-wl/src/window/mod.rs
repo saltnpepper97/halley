@@ -37,6 +37,7 @@ use crate::protocol::wayland::background_effect::surface_wants_background_blur;
 
 use crate::render::clipped_surface::ClippedSurfaceRenderElement;
 use crate::render::pin_icon::PinBadgeLayout;
+use crate::render::rescale::RescaledSurfaceElement;
 use crate::render::surface_capture::render_surface_tree_to_texture;
 
 mod capture;
@@ -47,7 +48,7 @@ mod stack;
 
 pub(crate) use capture::{
     capture_closing_window_animation, capture_window_to_png_via_renderer, prewarm_apogee_previews,
-    prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches,
+    prewarm_focus_cycle_previews, prewarm_visible_close_animation_snapshots,
 };
 pub(crate) use decoration::active_window_frame_pad_px;
 use decoration::{
@@ -58,18 +59,20 @@ use geometry::{
     log_window_render_path, offscreen_visual_crop_and_dst, rect_from_local_geometry, rect4_str,
     rect4f_str, sync_node_size_from_surface, wrap_direct_surface_elements,
 };
+pub(crate) use geometry::{pinned_popup_origin_for_camera, popup_origin_from_parent_visual};
 use layout::{build_stack_render_layout, resolve_window_render_layout};
 use stack::{StackTransitionPlan, StackTransitionPose, clone_stack_window_unit_for_pose};
 
 #[cfg(test)]
 use capture::world_to_screen_for_view;
 
-type SurfaceElement =
+pub(crate) type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
 render_elements! {
     pub(crate) DirectSurfaceElement<=GlesRenderer>;
     Surface=SurfaceElement,
     Clipped=ClippedSurfaceRenderElement,
+    Rescaled=crate::render::rescale::RescaledSurfaceElement,
 }
 pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceElement>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
@@ -133,14 +136,30 @@ pub(crate) struct WindowShadowRect {
     pub alpha: f32,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct DirectWindowBlurRect {
+    pub dst: Rectangle<i32, Physical>,
+    pub corner_radius: f32,
+    pub alpha: f32,
+}
+
 pub(crate) struct StackWindowDrawUnit {
     pub node_id: NodeId,
     pub draw_order: i32,
     pub shadow_rects: Vec<WindowShadowRect>,
+    pub blur_rects: Vec<DirectWindowBlurRect>,
     pub border_rects: Vec<ActiveBorderRect>,
     pub pin_badges: Vec<PinBadgeLayout>,
     pub active_elements: Vec<CroppedClippedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CloseAnimationLayer {
+    Below,
+    Stack { draw_order: i32 },
+    AboveFullscreenStack { draw_order: i32 },
+    Top,
 }
 
 pub(crate) struct WindowRenderPlan {
@@ -151,16 +170,19 @@ pub(crate) struct WindowRenderPlan {
     pub(crate) resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) popup_blur_rects: Vec<DirectWindowBlurRect>,
     pub(crate) popup_elements: Vec<CroppedSurfaceElement>,
     pub(crate) fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     pub(crate) fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
     pub(crate) above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) above_fullscreen_popup_blur_rects: Vec<DirectWindowBlurRect>,
     pub(crate) above_fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
     pub(crate) node_surface_map: HashMap<NodeId, WlSurface>,
     pub(crate) stack_window_units: Vec<StackWindowDrawUnit>,
     pub(crate) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
     pub(crate) shadow_rects: Vec<WindowShadowRect>,
     pub(crate) resized_shadow_rects: Vec<WindowShadowRect>,
+    pub(crate) resized_blur_rects: Vec<DirectWindowBlurRect>,
     pub(crate) border_rects: Vec<ActiveBorderRect>,
     pub(crate) resized_border_rects: Vec<ActiveBorderRect>,
     pub(crate) pin_badges: Vec<PinBadgeLayout>,
@@ -172,11 +194,54 @@ impl StackWindowDrawUnit {
             node_id,
             draw_order,
             shadow_rects: Vec::new(),
+            blur_rects: Vec::new(),
             border_rects: Vec::new(),
             pin_badges: Vec::new(),
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
         }
+    }
+}
+
+pub(crate) fn closing_window_animation_layer_for_node(
+    st: &mut Halley,
+    monitor: &str,
+    node_id: NodeId,
+    now: Instant,
+) -> CloseAnimationLayer {
+    let stack_layout = build_stack_render_layout(st, monitor, now);
+    if stack_layout.render_set.contains(&node_id) {
+        return CloseAnimationLayer::Stack {
+            draw_order: stack_layout
+                .draw_orders
+                .get(&node_id)
+                .copied()
+                .unwrap_or_default(),
+        };
+    }
+
+    let resizing_this_node = st.input.interaction_state.resize_active == Some(node_id);
+    let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
+    let persistent_rule_top = is_persistent_rule_top(st, node_id);
+    let overlap_policy_stack_this_node =
+        crate::compositor::spawn::state::node_has_overlap_policy(st, node_id);
+    let draw_top_this_node = resizing_this_node
+        || dragging_this_node
+        || (persistent_rule_top && !overlap_policy_stack_this_node);
+    let draw_above_fullscreen_this_node =
+        st.node_draws_above_fullscreen_on_monitor(node_id, monitor);
+    let draw_order = overlap_policy_draw_order(st, node_id);
+
+    if overlap_policy_stack_this_node && draw_above_fullscreen_this_node {
+        CloseAnimationLayer::AboveFullscreenStack { draw_order }
+    } else if overlap_policy_stack_this_node {
+        CloseAnimationLayer::Stack { draw_order }
+    } else if draw_above_fullscreen_this_node {
+        CloseAnimationLayer::AboveFullscreenStack { draw_order }
+    } else if draw_top_this_node {
+        CloseAnimationLayer::Top
+    } else {
+        CloseAnimationLayer::Stack { draw_order }
     }
 }
 
@@ -212,9 +277,18 @@ pub(crate) fn surface_is_gamescope(st: &Halley, surface: &WlSurface) -> bool {
 }
 
 pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) -> bool {
-    let needs_effects = node_wants_blur(st, node_id) || node_rule_opacity(st, node_id) < 0.999;
-    !needs_effects
+    !node_wants_blur(st, node_id)
         && (node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some())
+}
+
+pub(crate) fn visual_shrink_animation_active_for_node(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> bool {
+    crate::compositor::fullscreen::system::fullscreen_visual_animation_active_for_node_on_current_monitor_at(
+        st, node_id, now,
+    )
 }
 
 fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physical>) -> bool {
@@ -353,6 +427,27 @@ fn extend_active_elements_for_route(
     resized_active_elements.extend(active_elements);
 }
 
+fn push_blur_rect_for_route(
+    route: layout::WindowRenderRoute,
+    node_id: NodeId,
+    blur_rect: DirectWindowBlurRect,
+    stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
+    above_fullscreen_stack_window_units: &mut HashMap<NodeId, StackWindowDrawUnit>,
+    resized_blur_rects: &mut Vec<DirectWindowBlurRect>,
+) {
+    if let Some(unit) = stack_unit_for_route(
+        route,
+        node_id,
+        stack_window_units,
+        above_fullscreen_stack_window_units,
+    ) {
+        unit.blur_rects.push(blur_rect);
+        return;
+    }
+
+    resized_blur_rects.push(blur_rect);
+}
+
 fn push_offscreen_for_route(
     route: layout::WindowRenderRoute,
     node_id: NodeId,
@@ -389,12 +484,15 @@ pub(crate) fn collect_active_surfaces(
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut popup_blur_rects: Vec<DirectWindowBlurRect> = Vec::new();
     let fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut above_fullscreen_popup_blur_rects: Vec<DirectWindowBlurRect> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut above_fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
+    let mut resized_blur_rects: Vec<DirectWindowBlurRect> = Vec::new();
     crate::animation::retain_live_cluster_tile_tracks(
         st.ui.render_state.cluster_tile_tracks_mut(),
         &st.model.field,
@@ -434,6 +532,10 @@ pub(crate) fn collect_active_surfaces(
             if crate::compositor::clusters::system::pending_lift_cluster_node_staged(&*st, node_id)
                 || !st.model.field.is_visible(node_id)
                 || !st.node_assigned_to_current_monitor(node_id)
+                || st
+                    .ui
+                    .render_state
+                    .closing_window_animation_active_for_node(node_id, now)
             {
                 return None;
             }
@@ -484,6 +586,10 @@ pub(crate) fn collect_active_surfaces(
             texture_rect,
             geometry_rect,
             element_scale,
+            base_scale,
+            sx_base,
+            sy_base,
+            base_geometry_rect,
             fullscreen_like_for_render,
             open_anim_active,
             rule_opacity,
@@ -607,13 +713,98 @@ pub(crate) fn collect_active_surfaces(
                 &mut pin_badges,
             );
         }
-        // Opaque fullscreen/game surfaces can stay direct for performance, but
-        // effects require an offscreen texture so blur/opacity can be applied.
-        let needs_effects = node_wants_blur(st, node_id) || rule_opacity < 0.999;
-        let use_offscreen_zoom =
-            (!fullscreen_on_current_monitor || needs_effects) && !live_surface_node;
+        let wants_blur = node_wants_blur(st, node_id) || surface_wants_background_blur(&wl);
+        let use_effect_offscreen =
+            tiling_tile_transition.is_some() || stack_transition_pose.is_some() || open_anim_active;
+        let use_direct_field = !use_effect_offscreen && !live_surface_node;
 
-        if use_offscreen_zoom {
+        if use_direct_field {
+            log_window_render_path(
+                st,
+                node_id,
+                "direct-field-rescaled",
+                &format!(
+                    "base_scale={:.3} visual_scale={:.3} geo=({},{},{}x{}) base_geo=({},{},{}x{})",
+                    base_scale,
+                    render_scale,
+                    gx,
+                    gy,
+                    gw.max(1),
+                    gh.max(1),
+                    base_geometry_rect.0,
+                    base_geometry_rect.1,
+                    base_geometry_rect.2.max(1),
+                    base_geometry_rect.3.max(1),
+                ),
+            );
+            let post_zoom_geo =
+                Rectangle::<i32, Physical>::new((gx, gy).into(), (gw.max(1), gh.max(1)).into());
+            let corner_radius = decoration_metrics.content_corner_radius_px as f32;
+            if wants_blur {
+                push_blur_rect_for_route(
+                    render_route,
+                    node_id,
+                    DirectWindowBlurRect {
+                        dst: post_zoom_geo,
+                        corner_radius,
+                        alpha: animation_alpha,
+                    },
+                    &mut stack_window_units,
+                    &mut above_fullscreen_stack_window_units,
+                    &mut resized_blur_rects,
+                );
+            }
+            let elems = render_elements_from_surface_tree::<_, SurfaceElement>(
+                renderer,
+                &wl,
+                (sx_base, sy_base),
+                base_scale as f64,
+                alpha,
+                Kind::Unspecified,
+            );
+            let display_clip = Rectangle::<i32, Physical>::new(
+                (texture_rect.0, texture_rect.1).into(),
+                (texture_rect.2.max(1), texture_rect.3.max(1)).into(),
+            );
+            let base_geo = Rectangle::<i32, Physical>::new(
+                (base_geometry_rect.0, base_geometry_rect.1).into(),
+                (base_geometry_rect.2.max(1), base_geometry_rect.3.max(1)).into(),
+            );
+            let clip_program = st.ui.render_state.gpu.surface_clip_program.as_ref();
+            let cropped: Vec<CroppedClippedSurfaceElement> = elems
+                .into_iter()
+                .filter_map(|elem| {
+                    let program = if RescaledSurfaceElement::needs_clip(
+                        &elem,
+                        base_geo,
+                        post_zoom_geo,
+                        corner_radius,
+                    ) {
+                        clip_program.cloned()
+                    } else {
+                        None
+                    };
+                    let rescaled = RescaledSurfaceElement::new(
+                        elem,
+                        base_geo,
+                        post_zoom_geo,
+                        program,
+                        corner_radius,
+                        render_scale,
+                    );
+                    let direct: DirectSurfaceElement = rescaled.into();
+                    CropRenderElement::from_element(direct, 1.0, display_clip)
+                })
+                .collect();
+            extend_active_elements_for_route(
+                render_route,
+                node_id,
+                cropped,
+                &mut stack_window_units,
+                &mut above_fullscreen_stack_window_units,
+                &mut resized_active_elements,
+            );
+        } else if use_effect_offscreen {
             let spawn_pan_pending = st
                 .model
                 .spawn_state
@@ -1150,8 +1341,8 @@ pub(crate) fn collect_active_surfaces(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            // Pinning anchors a popup to the monitor for the non-fullscreen
-            // panned/zoomed case. While fullscreen the frozen anchor is `node.pos`-based
+            // Pinning anchors a popup to the monitor for the non-fullscreen panned
+            // case while still applying camera zoom. While fullscreen the frozen anchor is `node.pos`-based
             // and uses the wrong scale, so fall through to the parent-tracking branch,
             // which uses the window's real rendered `sx/sy` and `element_scale`.
             let pinned_anchor = if fullscreen_on_current_monitor {
@@ -1163,28 +1354,30 @@ pub(crate) fn collect_active_surfaces(
                     .copied()
             };
             // A pinned popup (e.g. Steam's install-complete notification) renders
-            // at a fixed monitor-relative position projected onto the output rect,
-            // immune to camera zoom/pan. `target_loc` is the configure-time frozen
-            // anchor; within_vp is the popup's offset inside the usable viewport.
+            // from its configure-time monitor anchor but still scales/displaces with
+            // the camera, so zooming out does not leave it at a visual 1.0 scale.
             let (popup_sx, popup_sy, popup_scale) = if let Some(target_loc) = pinned_anchor {
                 let viewport = st.usable_viewport_for_monitor(current_monitor.as_str());
-                let out_scale_x = output_clip.size.w as f32 / viewport.size.x.max(1.0);
-                let out_scale_y = output_clip.size.h as f32 / viewport.size.y.max(1.0);
-                let within_vp_x = (-target_loc.x + popup_offset.x - popup_geo.loc.x) as f32;
-                let within_vp_y = (-target_loc.y + popup_offset.y - popup_geo.loc.y) as f32;
-                let psx = output_clip.loc.x + (within_vp_x * out_scale_x).round() as i32;
-                let psy = output_clip.loc.y + (within_vp_y * out_scale_y).round() as i32;
-                (psx, psy, out_scale_x)
+                pinned_popup_origin_for_camera(
+                    output_clip,
+                    viewport.size,
+                    target_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    cam_scale,
+                )
             } else {
-                let psx = sx
-                    + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * element_scale)
-                        .round() as i32;
-                let psy = sy
-                    + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale)
-                        .round() as i32;
-                (psx, psy, element_scale)
+                let (psx, psy) = popup_origin_from_parent_visual(
+                    (sx, sy),
+                    parent_geo_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    render_scale,
+                );
+                (psx, psy, render_scale)
             };
-            if use_offscreen_zoom {
+            let use_popup_offscreen = use_effect_offscreen || (popup_scale - 1.0).abs() > 0.001;
+            if use_popup_offscreen {
                 match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha, None) {
                     Ok(offscreen) => {
                         let src_x = 0.0f64;
@@ -1261,6 +1454,29 @@ pub(crate) fn collect_active_surfaces(
                         .into_iter()
                         .filter_map(|e| CropRenderElement::from_element(e, 1.0, output_clip)),
                 );
+                if surface_wants_background_blur(popup.wl_surface()) {
+                    let blur_rect = DirectWindowBlurRect {
+                        dst: Rectangle::<i32, Physical>::new(
+                            (
+                                popup_sx + (popup_geo.loc.x as f32 * popup_scale).round() as i32,
+                                popup_sy + (popup_geo.loc.y as f32 * popup_scale).round() as i32,
+                            )
+                                .into(),
+                            (
+                                (popup_geo.size.w as f32 * popup_scale).round().max(1.0) as i32,
+                                (popup_geo.size.h as f32 * popup_scale).round().max(1.0) as i32,
+                            )
+                                .into(),
+                        ),
+                        corner_radius: 0.0,
+                        alpha,
+                    };
+                    if render_route.popups_above_fullscreen() {
+                        above_fullscreen_popup_blur_rects.push(blur_rect);
+                    } else {
+                        popup_blur_rects.push(blur_rect);
+                    }
+                }
             }
         }
 
@@ -1305,16 +1521,19 @@ pub(crate) fn collect_active_surfaces(
         resized_offscreen_textures,
         fullscreen_offscreen_textures,
         popup_offscreen_textures,
+        popup_blur_rects,
         popup_elements,
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
         above_fullscreen_popup_offscreen_textures,
+        above_fullscreen_popup_blur_rects,
         above_fullscreen_popup_elements,
         node_surface_map,
         stack_window_units,
         above_fullscreen_stack_window_units,
         shadow_rects,
         resized_shadow_rects,
+        resized_blur_rects,
         border_rects,
         resized_border_rects,
         pin_badges,

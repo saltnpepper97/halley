@@ -1,5 +1,6 @@
 use super::*;
 
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 
@@ -27,7 +28,9 @@ fn preview_offscreen_clip(
     // chrome/border to clip away), and its xdg window-geometry cache may still
     // hold the stale windowed rect from before the client went fullscreen.
     // Skip the clip so the entire fullscreen surface is captured.
-    if st.is_fullscreen_active(node_id) {
+    if st.is_fullscreen_active(node_id)
+        || visual_shrink_animation_active_for_node(st, node_id, Instant::now())
+    {
         return None;
     }
     let (x, y, w, h) = window_geometry_for_node(st, node_id)?;
@@ -158,7 +161,15 @@ pub(crate) fn capture_closing_window_animation(
         crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
             st, node_id, monitor, now,
         );
-    let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
+    let tile_visual = crate::animation::cluster_tile_rect_for(
+        st.ui.render_state.cluster_tile_tracks(),
+        node_id,
+        now,
+    );
+    let visual_pos = tile_visual
+        .map(|rect| rect.center)
+        .or_else(|| maximized_visual.map(|(pos, _)| pos))
+        .unwrap_or(node.pos);
     let (cx, cy) = world_to_screen_for_view(
         view_center,
         view_size,
@@ -167,8 +178,9 @@ pub(crate) fn capture_closing_window_animation(
         visual_pos.x,
         visual_pos.y,
     );
-    let (visual_w, visual_h) = maximized_visual
-        .map(|(_, size)| (size.x, size.y))
+    let (visual_w, visual_h) = tile_visual
+        .map(|rect| (rect.size.x, rect.size.y))
+        .or_else(|| maximized_visual.map(|(_, size)| (size.x, size.y)))
         .unwrap_or((local_geo.2, local_geo.3));
     let gw = (visual_w * render_scale).round().max(1.0) as i32;
     let gh = (visual_h * render_scale).round().max(1.0) as i32;
@@ -293,7 +305,7 @@ pub(crate) fn capture_window_to_png_via_renderer(
         let now = Instant::now();
         ensure_node_circle_resources(renderer, st)?;
         ensure_window_texture_program(renderer, st);
-        prewarm_visible_active_window_offscreen_caches(renderer, st, now);
+        prewarm_visible_close_animation_snapshots(renderer, st, now);
 
         let (mut border_rects, mut offscreen_textures, _, _) =
             capture_closing_window_animation(st, monitor, node_id).ok_or_else(|| {
@@ -756,7 +768,7 @@ pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Hall
     }
 }
 
-pub(crate) fn prewarm_visible_active_window_offscreen_caches(
+pub(crate) fn prewarm_visible_close_animation_snapshots(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
     now: Instant,
@@ -765,6 +777,30 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         .ui
         .render_state
         .requested_window_animation_prewarm_nodes(now);
+    let mut target_nodes: HashSet<NodeId> = requested_prewarm_nodes.iter().copied().collect();
+    if let Some(node_id) = st.model.focus_state.primary_interaction_focus {
+        target_nodes.insert(node_id);
+    }
+    if let Some(node_id) = st.last_focused_surface_node_for_monitor(st.focused_monitor()) {
+        target_nodes.insert(node_id);
+    }
+    target_nodes.extend(
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .values()
+            .copied(),
+    );
+    target_nodes.extend(
+        st.model
+            .workspace_state
+            .maximize_sessions
+            .values()
+            .map(|session| session.target_id),
+    );
+    if target_nodes.is_empty() {
+        return;
+    }
     let mut wl_surfaces: Vec<_> = st
         .platform
         .xdg_shell_state
@@ -785,36 +821,35 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
     });
 
     for (node_id, wl) in wl_surfaces {
-        let requested = requested_prewarm_nodes.contains(&node_id);
-        if !requested
-            && crate::compositor::surface::is_active_cluster_workspace_member(st, node_id)
-            && crate::animation::cluster_tile_rect_for(
-                st.ui.render_state.cluster_tile_tracks(),
-                node_id,
-                now,
-            )
-            .is_some()
-        {
+        if !target_nodes.contains(&node_id) {
             continue;
         }
         let bbox = sync_node_size_from_surface(st, node_id, &wl);
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
+        let presentation_snapshot_node = st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .values()
+            .any(|&id| id == node_id)
+            || st
+                .model
+                .workspace_state
+                .maximize_sessions
+                .values()
+                .any(|session| session.target_id == node_id);
         if node.state != halley_core::field::NodeState::Active
-            || node_requires_live_surface_render(st, node_id)
+            || (node_requires_live_surface_render(st, node_id) && !presentation_snapshot_node)
         {
             continue;
         }
-        if !requested
-            && (!st.model.field.is_visible(node_id)
-                || !st.node_assigned_to_current_monitor(node_id))
-        {
+        if visual_shrink_animation_active_for_node(st, node_id, now) {
             continue;
         }
-
-        // While a tile-open/close transition is animating, freeze the offscreen
-        // texture. The slide scales this single capture (`use_offscreen_zoom`), so
+        // While a tile-open/close transition is animating, freeze the snapshot
+        // texture. Snapshot consumers scale this single capture, so
         // re-capturing on every intermediate size the client commits as it settles
         // into the final tile is both wasted GPU work (grows to ~5ms/frame —
         // enough to miss vblanks on a 180Hz output → the choppy slide) and the

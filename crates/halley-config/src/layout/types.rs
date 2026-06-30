@@ -46,6 +46,62 @@ pub enum OverlayShape {
     Rounded,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BackgroundMode {
+    None,
+    Classic,
+    FieldShader,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BackgroundFit {
+    Cover,
+    Contain,
+    Stretch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackgroundColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackgroundConfig {
+    pub mode: BackgroundMode,
+    pub path: String,
+    pub shader: String,
+    pub fit: BackgroundFit,
+    pub intensity: f32,
+    pub animated: bool,
+    pub color: BackgroundColor,
+    pub accent_color: BackgroundColor,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            mode: BackgroundMode::None,
+            path: String::new(),
+            shader: "stars".to_string(),
+            fit: BackgroundFit::Cover,
+            intensity: 1.0,
+            animated: false,
+            color: BackgroundColor {
+                r: 0x18 as f32 / 255.0,
+                g: 0x1a as f32 / 255.0,
+                b: 0x26 as f32 / 255.0,
+            },
+            accent_color: BackgroundColor {
+                r: 0x8f as f32 / 255.0,
+                g: 0xa8 as f32 / 255.0,
+                b: 0xd8 as f32 / 255.0,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OverlayBorderSource {
     Primary,

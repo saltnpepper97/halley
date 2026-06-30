@@ -20,6 +20,22 @@ fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, L
         && (rect.loc.y as i64 + rect.size.h as i64) <= (target.loc.y as i64 + target.size.h as i64)
 }
 
+/// Whether to honor a client-initiated maximize/fullscreen request for `node_id`.
+///
+/// Apps such as Firefox re-request maximize/fullscreen on launch to restore their
+/// previous-session window state, which fights with Halley's spatial spawn
+/// placement. While a window is still pending its initial reveal, treat such
+/// requests as state-restore noise and ignore them; the user can still
+/// maximize/fullscreen manually (Mod+F, title-bar) once the window is revealed.
+/// Game-like and gamescope apps are exempt because launch-fullscreen is their
+/// actual display mode rather than restored session state.
+fn honors_client_state_request(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
+    if crate::window::node_is_game_like(st, node_id) {
+        return true;
+    }
+    !crate::compositor::spawn::reveal::pending_initial_reveal(st, node_id)
+}
+
 /// Unconstrain `positioner` within `target` (output working area expressed relative
 /// to the popup's parent), escalating to flip/slide/resize if it still overflows —
 /// mirrors `constrain_layer_popup`. This is what slides a corner-anchored popup
@@ -91,11 +107,12 @@ fn window_popup_constraint_target(
     Some((node_id, target))
 }
 
-/// Whether a window-parented popup should render pinned to the screen (immune to
-/// camera zoom/pan) rather than tracking its parent window. Currently scoped to
-/// the Steam client's notifications (e.g. install-complete), whose root window
-/// app_id is `steam`. Deliberately excludes per-game `steam_app_*` windows and
-/// every other app, so ordinary interactive context menus keep tracking their
+/// Whether a window-parented popup should render from a fixed monitor anchor,
+/// rather than tracking its parent window. The render path still applies camera
+/// zoom so the popup does not stay visually at 1.0 while the field zooms. Currently
+/// scoped to the Steam client's notifications (e.g. install-complete), whose root
+/// window app_id is `steam`. Deliberately excludes per-game `steam_app_*` windows
+/// and every other app, so ordinary interactive context menus keep tracking their
 /// parent.
 fn popup_should_pin_to_screen(st: &Halley, root_node: halley_core::field::NodeId) -> bool {
     st.model
@@ -114,8 +131,8 @@ fn configure_popup_position(st: &mut Halley, popup: &PopupSurface, positioner: P
             state.positioner = adjusted;
             state.geometry = geometry;
         });
-        // Freeze the pan-free anchor (`target.loc`) so the render path can pin
-        // this popup to the monitor output instead of tracking the parent.
+        // Freeze the pan-free anchor (`target.loc`) so the render path can keep
+        // this popup monitor-anchored instead of tracking the parent.
         let key = popup.wl_surface().id();
         if popup_should_pin_to_screen(st, root_node) {
             st.model.pinned_popup_anchor.insert(key, target.loc);
@@ -213,6 +230,7 @@ impl XdgShellHandler for Halley {
         } else {
             self.spawn_target_monitor_for_intent(&intent)
         };
+        monitor::state::sync_xwayland_primary(self, monitor.as_str());
 
         let view = self.usable_viewport_for_monitor(&monitor);
         let bounds_w = view.size.x as i32;
@@ -365,6 +383,10 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
+        if !honors_client_state_request(self, node_id) {
+            surface.send_configure();
+            return;
+        }
         fullscreen::system::enter_xdg_fullscreen(self, node_id, output, Instant::now());
     }
 
@@ -393,6 +415,15 @@ impl XdgShellHandler for Halley {
             .cluster_id_for_member_public(node_id)
             .is_some()
         {
+            surface.send_configure();
+            return;
+        }
+        // Suppress client maximize requests that arrive during the window's initial
+        // spawn/reveal (see `honors_client_state_request`): those are apps like
+        // Firefox re-requesting state from a prior session, which fights with
+        // Halley's spatial placement. The user can still maximize manually once
+        // the window is revealed.
+        if !honors_client_state_request(self, node_id) {
             surface.send_configure();
             return;
         }

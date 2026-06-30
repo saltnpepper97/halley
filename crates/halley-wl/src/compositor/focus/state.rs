@@ -174,7 +174,10 @@ pub(crate) fn focus_monitor_view(st: &mut Halley, monitor: &str, now: Instant) {
     }
     st.set_interaction_monitor(monitor);
     st.set_focused_monitor(monitor);
-    st.model.spawn_state.pending_spawn_monitor = None;
+    // A deliberate monitor-focus keybind pins the spawn target to this monitor
+    // until the pointer moves, so it isn't overridden by hover focus-mode when the
+    // cursor is parked on a different monitor.
+    st.input.interaction_state.monitor_focus_pinned = true;
     let _ = st.activate_monitor(monitor);
     if !st
         .model
@@ -226,7 +229,6 @@ pub fn set_interaction_focus(st: &mut Halley, id: Option<NodeId>, hold_ms: u64, 
                     .remove(&monitor);
                 st.set_interaction_monitor(monitor.as_str());
                 st.set_focused_monitor(monitor.as_str());
-                st.model.spawn_state.pending_spawn_monitor = None;
                 let _ = st.activate_monitor(monitor.as_str());
                 let spawn = st.spawn_monitor_state_mut(monitor.as_str());
                 spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::Focus;
@@ -271,7 +273,6 @@ pub fn set_interaction_focus(st: &mut Halley, id: Option<NodeId>, hold_ms: u64, 
                 .remove(&monitor);
             st.set_interaction_monitor(monitor.as_str());
             st.set_focused_monitor(monitor.as_str());
-            st.model.spawn_state.pending_spawn_monitor = None;
             let _ = st.activate_monitor(monitor.as_str());
             let spawn = st.spawn_monitor_state_mut(monitor.as_str());
             spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::Focus;

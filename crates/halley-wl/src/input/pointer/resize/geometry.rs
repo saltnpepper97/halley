@@ -65,29 +65,49 @@ pub(crate) struct ActiveResizeGeometryScreen {
     pub(crate) surface_origin_y: f32,
     pub(crate) live_geo_w: f32,
     pub(crate) live_geo_h: f32,
+    pub(crate) h_weight_left: f32,
+    pub(crate) h_weight_right: f32,
+    pub(crate) v_weight_top: f32,
+    pub(crate) v_weight_bottom: f32,
 }
 
 impl ActiveResizeGeometryScreen {
-    pub(crate) fn frame_rect_px(self) -> (i32, i32, i32, i32) {
-        let left = self.frame_left.round() as i32;
-        let top = self.frame_top.round() as i32;
-        let right = self.frame_right.round() as i32;
-        let bottom = self.frame_bottom.round() as i32;
+    pub(crate) fn live_frame_rect_px(self, scale: f32) -> (i32, i32, i32, i32) {
+        let preview_w = (self.frame_right - self.frame_left).max(1.0);
+        let preview_h = (self.frame_bottom - self.frame_top).max(1.0);
+        let live_w = if self.live_geo_w > 0.0 {
+            (self.live_geo_w * scale).round().max(1.0)
+        } else {
+            preview_w
+        };
+        let live_h = if self.live_geo_h > 0.0 {
+            (self.live_geo_h * scale).round().max(1.0)
+        } else {
+            preview_h
+        };
+
+        let (left, right) = if self.h_weight_left != 0.0 && self.h_weight_right == 0.0 {
+            (self.frame_right - live_w, self.frame_right)
+        } else if self.h_weight_right != 0.0 && self.h_weight_left == 0.0 {
+            (self.frame_left, self.frame_left + live_w)
+        } else {
+            let center = (self.frame_left + self.frame_right) * 0.5;
+            (center - live_w * 0.5, center + live_w * 0.5)
+        };
+        let (top, bottom) = if self.v_weight_top != 0.0 && self.v_weight_bottom == 0.0 {
+            (self.frame_bottom - live_h, self.frame_bottom)
+        } else if self.v_weight_bottom != 0.0 && self.v_weight_top == 0.0 {
+            (self.frame_top, self.frame_top + live_h)
+        } else {
+            let center = (self.frame_top + self.frame_bottom) * 0.5;
+            (center - live_h * 0.5, center + live_h * 0.5)
+        };
+
+        let left = left.round() as i32;
+        let top = top.round() as i32;
+        let right = right.round() as i32;
+        let bottom = bottom.round() as i32;
         (left, top, (right - left).max(1), (bottom - top).max(1))
-    }
-
-    pub(crate) fn surface_origin_px(self) -> (i32, i32) {
-        (
-            self.surface_origin_x.round() as i32,
-            self.surface_origin_y.round() as i32,
-        )
-    }
-
-    pub(crate) fn center_px(self) -> (i32, i32) {
-        (
-            ((self.frame_left + self.frame_right) * 0.5).round() as i32,
-            ((self.frame_top + self.frame_bottom) * 0.5).round() as i32,
-        )
     }
 }
 
@@ -344,6 +364,10 @@ pub(crate) fn active_resize_geometry_screen(
         surface_origin_y: frame_top - geo_ly.round(),
         live_geo_w,
         live_geo_h,
+        h_weight_left: rz.h_weight_left,
+        h_weight_right: rz.h_weight_right,
+        v_weight_top: rz.v_weight_top,
+        v_weight_bottom: rz.v_weight_bottom,
     })
 }
 

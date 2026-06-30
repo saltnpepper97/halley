@@ -172,6 +172,7 @@ impl ConfigSchema {
             "animations.cluster.stacking",
             "animations.raise",
             "apogee",
+            "background",
             "bearings",
             "clusters",
             "cursor",
@@ -191,6 +192,7 @@ impl ConfigSchema {
             "field.zoom",
             "focus-ring",
             "font",
+            "gesso",
             "input",
             "input.keyboard",
             "input.gestures",
@@ -255,6 +257,18 @@ impl ConfigSchema {
             "apogee.background_dim",
             "apogee.open-cluster-on-select",
             "apogee.open_cluster_on_select",
+            "background.mode",
+            "background.path",
+            "background.shader",
+            "background.fit",
+            "background.colour",
+            "background.color",
+            "background.accent-colour",
+            "background.accent_colour",
+            "background.accent-color",
+            "background.accent_color",
+            "background.intensity",
+            "background.animated",
             "bearings.show-distance",
             "bearings.show-icons",
             "bearings.show-pinned",
@@ -357,6 +371,18 @@ impl ConfigSchema {
             "focus-ring.primary-ry",
             "font.family",
             "font.size",
+            "gesso.mode",
+            "gesso.path",
+            "gesso.shader",
+            "gesso.fit",
+            "gesso.colour",
+            "gesso.color",
+            "gesso.accent-colour",
+            "gesso.accent_colour",
+            "gesso.accent-color",
+            "gesso.accent_color",
+            "gesso.intensity",
+            "gesso.animated",
             "input.repeat-rate",
             "input.repeat-delay",
             "input.focus-mode",
@@ -568,6 +594,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "apogee.rows"
             | "apogee.background-dim"
             | "apogee.background_dim"
+            | "background.intensity"
             | "bearings.fade-distance"
             | "clusters.distance-px"
             | "clusters.cluster-dwell-ms"
@@ -616,6 +643,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "focus-ring.primary-rx"
             | "focus-ring.primary-ry"
             | "font.size"
+            | "gesso.intensity"
             | "input.repeat-rate"
             | "input.repeat-delay"
             | "nodes.primary-to-node-ms"
@@ -698,6 +726,7 @@ fn bool_scalar(path: &str) -> bool {
             | "apogee.show_collapsed_as_nodes"
             | "apogee.open-cluster-on-select"
             | "apogee.open_cluster_on_select"
+            | "background.animated"
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"
@@ -719,6 +748,7 @@ fn bool_scalar(path: &str) -> bool {
             | "field.close-restore-focus"
             | "field.zoom.enabled"
             | "field.zoom.smooth"
+            | "gesso.animated"
             | "input.raise-on-click"
             | "input.gestures.enabled"
             | "input.gestures.client-passthrough"
@@ -758,6 +788,11 @@ fn bool_scalar(path: &str) -> bool {
 
 fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
     match path {
+        "background.mode" | "gesso.mode" => {
+            Some(&["none", "classic", "field-shader", "field_shader"])
+        }
+        "background.fit" | "gesso.fit" => Some(&["cover", "contain", "stretch"]),
+        "background.shader" | "gesso.shader" => Some(&["stars"]),
         "clusters.bloom-direction" => Some(&[
             "clockwise",
             "cw",
@@ -894,7 +929,19 @@ fn input_gesture_hold_binding_key(path: &str) -> Option<&str> {
 fn color_scalar(path: &str) -> bool {
     matches!(
         path,
-        "decorations.border.colour-focused"
+        "background.colour"
+            | "background.color"
+            | "background.accent-colour"
+            | "background.accent_colour"
+            | "background.accent-color"
+            | "background.accent_color"
+            | "gesso.colour"
+            | "gesso.color"
+            | "gesso.accent-colour"
+            | "gesso.accent_colour"
+            | "gesso.accent-color"
+            | "gesso.accent_color"
+            | "decorations.border.colour-focused"
             | "decorations.border.color-focused"
             | "decorations.border.colour-unfocused"
             | "decorations.border.color-unfocused"

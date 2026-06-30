@@ -2,9 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.5.0] - TBD
+## [v0.5.0] - 2026-06-30
 
 ### Added
+- On first launch Halley Lift now writes a documented default config template (mirroring
+  `examples/lift.rune`) to `~/.config/halley/lift.rune` when none exists; existing files are
+  never overwritten.
+- Add Halley Lift `colors.icon` (result-list icon tint; empty follows `accent`) and
+  `colors.alt-hint` (Alt+<n> jump-label tint; empty follows `hint`) config options.
 - Add Halley Lift config-editing actions for both Lift config and Halley compositor config;
   config actions now open files with `$EDITOR` in Lift's configured terminal instead of `xdg-open`.
 - Add the Halley Discord community/support invite to the README.
@@ -137,6 +142,16 @@ All notable changes to this project will be documented in this file.
   like any other window.
 - Draw a tinted cluster glyph on a cluster core's bearing chip instead of the app-icon
   fallback box + first letter, independent of `node-show-app-icons`.
+- Add an animated background renderer with three modes: `none` (solid fill), `classic`
+  (static image with fit/cover/stretch), and `field-shader` (a GLSL fragment shader
+  rendered as the compositor background). Configured via `background:` (alias `gesso:`)
+  with `mode`, `fit`, `intensity`, `animated`, `colour`, `accent-colour`, and `shader`.
+  Animated field-shader backgrounds are per-monitor gated with startup and DPMS-wake
+  grace periods and capped to ~10 FPS redraw to avoid high idle CPU.
+- Add direct field rendering for normal windows via `RescaledSurfaceElement`, which maps
+  the live Wayland surface tree from a stable base-geometry coordinate space into the
+  current visual (zoomed) rect using corner-rounded pixel mapping. Eliminates per-window
+  offscreen texture allocation for steady-state field and cluster windows.
 
 ### Changed
 - Treat field node/core markers as fixed landmarks in passive (idle/zoom) overlap resolution:
@@ -305,8 +320,53 @@ All notable changes to this project will be documented in this file.
   ratio during tiled cluster reflow transitions, preventing texture squish when
   the animated box's aspect differs from the capture. Only active during tile
   transitions; steady-state rendering keeps the plain fill.
+- Render normal field and cluster top-level windows directly via live surface elements
+  instead of through per-window offscreen textures. Opacity below 1.0 renders direct
+  via alpha, and window backdrop blur renders as direct framebuffer blur patches drawn
+  immediately before each window's surface elements. Active resize uses the same live
+  direct path. Per-window offscreen is now limited to semantic transitions (tile reflow,
+  stack cycle, open animation), close/suck ghosts, Apogee/Alt+Tab previews, hover preview
+  cards, and capture/screenshot paths.
+- World-anchor close-animation ghosts by capturing the camera center at animation start
+  and re-projecting baked screen geometry against the live camera each frame, so ghosts
+  stay anchored to their world position during camera pan instead of sliding with the
+  screen. Node close markers are captured as screen-local coordinates at close time.
+- Keyboard launches now latch to the compositor's `primary_interaction_focus` monitor
+  first, then the Wayland keyboard focus surface monitor (walking parent surfaces), then
+  `focused_monitor` as fallback. `pending_spawn_monitor` survives focus/interaction churn
+  until the next toplevel consumes it, so field-jump keybind spawns land on the focused
+  monitor instead of the stale cursor monitor.
+- Keep the cursor visible during zoom keybinds (zoom is spatial, not keyboard navigation)
+  and show directional `ZoomIn`/`ZoomOut` cursor icons. Zoom keybinds use the current
+  interaction monitor so mouse monitor switching mid-zoom keeps working.
+- Start close-animation ghosts at compositor close-request time when the offscreen
+  snapshot cache is warm, and skip the live surface for nodes with active close ghosts
+  so the ghost is not doubled by a camera-following live surface. Close snapshot prewarm
+  is limited to focused/keyboard-close candidates instead of all visible windows.
+- Remove raw `hover_node` and `overlay_hover_target` as permanent animation-redraw
+  triggers from the TTY scheduler. Hover animations still start on pointer-motion redraw
+  requests, but settled hover no longer forces continuous vblank redraw. Hover preview
+  activity is gated to "mix is moving" only.
+- Compute per-monitor camera smoothing activity from each monitor's own saved camera state
+  rather than only the current monitor's live viewport, so a non-current monitor caught
+  mid-zoom continues settling (and repainting) instead of freezing when the pointer leaves.
+- Stop the aggressive DPMS-wake `reset_buffers()` call that slowed monitor recovery; keep
+  stale composed-frame cache eviction on DPMS wake.
 
 ### Fixed
+- Fix window-parented XDG popups (e.g. Firefox context menus, nested menus) staying visually
+  at 1.0 zoom and mis-hit-testing when the field camera is zoomed out. Popup origin/transform
+  math is now shared between the render and focus paths, and popups are routed through the
+  offscreen-texture composition path whenever their scale differs from 1.0 so they scale with
+  the camera instead of being drawn as unscaled live surface elements.
+- Fix Steam's pinned notification popups (install-complete, etc.) staying visually at 1.0 when
+  zooming out. They keep their pan-immune monitor anchor but now apply camera zoom to both size
+  and displacement.
+- Fix the animated field-shader background (e.g. the builtin stars) stuttering on empty or
+  non-current monitors. The animation-redraw gate was restricted to the current monitor and the
+  frame cadence was throttled to ~10 FPS, so an idle second monitor's background only advanced
+  on unrelated redraws. Both restrictions are removed; startup and DPMS-wake grace pauses are
+  preserved.
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
   tore the outgoing mode down (snapping the window to its small windowed size) before the
   incoming mode's grow animation started. Each direction now captures the outgoing window's
@@ -320,6 +380,22 @@ All notable changes to this project will be documented in this file.
   `resize_footprint` *after* the footprint sync (the sync was clearing the value the prior fix
   set), so the re-maximize snapshots the true windowed size before the client commits its
   resize.
+- Eliminate the full-size buffer flash at the tail of a fullscreen or maximize exit shrink.
+  The client is now reconfigured to its windowed size at the *start* of the shrink (while the
+  frozen snapshot is still on screen), and the shrink holds that snapshot past its visual
+  duration until the client has committed a non-fullscreen/non-maximized buffer (or a 250 ms
+  safety timeout). The live surface is revealed only once it is already windowed-sized, so the
+  old one-or-two-frame full-size flash never reaches the output.
+- Ease the camera back on animated cluster-member fullscreen exits instead of snapping it
+  synchronously. The survivor reflow is deferred until the shrink settle lands, so the camera
+  pan finishes before the tiles re-lay out — avoiding the old "slides from left, stops partway"
+  race between the pan and the reflow.
+- `toggle-fullscreen` now prefers a focused overlay window stacked above a fullscreen window on
+  the same monitor, so the keybind swaps the overlay into fullscreen rather than redundantly
+  toggling the fullscreen window underneath.
+- Include fullscreen and maximized nodes in the close-animation snapshot prewarm set so their
+  offscreen textures are ready before the exit shrink begins, and skip the border clip during a
+  visual shrink animation so the whole surface is captured.
 - Stop runaway key repeat (e.g. Enter repeating forever in a terminal after first opening a
   cluster) for good, with a general guard instead of another per-case patch: physical key
   state is now tracked and, after every key event, any key still forwarded to a client as
@@ -536,6 +612,73 @@ All notable changes to this project will be documented in this file.
   camera target and re-lays out the cluster workspace, matching the `Mod+F` exit path.
   Previously the camera stayed anchored on the deleted node and the subsequent re-layout
   projected surviving members offscreen.
+- Fix fullscreen games (Wine/Proton/gamescope) launched inside a cluster tiling workspace
+  landing *outside* the cluster layout: a window that requests fullscreen before its app_id
+  resolves or before it joins the cluster is now absorbed into the active cluster as a real
+  tile/stack member first, so siblings are hidden, the camera grows from its slot, and
+  exiting or closing returns cleanly to the cluster. Previously the fullscreen sat outside
+  the cluster and on close `restore_cluster_workspace_after_fullscreen` found no membership,
+  so the workspace got "stuck".
+- Suppress client fullscreen re-requests after the user explicitly exits fullscreen via the
+  `Mod+F` keybind on a cluster member. Games (gamescope, SDL, Wine) frequently call
+  `xdg_toplevel::set_fullscreen` immediately after the compositor un-fullscreens them,
+  trapping the window back in fullscreen and making the keybind feel like it did nothing.
+  The block is cleared when the user re-enters fullscreen via the keybind, and expires when
+  the node leaves the active cluster context, so only automatic re-requests are affected.
+- Fix the `Mod+F` keybind requiring two presses to exit fullscreen after the first cycle:
+  the re-request block was only installed for `ClientRequest`-origin sessions, so after
+  re-entering via the keybind (which sets `UserKeybind` origin and clears the block) a
+  subsequent game re-request slipped back in. The keybind exit now always installs the
+  block for active cluster members regardless of session origin.
+- A client `set_fullscreen` request no longer converts a user-owned (`Mod+F`) fullscreen
+  session into a client-owned one: the origin is preserved so the compositor keeps
+  authority over sessions the user initiated.
+- Fix survivor tiles "sliding from the left and stopping partway" when a fullscreen cluster
+  member exits or closes: the fullscreen camera restore animation (a viewport pan with a
+  zoom track) kept running while the cluster re-laid out, projecting tiles against a moving
+  camera. For active cluster members the camera now snaps synchronously to the restored
+  target and any in-flight viewport pan for that monitor is cancelled before the reflow.
+- Fix the cluster top gap growing larger on every fullscreen exit: a forced work-area
+  refresh on fullscreen exit/drop rewrote the active cluster's frozen `usable_viewport`
+  from the current camera base, compounding the reservation offset. The forced refresh has
+  been removed from both the fullscreen exit and surface-destroy paths; the active cluster
+  work-area lock now stays frozen through fullscreen for the whole session.
+- Fix the `Mod+F` keybind sometimes acting on the wrong cluster member instead of the
+  fullscreen session node: the toggle now resolves its target by checking the monitor's
+  active and then suspended fullscreen node before falling back to normal focus or the
+  fullscreen focus override, so a stale monitor focus (e.g. a chat window) can no longer
+  intercept the keybind.
+- Closing a fullscreened cluster member now uses cluster-aware close-restore (focus the next
+  cluster member) instead of the non-cluster close-restore path that could restore focus to
+  a field window and re-trigger a pan.
+- Stale-surface reaping (Wine/Proton/gamescope crash paths) now tears down fullscreen state
+  before removing the dead node, mirroring the normal destroy path. Previously a fullscreen
+  cluster member killed via the stale-surface reaper left `fullscreen_active_node` stale,
+  the camera anchored on the gone window, and the cluster siblings hidden.
+- Remove temporary diagnostic logging from the cleanup and spawn-rule paths that was added
+  during fullscreen-cluster debugging.
+- Fix high idle CPU (~4%) in tiled cluster workspaces that never settled: the tile grow-wait
+  hold track was endlessly refreshing its `started_at` on every maintenance relayout and
+  counted as an animation-active track, forcing continuous vblank redraw. Fixed hold tracks
+  (`from == to`) no longer count as animating and repeated identical holds preserve their
+  original start time.
+- Fix close-animation ghosts following the camera during pan. Ghosts are now world-anchored
+  by capturing the camera center at animation start and offsetting baked screen geometry by
+  the camera's screen-space displacement each frame.
+- Fix keyboard spawn landing on the cursor/hover monitor instead of the focused monitor
+  after a field-jump keybind. `primary_interaction_focus` now wins for keyboard launches,
+  and `pending_spawn_monitor` survives focus churn until the new toplevel maps.
+- Fix cursor hiding during zoom keybinds. Zoom is spatial navigation, not keyboard
+  navigation, so the cursor now stays visible with directional zoom cursor icons.
+- Fix zoom keybinds breaking mid-zoom monitor switching by using the current interaction
+  monitor instead of forcing the stale focused monitor.
+- Fix settled hover permanently forcing continuous vblank redraw. Raw `hover_node` and
+  `overlay_hover_target` presence no longer pin an output as animation-active; only
+  actively transitioning hover mix keeps redraw alive.
+- Fix DPMS wake causing slow secondary monitor recovery from an aggressive `reset_buffers()`
+  call. The buffer reset is removed; only stale composed-frame cache eviction remains.
+- Fix animated background causing startup delay and high idle CPU by gating per-monitor
+  with startup/DPMS grace periods and capping animated redraws to ~10 FPS.
 
 ## [v0.4.0] - 2026-06-12
 

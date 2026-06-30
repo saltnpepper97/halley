@@ -281,6 +281,7 @@ pub(crate) fn set_interaction_monitor(st: &mut Halley, name: &str) {
 pub(crate) fn set_focused_monitor(st: &mut Halley, name: &str) {
     if st.model.monitor_state.monitors.contains_key(name) {
         st.model.monitor_state.focused_monitor = name.to_string();
+        sync_xwayland_primary(st, name);
     }
 }
 

@@ -17,10 +17,8 @@ lift:
   icon-search-depth 5
   
   terminal "x-terminal-emulator -e"
-  keyboard-interactivity "exclusive"
   
   close-on-focus-loss false
-  close-on-click-away false
   
   alt-number-jump true
 
@@ -54,6 +52,8 @@ lift:
     badge "#334875f2"
     danger "#eb9a8f"
     search-icon ""
+    icon ""       # result-list icons; empty = follow `accent`
+    alt-hint ""   # Alt+<n> jump labels; empty = follow `hint`
   end
 
   border:
@@ -108,13 +108,4 @@ lift:
     "nodes"
     "actions"
   ]
-
-  shortcuts:
-    close "Escape"
-    actions "Tab"
-    select "Space"
-    launch "Enter"
-    create "Ctrl+Enter"
-    remove-mode "Backspace"
-  end
 end

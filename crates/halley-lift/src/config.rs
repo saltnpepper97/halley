@@ -2,6 +2,11 @@ use std::path::{Path, PathBuf};
 
 use rune_cfg::RuneConfig;
 
+/// Embedded default config template, kept in sync with `examples/lift.rune`.
+/// Written to the user config path on first launch so users have a documented
+/// starting point instead of silently running on baked-in defaults.
+const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../../../examples/lift.rune");
+
 #[derive(Clone, Debug)]
 pub struct LiftConfig {
     pub placeholder: String,
@@ -74,6 +79,11 @@ pub struct LiftColorConfig {
     pub danger: String,
     /// Tint for the search-bar magnifier. Empty falls back to the hint color.
     pub search_icon: String,
+    /// Tint for result-list icons (fallback shapes and tinted glyphs).
+    /// Empty falls back to the accent color.
+    pub icon: String,
+    /// Tint for the Alt+<n> jump hint labels. Empty falls back to the hint color.
+    pub alt_hint: String,
 }
 
 #[derive(Clone, Debug)]
@@ -197,6 +207,8 @@ impl Default for LiftColorConfig {
             badge: "#334875f2".into(),
             danger: "#eb9a8f".into(),
             search_icon: String::new(),
+            icon: String::new(),
+            alt_hint: String::new(),
         }
     }
 }
@@ -351,6 +363,8 @@ impl LiftConfig {
             .clamp(8, 48);
         out.colors.search_icon =
             cfg.get_or("lift.colors.search-icon", out.colors.search_icon.clone());
+        out.colors.icon = cfg.get_or("lift.colors.icon", out.colors.icon.clone());
+        out.colors.alt_hint = cfg.get_or("lift.colors.alt-hint", out.colors.alt_hint.clone());
         out.cursor.enabled = cfg.get_or("lift.cursor.enabled", out.cursor.enabled);
         out.cursor.width = cfg
             .get_or("lift.cursor.width", out.cursor.width)
@@ -462,6 +476,38 @@ pub fn default_config_path() -> PathBuf {
         return Path::new(&home).join(".config/halley/lift.rune");
     }
     PathBuf::from("lift.rune")
+}
+
+/// Ensures a user config exists at [`default_config_path`]. If the file is
+/// missing, creates its parent directory and writes the embedded default
+/// template. Failures are non-fatal: Lift can still run on baked-in defaults,
+/// so errors are reported via stderr and swallowed.
+pub fn bootstrap_default_config() {
+    let path = default_config_path();
+    if path.exists() {
+        return;
+    }
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(parent) {
+        eprintln!(
+            "halley-lift: bootstrap: failed to create config directory {}: {err}",
+            parent.display()
+        );
+        return;
+    }
+    if let Err(err) = std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE) {
+        eprintln!(
+            "halley-lift: bootstrap: failed to write {}: {err}",
+            path.display()
+        );
+        return;
+    }
+    eprintln!(
+        "halley-lift: bootstrap: wrote default config to {}",
+        path.display()
+    );
 }
 
 pub fn resolved_halley_config_path() -> PathBuf {

@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
+use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use super::super::button::active_pointer_binding;
@@ -19,6 +20,10 @@ pub(crate) struct MotionRoutingContext {
     pub ws_h: i32,
     pub local_sx: f32,
     pub local_sy: f32,
+}
+
+fn pointer_trace_enabled() -> bool {
+    std::env::var_os("HALLEY_POINTER_TRACE").is_some_and(|value| value != "0")
 }
 
 pub(super) enum MotionDispatchResult {
@@ -173,6 +178,27 @@ pub(super) fn dispatch_pointer_motion(
             .as_ref()
             .filter(|constraint| constraint.locked)
         {
+            if pointer_trace_enabled() {
+                // Smithay delivers relative_motion + frame to its *current* pointer
+                // focus (the `focus` arg is ignored), and only to relative-pointer
+                // objects of that surface's client. So if current_focus is None or a
+                // different client than the constraint surface, the game never sees
+                // the motion. Log both to confirm they match.
+                let current_focus = pointer.current_focus();
+                let same_client = current_focus
+                    .as_ref()
+                    .is_some_and(|focus| focus.id().same_client_as(&constraint.surface.id()));
+                eventline::info!(
+                    "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
+                    constraint.surface.id(),
+                    current_focus.as_ref().map(|focus| focus.id()),
+                    same_client,
+                    delta.0,
+                    delta.1,
+                    delta_unaccel.0,
+                    delta_unaccel.1,
+                );
+            }
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,
@@ -228,6 +254,46 @@ pub(super) fn dispatch_pointer_motion(
             && constrained_focus.0 != current_focus.0
         {
             focus = Some(constrained_focus);
+        }
+
+        // Second-chance lock guard. `active_constraint` above is seeded from the
+        // tracked/last pointer focus, which can momentarily go stale and miss an
+        // active lock. Re-check against the surface the fresh hit-test landed on:
+        // if it holds an active *locked* constraint, send relative-only and bail
+        // before any `pointer.motion()`. Emitting absolute motion here would change
+        // the focused surface, making Smithay deactivate the lock and killing
+        // XWayland-game mouselook (camera stuck, crosshair only wiggles in place).
+        if let Some(focus_tuple) = focus.as_ref()
+            && let Some(constraint) =
+                crate::compositor::interaction::pointer::locked_constraint_for_focus(
+                    st,
+                    focus_tuple,
+                )
+        {
+            if pointer_trace_enabled() {
+                eventline::info!(
+                    "pointer_constraint locked_relative_fallback surface={:?} hit_focus={:?} delta={:.3},{:.3} unaccel={:.3},{:.3}",
+                    constraint.surface.id(),
+                    focus_tuple.0.id(),
+                    delta.0,
+                    delta.1,
+                    delta_unaccel.0,
+                    delta_unaccel.1,
+                );
+            }
+            if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+                pointer.relative_motion(
+                    st,
+                    Some((constraint.surface.clone(), constraint.origin)),
+                    &RelativeMotionEvent {
+                        delta: delta.into(),
+                        delta_unaccel: delta_unaccel.into(),
+                        utime: time_usec,
+                    },
+                );
+            }
+            pointer.frame(st);
+            return MotionDispatchResult::ConsumedByPointerConstraint;
         }
 
         crate::compositor::interaction::pointer::update_pointer_contents_from_focus(
@@ -317,6 +383,26 @@ pub(super) fn dispatch_pointer_motion(
         };
 
         if should_send_motion {
+            // Diagnostic: if we reach an absolute motion send while the focused
+            // surface hierarchy still owns *any* pointer-constraint object, this is
+            // the moment a lock could be torn down. Both the early-return above and
+            // the second-chance guard should have caught a live lock; a line here
+            // means detection missed (capture it once and for all).
+            if pointer_trace_enabled()
+                && let Some((surface, _)) = focus.as_ref()
+                && let Some(constrained) =
+                    crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
+                        st, surface,
+                    )
+            {
+                eventline::info!(
+                    "pointer_constraint absolute_motion_over_constrained surface={:?} constrained={:?} loc={:.1},{:.1}",
+                    surface.id(),
+                    constrained.id(),
+                    location.x,
+                    location.y,
+                );
+            }
             pointer.motion(
                 st,
                 focus.clone(),

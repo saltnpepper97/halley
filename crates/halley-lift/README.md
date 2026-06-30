@@ -71,6 +71,10 @@ Config path:
 ~/.config/halley/lift.rune
 ```
 
+On first launch, if no config is present Lift writes a documented default
+template (mirroring `examples/lift.rune`) to that path so you have a starting
+point. Existing files are never overwritten.
+
 Example config lives at `examples/lift.rune`.
 
 Useful layout keys:
@@ -118,7 +122,9 @@ lift:
     accent "#8fb5ff"
     badge "#334875f2"
     danger "#eb9a8f"
-    search-icon "" # magnifier tint; empty = follow `hint`
+    search-icon ""  # magnifier tint; empty = follow `hint`
+    icon ""         # result-list icons; empty = follow `accent`
+    alt-hint ""     # Alt+<n> jump labels; empty = follow `hint`
   end
 
   border:

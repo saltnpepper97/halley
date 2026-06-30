@@ -153,6 +153,7 @@ pub(crate) fn start_active_to_node_close_animation(
         return false;
     };
 
+    let capture_center = st.view_center_for_monitor(monitor.as_str());
     st.ui.render_state.start_closing_window_animation(
         id,
         monitor.as_str(),
@@ -163,8 +164,9 @@ pub(crate) fn start_active_to_node_close_animation(
         offscreen_textures,
         start_scale,
         start_alpha,
-        true,
+        crate::window::CloseAnimationLayer::Below,
         None,
+        capture_center,
     );
     st.ui.render_state.finish_window_animation_prewarm(id);
     st.ui
@@ -673,45 +675,68 @@ pub(crate) fn abort_maximize_session_for_external_active_node_on_monitor(
 }
 
 pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {
+    // A restore (un-maximize) shrink holds its frozen snapshot past the visual
+    // duration until the client has committed a non-maximized buffer (or a safety
+    // timeout), so the live surface is only revealed once it is already windowed —
+    // otherwise the full-size buffer flashes for a few frames at the tail. The
+    // client was resized to its restore size at the START of the shrink (see
+    // `start_restore_maximize_session`), so it has the whole duration to repaint.
+    const SETTLE_TIMEOUT_MS: u64 = 250;
+    const SETTLE_TOL_PX: f32 = 8.0;
     let now_ms = st.now_ms(now);
-    let animations = st
+    let elapsed_anims = st
         .model
         .workspace_state
         .maximize_animation
         .iter()
-        .map(|(&id, anim)| (id, anim.clone()))
+        .filter_map(|(&id, anim)| {
+            let end_ms = anim.start_ms.saturating_add(anim.duration_ms.max(1));
+            (now_ms >= end_ms).then(|| (id, anim.monitor.clone(), anim.from_size, end_ms))
+        })
         .collect::<Vec<_>>();
+
+    let mut still_settling = false;
     let mut finished = Vec::new();
-
-    for (id, anim) in animations {
-        let elapsed = now_ms.saturating_sub(anim.start_ms);
-        let t = (elapsed as f32 / anim.duration_ms.max(1) as f32).clamp(0.0, 1.0);
-
-        if t >= 1.0 {
-            finished.push((id, anim));
-        }
-    }
-
-    let had_finished = !finished.is_empty();
-    for (id, anim) in finished {
-        st.model.workspace_state.maximize_animation.remove(&id);
-        if st
+    for (id, monitor, from_size, end_ms) in elapsed_anims {
+        let restoring = st
             .model
             .workspace_state
             .maximize_sessions
-            .get(anim.monitor.as_str())
+            .get(monitor.as_str())
             .is_some_and(|session| {
                 session.target_id == id && matches!(session.state, MaximizeSessionState::Restoring)
-            })
-        {
+            });
+        if restoring {
+            let timed_out = now_ms >= end_ms.saturating_add(SETTLE_TIMEOUT_MS);
+            // Hold only while we have positive evidence the client is *still*
+            // showing a full-size buffer (so revealing it now would flash). If the
+            // buffer has shrunk, or the surface can't be measured, finalize.
+            let still_maximized =
+                crate::compositor::surface::committed_surface_buffer_size_for_node(st, id)
+                    .is_some_and(|sz| {
+                        sz.x + SETTLE_TOL_PX >= from_size.x && sz.y + SETTLE_TOL_PX >= from_size.y
+                    });
+            if still_maximized && !timed_out {
+                still_settling = true;
+                continue;
+            }
+        }
+        finished.push((id, monitor, restoring));
+    }
+
+    let had_finished = !finished.is_empty();
+    for (id, monitor, restoring) in finished {
+        st.model.workspace_state.maximize_animation.remove(&id);
+        st.ui.render_state.clear_window_offscreen_cache_for(id);
+        if restoring {
             st.model
                 .workspace_state
                 .maximize_sessions
-                .remove(anim.monitor.as_str());
+                .remove(monitor.as_str());
         }
     }
 
-    if had_finished || !st.model.workspace_state.maximize_animation.is_empty() {
+    if had_finished || still_settling || !st.model.workspace_state.maximize_animation.is_empty() {
         st.request_maintenance();
     }
 }

@@ -12,12 +12,13 @@ use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding
 
 use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
-    AnimationsConfig, ApogeeConfig, BearingsConfig, ClickCollapsedOutsideFocusMode,
-    ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
-    CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig,
-    GamescopeConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger,
-    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
+    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
+    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
+    EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
+    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
+    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +50,7 @@ pub struct ResolvedConfigPath {
 pub struct RuntimeTuning {
     pub viewport_center: Vec2,
     pub viewport_size: Vec2,
+    pub background: BackgroundConfig,
 
     pub focus_ring_rx: f32,
     pub focus_ring_ry: f32,
@@ -624,6 +626,25 @@ end
 "##;
 
 const INTERNAL_CONFIG_SUFFIX: &str = r##"
+# Background/gesso draws below the field, windows, and layer-shell surfaces.
+# `field-shader` is spatial: it pans and zooms with the Field camera.
+background:
+  # `field-shader`, `classic`, or `none`.
+  mode "field-shader"
+  # Built-in field shader.
+  shader "stars"
+  # For mode "classic", set a PNG/JPG path and choose cover/contain/stretch.
+  path ""
+  fit "cover"
+  # Base and accent colours for built-in shaders.
+  colour "#181a26"
+  accent-colour "#8fa8d8"
+  # Overall brightness for shader/image backgrounds.
+  intensity 1.0
+  # Animated shaders keep repainting for subtle twinkle/pulse.
+  animated true
+end
+
 # The field is Halley's spatial world for a monitor.
 # Windows live on this field instead of being arranged into fixed desktops.
 field:

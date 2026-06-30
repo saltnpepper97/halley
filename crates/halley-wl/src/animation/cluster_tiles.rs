@@ -246,6 +246,12 @@ pub(crate) fn hold_cluster_tile_rect(
     rect: ClusterTileAnimRect,
     now: Instant,
 ) {
+    if tracks
+        .get(&node_id)
+        .is_some_and(|track| same_rect(track.from, rect) && same_rect(track.to, rect))
+    {
+        return;
+    }
     tracks.insert(
         node_id,
         ClusterTileTrack {
@@ -289,7 +295,49 @@ pub(crate) fn retain_live_cluster_tile_tracks(
 }
 
 pub(crate) fn cluster_tile_tracks_animating(tracks: &ClusterTileTracks, now: Instant) -> bool {
-    tracks
-        .values()
-        .any(|track| now.saturating_duration_since(track.started_at) < track.lifetime())
+    tracks.values().any(|track| {
+        !same_rect(track.from, track.to)
+            && now.saturating_duration_since(track.started_at) < track.lifetime()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect() -> ClusterTileAnimRect {
+        ClusterTileAnimRect {
+            center: Vec2 { x: 100.0, y: 80.0 },
+            size: Vec2 { x: 320.0, y: 240.0 },
+            alpha: 1.0,
+        }
+    }
+
+    #[test]
+    fn fixed_hold_track_does_not_count_as_animating() {
+        let mut tracks = ClusterTileTracks::new();
+        let now = Instant::now();
+        hold_cluster_tile_rect(&mut tracks, NodeId::new(1), rect(), now);
+
+        assert!(!cluster_tile_tracks_animating(&tracks, now));
+        assert!(!cluster_tile_tracks_animating(
+            &tracks,
+            now + Duration::from_millis(500)
+        ));
+    }
+
+    #[test]
+    fn repeated_same_hold_preserves_original_start_time() {
+        let mut tracks = ClusterTileTracks::new();
+        let now = Instant::now();
+        let id = NodeId::new(2);
+        hold_cluster_tile_rect(&mut tracks, id, rect(), now);
+        hold_cluster_tile_rect(&mut tracks, id, rect(), now + Duration::from_secs(5));
+
+        assert_eq!(tracks.get(&id).expect("hold track").started_at, now);
+        assert!(!cluster_tile_tracks_animating(
+            &tracks,
+            now + Duration::from_secs(5)
+        ));
+    }
 }

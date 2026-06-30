@@ -10,7 +10,9 @@ use crate::input::ctx::InputCtx;
 use std::time::Instant;
 
 use smithay::input::keyboard::{FilterResult, KeysymHandle};
+use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
+use smithay::wayland::compositor::get_parent;
 
 use self::bindings::{
     apply_bound_key, apply_compositor_action_release, compositor_action_allows_repeat,
@@ -263,16 +265,45 @@ fn log_keyboard_binding_resolution(
     );
 }
 
-fn latch_hover_keyboard_spawn_monitor(st: &mut Halley, pointer_screen: (f32, f32)) {
-    if st.runtime.tuning.input.focus_mode != halley_config::InputFocusMode::Hover {
-        return;
+fn latch_keyboard_spawn_monitor(st: &mut Halley) {
+    let monitor = st
+        .model
+        .focus_state
+        .primary_interaction_focus
+        .and_then(|node_id| st.model.monitor_state.node_monitor.get(&node_id).cloned())
+        .or_else(|| keyboard_focus_monitor(st))
+        .unwrap_or_else(|| st.focused_monitor().to_string());
+    if st
+        .model
+        .monitor_state
+        .monitors
+        .contains_key(monitor.as_str())
+    {
+        st.model.spawn_state.pending_spawn_monitor = Some(monitor);
     }
-    let Some(monitor) = st.monitor_for_screen(pointer_screen.0, pointer_screen.1) else {
-        return;
-    };
-    st.input.interaction_state.last_pointer_screen_global = Some(pointer_screen);
-    st.set_interaction_monitor(monitor.as_str());
-    st.model.spawn_state.pending_spawn_monitor = Some(monitor);
+}
+
+fn keyboard_focus_monitor(st: &Halley) -> Option<String> {
+    let mut focus = st.platform.seat.get_keyboard()?.current_focus()?;
+    loop {
+        if let Some(node_id) = st.model.surface_to_node.get(&focus.id()).copied()
+            && let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id)
+            && st.model.monitor_state.monitors.contains_key(monitor)
+        {
+            return Some(monitor.clone());
+        }
+        if let Some(monitor) = st
+            .model
+            .monitor_state
+            .layer_surface_monitor
+            .get(&focus.id())
+            .filter(|monitor| st.model.monitor_state.monitors.contains_key(*monitor))
+        {
+            return Some(monitor.clone());
+        }
+        let parent = get_parent(&focus)?;
+        focus = parent;
+    }
 }
 
 fn keyboard_has_client_focus(st: &Halley) -> bool {
@@ -923,8 +954,7 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
             let launch_like = matched_launch.is_some()
                 || matches!(matched_action, Some(CompositorBindingAction::OpenTerminal));
             if launch_like {
-                let pointer_screen = ctx.pointer_state.borrow().screen;
-                latch_hover_keyboard_spawn_monitor(st, pointer_screen);
+                latch_keyboard_spawn_monitor(st);
             }
             if apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display) {
                 // fuzzel-style: a compositor keybind dismisses the launcher. The
@@ -979,7 +1009,7 @@ mod tests {
     }
 
     #[test]
-    fn hover_keyboard_launch_latches_pointer_monitor_over_stale_pending_monitor() {
+    fn keyboard_launch_latches_focused_monitor_over_hover_pointer_monitor() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.input.focus_mode = halley_config::InputFocusMode::Hover;
         tuning.tty_viewports = vec![
@@ -1012,13 +1042,22 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.model.spawn_state.pending_spawn_monitor = Some("left".to_string());
+        let focused = state.model.field.spawn_surface(
+            "focused-left",
+            halley_core::field::Vec2 { x: 200.0, y: 200.0 },
+            halley_core::field::Vec2 { x: 160.0, y: 120.0 },
+        );
+        state.assign_node_to_monitor(focused, "left");
+        state.model.focus_state.primary_interaction_focus = Some(focused);
+        state.set_focused_monitor("left");
+        state.set_interaction_monitor("right");
+        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
 
-        latch_hover_keyboard_spawn_monitor(&mut state, (900.0, 120.0));
+        latch_keyboard_spawn_monitor(&mut state);
 
         assert_eq!(
             state.model.spawn_state.pending_spawn_monitor.as_deref(),
-            Some("right")
+            Some("left")
         );
         assert_eq!(
             state.input.interaction_state.last_pointer_screen_global,

@@ -135,6 +135,19 @@ screenshot:
   background-color "auto"
 end
 
+# Background/gesso draws below the field, windows, and layer-shell surfaces.
+# `field-shader` is spatial: it pans and zooms with the Field camera.
+background:
+  mode "field-shader"
+  shader "stars"
+  path ""
+  fit "cover"
+  colour "#181a26"
+  accent-colour "#8fa8d8"
+  intensity 1.0
+  animated true
+end
+
 # Debug-only compositor diagnostics.
 debug:
   overlay-fps false

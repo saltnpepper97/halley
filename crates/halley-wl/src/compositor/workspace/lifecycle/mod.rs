@@ -14,6 +14,7 @@ use crate::compositor::activity::CommitActivity;
 use crate::compositor::ctx::SurfaceLifecycleCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::rules::InitialWindowIntent;
+use crate::window::CloseAnimationLayer;
 
 mod cleanup;
 mod surface;
@@ -37,6 +38,7 @@ struct ToplevelDestroyFacts {
     had_keyboard_focus: bool,
     had_pointer_focus: bool,
     focused_monitor: Option<String>,
+    close_animation_layer: Option<CloseAnimationLayer>,
 }
 
 struct CloseRestorePlan {
@@ -71,7 +73,7 @@ impl SurfaceLifecycleCtx<'_> {
     }
 
     pub(crate) fn drop_surface(&mut self, surface: &WlSurface) {
-        drop_surface_impl(self.st, surface);
+        drop_surface_impl(self.st, surface, None);
     }
 
     pub(crate) fn on_toplevel_destroyed(&mut self, surface: ToplevelSurface) {
@@ -90,7 +92,7 @@ impl SurfaceLifecycleCtx<'_> {
             crate::compositor::interaction::pointer::clear_pointer_focus(st);
         }
 
-        drop_surface_impl(st, surface.wl_surface());
+        drop_surface_impl(st, surface.wl_surface(), facts.close_animation_layer);
 
         if let Some(plan) = close_restore_plan.as_ref()
             && plan.after_surface_drop
@@ -100,7 +102,7 @@ impl SurfaceLifecycleCtx<'_> {
     }
 }
 
-fn toplevel_destroy_facts(st: &Halley, surface: &ToplevelSurface) -> ToplevelDestroyFacts {
+fn toplevel_destroy_facts(st: &mut Halley, surface: &ToplevelSurface) -> ToplevelDestroyFacts {
     let key = surface.wl_surface().id();
     let closing_id = st.model.surface_to_node.get(&key).copied();
     let closing_fullscreen = closing_id.is_some_and(|id| st.is_fullscreen_active(id));
@@ -122,6 +124,11 @@ fn toplevel_destroy_facts(st: &Halley, surface: &ToplevelSurface) -> ToplevelDes
         .get(&key)
         .and_then(|id| st.model.monitor_state.node_monitor.get(id))
         .cloned();
+    let close_animation_layer = closing_id.and_then(|id| {
+        focused_monitor.as_deref().map(|monitor| {
+            crate::window::closing_window_animation_layer_for_node(st, monitor, id, Instant::now())
+        })
+    });
 
     ToplevelDestroyFacts {
         closing_id,
@@ -129,6 +136,7 @@ fn toplevel_destroy_facts(st: &Halley, surface: &ToplevelSurface) -> ToplevelDes
         had_keyboard_focus,
         had_pointer_focus,
         focused_monitor,
+        close_animation_layer,
     }
 }
 
@@ -181,6 +189,14 @@ fn plan_toplevel_destroy_close_restore(
     let suppress_restore_pan =
         crate::compositor::spawn::state::node_has_overlap_policy(st, closing_id)
             || st.is_fullscreen_active(closing_id);
+
+    if facts.closing_fullscreen
+        && let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor)
+        && st.model.field.cluster_id_for_member_public(closing_id) == Some(cid)
+    {
+        apply_non_tiled_cluster_close_focus_restore(st, cid, focused_monitor, closing_id, now);
+        return None;
+    }
 
     if facts.closing_fullscreen {
         return non_cluster_close_restore_target(st, focused_monitor, closing_id).map(|target| {

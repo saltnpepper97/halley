@@ -21,6 +21,7 @@ use halley_config::{
     NodeBindingAction, RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction,
     TrailBindingAction,
 };
+use smithay::input::pointer::CursorIcon;
 use std::time::Instant;
 
 fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
@@ -160,6 +161,24 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
     )
 }
 
+fn compositor_action_hides_cursor(action: &CompositorBindingAction) -> bool {
+    !matches!(
+        action,
+        CompositorBindingAction::ZoomIn
+            | CompositorBindingAction::ZoomOut
+            | CompositorBindingAction::ZoomReset
+    )
+}
+
+fn show_zoom_cursor(st: &mut Halley, icon: CursorIcon) {
+    st.input.interaction_state.cursor_hidden_by_typing = false;
+    st.input.interaction_state.cursor_hidden_by_keyboard_nav = false;
+    let now = Instant::now();
+    let now_ms = st.now_ms(now);
+    let _ = crate::compositor::interaction::state::note_cursor_activity(st, now_ms);
+    crate::compositor::interaction::pointer::set_temporary_cursor_override_icon(st, icon, now, 240);
+}
+
 pub(crate) fn apply_compositor_action_press(
     st: &mut Halley,
     action: CompositorBindingAction,
@@ -172,10 +191,11 @@ pub(crate) fn apply_compositor_action_press(
         return true;
     }
 
-    // Any compositor keybind counts as keyboard use — hide the cursor (position
-    // is preserved, so focus-tracking warps keep working). Real pointer activity
-    // (motion/button/axis) clears it again via `note_cursor_activity`.
-    crate::compositor::interaction::state::mark_cursor_hidden_by_keyboard_nav(st);
+    // Navigation keybinds hide the cursor image, but zoom is spatial and should
+    // keep the pointer visible as feedback for the monitor being zoomed.
+    if compositor_action_hides_cursor(&action) {
+        crate::compositor::interaction::state::mark_cursor_hidden_by_keyboard_nav(st);
+    }
 
     match action {
         CompositorBindingAction::Quit { .. } => {
@@ -309,6 +329,7 @@ pub(crate) fn apply_compositor_action_press(
                 return false;
             }
             crate::compositor::monitor::camera::zoom_by_steps(st, 1.0);
+            show_zoom_cursor(st, CursorIcon::ZoomIn);
             true
         }
         CompositorBindingAction::ZoomOut => {
@@ -316,6 +337,7 @@ pub(crate) fn apply_compositor_action_press(
                 return false;
             }
             crate::compositor::monitor::camera::zoom_by_steps(st, -1.0);
+            show_zoom_cursor(st, CursorIcon::ZoomOut);
             true
         }
         CompositorBindingAction::ZoomReset => {
@@ -323,6 +345,7 @@ pub(crate) fn apply_compositor_action_press(
                 return false;
             }
             crate::compositor::monitor::camera::reset_zoom(st);
+            show_zoom_cursor(st, CursorIcon::Default);
             true
         }
         CompositorBindingAction::CenterLastFocused => center_on_last_focused(st),
@@ -472,10 +495,44 @@ pub(crate) fn apply_bound_pointer_input(
 
 #[cfg(test)]
 mod tests {
-    use super::{command_is_launcher, compositor_action_allows_repeat, input_matches_binding};
+    use super::{
+        apply_compositor_action_press, command_is_launcher, compositor_action_allows_repeat,
+        input_matches_binding,
+    };
     use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
     use halley_config::{CompositorBindingAction, TrailBindingAction};
+
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        tuning
+    }
 
     #[test]
     fn matcher_accepts_direct_wheel_codes() {
@@ -525,5 +582,42 @@ mod tests {
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::OpenTerminal
         ));
+    }
+
+    #[test]
+    fn keyboard_zoom_uses_current_interaction_monitor_not_stale_focused_monitor() {
+        let dh =
+            smithay::reexports::wayland_server::Display::<crate::compositor::root::Halley>::new()
+                .expect("display")
+                .handle();
+        let mut state = crate::compositor::root::Halley::new_for_test(&dh, two_monitor_tuning());
+        assert!(state.activate_monitor("right"));
+        state.set_focused_monitor("left");
+        state.set_interaction_monitor("right");
+
+        assert!(apply_compositor_action_press(
+            &mut state,
+            CompositorBindingAction::ZoomOut,
+            "",
+            "wayland-test"
+        ));
+
+        assert_eq!(state.model.monitor_state.current_monitor, "right");
+        assert!(state.model.zoom_log_vel > 0.0);
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .monitors
+                .get("left")
+                .expect("left monitor")
+                .zoom_log_vel,
+            0.0
+        );
+        assert!(!state.input.interaction_state.cursor_hidden_by_keyboard_nav);
+        assert_eq!(
+            state.input.interaction_state.cursor_override_icon,
+            Some(smithay::input::pointer::CursorIcon::ZoomOut)
+        );
     }
 }

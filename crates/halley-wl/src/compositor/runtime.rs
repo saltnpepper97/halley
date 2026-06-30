@@ -238,6 +238,7 @@ pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
     let prev_runtime_viewport = st.model.viewport;
     let prev_config_viewport = st.runtime.tuning.viewport();
     let prev_border_radius_px = st.runtime.tuning.window_border_radius_px();
+    let prev_background = st.runtime.tuning.background.clone();
     let prev_font = st.runtime.tuning.font.clone();
     let prev_input = st.runtime.tuning.input.clone();
     let prev_physics_enabled = st.runtime.tuning.physics_enabled;
@@ -352,6 +353,19 @@ pub fn apply_tuning(st: &mut Halley, mut tuning: RuntimeTuning) {
     }
     if st.runtime.tuning.font != prev_font {
         st.ui.render_state.invalidate_ui_text_cache();
+    }
+    if st.runtime.tuning.background != prev_background {
+        st.ui.render_state.gpu.background_shader_program = None;
+        st.ui.render_state.gpu.background_shader_key = None;
+        st.ui.render_state.gpu.background_shader_failed_key = None;
+        st.ui.render_state.gpu.background_image_texture = None;
+        st.ui.render_state.gpu.background_image_key = None;
+        st.ui.render_state.gpu.background_image_failed_key = None;
+        st.ui.render_state.gpu.background_image_size = (0, 0);
+    } else {
+        // A reload with the same config path may still fix the referenced shader/image file.
+        st.ui.render_state.gpu.background_shader_failed_key = None;
+        st.ui.render_state.gpu.background_image_failed_key = None;
     }
     // Only the baked rounded-corner radius affects the offscreen window texture; border
     // sizes/colors, shadows and blur are all drawn live per frame. So rebuild textures only

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Instant;
 
 use halley_config::{CloseRestorePanMode, RuntimeTuning};
@@ -18,7 +17,10 @@ pub(crate) struct FocusReadContext<'a> {
     monitor_state: &'a MonitorState,
     tuning: &'a RuntimeTuning,
     viewport: halley_core::viewport::Viewport,
-    usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
+    /// Live zoom view extent for the current monitor (`st.model.zoom_ref_size`).
+    /// `viewport.size` is the *base* (1.0×) monitor size; this is the actual
+    /// visible world extent at the current zoom.
+    zoom_ref_size: Vec2,
     focused_monitor: &'a str,
 }
 
@@ -111,21 +113,23 @@ impl<'a> FocusReadContext<'a> {
             .find_map(|(monitor, nid)| (*nid == id).then_some(monitor.as_str()))
     }
 
+    /// The *live visible* viewport for a monitor: center from the live camera,
+    /// size from the live zoom extent (`zoom_ref_size`). `viewport.size` is the
+    /// fixed base (1.0×) size, so visibility/reveal math built on it ignores the
+    /// current zoom and treats zoomed-out windows as off-screen. This mirrors the
+    /// world→screen mapping used everywhere else (see
+    /// `workspace/lifecycle/cleanup.rs::screen_pos_for_monitor`).
     fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
-        self.usable_viewports
-            .get(monitor)
-            .copied()
-            .unwrap_or_else(|| {
-                if self.monitor_state.current_monitor == monitor {
-                    self.viewport
-                } else {
-                    self.monitor_state
-                        .monitors
-                        .get(monitor)
-                        .map(|space| space.viewport)
-                        .unwrap_or(self.viewport)
-                }
-            })
+        let (center, size) = if self.monitor_state.current_monitor == monitor {
+            (self.viewport.center, self.zoom_ref_size)
+        } else {
+            self.monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| (space.viewport.center, space.zoom_ref_size))
+                .unwrap_or((self.viewport.center, self.zoom_ref_size))
+        };
+        halley_core::viewport::Viewport::new(center, size)
     }
 
     fn surface_is_fully_visible_on_monitor(&self, st: &Halley, monitor: &str, id: NodeId) -> bool {
@@ -374,13 +378,7 @@ pub(crate) fn focus_read_context(st: &Halley) -> FocusReadContext<'_> {
         monitor_state: &st.model.monitor_state,
         tuning: &st.runtime.tuning,
         viewport: st.model.viewport,
-        usable_viewports: st
-            .model
-            .monitor_state
-            .monitors
-            .keys()
-            .map(|name| (name.clone(), st.usable_viewport_for_monitor(name)))
-            .collect(),
+        zoom_ref_size: st.model.zoom_ref_size,
         focused_monitor: st.focused_monitor(),
     }
 }

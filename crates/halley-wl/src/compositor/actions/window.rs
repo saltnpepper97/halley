@@ -299,6 +299,35 @@ fn focused_surface_node_for_action(st: &Halley, focused_monitor: &str) -> Option
         .or_else(|| st.last_focused_surface_node())
 }
 
+fn fullscreen_node_for_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
+    let focused = focused_surface_node_for_action(st, focused_monitor);
+    if let Some(focused) = focused
+        && st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(focused_monitor)
+            .is_some_and(|&fullscreen| fullscreen != focused)
+        && st.node_draws_above_fullscreen_on_monitor(focused, focused_monitor)
+    {
+        return Some(focused);
+    }
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(focused_monitor)
+        .copied()
+        .or_else(|| {
+            st.model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get(focused_monitor)
+                .copied()
+        })
+        .or_else(|| crate::compositor::focus::system::fullscreen_focus_override(st, focused))
+        .or(focused)
+}
+
 fn focused_node_for_pin_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
     st.focused_node_for_monitor(focused_monitor)
         .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
@@ -441,6 +470,11 @@ fn start_restore_maximize_session(
         }
         let _ = st.model.field.sync_active_footprint_to_intrinsic(*node_id);
         let _ = st.model.field.set_pinned(*node_id, snapshot.pinned);
+        // Resize the client to its restore size at the START of the shrink (even
+        // when animating), not at the anim's end. The shrink renders a frozen
+        // snapshot, so the client repainting underneath is invisible, and giving it
+        // the whole duration to commit the windowed buffer lets the settle hold in
+        // `tick_maximize_animation` reveal the live surface without a full-size flash.
         st.request_toplevel_resize(
             *node_id,
             snapshot.size.x.round() as i32,
@@ -640,7 +674,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
     let focused_monitor = st.focused_monitor().to_string();
 
-    let Some(id) = focused_surface_node_for_action(st, focused_monitor.as_str()) else {
+    let Some(id) = fullscreen_node_for_action(st, focused_monitor.as_str()) else {
         info!(
             "toggle-fullscreen: no focused surface on {:?}; cluster_ws={}",
             focused_monitor,
@@ -664,6 +698,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     // suspend internally before exiting.
     if st.is_fullscreen_session_node(id) {
         info!("toggle-fullscreen: exit id={}", id.as_u64());
+        crate::compositor::fullscreen::system::block_client_fullscreen_for_cluster_node(st, id);
         st.exit_xdg_fullscreen(id, now);
         return true;
     }
@@ -923,8 +958,9 @@ pub(crate) fn toggle_node_state(
 #[cfg(test)]
 mod tests {
     use super::{
-        focus_surface_node_without_reveal, maximize_target_for_monitor, toggle_focused_pin_state,
-        toggle_node_maximize_state, toggle_node_state,
+        focus_surface_node_without_reveal, maximize_target_for_monitor,
+        toggle_focused_fullscreen_node_state, toggle_focused_pin_state, toggle_node_maximize_state,
+        toggle_node_state,
     };
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
@@ -1035,6 +1071,110 @@ mod tests {
                 .manual_collapsed_nodes
                 .contains(&id)
         );
+    }
+
+    #[test]
+    fn fullscreen_toggle_prefers_active_fullscreen_over_stale_focus() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = st.model.field.spawn_surface(
+            "game",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 600.0 },
+        );
+        let stale_focus = st.model.field.spawn_surface(
+            "chat",
+            halley_core::field::Vec2 { x: 160.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, "monitor_a");
+        st.assign_node_to_monitor(stale_focus, "monitor_a");
+        let now = Instant::now();
+        st.enter_xdg_fullscreen(fullscreen, None, now);
+        st.model
+            .focus_state
+            .monitor_focus
+            .insert("monitor_a".to_string(), stale_focus);
+        st.model.focus_state.primary_interaction_focus = Some(stale_focus);
+
+        assert!(toggle_focused_fullscreen_node_state(&mut st));
+
+        assert!(!st.is_fullscreen_session_node(fullscreen));
+        assert!(!st.is_fullscreen_session_node(stale_focus));
+    }
+
+    #[test]
+    fn fullscreen_toggle_prefers_focused_above_fullscreen_window_for_swap() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = st.model.field.spawn_surface(
+            "game",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlay = st.model.field.spawn_surface(
+            "overlay",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, "monitor_a");
+        st.assign_node_to_monitor(overlay, "monitor_a");
+        st.model.spawn_state.applied_window_rules.insert(
+            overlay,
+            crate::compositor::spawn::state::AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+        let now = Instant::now();
+        st.enter_xdg_fullscreen(fullscreen, None, now);
+        let _ = st.raise_overlap_policy_node(overlay);
+        st.model
+            .focus_state
+            .monitor_focus
+            .insert("monitor_a".to_string(), overlay);
+        st.model.focus_state.primary_interaction_focus = Some(overlay);
+
+        assert!(toggle_focused_fullscreen_node_state(&mut st));
+
+        assert!(!st.is_fullscreen_session_node(fullscreen));
+        assert!(st.is_fullscreen_session_node(overlay));
+    }
+
+    #[test]
+    fn fullscreen_toggle_prefers_suspended_fullscreen_over_stale_focus() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = st.model.field.spawn_surface(
+            "game",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 600.0 },
+        );
+        let stale_focus = st.model.field.spawn_surface(
+            "chat",
+            halley_core::field::Vec2 { x: 160.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, "monitor_a");
+        st.assign_node_to_monitor(stale_focus, "monitor_a");
+        let now = Instant::now();
+        st.enter_xdg_fullscreen(fullscreen, None, now);
+        st.soft_suspend_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(20));
+        st.model
+            .focus_state
+            .monitor_focus
+            .insert("monitor_a".to_string(), stale_focus);
+        st.model.focus_state.primary_interaction_focus = Some(stale_focus);
+
+        assert!(toggle_focused_fullscreen_node_state(&mut st));
+
+        assert!(!st.is_fullscreen_session_node(fullscreen));
+        assert!(!st.is_fullscreen_session_node(stale_focus));
     }
 
     #[test]

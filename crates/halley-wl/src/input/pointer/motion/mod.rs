@@ -268,6 +268,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.workspace_size = (routing.ws_w, routing.ws_h);
     st.input.interaction_state.last_pointer_screen_global =
         Some((routing.global_sx, routing.global_sy));
+    // Real desktop pointer movement releases an explicit monitor-focus pin so
+    // hover focus-mode resumes driving the spawn target.
+    st.input.interaction_state.monitor_focus_pinned = false;
     crate::compositor::platform::refresh_cursor_surface_outputs(st);
 
     if handle_screenshot_pointer_motion(

@@ -1,4 +1,41 @@
 use super::*;
+use smithay::utils::Point;
+
+pub(crate) fn popup_origin_from_parent_visual(
+    parent_surface_origin: (i32, i32),
+    parent_geo_loc: (i32, i32),
+    popup_offset: Point<i32, Logical>,
+    popup_geo_loc: Point<i32, Logical>,
+    scale: f32,
+) -> (i32, i32) {
+    let popup_x = parent_surface_origin.0
+        + ((parent_geo_loc.0 + popup_offset.x - popup_geo_loc.x) as f32 * scale).round() as i32;
+    let popup_y = parent_surface_origin.1
+        + ((parent_geo_loc.1 + popup_offset.y - popup_geo_loc.y) as f32 * scale).round() as i32;
+    (popup_x, popup_y)
+}
+
+pub(crate) fn pinned_popup_origin_for_camera(
+    output_clip: Rectangle<i32, Physical>,
+    viewport_size: halley_core::field::Vec2,
+    target_loc: Point<i32, Logical>,
+    popup_offset: Point<i32, Logical>,
+    popup_geo_loc: Point<i32, Logical>,
+    camera_scale: f32,
+) -> (i32, i32, f32) {
+    let out_scale_x = output_clip.size.w as f32 / viewport_size.x.max(1.0);
+    let out_scale_y = output_clip.size.h as f32 / viewport_size.y.max(1.0);
+    let popup_scale = out_scale_x * camera_scale.max(0.001);
+    let screen_scale_x = out_scale_x * camera_scale.max(0.001);
+    let screen_scale_y = out_scale_y * camera_scale.max(0.001);
+    let within_vp_x = (-target_loc.x + popup_offset.x - popup_geo_loc.x) as f32;
+    let within_vp_y = (-target_loc.y + popup_offset.y - popup_geo_loc.y) as f32;
+    let center_x = output_clip.loc.x as f32 + output_clip.size.w as f32 * 0.5;
+    let center_y = output_clip.loc.y as f32 + output_clip.size.h as f32 * 0.5;
+    let psx = (center_x + (within_vp_x - viewport_size.x * 0.5) * screen_scale_x).round() as i32;
+    let psy = (center_y + (within_vp_y - viewport_size.y * 0.5) * screen_scale_y).round() as i32;
+    (psx, psy, popup_scale)
+}
 
 pub(super) fn sync_node_size_from_surface(
     st: &mut Halley,
@@ -291,7 +328,9 @@ pub(super) fn offscreen_visual_crop_and_dst(
 
 #[cfg(test)]
 mod tests {
-    use super::cover_crop_src;
+    use smithay::utils::{Logical, Physical, Point, Rectangle};
+
+    use super::{cover_crop_src, pinned_popup_origin_for_camera};
 
     fn aspect(w: f64, h: f64) -> f64 {
         w / h
@@ -330,5 +369,34 @@ mod tests {
             "top-left anchored"
         );
         assert!((aspect(w, h) - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn pinned_popup_zoom_scales_displacement_from_monitor_center() {
+        let output = Rectangle::<i32, Physical>::new((0, 0).into(), (800, 600).into());
+        let viewport_size = halley_core::field::Vec2 { x: 800.0, y: 600.0 };
+        let target_loc = Point::<i32, Logical>::from((0, 0));
+        let popup_offset = Point::<i32, Logical>::from((700, 500));
+        let popup_geo_loc = Point::<i32, Logical>::from((0, 0));
+
+        let at_1x = pinned_popup_origin_for_camera(
+            output,
+            viewport_size,
+            target_loc,
+            popup_offset,
+            popup_geo_loc,
+            1.0,
+        );
+        let zoomed_out = pinned_popup_origin_for_camera(
+            output,
+            viewport_size,
+            target_loc,
+            popup_offset,
+            popup_geo_loc,
+            0.5,
+        );
+
+        assert_eq!(at_1x, (700, 500, 1.0));
+        assert_eq!(zoomed_out, (550, 400, 0.5));
     }
 }
