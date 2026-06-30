@@ -474,7 +474,13 @@ pub(crate) fn draw_debug_frame_to_target(
     // (GTK/Qt CSD close buttons) can still play close animations after the
     // surface is gone.
     let snapshot_prewarm_start = crate::perf::start();
-    if st.runtime.tuning.window_close_animation_enabled()
+    if (st.runtime.tuning.window_close_animation_enabled()
+        || !st
+            .ui
+            .render_state
+            .window_animations
+            .animation_prewarm_requests
+            .is_empty())
         && st.input.interaction_state.apogee_session.is_none()
     {
         prewarm_visible_close_animation_snapshots(renderer, st, prepared.now);

@@ -85,8 +85,8 @@ fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) 
     st.model
         .cluster_state
         .cluster_overflow_visible_until_ms
-            .get(monitor)
-            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
+        .get(monitor)
+        .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
         || st
             .model
             .cluster_state

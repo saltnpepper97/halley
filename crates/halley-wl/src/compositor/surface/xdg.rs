@@ -501,6 +501,30 @@ pub(crate) fn current_surface_size_for_node(
         })
 }
 
+/// The actual committed surface-tree pixel size for a node's toplevel, ignoring
+/// the `window_geometry` cache (which the fullscreen/maximize exit forcibly
+/// rewrites to the windowed rect before the client has resized). The settle hold
+/// uses this to detect when the client has genuinely committed a non-fullscreen
+/// buffer — i.e. when the live surface can be revealed without flashing its
+/// full-size buffer. `None` if the node has no live toplevel surface.
+pub(crate) fn committed_surface_buffer_size_for_node(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> Option<halley_core::field::Vec2> {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        if st.model.surface_to_node.get(&wl.id()).copied() != Some(node_id) {
+            continue;
+        }
+        let bbox = bbox_from_surface_tree(wl, (0, 0));
+        return Some(halley_core::field::Vec2 {
+            x: bbox.size.w.max(1) as f32,
+            y: bbox.size.h.max(1) as f32,
+        });
+    }
+    None
+}
+
 /// Geometry to use when *rendering* a node's surface to the output.
 ///
 /// The single rule: a fullscreen surface fills the output with no CSD inset — its whole

@@ -362,6 +362,22 @@ All notable changes to this project will be documented in this file.
   `resize_footprint` *after* the footprint sync (the sync was clearing the value the prior fix
   set), so the re-maximize snapshots the true windowed size before the client commits its
   resize.
+- Eliminate the full-size buffer flash at the tail of a fullscreen or maximize exit shrink.
+  The client is now reconfigured to its windowed size at the *start* of the shrink (while the
+  frozen snapshot is still on screen), and the shrink holds that snapshot past its visual
+  duration until the client has committed a non-fullscreen/non-maximized buffer (or a 250 ms
+  safety timeout). The live surface is revealed only once it is already windowed-sized, so the
+  old one-or-two-frame full-size flash never reaches the output.
+- Ease the camera back on animated cluster-member fullscreen exits instead of snapping it
+  synchronously. The survivor reflow is deferred until the shrink settle lands, so the camera
+  pan finishes before the tiles re-lay out — avoiding the old "slides from left, stops partway"
+  race between the pan and the reflow.
+- `toggle-fullscreen` now prefers a focused overlay window stacked above a fullscreen window on
+  the same monitor, so the keybind swaps the overlay into fullscreen rather than redundantly
+  toggling the fullscreen window underneath.
+- Include fullscreen and maximized nodes in the close-animation snapshot prewarm set so their
+  offscreen textures are ready before the exit shrink begins, and skip the border clip during a
+  visual shrink animation so the whole surface is captured.
 - Stop runaway key repeat (e.g. Enter repeating forever in a terminal after first opening a
   cluster) for good, with a general guard instead of another per-case patch: physical key
   state is now tracked and, after every key event, any key still forwarded to a client as

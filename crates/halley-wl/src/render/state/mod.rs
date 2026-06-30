@@ -441,11 +441,19 @@ impl RenderState {
     /// `false` so the caller does not re-arm maintenance — otherwise the cluster
     /// tiling layout, which re-issues a prewarm for every tile on every maintenance
     /// pass, would spin maintenance (and full-rate repaints) indefinitely.
-    pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) -> bool {
+    pub(crate) fn request_window_animation_prewarm(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+    ) -> bool {
         let until = now
             .checked_add(std::time::Duration::from_millis(ANIMATION_PREWARM_TTL_MS))
             .unwrap_or(now);
-        if let Some(request) = self.window_animations.animation_prewarm_requests.get_mut(&node_id) {
+        if let Some(request) = self
+            .window_animations
+            .animation_prewarm_requests
+            .get_mut(&node_id)
+        {
             request.until = request.until.max(until);
             false
         } else {

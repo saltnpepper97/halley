@@ -28,7 +28,9 @@ fn preview_offscreen_clip(
     // chrome/border to clip away), and its xdg window-geometry cache may still
     // hold the stale windowed rect from before the client went fullscreen.
     // Skip the clip so the entire fullscreen surface is captured.
-    if st.is_fullscreen_active(node_id) {
+    if st.is_fullscreen_active(node_id)
+        || visual_shrink_animation_active_for_node(st, node_id, Instant::now())
+    {
         return None;
     }
     let (x, y, w, h) = window_geometry_for_node(st, node_id)?;
@@ -782,6 +784,20 @@ pub(crate) fn prewarm_visible_close_animation_snapshots(
     if let Some(node_id) = st.last_focused_surface_node_for_monitor(st.focused_monitor()) {
         target_nodes.insert(node_id);
     }
+    target_nodes.extend(
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .values()
+            .copied(),
+    );
+    target_nodes.extend(
+        st.model
+            .workspace_state
+            .maximize_sessions
+            .values()
+            .map(|session| session.target_id),
+    );
     if target_nodes.is_empty() {
         return;
     }
@@ -812,9 +828,24 @@ pub(crate) fn prewarm_visible_close_animation_snapshots(
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
+        let presentation_snapshot_node = st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .values()
+            .any(|&id| id == node_id)
+            || st
+                .model
+                .workspace_state
+                .maximize_sessions
+                .values()
+                .any(|session| session.target_id == node_id);
         if node.state != halley_core::field::NodeState::Active
-            || node_requires_live_surface_render(st, node_id)
+            || (node_requires_live_surface_render(st, node_id) && !presentation_snapshot_node)
         {
+            continue;
+        }
+        if visual_shrink_animation_active_for_node(st, node_id, now) {
             continue;
         }
         // While a tile-open/close transition is animating, freeze the snapshot

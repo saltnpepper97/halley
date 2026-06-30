@@ -1210,8 +1210,19 @@ mod tests {
         assert!(cluster_sibling_hidden_for_fullscreen(&state, stack));
         assert!(!cluster_sibling_hidden_for_fullscreen(&state, master));
 
-        // Exiting clears the hidden set and leaves the workspace active.
-        state.exit_xdg_fullscreen(master, now + std::time::Duration::from_millis(40));
+        // Exiting an animated cluster member defers the sibling reveal + reflow to
+        // the settle step so the tiles animate back in as the shrink lands instead
+        // of popping while the exiting window is still visually large: the siblings
+        // stay hidden immediately after the exit call.
+        let exit_at = now + std::time::Duration::from_millis(40);
+        state.exit_xdg_fullscreen(master, exit_at);
+        assert!(
+            cluster_sibling_hidden_for_fullscreen(&state, stack),
+            "siblings stay hidden through the shrink (reflow is deferred to settle)"
+        );
+
+        // Once the shrink settles, the hidden set is cleared and the workspace stays active.
+        state.tick_fullscreen_motion(exit_at + std::time::Duration::from_millis(300));
         assert!(!cluster_sibling_hidden_for_fullscreen(&state, stack));
         assert!(
             state
@@ -1306,11 +1317,12 @@ mod tests {
     }
 
     #[test]
-    fn fullscreen_cluster_member_exit_snaps_camera_no_pan() {
-        // Regression: exiting fullscreen on a cluster member started a camera
-        // animation that fought the survivor reflow ("slides from left, stops
-        // partway"). The camera must snap synchronously and no viewport pan may
-        // remain after the exit.
+    fn fullscreen_cluster_member_exit_eases_camera_and_defers_reflow() {
+        // An animated cluster-member exit mirrors the entry: the camera *eases*
+        // back to the pre-fullscreen framing (a viewport pan is started) instead of
+        // snapping. The historical "slides from left, stops partway" regression is
+        // avoided not by snapping but by deferring the survivor reflow to the settle
+        // step, so the pan finishes before the tiles re-lay out.
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
 
@@ -1335,16 +1347,26 @@ mod tests {
         state.enter_xdg_fullscreen(master, None, now);
         assert!(state.is_fullscreen_active(master));
 
-        // Exiting must snap the camera, not leave a pan animation alive.
-        state.exit_xdg_fullscreen(master, now + std::time::Duration::from_millis(20));
+        // Exiting eases the camera (pan present) and keeps the siblings hidden —
+        // the reflow is deferred to settle so it doesn't race the pan.
+        let exit_at = now + std::time::Duration::from_millis(20);
+        state.exit_xdg_fullscreen(master, exit_at);
         assert!(
-            state.input.interaction_state.viewport_pan_anim.is_none(),
-            "no viewport pan should remain after a cluster member exits fullscreen"
+            state.input.interaction_state.viewport_pan_anim.is_some(),
+            "an animated cluster member exit eases the camera back"
+        );
+        assert!(
+            cluster_sibling_hidden_for_fullscreen(&state, stack),
+            "the survivor reflow is deferred until the shrink settles"
         );
         assert_eq!(
             state.active_cluster_workspace_for_monitor("monitor_a"),
             Some(cid)
         );
+
+        // After the shrink settles the siblings are revealed for the reflow.
+        state.tick_fullscreen_motion(exit_at + std::time::Duration::from_millis(300));
+        assert!(!cluster_sibling_hidden_for_fullscreen(&state, stack));
     }
 
     #[test]
@@ -2037,11 +2059,6 @@ fn exit_xdg_fullscreen_inner(
         None => return, // not active fullscreen on any monitor
     };
 
-    // Invalidate the offscreen texture so the next capture (Apogee/Alt+Tab or the
-    // main render path) rebuilds it at the post-fullscreen geometry instead of
-    // reusing the fullscreen-sized snapshot for a now-windowed surface.
-    st.ui.render_state.clear_window_offscreen_cache_for(node_id);
-
     st.model
         .fullscreen_state
         .clear_direct_scanout_for_monitor(&monitor_name);
@@ -2096,20 +2113,28 @@ fn exit_xdg_fullscreen_inner(
         && !skip_animation
         && st.runtime.tuning.fullscreen_animation_enabled()
         && st.model.monitor_state.current_monitor == monitor_name;
+    if should_animate {
+        st.request_window_animation_prewarm(node_id, now);
+    } else {
+        // Invalidate the offscreen texture so the next capture (Apogee/Alt+Tab or the
+        // main render path) rebuilds it at the post-fullscreen geometry instead of
+        // reusing the fullscreen-sized snapshot for a now-windowed surface.
+        st.ui.render_state.clear_window_offscreen_cache_for(node_id);
+    }
 
-    // For a cluster member, the active cluster layout owns the camera: snap it
-    // synchronously to the restored target and cancel any in-flight pan so the
-    // survivor reflow projects against a settled viewport instead of one still
-    // easing back from fullscreen. Otherwise, ease the camera back when the exit
-    // itself is animated. A non-animated exit (notably the fullscreen→maximize
-    // handoff via `exit_xdg_fullscreen_no_anim`) must leave the camera to
-    // whatever takes over next, so we don't fight it with a transition toward
-    // the pre-fullscreen zoom.
+    // An animated exit eases the camera back to the pre-fullscreen zoom/center on
+    // the same cubic as the shrink — for cluster members too, now that the survivor
+    // reflow is deferred until the shrink lands (see `pending_cluster_relayout`),
+    // so there's no longer a reflow racing the camera that would slide the tiles.
+    // A non-animated exit (notably the fullscreen→maximize handoff via
+    // `exit_xdg_fullscreen_no_anim`) leaves the camera to whatever takes over next;
+    // a non-animated cluster exit still snaps synchronously so its immediate reflow
+    // projects against a settled viewport.
     let cluster_member_exit = node_is_active_cluster_member_on_monitor(st, node_id, &monitor_name);
-    if cluster_member_exit {
-        settle_cluster_camera_after_fullscreen(st, &monitor_name, restored_camera);
-    } else if should_animate && let Some(camera) = restored_camera {
+    if should_animate && let Some(camera) = restored_camera {
         animate_camera_restore_after_fullscreen(st, &monitor_name, camera, now);
+    } else if cluster_member_exit {
+        settle_cluster_camera_after_fullscreen(st, &monitor_name, restored_camera);
     }
     let exit_anim_from = should_animate.then(|| {
         fullscreen_visual_for_node_on_current_monitor_at(st, node_id, now)
@@ -2126,6 +2151,8 @@ fn exit_xdg_fullscreen_inner(
         restore_fullscreen_snapshot(st, node_id, entry);
     }
 
+    let mut windowed_configure_size = None;
+    let should_send_windowed_configure = !preserve_client_fullscreen;
     if preserve_client_fullscreen {
         // Keep the xdg-toplevel protocol fullscreen state intact while the
         // compositor releases its local fullscreen layout lock.
@@ -2137,18 +2164,18 @@ fn exit_xdg_fullscreen_inner(
         .copied()
     {
         let (min_w, min_h) = crate::compositor::surface::toplevel_min_size_for_node(st, node_id);
-        request_toplevel_fullscreen_state(
-            st,
-            node_id,
-            false,
-            None,
-            Some((
-                entry.size.x.round().max(min_w as f32).max(FULLSCREEN_MIN_W) as i32,
-                entry.size.y.round().max(min_h as f32).max(FULLSCREEN_MIN_H) as i32,
-            )),
-        );
-    } else {
-        request_toplevel_fullscreen_state(st, node_id, false, None, None);
+        windowed_configure_size = Some((
+            entry.size.x.round().max(min_w as f32).max(FULLSCREEN_MIN_W) as i32,
+            entry.size.y.round().max(min_h as f32).max(FULLSCREEN_MIN_H) as i32,
+        ));
+    }
+    // Reconfigure the client to its windowed size at the START of the exit (even
+    // when animating), not at the anim's end. The shrink renders a frozen snapshot,
+    // so the client repainting at the windowed size underneath is invisible — and
+    // giving it the whole shrink duration to commit the windowed buffer is what lets
+    // the settle hold reveal the live surface without the full-size flash.
+    if should_send_windowed_configure {
+        request_toplevel_fullscreen_state(st, node_id, false, None, windowed_configure_size);
     }
 
     st.model
@@ -2178,6 +2205,10 @@ fn exit_xdg_fullscreen_inner(
                 to_size: to.1,
                 start_ms,
                 duration_ms,
+                // Hard-exit shrink: hold the snapshot through settle, then reveal the
+                // live (now windowed) surface and re-lay out the cluster siblings.
+                settle: should_send_windowed_configure,
+                pending_cluster_relayout: !suspend && !preserve_client_fullscreen,
             },
         );
     } else {
@@ -2195,8 +2226,10 @@ fn exit_xdg_fullscreen_inner(
     }
     // On a genuine exit (not soft-suspend), bring back the hidden cluster tiles
     // and re-lay out the workspace. Soft-suspend keeps the siblings hidden because
-    // the fullscreen session is still alive from the user's point of view.
-    if !suspend && !preserve_client_fullscreen {
+    // the fullscreen session is still alive from the user's point of view. When the
+    // exit is animated this is deferred to the settle step (`pending_cluster_relayout`)
+    // so the siblings animate in as the shrink lands instead of popping mid-animation.
+    if !suspend && !preserve_client_fullscreen && !should_animate {
         restore_cluster_workspace_after_fullscreen(st, node_id, now, true);
     }
     st.request_maintenance();
@@ -2787,6 +2820,9 @@ fn enter_fullscreen(
                 to_size: viewport_size,
                 start_ms,
                 duration_ms,
+                // Entry grow: finalize at the end of its visual duration.
+                settle: false,
+                pending_cluster_relayout: false,
             },
         );
         // Drive the camera recenter+zoom on the SAME fixed cubic as the scale
@@ -2914,6 +2950,21 @@ pub(crate) fn drop_fullscreen_surface(st: &mut Halley, id: NodeId, now: Instant)
     st.model.fullscreen_state.fullscreen_restore.remove(&id);
     st.model.fullscreen_state.fullscreen_origin.remove(&id);
     st.model.fullscreen_state.fullscreen_motion.remove(&id);
+    // A node closing while a fullscreen *exit* shrink is still settling already
+    // left fullscreen, so the `is_fullscreen_active` block above didn't run — but
+    // its eased camera restore may still be in flight. For a cluster member, snap
+    // the camera and cancel that pan so the member-removal reflow projects against
+    // a settled viewport instead of one sliding back from fullscreen.
+    if let Some(monitor) = st
+        .model
+        .fullscreen_state
+        .fullscreen_scale_anim
+        .get(&id)
+        .map(|anim| anim.monitor.clone())
+        && node_is_active_cluster_member_on_monitor(st, id, &monitor)
+    {
+        settle_cluster_camera_after_fullscreen(st, &monitor, None);
+    }
     st.model.fullscreen_state.fullscreen_scale_anim.remove(&id);
     st.model.fullscreen_state.clear_direct_scanout_for_node(id);
     // Clear any cluster-sibling hide state keyed on this node (it was the
@@ -3002,11 +3053,57 @@ pub(crate) fn tick_fullscreen_motion(st: &mut Halley, now: Instant) {
         }
     }
 
-    st.model
+    // Visual duration elapsed: an entry grow finalizes immediately, while a
+    // hard-exit shrink (`settle`) holds the frozen snapshot at its windowed
+    // destination rect until the client commits a non-fullscreen buffer (or a
+    // safety timeout). Revealing the live surface only once it is already windowed
+    // is what removes the full-size flash at the tail of the shrink.
+    const SETTLE_TIMEOUT_MS: u64 = 250;
+    const SETTLE_TOL_PX: f32 = 8.0;
+    let elapsed_anims = st
+        .model
         .fullscreen_state
         .fullscreen_scale_anim
-        .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
-    if !st.model.fullscreen_state.fullscreen_scale_anim.is_empty() {
+        .iter()
+        .filter_map(|(&id, anim)| {
+            let end_ms = anim.start_ms.saturating_add(anim.duration_ms.max(1));
+            (now_ms >= end_ms).then_some((
+                id,
+                anim.settle,
+                anim.pending_cluster_relayout,
+                anim.from_size,
+                end_ms,
+            ))
+        })
+        .collect::<Vec<_>>();
+    let mut still_settling = false;
+    let mut finalize: Vec<(NodeId, bool)> = Vec::new();
+    for (id, settle, pending_relayout, from_size, end_ms) in elapsed_anims {
+        if settle {
+            let timed_out = now_ms >= end_ms.saturating_add(SETTLE_TIMEOUT_MS);
+            // Hold only while we have positive evidence the client is *still*
+            // showing a full-size buffer (so revealing it now would flash). If the
+            // buffer has shrunk, or the surface can't be measured, finalize.
+            let still_fullscreen =
+                crate::compositor::surface::committed_surface_buffer_size_for_node(st, id)
+                    .is_some_and(|sz| {
+                        sz.x + SETTLE_TOL_PX >= from_size.x && sz.y + SETTLE_TOL_PX >= from_size.y
+                    });
+            if still_fullscreen && !timed_out {
+                still_settling = true;
+                continue;
+            }
+        }
+        finalize.push((id, pending_relayout));
+    }
+    for (id, pending_relayout) in finalize {
+        st.model.fullscreen_state.fullscreen_scale_anim.remove(&id);
+        st.ui.render_state.clear_window_offscreen_cache_for(id);
+        if pending_relayout {
+            restore_cluster_workspace_after_fullscreen(st, id, now, true);
+        }
+    }
+    if still_settling || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty() {
         st.request_maintenance();
     }
 }

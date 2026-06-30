@@ -280,6 +280,16 @@ pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) ->
         && (node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some())
 }
 
+pub(crate) fn visual_shrink_animation_active_for_node(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> bool {
+    crate::compositor::fullscreen::system::fullscreen_visual_animation_active_for_node_on_current_monitor_at(
+        st, node_id, now,
+    )
+}
+
 fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physical>) -> bool {
     let tolerance = 2;
     rect.0 <= output.loc.x + tolerance
