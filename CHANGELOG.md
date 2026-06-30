@@ -362,7 +362,7 @@ All notable changes to this project will be documented in this file.
 - Fix Steam's pinned notification popups (install-complete, etc.) staying visually at 1.0 when
   zooming out. They keep their pan-immune monitor anchor but now apply camera zoom to both size
   and displacement.
-- Fix the animated field-shader background (e.g. the builtin stars) stuttering on empty or
+- Fix the animated field-shader background (e.g. the builtin space shader) stuttering on empty or
   non-current monitors. The animation-redraw gate was restricted to the current monitor and the
   frame cadence was throttled to ~10 FPS, so an idle second monitor's background only advanced
   on unrelated redraws. Both restrictions are removed; startup and DPMS-wake grace pauses are

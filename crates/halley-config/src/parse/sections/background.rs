@@ -113,7 +113,7 @@ mod tests {
             r##"
 background:
   mode "field-shader"
-  shader "stars"
+  shader "space"
   colour "#202233"
   accent-colour "#9db7ee"
   intensity 1.35
@@ -127,7 +127,7 @@ end
         load_background_section(&cfg, &mut out);
 
         assert_eq!(out.background.mode, BackgroundMode::FieldShader);
-        assert_eq!(out.background.shader, "stars");
+        assert_eq!(out.background.shader, "space");
         assert_eq!(out.background.color.r, 0x20 as f32 / 255.0);
         assert_eq!(out.background.accent_color.b, 0xee as f32 / 255.0);
         assert_eq!(out.background.intensity, 1.35);

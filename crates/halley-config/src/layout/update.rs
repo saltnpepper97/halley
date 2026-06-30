@@ -656,7 +656,7 @@ end
 
         assert!(updated.contains("background:"));
         assert!(updated.contains("mode \"field-shader\""));
-        assert!(updated.contains("shader \"stars\""));
+        assert!(updated.contains("shader \"space\""));
         assert!(RuntimeTuning::from_rune_str(&updated).is_some());
     }
 

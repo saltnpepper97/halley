@@ -632,7 +632,7 @@ background:
   # `field-shader`, `classic`, or `none`.
   mode "field-shader"
   # Built-in field shader.
-  shader "stars"
+  shader "space"
   # For mode "classic", set a PNG/JPG path and choose cover/contain/stretch.
   path ""
   fit "cover"

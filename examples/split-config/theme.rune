@@ -13,7 +13,7 @@ end
 
 background:
   mode "field-shader"
-  shader "stars"
+  shader "space"
   path ""
   fit "cover"
   colour "#181a26"

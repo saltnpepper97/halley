@@ -84,7 +84,7 @@ impl Default for BackgroundConfig {
         Self {
             mode: BackgroundMode::None,
             path: String::new(),
-            shader: "stars".to_string(),
+            shader: "space".to_string(),
             fit: BackgroundFit::Cover,
             intensity: 1.0,
             animated: false,

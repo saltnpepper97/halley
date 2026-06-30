@@ -113,26 +113,26 @@ fn field_shader_source(st: &Halley) -> (String, String) {
             Ok(source) => (format!("path:{}", path.to_string_lossy()), source),
             Err(err) => {
                 eventline::warn!(
-                    "gesso shader path '{}' could not be read: {err}; falling back to stars",
+                    "gesso shader path '{}' could not be read: {err}; falling back to space",
                     path.to_string_lossy()
                 );
-                ("builtin:stars".to_string(), HALLEY_GESSO_SHADER.to_string())
+                ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string())
             }
         };
     }
 
     match cfg.shader.trim().to_ascii_lowercase().as_str() {
-        "" | "stars" => ("builtin:stars".to_string(), HALLEY_GESSO_SHADER.to_string()),
+        "" | "space" => ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string()),
         other => {
             let path = expand_user_path(other);
             match fs::read_to_string(path.as_path()) {
                 Ok(source) => (format!("path:{}", path.to_string_lossy()), source),
                 Err(err) => {
                     eventline::warn!(
-                        "unknown gesso shader '{}' ({err}); falling back to stars",
+                        "unknown gesso shader '{}' ({err}); falling back to space",
                         cfg.shader
                     );
-                    ("builtin:stars".to_string(), HALLEY_GESSO_SHADER.to_string())
+                    ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string())
                 }
             }
         }

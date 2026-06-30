@@ -139,7 +139,7 @@ end
 # `field-shader` is spatial: it pans and zooms with the Field camera.
 background:
   mode "field-shader"
-  shader "stars"
+  shader "space"
   path ""
   fit "cover"
   colour "#181a26"

@@ -792,7 +792,7 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
             Some(&["none", "classic", "field-shader", "field_shader"])
         }
         "background.fit" | "gesso.fit" => Some(&["cover", "contain", "stretch"]),
-        "background.shader" | "gesso.shader" => Some(&["stars"]),
+        "background.shader" | "gesso.shader" => Some(&["space"]),
         "clusters.bloom-direction" => Some(&[
             "clockwise",
             "cw",
