@@ -19,7 +19,7 @@ use std::{
 
 use calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction, generic::Generic};
 use calloop_wayland_source::WaylandSource;
-use config::{LiftConfig, default_config_path};
+use config::{LiftConfig, bootstrap_default_config, default_config_path};
 use mode::{LiftMode, ModeInputState, effective_mode_query, parse_initial_mode};
 use model::{ClusterDraft, LiftAction, LiftResult, LiftResultKind};
 use providers::{ProviderIndex, SearchContext, activate_result, materialize_cluster_draft};
@@ -64,6 +64,11 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
+    // Bootstrap the user config before any instance coordination so a second
+    // invocation that merely toggles an existing instance closed still leaves
+    // a documented config on disk on first run.
+    bootstrap_default_config();
+
     let Some((_single_instance, instance_listener)) = acquire_single_instance()? else {
         return Ok(());
     };

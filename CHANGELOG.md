@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- On first launch Halley Lift now writes a documented default config template (mirroring
+  `examples/lift.rune`) to `~/.config/halley/lift.rune` when none exists; existing files are
+  never overwritten.
+- Add Halley Lift `colors.icon` (result-list icon tint; empty follows `accent`) and
+  `colors.alt-hint` (Alt+<n> jump-label tint; empty follows `hint`) config options.
 - Add Halley Lift config-editing actions for both Lift config and Halley compositor config;
   config actions now open files with `$EDITOR` in Lift's configured terminal instead of `xdg-open`.
 - Add the Halley Discord community/support invite to the README.
@@ -349,6 +354,19 @@ All notable changes to this project will be documented in this file.
   stale composed-frame cache eviction on DPMS wake.
 
 ### Fixed
+- Fix window-parented XDG popups (e.g. Firefox context menus, nested menus) staying visually
+  at 1.0 zoom and mis-hit-testing when the field camera is zoomed out. Popup origin/transform
+  math is now shared between the render and focus paths, and popups are routed through the
+  offscreen-texture composition path whenever their scale differs from 1.0 so they scale with
+  the camera instead of being drawn as unscaled live surface elements.
+- Fix Steam's pinned notification popups (install-complete, etc.) staying visually at 1.0 when
+  zooming out. They keep their pan-immune monitor anchor but now apply camera zoom to both size
+  and displacement.
+- Fix the animated field-shader background (e.g. the builtin stars) stuttering on empty or
+  non-current monitors. The animation-redraw gate was restricted to the current monitor and the
+  frame cadence was throttled to ~10 FPS, so an idle second monitor's background only advanced
+  on unrelated redraws. Both restrictions are removed; startup and DPMS-wake grace pauses are
+  preserved.
 - Smooth the maximize↔fullscreen transitions, which flashed: switching between the two modes
   tore the outgoing mode down (snapping the window to its small windowed size) before the
   incoming mode's grow animation started. Each direction now captures the outgoing window's

@@ -228,7 +228,6 @@ pub(crate) fn tty_output_animation_redraw_state(
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let maximize_motion_active =
         crate::compositor::workspace::state::maximize_animation_active_for_monitor(st, monitor);
-    let current_monitor = st.model.monitor_state.current_monitor.as_str();
     let viewport_pan_active = st
         .input
         .interaction_state
@@ -269,8 +268,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             .bearings_mix
             .get(monitor)
             .is_some_and(|mix| *mix > 0.02);
-    let background_active = monitor == current_monitor
-        && crate::render::background::background_animates(st)
+    let background_active = crate::render::background::background_animates(st)
         && st
             .ui
             .render_state

@@ -70,11 +70,10 @@ pub(crate) struct ModelState {
     pub(crate) camera_target_view_size: Vec2,
     pub(crate) surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
-    /// For window-parented popups that should render pinned to the screen (e.g.
-    /// Steam's install-complete notification), the frozen configure-time anchor
-    /// `target.loc` (= `-(parent_tl - viewport_tl)` against the fixed monitor
-    /// frame), keyed by the popup surface. Lets the render path reproject the
-    /// popup onto the monitor output immune to camera zoom/pan. See
+    /// For window-parented popups that should stay anchored to the monitor while
+    /// still following camera zoom (e.g. Steam's install-complete notification),
+    /// the frozen configure-time anchor `target.loc` (= `-(parent_tl - viewport_tl)`
+    /// against the fixed monitor frame), keyed by the popup surface. See
     /// `configure_popup_position`.
     pub(crate) pinned_popup_anchor: HashMap<ObjectId, Point<i32, Logical>>,
 }

@@ -22,7 +22,7 @@ const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
 const ANIMATION_PREWARM_TTL_MS: u64 = 1_500;
 pub(crate) const BACKGROUND_ANIMATION_STARTUP_GRACE_MS: u64 = 1_500;
 pub(crate) const BACKGROUND_ANIMATION_DPMS_GRACE_MS: u64 = 1_500;
-const BACKGROUND_ANIMATION_MIN_FRAME_MS: u64 = 100;
+const BACKGROUND_ANIMATION_MIN_FRAME_MS: u64 = 16;
 
 pub(crate) use cache::{
     BearingClusterIconCache, ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture,

@@ -59,6 +59,7 @@ use geometry::{
     log_window_render_path, offscreen_visual_crop_and_dst, rect_from_local_geometry, rect4_str,
     rect4f_str, sync_node_size_from_surface, wrap_direct_surface_elements,
 };
+pub(crate) use geometry::{pinned_popup_origin_for_camera, popup_origin_from_parent_visual};
 use layout::{build_stack_render_layout, resolve_window_render_layout};
 use stack::{StackTransitionPlan, StackTransitionPose, clone_stack_window_unit_for_pose};
 
@@ -1340,8 +1341,8 @@ pub(crate) fn collect_active_surfaces(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            // Pinning anchors a popup to the monitor for the non-fullscreen
-            // panned/zoomed case. While fullscreen the frozen anchor is `node.pos`-based
+            // Pinning anchors a popup to the monitor for the non-fullscreen panned
+            // case while still applying camera zoom. While fullscreen the frozen anchor is `node.pos`-based
             // and uses the wrong scale, so fall through to the parent-tracking branch,
             // which uses the window's real rendered `sx/sy` and `element_scale`.
             let pinned_anchor = if fullscreen_on_current_monitor {
@@ -1353,28 +1354,30 @@ pub(crate) fn collect_active_surfaces(
                     .copied()
             };
             // A pinned popup (e.g. Steam's install-complete notification) renders
-            // at a fixed monitor-relative position projected onto the output rect,
-            // immune to camera zoom/pan. `target_loc` is the configure-time frozen
-            // anchor; within_vp is the popup's offset inside the usable viewport.
+            // from its configure-time monitor anchor but still scales/displaces with
+            // the camera, so zooming out does not leave it at a visual 1.0 scale.
             let (popup_sx, popup_sy, popup_scale) = if let Some(target_loc) = pinned_anchor {
                 let viewport = st.usable_viewport_for_monitor(current_monitor.as_str());
-                let out_scale_x = output_clip.size.w as f32 / viewport.size.x.max(1.0);
-                let out_scale_y = output_clip.size.h as f32 / viewport.size.y.max(1.0);
-                let within_vp_x = (-target_loc.x + popup_offset.x - popup_geo.loc.x) as f32;
-                let within_vp_y = (-target_loc.y + popup_offset.y - popup_geo.loc.y) as f32;
-                let psx = output_clip.loc.x + (within_vp_x * out_scale_x).round() as i32;
-                let psy = output_clip.loc.y + (within_vp_y * out_scale_y).round() as i32;
-                (psx, psy, out_scale_x)
+                pinned_popup_origin_for_camera(
+                    output_clip,
+                    viewport.size,
+                    target_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    cam_scale,
+                )
             } else {
-                let psx = sx
-                    + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * element_scale)
-                        .round() as i32;
-                let psy = sy
-                    + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale)
-                        .round() as i32;
-                (psx, psy, element_scale)
+                let (psx, psy) = popup_origin_from_parent_visual(
+                    (sx, sy),
+                    parent_geo_loc,
+                    popup_offset,
+                    popup_geo.loc,
+                    render_scale,
+                );
+                (psx, psy, render_scale)
             };
-            if use_effect_offscreen {
+            let use_popup_offscreen = use_effect_offscreen || (popup_scale - 1.0).abs() > 0.001;
+            if use_popup_offscreen {
                 match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha, None) {
                     Ok(offscreen) => {
                         let src_x = 0.0f64;

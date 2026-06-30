@@ -1276,6 +1276,11 @@ fn draw_result_row(
         );
     }
     if let Some((hint, (_, hint_h))) = hint_metrics {
+        let hint_color = if alt_hint.is_some() {
+            parse_color(&view.config.colors.alt_hint, colors.hint)
+        } else {
+            colors.hint
+        };
         font.draw(
             canvas,
             width,
@@ -1284,7 +1289,7 @@ fn draw_result_row(
             y + (ui.row_height - hint_h) / 2,
             hint,
             ui.hint_font_size,
-            colors.hint,
+            hint_color,
         );
     }
 }
@@ -1313,91 +1318,32 @@ fn draw_result_icon(
         return;
     }
     let colors = Palette::from_config(config);
+    let icon_color = parse_color(&config.colors.icon, colors.accent);
     let radius = size / 3;
     match result.kind {
         LiftResultKind::Node => {
-            fill_rounded_rect(
-                canvas,
-                width,
-                height,
-                x,
-                y,
-                size,
-                size,
-                radius,
-                colors.accent,
-            );
+            fill_rounded_rect(canvas, width, height, x, y, size, size, radius, icon_color);
         }
         LiftResultKind::App => {
             if let Some(raster) = icon_cache.search_glyph(config.icon_size, LiftMode::Apps) {
-                draw_raster_tinted(
-                    canvas,
-                    width,
-                    height,
-                    raster,
-                    x,
-                    y,
-                    size,
-                    size,
-                    colors.accent,
-                );
+                draw_raster_tinted(canvas, width, height, raster, x, y, size, size, icon_color);
             } else {
-                fill_rounded_rect(
-                    canvas,
-                    width,
-                    height,
-                    x,
-                    y,
-                    size,
-                    size,
-                    radius,
-                    colors.accent,
-                );
+                fill_rounded_rect(canvas, width, height, x, y, size, size, radius, icon_color);
             }
         }
         LiftResultKind::Term => {
             if let Some(raster) = icon_cache.term_glyph(config.icon_size) {
-                draw_raster_tinted(
-                    canvas,
-                    width,
-                    height,
-                    raster,
-                    x,
-                    y,
-                    size,
-                    size,
-                    colors.accent,
-                );
+                draw_raster_tinted(canvas, width, height, raster, x, y, size, size, icon_color);
             }
         }
         LiftResultKind::Action => {
             if let Some(raster) = icon_cache.action_glyph(config.icon_size) {
-                draw_raster_tinted(
-                    canvas,
-                    width,
-                    height,
-                    raster,
-                    x,
-                    y,
-                    size,
-                    size,
-                    colors.accent,
-                );
+                draw_raster_tinted(canvas, width, height, raster, x, y, size, size, icon_color);
             }
         }
         LiftResultKind::Config => {
             if let Some(raster) = icon_cache.config_glyph(config.icon_size) {
-                draw_raster_tinted(
-                    canvas,
-                    width,
-                    height,
-                    raster,
-                    x,
-                    y,
-                    size,
-                    size,
-                    colors.accent,
-                );
+                draw_raster_tinted(canvas, width, height, raster, x, y, size, size, icon_color);
             }
         }
         _ => {}

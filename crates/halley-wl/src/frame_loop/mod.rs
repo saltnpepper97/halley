@@ -995,6 +995,35 @@ mod tests {
     }
 
     #[test]
+    fn animated_background_marks_non_current_monitor_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+        state.runtime.tuning.background.mode = halley_config::BackgroundMode::FieldShader;
+        state.runtime.tuning.background.animated = true;
+
+        let now = Instant::now();
+
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn animated_background_grace_suppresses_target_monitor_redraw() {
+        let mut state = multi_monitor_state();
+        state.runtime.tuning.background.mode = halley_config::BackgroundMode::FieldShader;
+        state.runtime.tuning.background.animated = true;
+        let now = Instant::now();
+        let now_ms = state.now_ms(now);
+        state
+            .ui
+            .render_state
+            .pause_background_animation_for_monitor("left", now_ms, 100);
+
+        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+    }
+
+    #[test]
     fn monitor_transfer_moves_cluster_member_between_active_layouts() {
         let mut state = multi_monitor_state();
         let left_cid = open_test_cluster(&mut state, "left", &["left-a", "left-b", "left-c"]);
