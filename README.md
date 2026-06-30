@@ -6,6 +6,7 @@
   <a href="https://saltnpepper97.github.io/halley-site/"><strong>Website</strong></a>
 </p>
 
+[![Sponsor](https://img.shields.io/badge/%E2%9D%A4-Support_Halley-ff69b4?style=for-the-badge)](#support-the-next-leap)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blueviolet?style=for-the-badge)
 ![Status](https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge)
 ![Wayland](https://img.shields.io/badge/display-Wayland-blue?style=for-the-badge)
@@ -17,6 +18,27 @@
 > **Windows as nodes. Windows as clusters. Windows as your command center.**
 
 Halley is a Wayland compositor built from the ground up for multi-monitor setups. Each display gets its own independent infinite canvas. Windows live as nodes on those canvases, group into clusters you build intentionally, and decay gracefully when they drift out of focus. Inspired by the comet it's named after — periodic, precise, and always returning — Halley makes multi-monitor work feel deliberate rather than chaotic.
+
+---
+
+## Support the Next Leap
+
+Halley will continue receiving updates, fixes, protocol work, and polish. The project is active, and the core direction is not being paused or held hostage.
+
+The larger leap is different. A full Wayland desktop ecosystem can only be taken so far as a solo project. Sponsorship helps fund the boring-but-important work that makes Halley more durable, approachable, and useful over time — documentation, testing, packaging, compatibility, triage, tooling, and release work — alongside larger technical improvements.
+
+Sponsorship does **not** buy roadmap control. Halley remains maintainer-directed. Support helps create the time and stability needed to execute on that direction responsibly.
+
+### Sponsorship Stretch Goals
+
+- A real Halley website, beyond a basic GitHub Pages presence.
+- A major Rune-CFG upgrade so it can become a larger foundation for future Halley UI and app work, not only a config language.
+- A much stronger `halley-api` for plugins, integrations, ecosystem tooling, and external developers.
+- A system for creating full Halley ecosystem apps using Rune-CFG plus light Rust, mostly through `halley-api`.
+- Documentation, onboarding, examples, migration notes, troubleshooting, and developer guides.
+- Packaging, testing, CI, compatibility, hardware/device testing, crash/debug tooling, and other infrastructure work.
+- Funding or compensating a community maintainer for triage, Discord/community support, docs cleanup, bug reproduction, and release coordination.
+- Better outreach: demos, release posts, videos, dev logs, showcases, and broader Linux desktop visibility.
 
 ---
 

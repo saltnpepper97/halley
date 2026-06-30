@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use rune_cfg::RuneConfig;
 
-/// Embedded default config template, kept in sync with `examples/lift.rune`.
-/// Written to the user config path on first launch so users have a documented
-/// starting point instead of silently running on baked-in defaults.
-const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../../../examples/lift.rune");
+/// Embedded default config template. Written to the user config path on first
+/// launch so users have a documented starting point instead of silently running
+/// on baked-in defaults.
+const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../lift.default.rune");
 
 #[derive(Clone, Debug)]
 pub struct LiftConfig {

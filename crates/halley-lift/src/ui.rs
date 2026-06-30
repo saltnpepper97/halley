@@ -416,8 +416,7 @@ const APP_SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/apps.svg");
 const ACTION_ICON_SVG: &[u8] = include_bytes!("../assets/spark.svg");
 const TERM_ICON_SVG: &[u8] = include_bytes!("../assets/term.svg");
 const CONFIG_ICON_SVG: &[u8] = include_bytes!("../assets/settings.svg");
-const CLUSTER_SEARCH_ICON_SVG: &[u8] =
-    include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
+const CLUSTER_SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/clusters.svg");
 
 /// State of a single icon in the in-memory cache. Decoding happens on a worker thread,
 /// so a freshly requested icon is `Pending` until its raster arrives.
