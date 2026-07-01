@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0] - TBD
+
+### Added
+- Add tty-backend VT switching for `Ctrl+Alt+F1` through `Ctrl+Alt+F12`, using the
+  active libseat session, and recover redraw/output state immediately when returning to Halley.
+
 ## [v0.5.0] - 2026-07-01
 
 ### Added
