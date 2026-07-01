@@ -414,8 +414,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     Ok(_) => eventline::info!(
                         "EGL hardware acceleration for Wayland clients enabled (winit)"
                     ),
-                    Err(err) => eventline::warn!(
-                        "failed to enable EGL hardware acceleration for Wayland clients (winit): {err}"
+                    Err(err) => eventline::info!(
+                        "EGL hardware acceleration for Wayland clients unavailable (winit); using fallback path: {err}"
                     ),
                 }
             }

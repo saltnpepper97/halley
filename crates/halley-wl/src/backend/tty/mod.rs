@@ -835,8 +835,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         Ok(_) => eventline::info!(
                             "EGL hardware acceleration for Wayland clients enabled"
                         ),
-                        Err(err) => eventline::warn!(
-                            "failed to enable EGL hardware acceleration for Wayland clients: {err}"
+                        Err(err) => eventline::info!(
+                            "EGL hardware acceleration for Wayland clients unavailable; using fallback path: {err}"
                         ),
                     },
                     Err(err) => eventline::warn!(

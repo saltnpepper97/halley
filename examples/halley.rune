@@ -23,8 +23,6 @@ autostart:
   # Common examples you may want later:
   #once "waybar"
   #once "mako"
-  
-  #once "gessod"
   #once "stasis"
 
   # Example:

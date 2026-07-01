@@ -515,7 +515,6 @@ autostart:
   #once "waybar"
 
   #once "mako"
-  #once "gessod"
   #once "stasis"
 
   # Example:

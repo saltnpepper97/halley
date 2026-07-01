@@ -108,13 +108,6 @@ fn ensure_field_shader(renderer: &mut GlesRenderer, st: &mut Halley) -> Result<(
 
 fn field_shader_key(st: &Halley) -> String {
     let cfg = &st.runtime.tuning.background;
-    if !cfg.path.trim().is_empty() {
-        return format!(
-            "path:{}",
-            expand_user_path(cfg.path.as_str()).to_string_lossy()
-        );
-    }
-
     match cfg.shader.trim().to_ascii_lowercase().as_str() {
         "" | "space" => "builtin:space".to_string(),
         other => format!("shader:{other}"),
@@ -123,20 +116,6 @@ fn field_shader_key(st: &Halley) -> String {
 
 fn field_shader_source(st: &Halley) -> String {
     let cfg = &st.runtime.tuning.background;
-    if !cfg.path.trim().is_empty() {
-        let path = expand_user_path(cfg.path.as_str());
-        return match fs::read_to_string(path.as_path()) {
-            Ok(source) => source,
-            Err(err) => {
-                eventline::warn!(
-                    "gesso shader path '{}' could not be read as GLSL text: {err}; falling back to space",
-                    path.to_string_lossy()
-                );
-                HALLEY_SPACE_SHADER.to_string()
-            }
-        };
-    }
-
     match cfg.shader.trim().to_ascii_lowercase().as_str() {
         "" | "space" => HALLEY_SPACE_SHADER.to_string(),
         other => {
