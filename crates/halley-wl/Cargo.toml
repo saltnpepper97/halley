@@ -19,7 +19,7 @@ halley-core.workspace = true
 halley-ipc.workspace = true
 
 # Wayland compositor toolkit
-smithay = { git = "https://github.com/Smithay/smithay.git", rev = "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef", default-features = false, features = [
+smithay = { version = "0.7.0", git = "https://github.com/Smithay/smithay.git", rev = "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef", default-features = false, features = [
   "backend_winit",
   "backend_drm",
   "backend_gbm",
