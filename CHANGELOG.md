@@ -339,10 +339,11 @@ All notable changes to this project will be documented in this file.
 - Keep the cursor visible during zoom keybinds (zoom is spatial, not keyboard navigation)
   and show directional `ZoomIn`/`ZoomOut` cursor icons. Zoom keybinds use the current
   interaction monitor so mouse monitor switching mid-zoom keeps working.
-- Start close-animation ghosts at compositor close-request time when the offscreen
-  snapshot cache is warm, and skip the live surface for nodes with active close ghosts
-  so the ghost is not doubled by a camera-following live surface. Close snapshot prewarm
-  is limited to focused/keyboard-close candidates instead of all visible windows.
+- Keep close-animation snapshots warm at compositor close-request time, but play the
+  close ghost only when the client actually destroys the surface. This avoids a
+  request-time ghost expiring while a slow client is still alive and then replaying a
+  second ghost at destroy time. Close snapshot prewarm is limited to focused/keyboard
+  close candidates instead of all visible windows.
 - Remove raw `hover_node` and `overlay_hover_target` as permanent animation-redraw
   triggers from the TTY scheduler. Hover animations still start on pointer-motion redraw
   requests, but settled hover no longer forces continuous vblank redraw. Hover preview
@@ -380,12 +381,12 @@ All notable changes to this project will be documented in this file.
   `resize_footprint` *after* the footprint sync (the sync was clearing the value the prior fix
   set), so the re-maximize snapshots the true windowed size before the client commits its
   resize.
-- Eliminate the full-size buffer flash at the tail of a fullscreen or maximize exit shrink.
-  The client is now reconfigured to its windowed size at the *start* of the shrink (while the
-  frozen snapshot is still on screen), and the shrink holds that snapshot past its visual
-  duration until the client has committed a non-fullscreen/non-maximized buffer (or a 250 ms
-  safety timeout). The live surface is revealed only once it is already windowed-sized, so the
-  old one-or-two-frame full-size flash never reaches the output.
+- Keep live-rendered fullscreen and maximize exit shrinks visually in sync with their
+  compositor borders. With direct field rendering, GTK/Qt/Firefox could commit the smaller
+  restored buffer while the border was still animating, making the inner texture shrink ahead
+  of the frame. Halley now keeps the client at the old fullscreen/maximized size through the
+  visual shrink, sends the windowed configure when the shrink lands, and holds the visual rect
+  until the client commits (or a 250 ms safety timeout).
 - Ease the camera back on animated cluster-member fullscreen exits instead of snapping it
   synchronously. The survivor reflow is deferred until the shrink settle lands, so the camera
   pan finishes before the tiles re-lay out — avoiding the old "slides from left, stops partway"
@@ -393,9 +394,9 @@ All notable changes to this project will be documented in this file.
 - `toggle-fullscreen` now prefers a focused overlay window stacked above a fullscreen window on
   the same monitor, so the keybind swaps the overlay into fullscreen rather than redundantly
   toggling the fullscreen window underneath.
-- Include fullscreen and maximized nodes in the close-animation snapshot prewarm set so their
-  offscreen textures are ready before the exit shrink begins, and skip the border clip during a
-  visual shrink animation so the whole surface is captured.
+- Include fullscreen and maximized nodes in the close-animation snapshot prewarm set and allow
+  explicitly requested prewarms through visual shrink animations, so exit/close snapshots are
+  ready when the transition needs them.
 - Stop runaway key repeat (e.g. Enter repeating forever in a terminal after first opening a
   cluster) for good, with a general guard instead of another per-case patch: physical key
   state is now tracked and, after every key event, any key still forwarded to a client as

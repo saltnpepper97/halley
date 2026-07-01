@@ -29,7 +29,7 @@ use crate::compositor::spawn::state::{
 };
 use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
-    render_window_geometry_for_node, window_geometry_for_node,
+    live_window_geometry_for_node, render_window_geometry_for_node, window_geometry_for_node,
 };
 use crate::input::active_resize_geometry_screen;
 use crate::presentation::world_to_screen;
@@ -714,6 +714,14 @@ pub(crate) fn collect_active_surfaces(
             );
         }
         let wants_blur = node_wants_blur(st, node_id) || surface_wants_background_blur(&wl);
+        // Maximize and fullscreen enter/exit are NOT routed through the offscreen
+        // snapshot: those transitions sample the *live* buffer (maximize via the
+        // direct-field RescaledSurfaceElement path, fullscreen via the live path),
+        // and the render-scale divisor `local_geo` is read live to match that
+        // buffer's generation (see `resolve_window_render_layout`). Compositing a
+        // *frozen* snapshot against that live divisor is what desynced the texture
+        // from the animating border (the "top-left square", worst on GTK/Qt whose
+        // CSD margin changes when (un)maximized).
         let use_effect_offscreen =
             tiling_tile_transition.is_some() || stack_transition_pose.is_some() || open_anim_active;
         let use_direct_field = !use_effect_offscreen && !live_surface_node;

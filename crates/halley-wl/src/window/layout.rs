@@ -154,7 +154,10 @@ pub(super) fn resolve_window_render_layout(
         crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
             st, node_id, now,
         );
-
+    let maximized_visual_animating =
+        crate::compositor::workspace::state::maximize_visual_animation_active_for_node_on_current_monitor_at(
+            st, node_id, now,
+        );
     let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
     let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
     let tiling_tile_transition = (active_cluster_member
@@ -291,6 +294,19 @@ pub(super) fn resolve_window_render_layout(
         // the live surface bbox so render_scale maps the actual buffer to the output.
         // (`render_window_geometry_for_node` returns None for fullscreen by design.)
         render_window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
+    } else if (fullscreen_visual_animating || maximized_visual_animating)
+        && frozen_tiling_geometry.is_none()
+    {
+        // Enter/exit grow animation (either direction). `fullscreen_visual`/
+        // `maximized_visual` supply the animated target size, but the cached window
+        // geometry used as the render-scale divisor can belong to a different commit
+        // generation than the buffer we're sampling — the fullscreen active flag is
+        // already cleared on exit, yet the client hasn't committed the windowed buffer
+        // (or vice-versa on entry). That mismatch shrinks the texture into a small
+        // top-left square while the compositor-owned border animates correctly. Read
+        // the geometry live so the divisor tracks the actual buffer and content stays
+        // glued to the border for the whole transition.
+        live_window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
     } else {
         frozen_tiling_geometry
             .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))

@@ -36,12 +36,12 @@ pub(crate) struct FullscreenScaleAnim {
     pub to_size: Vec2,
     pub start_ms: u64,
     pub duration_ms: u64,
-    /// A hard-exit shrink holds the frozen snapshot past its visual duration
-    /// until the client has committed a non-fullscreen buffer (or a safety
-    /// timeout elapses), so the live surface is only revealed once it is already
-    /// windowed-sized — otherwise the full-size buffer flashes for a few frames.
+    /// A hard-exit shrink keeps the client fullscreen-sized during the visual
+    /// duration, then sends the windowed configure and holds this visual rect
+    /// until the client commits (or a safety timeout elapses).
     /// `false` for the entry grow, which finalizes the moment its duration ends.
     pub settle: bool,
+    pub windowed_configure_sent: bool,
     /// When the settle hold completes, re-lay out the cluster workspace so the
     /// hidden siblings animate back in alongside the shrink landing instead of
     /// popping into place while the exiting window is still visually large.

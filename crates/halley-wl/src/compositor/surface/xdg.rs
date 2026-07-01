@@ -120,49 +120,15 @@ pub(crate) fn request_close_node_toplevel(
         return false;
     };
 
-    start_request_close_ghost_if_available(st, node_id);
+    // Don't animate here. The close ghost plays when the client actually
+    // destroys the surface (drop_surface_impl); animating at request time races
+    // the destroy — a slow client (games/XWayland/Steam) outlives the fixed
+    // animation, the live surface pops back to full size, and the destroy then
+    // plays a *second* ghost (the "double close"). Instead just keep a snapshot
+    // warm so the destroy-time shrink is smooth even for slow clients.
+    st.request_window_animation_prewarm(node_id, std::time::Instant::now());
     target.send_close();
     true
-}
-
-fn start_request_close_ghost_if_available(st: &mut Halley, node_id: halley_core::field::NodeId) {
-    if !st.runtime.tuning.window_close_animation_enabled() {
-        return;
-    }
-    let now = std::time::Instant::now();
-    if st
-        .ui
-        .render_state
-        .closing_window_animation_active_for_node(node_id, now)
-    {
-        return;
-    }
-    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned() else {
-        return;
-    };
-    let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
-        crate::window::capture_closing_window_animation(st, monitor.as_str(), node_id)
-    else {
-        st.request_window_animation_prewarm(node_id, now);
-        return;
-    };
-    let layer =
-        crate::window::closing_window_animation_layer_for_node(st, monitor.as_str(), node_id, now);
-    let capture_center = st.view_center_for_monitor(monitor.as_str());
-    st.ui.render_state.start_closing_window_animation(
-        node_id,
-        monitor.as_str(),
-        now,
-        st.runtime.tuning.window_close_duration_ms(),
-        st.runtime.tuning.window_close_style(),
-        border_rects,
-        offscreen_textures,
-        start_scale,
-        start_alpha,
-        layer,
-        None,
-        capture_center,
-    );
 }
 
 #[cfg(test)]
@@ -552,6 +518,21 @@ pub(crate) fn window_geometry_for_node(
     if let Some(&geo) = st.ui.render_state.cache.window_geometry.get(&node_id) {
         return Some(geo);
     }
+    live_window_geometry_for_node(st, node_id)
+}
+
+/// Window geometry read straight from the live surface state, bypassing the
+/// per-frame `window_geometry` cache. During fullscreen/maximize enter/exit
+/// animations the cache can belong to a different commit generation than the
+/// buffer currently being sampled (clients — notably XWayland/Steam — resize
+/// late), so dividing the animated visual size by the cached geometry desyncs
+/// the texture scale from the compositor-owned border. Reading live keeps the
+/// scale divisor in the same generation as the buffer so content fills the
+/// border throughout the transition.
+pub(crate) fn live_window_geometry_for_node(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> Option<(f32, f32, f32, f32)> {
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();

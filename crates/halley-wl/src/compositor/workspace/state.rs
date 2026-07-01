@@ -78,6 +78,7 @@ pub(crate) struct MaximizeAnimation {
     pub(crate) to_size: Vec2,
     pub(crate) start_ms: u64,
     pub(crate) duration_ms: u64,
+    pub(crate) restore_configure_sent: bool,
 }
 
 const PENDING_COLLAPSE_MAX_WAIT_MS: u64 = 120;
@@ -496,6 +497,27 @@ pub(crate) fn maximize_animation_visual_for_node_on_monitor_at(
     (anim.monitor == monitor).then(|| maximize_animation_rect(st, anim, now))
 }
 
+/// True while the maximize enter/exit grow animation is still running for
+/// `node_id` on the current monitor. Mirrors
+/// `fullscreen_visual_animation_active_for_node_on_current_monitor_at`; the
+/// render layout uses it to read window geometry live (rather than from the
+/// possibly-stale cache) so the texture stays glued to the animating border.
+pub(crate) fn maximize_visual_animation_active_for_node_on_current_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> bool {
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    st.model
+        .workspace_state
+        .maximize_animation
+        .get(&node_id)
+        .is_some_and(|anim| {
+            anim.monitor == monitor
+                && st.now_ms(now) < anim.start_ms.saturating_add(anim.duration_ms.max(1))
+        })
+}
+
 fn maximize_animation_rect(st: &Halley, anim: &MaximizeAnimation, now: Instant) -> (Vec2, Vec2) {
     let now_ms = st.now_ms(now);
     let elapsed = now_ms.saturating_sub(anim.start_ms);
@@ -675,12 +697,11 @@ pub(crate) fn abort_maximize_session_for_external_active_node_on_monitor(
 }
 
 pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {
-    // A restore (un-maximize) shrink holds its frozen snapshot past the visual
-    // duration until the client has committed a non-maximized buffer (or a safety
-    // timeout), so the live surface is only revealed once it is already windowed —
-    // otherwise the full-size buffer flashes for a few frames at the tail. The
-    // client was resized to its restore size at the START of the shrink (see
-    // `start_restore_maximize_session`), so it has the whole duration to repaint.
+    // A restore (un-maximize) shrink keeps the client at its old/maximized buffer
+    // during the visual animation. Once the compositor-owned border reaches the
+    // windowed rect, send the restore configure and hold the visual rect until the
+    // client commits (or a safety timeout). This keeps live-rendered content and
+    // border shrinking as one actor without reintroducing offscreen snapshots.
     const SETTLE_TIMEOUT_MS: u64 = 250;
     const SETTLE_TOL_PX: f32 = 8.0;
     let now_ms = st.now_ms(now);
@@ -691,13 +712,22 @@ pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {
         .iter()
         .filter_map(|(&id, anim)| {
             let end_ms = anim.start_ms.saturating_add(anim.duration_ms.max(1));
-            (now_ms >= end_ms).then(|| (id, anim.monitor.clone(), anim.from_size, end_ms))
+            (now_ms >= end_ms).then(|| {
+                (
+                    id,
+                    anim.monitor.clone(),
+                    anim.from_size,
+                    anim.to_size,
+                    anim.restore_configure_sent,
+                    end_ms,
+                )
+            })
         })
         .collect::<Vec<_>>();
 
     let mut still_settling = false;
     let mut finished = Vec::new();
-    for (id, monitor, from_size, end_ms) in elapsed_anims {
+    for (id, monitor, from_size, to_size, restore_configure_sent, end_ms) in elapsed_anims {
         let restoring = st
             .model
             .workspace_state
@@ -707,6 +737,13 @@ pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {
                 session.target_id == id && matches!(session.state, MaximizeSessionState::Restoring)
             });
         if restoring {
+            if !restore_configure_sent {
+                st.request_toplevel_resize(id, to_size.x.round() as i32, to_size.y.round() as i32);
+                st.set_last_active_size_now(id, to_size);
+                if let Some(anim) = st.model.workspace_state.maximize_animation.get_mut(&id) {
+                    anim.restore_configure_sent = true;
+                }
+            }
             let timed_out = now_ms >= end_ms.saturating_add(SETTLE_TIMEOUT_MS);
             // Hold only while we have positive evidence the client is *still*
             // showing a full-size buffer (so revealing it now would flash). If the

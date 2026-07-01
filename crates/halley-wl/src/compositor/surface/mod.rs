@@ -11,6 +11,7 @@ pub(crate) use query::{
 };
 pub(crate) use xdg::{
     committed_surface_buffer_size_for_node, current_surface_size_for_node,
-    render_window_geometry_for_node, request_close_focused_toplevel, request_close_node_toplevel,
-    request_toplevel_resize_mode, toplevel_min_size_for_node, window_geometry_for_node,
+    live_window_geometry_for_node, render_window_geometry_for_node, request_close_focused_toplevel,
+    request_close_node_toplevel, request_toplevel_resize_mode, toplevel_min_size_for_node,
+    window_geometry_for_node,
 };

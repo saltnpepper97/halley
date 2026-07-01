@@ -2169,12 +2169,8 @@ fn exit_xdg_fullscreen_inner(
             entry.size.y.round().max(min_h as f32).max(FULLSCREEN_MIN_H) as i32,
         ));
     }
-    // Reconfigure the client to its windowed size at the START of the exit (even
-    // when animating), not at the anim's end. The shrink renders a frozen snapshot,
-    // so the client repainting at the windowed size underneath is invisible — and
-    // giving it the whole shrink duration to commit the windowed buffer is what lets
-    // the settle hold reveal the live surface without the full-size flash.
-    if should_send_windowed_configure {
+    let delay_windowed_configure = should_send_windowed_configure && should_animate;
+    if should_send_windowed_configure && !delay_windowed_configure {
         request_toplevel_fullscreen_state(st, node_id, false, None, windowed_configure_size);
     }
 
@@ -2208,6 +2204,7 @@ fn exit_xdg_fullscreen_inner(
                 // Hard-exit shrink: hold the snapshot through settle, then reveal the
                 // live (now windowed) surface and re-lay out the cluster siblings.
                 settle: should_send_windowed_configure,
+                windowed_configure_sent: !delay_windowed_configure,
                 pending_cluster_relayout: !suspend && !preserve_client_fullscreen,
             },
         );
@@ -2822,6 +2819,7 @@ fn enter_fullscreen(
                 duration_ms,
                 // Entry grow: finalize at the end of its visual duration.
                 settle: false,
+                windowed_configure_sent: true,
                 pending_cluster_relayout: false,
             },
         );
@@ -3070,16 +3068,32 @@ pub(crate) fn tick_fullscreen_motion(st: &mut Halley, now: Instant) {
             (now_ms >= end_ms).then_some((
                 id,
                 anim.settle,
+                anim.windowed_configure_sent,
                 anim.pending_cluster_relayout,
                 anim.from_size,
+                anim.to_size,
                 end_ms,
             ))
         })
         .collect::<Vec<_>>();
     let mut still_settling = false;
     let mut finalize: Vec<(NodeId, bool)> = Vec::new();
-    for (id, settle, pending_relayout, from_size, end_ms) in elapsed_anims {
+    for (id, settle, windowed_configure_sent, pending_relayout, from_size, to_size, end_ms) in
+        elapsed_anims
+    {
         if settle {
+            if !windowed_configure_sent {
+                request_toplevel_fullscreen_state(
+                    st,
+                    id,
+                    false,
+                    None,
+                    Some((to_size.x.round() as i32, to_size.y.round() as i32)),
+                );
+                if let Some(anim) = st.model.fullscreen_state.fullscreen_scale_anim.get_mut(&id) {
+                    anim.windowed_configure_sent = true;
+                }
+            }
             let timed_out = now_ms >= end_ms.saturating_add(SETTLE_TIMEOUT_MS);
             // Hold only while we have positive evidence the client is *still*
             // showing a full-size buffer (so revealing it now would flash). If the

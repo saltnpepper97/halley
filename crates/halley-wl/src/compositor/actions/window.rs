@@ -470,18 +470,16 @@ fn start_restore_maximize_session(
         }
         let _ = st.model.field.sync_active_footprint_to_intrinsic(*node_id);
         let _ = st.model.field.set_pinned(*node_id, snapshot.pinned);
-        // Resize the client to its restore size at the START of the shrink (even
-        // when animating), not at the anim's end. The shrink renders a frozen
-        // snapshot, so the client repainting underneath is invisible, and giving it
-        // the whole duration to commit the windowed buffer lets the settle hold in
-        // `tick_maximize_animation` reveal the live surface without a full-size flash.
-        st.request_toplevel_resize(
-            *node_id,
-            snapshot.size.x.round() as i32,
-            snapshot.size.y.round() as i32,
-        );
-        st.set_last_active_size_now(*node_id, snapshot.size);
-        if st.runtime.tuning.maximize_animation_enabled() {
+        let animate = st.runtime.tuning.maximize_animation_enabled();
+        if !animate {
+            st.request_toplevel_resize(
+                *node_id,
+                snapshot.size.x.round() as i32,
+                snapshot.size.y.round() as i32,
+            );
+            st.set_last_active_size_now(*node_id, snapshot.size);
+        }
+        if animate {
             st.model.workspace_state.maximize_animation.insert(
                 *node_id,
                 crate::compositor::workspace::state::MaximizeAnimation {
@@ -492,6 +490,7 @@ fn start_restore_maximize_session(
                     to_size: snapshot.size,
                     start_ms: st.now_ms(now),
                     duration_ms: st.runtime.tuning.maximize_animation_duration_ms(),
+                    restore_configure_sent: false,
                 },
             );
         }
@@ -555,6 +554,7 @@ fn start_active_maximize_session(
                 to_size: target_size,
                 start_ms: st.now_ms(now),
                 duration_ms: st.runtime.tuning.maximize_animation_duration_ms(),
+                restore_configure_sent: true,
             },
         );
         // Ease the camera zoom-to-1.0 on the same fixed cubic as the maximize rect

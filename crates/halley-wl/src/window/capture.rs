@@ -845,7 +845,9 @@ pub(crate) fn prewarm_visible_close_animation_snapshots(
         {
             continue;
         }
-        if visual_shrink_animation_active_for_node(st, node_id, now) {
+        if visual_shrink_animation_active_for_node(st, node_id, now)
+            && !requested_prewarm_nodes.contains(&node_id)
+        {
             continue;
         }
         // While a tile-open/close transition is animating, freeze the snapshot
