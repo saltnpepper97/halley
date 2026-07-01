@@ -16,7 +16,7 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 
-const HALLEY_GESSO_SHADER: &str = include_str!("shaders/gesso_solarsystem.frag");
+const HALLEY_SPACE_SHADER: &str = include_str!("shaders/space.frag");
 
 pub(crate) fn background_animates(st: &Halley) -> bool {
     st.runtime.tuning.background.mode == BackgroundMode::FieldShader
@@ -61,7 +61,7 @@ fn ensure_unit_texture(renderer: &mut GlesRenderer, st: &mut Halley) -> Result<(
 
 fn ensure_field_shader(renderer: &mut GlesRenderer, st: &mut Halley) -> Result<(), Box<dyn Error>> {
     ensure_unit_texture(renderer, st)?;
-    let (key, source) = field_shader_source(st);
+    let key = field_shader_key(st);
     if st.ui.render_state.gpu.background_shader_key.as_deref() == Some(key.as_str())
         && st.ui.render_state.gpu.background_shader_program.is_some()
     {
@@ -77,6 +77,7 @@ fn ensure_field_shader(renderer: &mut GlesRenderer, st: &mut Halley) -> Result<(
     {
         return Ok(());
     }
+    let source = field_shader_source(st);
 
     match renderer.compile_custom_texture_shader(
         source.as_str(),
@@ -105,34 +106,49 @@ fn ensure_field_shader(renderer: &mut GlesRenderer, st: &mut Halley) -> Result<(
     Ok(())
 }
 
-fn field_shader_source(st: &Halley) -> (String, String) {
+fn field_shader_key(st: &Halley) -> String {
+    let cfg = &st.runtime.tuning.background;
+    if !cfg.path.trim().is_empty() {
+        return format!(
+            "path:{}",
+            expand_user_path(cfg.path.as_str()).to_string_lossy()
+        );
+    }
+
+    match cfg.shader.trim().to_ascii_lowercase().as_str() {
+        "" | "space" => "builtin:space".to_string(),
+        other => format!("shader:{other}"),
+    }
+}
+
+fn field_shader_source(st: &Halley) -> String {
     let cfg = &st.runtime.tuning.background;
     if !cfg.path.trim().is_empty() {
         let path = expand_user_path(cfg.path.as_str());
         return match fs::read_to_string(path.as_path()) {
-            Ok(source) => (format!("path:{}", path.to_string_lossy()), source),
+            Ok(source) => source,
             Err(err) => {
                 eventline::warn!(
-                    "gesso shader path '{}' could not be read: {err}; falling back to space",
+                    "gesso shader path '{}' could not be read as GLSL text: {err}; falling back to space",
                     path.to_string_lossy()
                 );
-                ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string())
+                HALLEY_SPACE_SHADER.to_string()
             }
         };
     }
 
     match cfg.shader.trim().to_ascii_lowercase().as_str() {
-        "" | "space" => ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string()),
+        "" | "space" => HALLEY_SPACE_SHADER.to_string(),
         other => {
             let path = expand_user_path(other);
             match fs::read_to_string(path.as_path()) {
-                Ok(source) => (format!("path:{}", path.to_string_lossy()), source),
+                Ok(source) => source,
                 Err(err) => {
                     eventline::warn!(
                         "unknown gesso shader '{}' ({err}); falling back to space",
                         cfg.shader
                     );
-                    ("builtin:space".to_string(), HALLEY_GESSO_SHADER.to_string())
+                    HALLEY_SPACE_SHADER.to_string()
                 }
             }
         }
