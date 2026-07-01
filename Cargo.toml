@@ -28,11 +28,11 @@ exclude = ["/.github", "/target", "/.idea", "/.vscode", "Cargo.lock"]
 
 [workspace.dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
-halley-api = { path = "crates/halley-api", version = "0.2.0" }
+halley-api = { path = "crates/halley-api", version = "0.2.1" }
 halley-aperture = { path = "crates/halley-aperture", version = "0.1.0" }
 halley-capit = { path = "crates/halley-capit", version = "0.5.0" }
 halley-config = { path = "crates/halley-config", version = "0.5.0" }
-halley-core = { path = "crates/halley-core", version = "0.4.0" }
+halley-core = { path = "crates/halley-core", version = "0.5.0" }
 halley-ipc = { path = "crates/halley-ipc", version = "0.5.0" }
 halley-lift = { path = "crates/halley-lift", version = "0.1.0" }
 halley-wl = { path = "crates/halley-wl", version = "0.5.0", default-features = false }

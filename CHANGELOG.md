@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.5.0] - 2026-06-30
+## [v0.5.0] - 2026-07-01
 
 ### Added
 - On first launch Halley Lift now writes a documented default config template (mirroring
