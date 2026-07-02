@@ -341,6 +341,13 @@ pub(crate) struct PointerContents {
     pub(crate) is_session_lock_surface: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct RecentLockedPointerTarget {
+    pub(crate) surface: WlSurface,
+    pub(crate) origin: Point<f64, Logical>,
+    pub(crate) until_ms: u64,
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -354,6 +361,7 @@ pub(crate) struct InteractionState {
     pub(crate) pointer_contents: PointerContents,
     pub(crate) pointer_surface_origin: Option<(ObjectId, f64, f64)>,
     pub(crate) pointer_focus: Option<(WlSurface, Point<f64, Logical>)>,
+    pub(crate) recent_locked_pointer_target: Option<RecentLockedPointerTarget>,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,
@@ -433,6 +441,17 @@ pub(crate) struct InteractionState {
     /// activity (motion/button/axis, including inside the apogee overview) clears it.
     pub(crate) cursor_hidden_by_keyboard_nav: bool,
     pub(crate) last_cursor_activity_at_ms: u64,
+    /// Wall-clock of the previous pointer-motion event, used to detect a lull.
+    /// After the pointer has been at rest, the next burst must travel a real
+    /// distance before hover-focus may retarget keyboard focus.
+    pub(crate) last_pointer_motion_at_ms: u64,
+    /// Remaining deliberate-movement distance (logical px) before hover-focus is
+    /// allowed to move keyboard focus again. Armed after any lull in pointer
+    /// motion so a stray desk bump or trackpad jitter reveals the pointer
+    /// without stealing focus from whatever you're typing into (e.g. Lift).
+    /// Consumed as the pointer actually travels; hover-focus resumes once the
+    /// movement is unambiguously deliberate.
+    pub(crate) hover_focus_reveal_gate_px: f64,
 }
 
 pub(crate) fn note_cursor_activity(st: &mut Halley, now_ms: u64) -> bool {

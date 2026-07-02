@@ -162,6 +162,7 @@ pub(crate) mod aperture {
 
     pub(crate) fn log_aperture_config_startup(_path: &PathBuf) {}
 }
+pub(crate) mod app_env;
 pub(crate) mod backend;
 pub mod bootstrap;
 pub(crate) mod compositor;

@@ -489,16 +489,9 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
     st.request_tty_redraw_for_monitor(target_monitor.as_str());
 
-    for (name, output) in &st.model.monitor_state.outputs {
-        if *name == target_monitor {
-            output.enter(surface);
-        } else {
-            output.leave(surface);
-        }
-    }
-    crate::compositor::monitor::state::set_surface_preferred_scale_for_monitor(
+    crate::compositor::monitor::state::assign_surface_to_monitor(
         st,
-        surface,
+        &root_surface,
         target_monitor.as_str(),
     );
 

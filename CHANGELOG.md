@@ -7,6 +7,37 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Add tty-backend VT switching for `Ctrl+Alt+F1` through `Ctrl+Alt+F12`, using the
   active libseat session, and recover redraw/output state immediately when returning to Halley.
+- Default `SDL_VIDEODRIVER` to `wayland,x11` (new `app_env` module) in the XDG
+  activation environment and for spawned apps, so SDL/Unity games prefer the
+  native Wayland backend while still falling back to X11; an explicit
+  `SDL_VIDEODRIVER` override is respected.
+- Add a hover-focus reveal gate: after the pointer has been idle, ~64px of
+  deliberate travel is required before motion can retarget keyboard focus, so a
+  desk bump or trackpad jitter reveals the cursor without stealing focus from
+  what you're typing into (e.g. the Lift launcher). Continuous mousing is unaffected.
+
+### Fixed
+- Stabilize fullscreen locked-pointer games (Xwayland/SDL). Locked-pointer
+  relative motion is now delivered before Halley's monitor routing, with a 250ms
+  "recent locked target" grace period, so an active pointer-constrained game
+  keeps receiving motion and doesn't have its active monitor/RandR primary
+  churned while it consumes relative deltas. Cursor position hints now sync
+  through the locked constraint's surface origin, and the tty render order
+  prioritizes the monitor holding the active locked-pointer surface.
+- Recover cleanly from tty VT switches by dropping DRM master while the session
+  is paused (so the incoming VT can take the GPU) and re-acquiring it — plus
+  resetting each DRM surface's compositor state — on activation, fixing the
+  frozen display / failing atomic commits when switching back to Halley.
+- Assign the entire surface tree (subsurfaces and popups, not just the top-level)
+  to a monitor on enter/leave, so subsurfaces receive correct output enter/leave
+  and scale.
+
+### Changed
+- The compositor no longer drives xwayland-satellite's RandR primary output from
+  pointer-motion and surface-map paths (`sync_xwayland_primary` is now a no-op).
+  The locked surface/output relationship is the single source of truth; forcing
+  `xrandr --primary` had created a competing source that could disagree with it
+  during fullscreen gaming.
 
 ## [v0.5.0] - 2026-07-01
 

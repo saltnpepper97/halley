@@ -7,9 +7,12 @@ use smithay::utils::SERIAL_COUNTER;
 use super::super::button::active_pointer_binding;
 use super::super::context::{clamp_screen_to_monitor, pointer_screen_context_for_monitor};
 use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
+use crate::compositor::interaction::state::RecentLockedPointerTarget;
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
 use halley_config::PointerBindingAction;
+
+const RECENT_LOCKED_POINTER_TARGET_MS: u64 = 250;
 
 pub(crate) struct MotionRoutingContext {
     pub monitor: String,
@@ -32,6 +35,85 @@ pub(super) enum MotionDispatchResult {
         desktop_hover: bool,
         hover_focus_blocked: bool,
     },
+}
+
+pub(super) fn dispatch_locked_pointer_motion(
+    st: &mut Halley,
+    delta: (f64, f64),
+    delta_unaccel: (f64, f64),
+    time_usec: u64,
+) -> bool {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return false;
+    };
+    let now_ms = st.now_ms(Instant::now());
+    let active_constraint = crate::compositor::interaction::pointer::active_pointer_constraint(st)
+        .filter(|constraint| constraint.locked);
+    let (surface, origin, source) = if let Some(constraint) = active_constraint {
+        st.input.interaction_state.recent_locked_pointer_target = Some(RecentLockedPointerTarget {
+            surface: constraint.surface.clone(),
+            origin: constraint.origin,
+            until_ms: now_ms.saturating_add(RECENT_LOCKED_POINTER_TARGET_MS),
+        });
+        (constraint.surface, constraint.origin, "active")
+    } else {
+        let Some(recent) = st
+            .input
+            .interaction_state
+            .recent_locked_pointer_target
+            .clone()
+        else {
+            return false;
+        };
+        if now_ms > recent.until_ms {
+            st.input.interaction_state.recent_locked_pointer_target = None;
+            return false;
+        }
+        let same_client = pointer
+            .current_focus()
+            .as_ref()
+            .is_some_and(|focus| focus.id().same_client_as(&recent.surface.id()));
+        if !same_client {
+            return false;
+        }
+        (recent.surface, recent.origin, "recent")
+    };
+
+    if pointer_trace_enabled() {
+        // Smithay delivers relative_motion + frame to its current pointer focus,
+        // and only to relative-pointer objects of that surface's client. If
+        // current_focus is None or a different client than the constraint
+        // surface, the game will not see motion.
+        let current_focus = pointer.current_focus();
+        let same_client = current_focus
+            .as_ref()
+            .is_some_and(|focus| focus.id().same_client_as(&surface.id()));
+        eventline::info!(
+            "pointer_constraint locked_relative source={} surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
+            source,
+            surface.id(),
+            current_focus.as_ref().map(|focus| focus.id()),
+            same_client,
+            delta.0,
+            delta.1,
+            delta_unaccel.0,
+            delta_unaccel.1,
+        );
+    }
+
+    if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+        pointer.relative_motion(
+            st,
+            Some((surface, origin)),
+            &RelativeMotionEvent {
+                delta: delta.into(),
+                delta_unaccel: delta_unaccel.into(),
+                utime: time_usec,
+            },
+        );
+    }
+    pointer.frame(st);
+    true
 }
 
 pub(super) fn compute_motion_routing(
@@ -171,48 +253,12 @@ pub(super) fn dispatch_pointer_motion(
     let mut hover_focus_blocked = false;
 
     if let Some(pointer) = st.platform.seat.get_pointer() {
-        let active_constraint =
-            crate::compositor::interaction::pointer::active_pointer_constraint(st);
-
-        if let Some(constraint) = active_constraint
-            .as_ref()
-            .filter(|constraint| constraint.locked)
-        {
-            if pointer_trace_enabled() {
-                // Smithay delivers relative_motion + frame to its *current* pointer
-                // focus (the `focus` arg is ignored), and only to relative-pointer
-                // objects of that surface's client. So if current_focus is None or a
-                // different client than the constraint surface, the game never sees
-                // the motion. Log both to confirm they match.
-                let current_focus = pointer.current_focus();
-                let same_client = current_focus
-                    .as_ref()
-                    .is_some_and(|focus| focus.id().same_client_as(&constraint.surface.id()));
-                eventline::info!(
-                    "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
-                    constraint.surface.id(),
-                    current_focus.as_ref().map(|focus| focus.id()),
-                    same_client,
-                    delta.0,
-                    delta.1,
-                    delta_unaccel.0,
-                    delta_unaccel.1,
-                );
-            }
-            if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
-                pointer.relative_motion(
-                    st,
-                    Some((constraint.surface.clone(), constraint.origin)),
-                    &RelativeMotionEvent {
-                        delta: delta.into(),
-                        delta_unaccel: delta_unaccel.into(),
-                        utime: time_usec,
-                    },
-                );
-            }
-            pointer.frame(st);
+        if dispatch_locked_pointer_motion(st, delta, delta_unaccel, time_usec) {
             return MotionDispatchResult::ConsumedByPointerConstraint;
         }
+
+        let active_constraint =
+            crate::compositor::interaction::pointer::active_pointer_constraint(st);
 
         let locked_surface = active_constraint
             .as_ref()

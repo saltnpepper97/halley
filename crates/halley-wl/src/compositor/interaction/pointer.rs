@@ -471,6 +471,7 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     st.input.interaction_state.pointer_contents = PointerContents::default();
     st.input.interaction_state.pointer_surface_origin = None;
     st.input.interaction_state.pointer_focus = None;
+    st.input.interaction_state.recent_locked_pointer_target = None;
 }
 
 pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Instant) -> bool {
@@ -561,13 +562,21 @@ pub(crate) fn apply_cursor_position_hint(
     location: smithay::utils::Point<f64, smithay::utils::Logical>,
 ) {
     let mut constraint_active = false;
+    let mut constraint_locked = false;
     let mut current = surface.clone();
     loop {
         let active = with_pointer_constraint(&current, pointer, |constraint| {
-            constraint.is_some_and(|constraint| constraint.is_active())
+            constraint.and_then(|constraint| {
+                constraint
+                    .is_active()
+                    .then(|| (true, matches!(&*constraint, PointerConstraint::Locked(_))))
+            })
         });
-        if active {
+        if let Some((active, locked)) = active
+            && active
+        {
             constraint_active = true;
+            constraint_locked = locked;
             break;
         }
         if let Some(parent) = get_parent(&current) {
@@ -601,6 +610,34 @@ pub(crate) fn apply_cursor_position_hint(
             format_args!(
                 "focus_match=false contents_match=false location={:.1},{:.1}",
                 location.x, location.y,
+            ),
+        );
+        return;
+    }
+
+    if constraint_locked
+        && let Some(constraint) =
+            active_pointer_constraint(st).filter(|constraint| constraint.locked)
+        && let Some(surface_origin) =
+            related_surface_origin(&constraint.surface, constraint.origin, surface)
+    {
+        let pointer_location = Point::<f64, Logical>::from((
+            surface_origin.x + location.x,
+            surface_origin.y + location.y,
+        ));
+        pointer.set_location(pointer_location);
+        trace_cursor_position_hint(
+            "sync-locked",
+            surface,
+            &root,
+            format_args!(
+                "location={:.1},{:.1} origin={:.1},{:.1} pointer={:.1},{:.1}",
+                location.x,
+                location.y,
+                surface_origin.x,
+                surface_origin.y,
+                pointer_location.x,
+                pointer_location.y,
             ),
         );
         return;
@@ -650,9 +687,9 @@ pub(crate) fn apply_cursor_position_hint(
         .get(monitor.as_str())
         .map(|space| (space.offset_x as f32 + sx, space.offset_y as f32 + sy))
         .unwrap_or((sx, sy));
+    let cam_scale = st.camera_render_scale().max(0.001) as f64;
     st.input.interaction_state.pending_pointer_screen_hint = Some((global_sx, global_sy));
 
-    let cam_scale = st.camera_render_scale().max(0.001) as f64;
     pointer.set_location((sx as f64 / cam_scale, sy as f64 / cam_scale).into());
     st.end_temporary_render_monitor(previous_monitor);
     st.request_maintenance();

@@ -9,6 +9,7 @@ use super::*;
 
 use crate::input::ctx::InputCtx;
 use smithay::backend::renderer::ImportEgl;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -50,6 +51,7 @@ use calloop::ping::make_ping;
 use smithay::backend::drm::DrmNode;
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
+use smithay::reexports::wayland_server::Resource;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, DeviceCapability, Event, GestureBeginEvent, GestureEndEvent,
@@ -185,6 +187,20 @@ fn take_ready_tty_redraw_outputs(
     ready
 }
 
+fn active_locked_pointer_monitor(st: &Halley) -> Option<String> {
+    let constraint = crate::compositor::interaction::pointer::active_pointer_constraint(st)?;
+    if !constraint.locked {
+        return None;
+    }
+
+    let mut root = constraint.surface.clone();
+    while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
+        root = parent;
+    }
+    let node_id = st.model.surface_to_node.get(&root.id())?;
+    st.model.monitor_state.node_monitor.get(node_id).cloned()
+}
+
 fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
@@ -211,18 +227,35 @@ fn queue_ready_tty_outputs(
 
     let cursor_image = st.effective_cursor_image_status();
     let previous_monitor = st.model.monitor_state.current_monitor.clone();
+    let locked_pointer_monitor = active_locked_pointer_monitor(st);
 
     let outputs_ref = outputs.borrow();
     let mut render_order: Vec<_> = outputs_ref.iter().collect();
-    render_order.sort_by_key(|output| {
-        let animation_active = tty_output_animation_redraw_active(
-            st,
-            pointer_state,
-            output.connector_name.as_str(),
-            now,
-        );
-        (!animation_active, output.mode.vrefresh())
-    });
+    if let Some(locked_pointer_monitor) = locked_pointer_monitor.as_deref() {
+        render_order.sort_by_key(|output| {
+            let animation_active = tty_output_animation_redraw_active(
+                st,
+                pointer_state,
+                output.connector_name.as_str(),
+                now,
+            );
+            (
+                output.connector_name.as_str() != locked_pointer_monitor,
+                !animation_active,
+                Reverse(output.mode.vrefresh()),
+            )
+        });
+    } else {
+        render_order.sort_by_key(|output| {
+            let animation_active = tty_output_animation_redraw_active(
+                st,
+                pointer_state,
+                output.connector_name.as_str(),
+                now,
+            );
+            (!animation_active, output.mode.vrefresh())
+        });
+    }
 
     for output in render_order {
         let output_name = output.connector_name.as_str();
@@ -1167,16 +1200,43 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let output_frame_pending_for_session = output_frame_pending.clone();
                 let output_frame_pending_since_for_session = output_frame_pending_since.clone();
                 let backend_handle_for_session = backend_handle.clone();
+                let drm_devices_for_session = drm_devices.clone();
                 ev.handle()
                     .insert_source(session_notifier, move |event, _, st| match event {
                         SessionEvent::PauseSession => {
                             debug!("tty session paused");
                             libinput_context_for_session.borrow_mut().suspend();
+                            // Drop DRM master while the session is inactive so the
+                            // incoming VT can take over the GPU cleanly.
+                            for device in drm_devices_for_session.borrow().iter() {
+                                device.dev.borrow_mut().pause();
+                            }
                         }
                         SessionEvent::ActivateSession => {
                             debug!("tty session activated");
                             if libinput_context_for_session.borrow_mut().resume().is_err() {
                                 warn!("failed to resume libinput context after session activation");
+                            }
+
+                            // Re-acquire DRM master and resync each surface with the
+                            // current KMS state. Without this the compositor keeps
+                            // submitting against stale state and every atomic commit
+                            // fails after the switch back, freezing the display.
+                            for device in drm_devices_for_session.borrow().iter() {
+                                if let Err(err) = device.dev.borrow_mut().activate(false) {
+                                    warn!(
+                                        "failed to reactivate tty drm device after session activation: {}",
+                                        err
+                                    );
+                                }
+                            }
+                            for output in outputs_for_session.borrow().iter() {
+                                if let Err(err) = output.compositor.borrow_mut().reset_state() {
+                                    warn!(
+                                        "failed to reset tty drm surface state for {} after session activation: {}",
+                                        output.connector_name, err
+                                    );
+                                }
                             }
 
                             let output_names =

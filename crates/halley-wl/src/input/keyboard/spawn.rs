@@ -10,6 +10,8 @@ use std::process::Command;
 use eventline::{debug, warn};
 use halley_config::CursorConfig;
 
+use crate::app_env::preferred_sdl_video_driver;
+
 const WAYLAND_TERMINAL_CANDIDATES: &[&str] = &[
     "ghostty",
     "kitty",
@@ -34,6 +36,7 @@ fn apply_spawn_environment(
         .env("GDK_BACKEND", "wayland,x11")
         .env("QT_QPA_PLATFORM", "wayland;xcb")
         .env("CLUTTER_BACKEND", "wayland")
+        .env("SDL_VIDEODRIVER", preferred_sdl_video_driver())
         .env("MOZ_ENABLE_WAYLAND", "1")
         .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
         .env("PATH", path)
@@ -210,6 +213,14 @@ mod tests {
             Some(&Some("wayland-7".to_string()))
         );
         assert_eq!(envs.get("HALLEY_WL_BACKEND"), Some(&None));
+        let expected_sdl_video_driver = std::env::var("SDL_VIDEODRIVER")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "wayland,x11".to_string());
+        assert_eq!(
+            envs.get("SDL_VIDEODRIVER"),
+            Some(&Some(expected_sdl_video_driver))
+        );
         assert_eq!(envs.get("XCURSOR_THEME"), Some(&Some("Bibata".to_string())));
         assert_eq!(envs.get("XCURSOR_SIZE"), Some(&Some("32".to_string())));
         assert_eq!(
