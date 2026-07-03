@@ -2,7 +2,7 @@ use crate::compositor::root::Halley;
 use crate::window::active_window_frame_pad_px;
 use eventline::{debug, info};
 use halley_api::{NodeMoveDirection, TrailDirection};
-use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
+use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, InputFocusMode};
 use halley_core::decay::DecayLevel;
 use halley_core::field::NodeId;
 use halley_core::viewport::FocusZone;
@@ -287,16 +287,55 @@ pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::Nod
         })
 }
 
-fn focused_surface_node_for_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
-    st.focused_node_for_monitor(focused_monitor)
+/// Resolve which monitor a keybind-driven window verb (fullscreen/maximize/pin/close/…) should
+/// act on. Mirrors `resolve_spawn_target_monitor` (`spawn/read.rs`): in hover focus-mode, the
+/// pointer is the user's locus of attention, so the verb targets the monitor under the cursor —
+/// unless a deliberate keyboard `monitor-focus` pinned `focused_monitor` (cleared by the next real
+/// pointer motion). In click mode, or when the pointer isn't over a known monitor, fall back to the
+/// sticky `focused_monitor` (which itself falls back to `interaction_monitor`).
+///
+/// Combined with the monitor-scoped node selectors below, this makes a keybind fired while the
+/// cursor sits on an empty monitor a no-op instead of reaching across to a window on another
+/// monitor.
+pub(crate) fn resolve_action_target_monitor(st: &Halley) -> String {
+    if st.runtime.tuning.input.focus_mode == InputFocusMode::Hover
+        && !st.input.interaction_state.monitor_focus_pinned
+        && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+        && let Some(pointer_monitor) = st.monitor_for_screen(sx, sy)
+        && st.model.monitor_state.monitors.contains_key(&pointer_monitor)
+    {
+        return pointer_monitor;
+    }
+
+    let focused = st.focused_monitor().to_string();
+    if st.model.monitor_state.monitors.contains_key(&focused) {
+        return focused;
+    }
+    st.interaction_monitor().to_string()
+}
+
+/// True when `id` is a live, visible surface node whose home monitor is `monitor`. Used to keep the
+/// action node selectors strictly scoped to the target monitor so an empty monitor yields `None`.
+fn node_belongs_to_monitor(st: &Halley, id: NodeId, monitor: &str) -> bool {
+    st.model.field.node(id).is_some()
+        && st.model.field.is_visible(id)
+        && st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .is_some_and(|m| m == monitor)
+}
+
+fn focused_surface_node_for_action(st: &Halley, target_monitor: &str) -> Option<NodeId> {
+    st.focused_node_for_monitor(target_monitor)
         .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
         .or(st
             .model
             .focus_state
             .primary_interaction_focus
-            .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id)))
-        .or_else(|| st.last_focused_surface_node_for_monitor(focused_monitor))
-        .or_else(|| st.last_focused_surface_node())
+            .filter(|&id| node_belongs_to_monitor(st, id, target_monitor)))
+        .or_else(|| st.last_focused_surface_node_for_monitor(target_monitor))
 }
 
 fn fullscreen_node_for_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
@@ -328,20 +367,20 @@ fn fullscreen_node_for_action(st: &Halley, focused_monitor: &str) -> Option<Node
         .or(focused)
 }
 
-fn focused_node_for_pin_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
-    st.focused_node_for_monitor(focused_monitor)
+fn focused_node_for_pin_action(st: &Halley, target_monitor: &str) -> Option<NodeId> {
+    st.focused_node_for_monitor(target_monitor)
         .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
         .or(st
             .model
             .focus_state
             .primary_interaction_focus
-            .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id)))
-        .or_else(|| latest_surface_node(st))
+            .filter(|&id| node_belongs_to_monitor(st, id, target_monitor)))
+        .or_else(|| st.last_focused_surface_node_for_monitor(target_monitor))
 }
 
 pub(crate) fn toggle_focused_pin_state(st: &mut Halley) -> bool {
-    let focused_monitor = st.focused_monitor().to_string();
-    let Some(id) = focused_node_for_pin_action(st, focused_monitor.as_str()) else {
+    let target_monitor = resolve_action_target_monitor(st);
+    let Some(id) = focused_node_for_pin_action(st, target_monitor.as_str()) else {
         return false;
     };
     let Some(node) = st.model.field.node(id) else {
@@ -661,23 +700,23 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
 
 pub(crate) fn toggle_focused_maximize_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
-    let focused_monitor = st.focused_monitor().to_string();
+    let target_monitor = resolve_action_target_monitor(st);
 
-    let Some(id) = focused_surface_node_for_action(st, focused_monitor.as_str()) else {
+    let Some(id) = focused_surface_node_for_action(st, target_monitor.as_str()) else {
         return false;
     };
 
-    toggle_node_maximize_state(st, id, now, focused_monitor.as_str())
+    toggle_node_maximize_state(st, id, now, target_monitor.as_str())
 }
 
 pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
-    let focused_monitor = st.focused_monitor().to_string();
+    let target_monitor = resolve_action_target_monitor(st);
 
-    let Some(id) = fullscreen_node_for_action(st, focused_monitor.as_str()) else {
+    let Some(id) = fullscreen_node_for_action(st, target_monitor.as_str()) else {
         info!(
             "toggle-fullscreen: no focused surface on {:?}; cluster_ws={}",
-            focused_monitor,
+            target_monitor,
             st.has_active_cluster_workspace()
         );
         return false;
@@ -869,13 +908,13 @@ pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> b
 
 pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
-    let focused_monitor = st.focused_monitor().to_string();
+    let target_monitor = resolve_action_target_monitor(st);
 
-    let Some(id) = focused_surface_node_for_action(st, focused_monitor.as_str()) else {
+    let Some(id) = focused_surface_node_for_action(st, target_monitor.as_str()) else {
         return false;
     };
 
-    toggle_node_state(st, id, now, focused_monitor.as_str())
+    toggle_node_state(st, id, now, target_monitor.as_str())
 }
 
 pub(crate) fn toggle_node_state(
@@ -959,9 +998,12 @@ pub(crate) fn toggle_node_state(
 mod tests {
     use super::{
         focus_surface_node_without_reveal, maximize_target_for_monitor,
-        toggle_focused_fullscreen_node_state, toggle_focused_pin_state, toggle_node_maximize_state,
+        resolve_action_target_monitor, toggle_focused_fullscreen_node_state,
+        toggle_focused_maximize_node_state, toggle_focused_pin_state, toggle_node_maximize_state,
         toggle_node_state,
     };
+    use halley_config::InputFocusMode;
+    use halley_core::field::NodeId;
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
     use smithay::reexports::wayland_server::Display;
@@ -2056,5 +2098,77 @@ mod tests {
                 .is_none(),
             "no maximize session should be created for a cluster member"
         );
+    }
+
+    // Focused window on `left`; the cursor is parked on the empty `right` monitor. In hover mode a
+    // window verb targets the monitor under the pointer, so it must NOT reach across to the window
+    // on `left` — it no-ops instead. (Empty-monitor split-brain fix.)
+    fn hover_setup_with_focused_left_window(st: &mut Halley) -> NodeId {
+        let win = st.model.field.spawn_surface(
+            "chat",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(win, "left");
+        st.set_focused_monitor("left");
+        st.model
+            .focus_state
+            .monitor_focus
+            .insert("left".to_string(), win);
+        st.model.focus_state.primary_interaction_focus = Some(win);
+        win
+    }
+
+    #[test]
+    fn hover_verb_over_empty_monitor_no_ops() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = two_monitor_tuning();
+        tuning.input.focus_mode = InputFocusMode::Hover;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let win = hover_setup_with_focused_left_window(&mut st);
+        // Pointer on the empty right monitor (x >= 800).
+        st.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+
+        assert_eq!(resolve_action_target_monitor(&st), "right");
+        assert!(!toggle_focused_fullscreen_node_state(&mut st));
+        assert!(!st.is_fullscreen_session_node(win));
+        assert!(!toggle_focused_maximize_node_state(&mut st));
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .get("left")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn hover_verb_follows_pointer_to_window_monitor() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = two_monitor_tuning();
+        tuning.input.focus_mode = InputFocusMode::Hover;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let win = hover_setup_with_focused_left_window(&mut st);
+        // Pointer over `left`, where the window actually lives.
+        st.input.interaction_state.last_pointer_screen_global = Some((400.0, 300.0));
+
+        assert_eq!(resolve_action_target_monitor(&st), "left");
+        assert!(toggle_focused_fullscreen_node_state(&mut st));
+        assert!(st.is_fullscreen_session_node(win));
+    }
+
+    #[test]
+    fn click_mode_verb_ignores_pointer_and_uses_focused_monitor() {
+        // Click mode keeps the sticky behavior: a cursor parked on the empty `right` monitor must
+        // not redirect the verb away from the focused monitor `left`.
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let tuning = two_monitor_tuning(); // default focus_mode == Click
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let win = hover_setup_with_focused_left_window(&mut st);
+        st.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+
+        assert_eq!(resolve_action_target_monitor(&st), "left");
+        assert!(toggle_focused_fullscreen_node_state(&mut st));
+        assert!(st.is_fullscreen_session_node(win));
     }
 }

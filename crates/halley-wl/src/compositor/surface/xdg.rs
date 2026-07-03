@@ -10,8 +10,8 @@ use halley_core::field::{NodeId, NodeKind, NodeState, Visibility};
 const SILENT_CORE_CLOSE_MS: u64 = 2_000;
 
 pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
-    let focused_monitor = st.focused_monitor().to_string();
-    let Some(candidate) = focused_close_candidate(st, focused_monitor.as_str()) else {
+    let target_monitor = crate::compositor::actions::window::resolve_action_target_monitor(st);
+    let Some(candidate) = focused_close_candidate(st, target_monitor.as_str()) else {
         return false;
     };
     let targets = close_targets_for_node(st, candidate);

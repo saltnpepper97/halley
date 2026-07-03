@@ -31,6 +31,12 @@ All notable changes to this project will be documented in this file.
 - Assign the entire surface tree (subsurfaces and popups, not just the top-level)
   to a monitor on enter/leave, so subsurfaces receive correct output enter/leave
   and scale.
+- In hover focus-mode, scope keybind-driven window verbs (fullscreen, maximize,
+  pin, toggle-active, close) to the monitor under the pointer via a shared
+  `resolve_action_target_monitor`, and strictly scope the node selectors to that
+  monitor. Firing a verb while the cursor is on an empty monitor is now a no-op
+  instead of reaching across to a window on another monitor. Click focus-mode
+  keeps the sticky `focused_monitor` behavior.
 
 ### Changed
 - The compositor no longer drives xwayland-satellite's RandR primary output from
