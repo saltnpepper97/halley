@@ -37,6 +37,14 @@ All notable changes to this project will be documented in this file.
   monitor. Firing a verb while the cursor is on an empty monitor is now a no-op
   instead of reaching across to a window on another monitor. Click focus-mode
   keeps the sticky `focused_monitor` behavior.
+- Fix popup stacking order in the window render path. Smithay yields popups
+  top-first (child before parent); the live element path draws with index 0 =
+  topmost and needs that order, while the offscreen-texture path draws forward
+  (index 0 = bottom) and needs the reverse. The old global `popups.reverse()`
+  suited one path but inverted the other, so nested popups could stack under
+  their parent; popups are now iterated as-is for the element path and a
+  per-window offscreen group is reversed locally before appending, giving both
+  paths the order they expect.
 
 ### Changed
 - The compositor no longer drives xwayland-satellite's RandR primary output from

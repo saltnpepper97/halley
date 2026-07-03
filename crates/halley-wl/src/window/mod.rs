@@ -1345,8 +1345,13 @@ pub(crate) fn collect_active_surfaces(
         ));
         let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
         let mut popup_cropped = Vec::new();
-        let mut popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
-        popups.reverse();
+        // Smithay yields popups top-first (child/nested before parent). The
+        // element path (draw_render_elements, index 0 = topmost) wants exactly
+        // this order, so we iterate as-is. The offscreen path (forward draw,
+        // index 0 = bottom) wants the opposite, so its textures are collected
+        // into a local group and reversed after the loop.
+        let mut popup_offscreen_local: Vec<OffscreenNodeTexture> = Vec::new();
+        let popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
             // Pinning anchors a popup to the monitor for the non-fullscreen panned
@@ -1426,11 +1431,7 @@ pub(crate) fn collect_active_surfaces(
                             geo_w: 0.0,
                             geo_h: 0.0,
                         };
-                        if render_route.popups_above_fullscreen() {
-                            above_fullscreen_popup_offscreen_textures.push(offscreen_texture);
-                        } else {
-                            popup_offscreen_textures.push(offscreen_texture);
-                        }
+                        popup_offscreen_local.push(offscreen_texture);
                     }
                     Err(_) => {
                         let popup_elems: Vec<SurfaceElement> = render_elements_from_surface_tree(
@@ -1488,10 +1489,17 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
+        // Offscreen textures were collected top-first; the forward draw loop
+        // (index 0 = bottom) needs bottom-first, so reverse this window's group
+        // before appending. Per-window grouping preserves cross-window order.
+        popup_offscreen_local.reverse();
+
         if render_route.popups_above_fullscreen() {
             above_fullscreen_popup_elements.extend(popup_cropped);
+            above_fullscreen_popup_offscreen_textures.extend(popup_offscreen_local);
         } else {
             popup_elements.extend(popup_cropped);
+            popup_offscreen_textures.extend(popup_offscreen_local);
         }
     }
 
