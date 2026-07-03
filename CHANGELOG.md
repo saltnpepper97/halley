@@ -45,6 +45,12 @@ All notable changes to this project will be documented in this file.
   their parent; popups are now iterated as-is for the element path and a
   per-window offscreen group is reversed locally before appending, giving both
   paths the order they expect.
+- Preserve the windowed restore size on rapid fullscreen re-entry. A fast
+  re-toggle before the client commits the windowed configure could capture the
+  still-fullscreen live geometry as the restore snapshot. `enter_fullscreen`
+  now falls back to `node.resize_footprint` (pinned by
+  `restore_fullscreen_snapshot`) for the saved size and intrinsic size, so the
+  restore entry keeps the original windowed dimensions.
 
 ### Changed
 - The compositor no longer drives xwayland-satellite's RandR primary output from

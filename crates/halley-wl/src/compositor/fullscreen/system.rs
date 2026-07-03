@@ -1716,6 +1716,60 @@ mod tests {
     }
 
     #[test]
+    fn rapid_fullscreen_reentry_preserves_windowed_restore_size() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let tuning = single_monitor_tuning();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let target = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 120.0, y: 140.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, "monitor_a");
+        let original_size = state
+            .model
+            .field
+            .node(target)
+            .expect("target")
+            .intrinsic_size;
+
+        state.enter_xdg_fullscreen(target, None, now);
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        state.exit_xdg_fullscreen(target, now + std::time::Duration::from_millis(300));
+
+        // A fast re-toggle can arrive before the client has committed the windowed
+        // configure. Simulate that lag: the live/cache geometry and intrinsic size
+        // still look fullscreen, but `restore_fullscreen_snapshot` pinned the real
+        // windowed size in `resize_footprint`.
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(target, (0.0, 0.0, 1920.0, 1080.0));
+        if let Some(node) = state.model.field.node_mut(target) {
+            node.intrinsic_size = Vec2 {
+                x: 1920.0,
+                y: 1080.0,
+            };
+            node.footprint = node.intrinsic_size;
+        }
+
+        state.enter_xdg_fullscreen(target, None, now + std::time::Duration::from_millis(320));
+
+        let entry = state
+            .model
+            .fullscreen_state
+            .fullscreen_restore
+            .get(&target)
+            .expect("restore entry");
+        assert_eq!(entry.size, original_size);
+        assert_eq!(entry.intrinsic_size, original_size);
+    }
+
+    #[test]
     fn maximize_exits_active_fullscreen_on_same_monitor() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tuning();
@@ -2726,6 +2780,7 @@ fn enter_fullscreen(
     let saved_size = soft_resume_entry
         .map(|entry| entry.size)
         .or(maximize_pre_size)
+        .or(node.resize_footprint)
         .unwrap_or_else(|| {
             crate::compositor::surface::current_surface_size_for_node(st, node_id)
                 .unwrap_or(node.intrinsic_size)
@@ -2746,6 +2801,7 @@ fn enter_fullscreen(
     let saved_pos = soft_resume_entry.map(|entry| entry.pos).unwrap_or(node.pos);
     let saved_intrinsic_size = soft_resume_entry
         .map(|entry| entry.intrinsic_size)
+        .or(node.resize_footprint)
         .unwrap_or(node.intrinsic_size);
     let saved_pinned = soft_resume_entry
         .map(|entry| entry.pinned)
