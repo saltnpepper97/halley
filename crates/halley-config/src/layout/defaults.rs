@@ -159,8 +159,15 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
         CompositorBinding {
             scope: CompositorBindingScope::Global,
             modifiers: modifier,
-            key: key("space"),
+            key: key("o"),
             action: CompositorBindingAction::Apogee,
+        },
+        // Screenshot capture menu on the bare PrintScreen key (no modifier).
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: KeyModifiers::default(),
+            key: key("print"),
+            action: CompositorBindingAction::Screenshot,
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,
@@ -256,9 +263,8 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
                 requires_shift: true,
             },
         },
-        // Field node movement on the arrow keys, matching the generated template and
-        // example configs (which use arrows, not vim hjkl). This frees `mod+h` for the
-        // center-last-focused binding below.
+        // Field node movement on the arrow keys (move the window). Vim hjkl is reserved
+        // for directional *focus* below, so arrows keep the "move" role.
         CompositorBinding {
             scope: CompositorBindingScope::Field,
             modifiers: modifier,
@@ -286,11 +292,38 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
         },
         // Quick "go back": pan the camera to centre on the last focused node.
+        // On `space` (freed by moving Apogee to `o`) so `h` is free for focus-left.
         CompositorBinding {
             scope: CompositorBindingScope::Global,
             modifiers: modifier,
-            key: key("h"),
+            key: key("space"),
             action: CompositorBindingAction::CenterLastFocused,
+        },
+        // Vim-style directional focus on the free field: walk keyboard focus to the
+        // nearest window in each direction (h=left, j=down, k=up, l=right).
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("h"),
+            action: CompositorBindingAction::Focus(DirectionalAction::Left),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("j"),
+            action: CompositorBindingAction::Focus(DirectionalAction::Down),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("k"),
+            action: CompositorBindingAction::Focus(DirectionalAction::Up),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("l"),
+            action: CompositorBindingAction::Focus(DirectionalAction::Right),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,

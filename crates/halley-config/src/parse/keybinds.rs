@@ -298,6 +298,51 @@ fn apply_explicit_binding(
                 CompositorBindingAction::Apogee,
             );
         }
+        "screenshot" | "capture-menu" | "capture_menu" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::Screenshot,
+            );
+        }
+        "focus_left" | "focus-left" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::Focus(DirectionalAction::Left),
+            );
+        }
+        "focus_right" | "focus-right" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::Focus(DirectionalAction::Right),
+            );
+        }
+        "focus_up" | "focus-up" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::Focus(DirectionalAction::Up),
+            );
+        }
+        "focus_down" | "focus-down" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::Focus(DirectionalAction::Down),
+            );
+        }
         "cycle_focus" | "cycle-focus" | "focus_cycle" | "focus-cycle" => {
             upsert_compositor_binding(
                 out,
@@ -476,6 +521,12 @@ fn parse_parameterized_compositor_action(
             (
                 CompositorBindingScope::Field,
                 CompositorBindingAction::Node(NodeBindingAction::Move(direction)),
+            )
+        }),
+        "focus" => parse_directional_action(arg).map(|direction| {
+            (
+                CompositorBindingScope::Field,
+                CompositorBindingAction::Focus(direction),
             )
         }),
         "monitor-focus" | "monitor_focus" => Some((
@@ -869,6 +920,50 @@ end
             binding.scope == CompositorBindingScope::Global
                 && binding.action == CompositorBindingAction::Apogee
         }));
+    }
+
+    #[test]
+    fn screenshot_keyword_parses_as_compositor_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.launch_bindings.clear();
+
+        let bindings = vec![("print".to_string(), "screenshot".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.launch_bindings.is_empty());
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Global
+                && binding.action == CompositorBindingAction::Screenshot
+        }));
+    }
+
+    #[test]
+    fn directional_focus_keywords_parse_as_field_actions() {
+        for (verb, expected) in [
+            ("focus-left", DirectionalAction::Left),
+            ("focus-right", DirectionalAction::Right),
+            ("focus-up", DirectionalAction::Up),
+            ("focus-down", DirectionalAction::Down),
+            ("focus left", DirectionalAction::Left),
+            ("focus down", DirectionalAction::Down),
+        ] {
+            let mut out = RuntimeTuning::default();
+            out.compositor_bindings.clear();
+            out.launch_bindings.clear();
+
+            let bindings = vec![("$var.mod+h".to_string(), verb.to_string())];
+            assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+            assert!(out.launch_bindings.is_empty(), "{verb} should not spawn");
+            assert!(
+                out.compositor_bindings.iter().any(|binding| {
+                    binding.scope == CompositorBindingScope::Field
+                        && binding.action == CompositorBindingAction::Focus(expected)
+                }),
+                "{verb} should map to a Field Focus({expected:?})"
+            );
+        }
     }
 
     #[test]

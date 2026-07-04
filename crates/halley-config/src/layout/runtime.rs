@@ -970,6 +970,10 @@ keybinds:
   "$var.mod+f" "toggle-fullscreen"
   "$var.mod+p" "toggle-focused-pin"
   "$var.mod+q" "close-focused"
+  "$var.mod+o" "apogee"          # the Observatory overview
+
+  # Screenshot capture menu on the bare PrintScreen key.
+  "print" "screenshot"
 
   # Zoom controls for the field camera.
   "$var.mod+mousewheelup" "zoom-in"
@@ -984,8 +988,14 @@ keybinds:
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
+  # Vim-style directional focus: walk focus to the nearest window in the field.
+  "$var.mod+h" "focus-left"
+  "$var.mod+j" "focus-down"
+  "$var.mod+k" "focus-up"
+  "$var.mod+l" "focus-right"
+
   # Pan the camera back to centre on the last focused node (quick "go back").
-  "$var.mod+h" "center-last-focused"
+  "$var.mod+space" "center-last-focused"
 
   # Switch active monitor focus.
   "$var.mod+shift+left" "monitor-focus left"
@@ -1043,9 +1053,6 @@ keybinds:
   # Stacking layout controls.
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
-
-  # Screenshot UI
-  "$var.mod+shift+s" "halleyctl capture menu"
 
   # Media keys.
   "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"

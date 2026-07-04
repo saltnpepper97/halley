@@ -155,6 +155,35 @@ pub(crate) fn ensure_dbus_session_bus_address() {
     unsafe { env::set_var("DBUS_SESSION_BUS_ADDRESS", addr) };
 }
 
+/// Read a boolean-ish environment flag (`1`/`true`/`yes`/`on`).
+fn env_flag(name: &str) -> bool {
+    env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+/// True when all init-system-specific integrations should be skipped.
+///
+/// Set `HALLEY_NO_INIT_INTEGRATION=1` to run fully init-agnostic: no
+/// `systemctl` calls, only the plain dbus activation-environment sync.
+fn init_integration_disabled() -> bool {
+    env_flag("HALLEY_NO_INIT_INTEGRATION")
+}
+
+/// True only when systemd is the *booted* init (PID 1), following the
+/// `sd_booted()` convention.
+///
+/// This intentionally tests the runtime marker rather than the presence of
+/// the `systemctl` binary: a system can have the systemd package installed
+/// while booting under runit/dinit/OpenRC, in which case `/run/systemd/system`
+/// does not exist and a `systemctl --user` call would fail anyway.
+fn is_systemd_managed() -> bool {
+    Path::new("/run/systemd/system").is_dir()
+}
+
 pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
     // SAFETY: Called during tty compositor startup before worker threads are spawned.
     unsafe {
@@ -174,22 +203,39 @@ pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
         return;
     }
 
-    run_activation_env_sync(
-        "dbus-update-activation-environment",
-        Command::new("dbus-update-activation-environment")
-            .arg("--systemd")
-            .args(vars.iter().map(String::as_str)),
-    );
-    run_activation_env_sync(
-        "systemctl import-environment",
-        Command::new("systemctl")
-            .arg("--user")
-            .arg("import-environment")
-            .args(vars.iter().map(String::as_str)),
-    );
+    // Push env into the dbus activation environment on every init system. The
+    // `--systemd` flag (which also forwards to the systemd user manager) is
+    // only added when systemd is the booted init.
+    let use_systemd = !init_integration_disabled() && is_systemd_managed();
+
+    let mut dbus_sync = Command::new("dbus-update-activation-environment");
+    if use_systemd {
+        dbus_sync.arg("--systemd");
+    }
+    dbus_sync.args(vars.iter().map(String::as_str));
+    run_activation_env_sync("dbus-update-activation-environment", &mut dbus_sync);
+
+    if use_systemd {
+        run_activation_env_sync(
+            "systemctl import-environment",
+            Command::new("systemctl")
+                .arg("--user")
+                .arg("import-environment")
+                .args(vars.iter().map(String::as_str)),
+        );
+    } else {
+        debug!("non-systemd session: skipping systemctl import-environment");
+    }
 }
 
 pub(crate) fn refresh_portal_services_nonblocking() {
+    if init_integration_disabled() || !is_systemd_managed() {
+        // Without a systemd user manager the portal is dbus-activated; the
+        // updated activation environment is already published via
+        // dbus-update-activation-environment, so no restart is needed.
+        debug!("non-systemd session: skipping xdg-desktop-portal restart");
+        return;
+    }
     run_portal_service_command(
         "restart xdg-desktop-portal.service",
         Command::new("systemctl")

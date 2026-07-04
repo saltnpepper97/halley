@@ -1,0 +1,19 @@
+#!/bin/sh
+# Halley Wayland compositor — runit *user* service (runsvdir).
+#
+# runit has no standard per-user service manager for desktop sessions; the
+# recommended path is to launch Halley from a display manager (greetd, SDDM,
+# LightDM) via the halley.desktop session entry. This run script is for users
+# who supervise their graphical session under a personal `runsvdir` tree, e.g.:
+#   mkdir -p ~/.config/runit/service/halley
+#   install -Dm755 packaging/runit/halley/run ~/.config/runit/service/halley/run
+#
+# seatd (or elogind) must be running for the tty backend to acquire the seat.
+
+export HALLEY_WL_BACKEND=tty
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Halley
+export XDG_SESSION_DESKTOP=Halley
+export DESKTOP_SESSION=Halley
+
+exec /usr/bin/halley --session

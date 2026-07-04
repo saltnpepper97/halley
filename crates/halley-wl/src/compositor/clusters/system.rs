@@ -213,7 +213,7 @@ fn range_gap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
     }
 }
 
-fn directional_candidate_score(
+pub(crate) fn directional_candidate_score(
     current: halley_core::tiling::Rect,
     candidate: halley_core::tiling::Rect,
     direction: DirectionalAction,

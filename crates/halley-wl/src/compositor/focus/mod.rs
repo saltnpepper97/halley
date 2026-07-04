@@ -19,6 +19,7 @@ use crate::compositor::root::Halley;
 
 pub mod cycle;
 pub mod decay;
+pub mod directional;
 pub mod read;
 pub mod state;
 pub mod system;

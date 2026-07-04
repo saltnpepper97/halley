@@ -201,11 +201,37 @@ Install them to the standard system locations alongside the compositor binary:
     sudo install -Dm644 packaging/systemd-user/halley.service /usr/lib/systemd/user/halley.service
     sudo install -Dm644 packaging/systemd-user/halley-shutdown.target /usr/lib/systemd/user/halley-shutdown.target
 
-`halley-session` is the recommended public launcher for a full Halley desktop session. It will start `halley.service` when a user systemd instance is available, which makes `graphical-session.target`, `xdg-desktop-autostart.target`, and related user-session units behave correctly under display managers like SDDM. If those units are not installed, the launcher falls back to executing `halley` directly.
+The systemd user units above are optional — they are only used when systemd is the booted init. `halley-session` is the recommended public launcher for a full Halley desktop session. When systemd is running it starts `halley.service`, which makes `graphical-session.target`, `xdg-desktop-autostart.target`, and related user-session units behave correctly under display managers like SDDM. Otherwise the launcher falls back to executing `halley` directly.
 
 The compositor also accepts `halley --session` for session wrappers, packagers, and service files. Normal users should prefer `halley-session`.
 
 After that, `Halley` should appear in Wayland-capable display managers.
+
+#### Init systems (systemd-free setups)
+
+Halley does not require systemd. Seat management uses libseat, so any init
+works as long as **seatd** (or elogind) is running and your user can access the
+seat. At runtime Halley checks whether systemd is the *booted* init (it tests
+for `/run/systemd/system`); if it is not, all `systemctl` integration is
+skipped automatically — the dbus activation environment is still published via
+`dbus-update-activation-environment`, and dbus-activated portals pick it up
+without a restart. This also covers the case where the systemd package is
+installed but not booted.
+
+The universal path on every init is: a display manager (greetd, SDDM, LightDM)
+reads `halley.desktop` → `halley-session` → `halley --session`. Optional native
+service integrations ship under `packaging/`:
+
+- **systemd** — `packaging/systemd-user/` (installed above). Autodetected.
+- **dinit** — `packaging/dinit/halley`; install as `~/.config/dinit.d/halley`.
+  `halley-session` autodetects a loaded `dinitctl --user` service.
+- **runit** — `packaging/runit/halley/run`; for a personal `runsvdir` tree.
+- **s6** — `packaging/s6/halley/{run,type}`; for a personal s6 tree.
+- **OpenRC** — see `packaging/openrc/README` (no per-user supervisor; use a
+  display manager plus seatd).
+
+To force the fully init-agnostic path regardless of detection, set
+`HALLEY_NO_INIT_INTEGRATION=1` in the session environment.
 
 ---
 
@@ -218,6 +244,7 @@ Defaults follow Halley's shipped fresh-config template.
 | Basic | `Super+Shift+r` | Reload config |
 | Basic | `Super+n` | Toggle state |
 | Basic | `Super+q` | Close focused window |
+| Overview | `Super+o` | Toggle Apogee (Observatory overview) |
 | Quit | `Super+Shift+e` | Quit Halley |
 | Zoom | `Super+MouseWheelUp` | Zoom in |
 | Zoom | `Super+MouseWheelDown` | Zoom out |
@@ -226,6 +253,8 @@ Defaults follow Halley's shipped fresh-config template.
 | Move | `Super+Right` | Move node right |
 | Move | `Super+Up` | Move node up |
 | Move | `Super+Down` | Move node down |
+| Focus | `Super+h/j/k/l` | Focus nearest window left/down/up/right |
+| Focus | `Super+Space` | Recenter on last focused (quick "go back") |
 | Monitor | `Super+Shift+Left` | Focus monitor left |
 | Monitor | `Super+Shift+Right` | Focus monitor right |
 | Monitor | `Super+Shift+Up` | Focus monitor up |
@@ -241,7 +270,7 @@ Defaults follow Halley's shipped fresh-config template.
 | Pointer | `Super+LeftMouse` | Move window |
 | Pointer | `Super+RightMouse` | Resize window |
 | Pointer | `Super+Shift+LeftMouse` | Field jump |
-| Screenshot | `Super+Shift+s` | Open capture menu |
+| Screenshot | `PrintScreen` | Open capture menu |
 | Tile | `Super+Left/Right/Up/Down` | Focus tile in that direction |
 | Tile | `Super+Ctrl+Left/Right/Up/Down` | Swap tile in that direction |
 | Stacking | `Super+Left` | Cycle stack forward |

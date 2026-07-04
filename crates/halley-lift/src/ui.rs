@@ -426,6 +426,12 @@ enum IconSlot {
     Missing,
 }
 
+enum IconLookup<'a> {
+    Ready(&'a IconRaster),
+    Pending,
+    Missing,
+}
+
 struct IconRaster {
     width: u32,
     height: u32,
@@ -546,6 +552,10 @@ impl IconCache {
         self.index_rx.is_some()
     }
 
+    pub fn has_requested_index_refresh(&self) -> bool {
+        self.index_refresh_requested && self.index_rx.is_none()
+    }
+
     pub fn has_pending_decodes(&self) -> bool {
         self.pending_decodes > 0
     }
@@ -613,35 +623,45 @@ impl IconCache {
         changed
     }
 
-    fn load(&mut self, name: &str) -> Option<&IconRaster> {
+    fn load(&mut self, name: &str) -> IconLookup<'_> {
         let key = name.trim().to_string();
         if key.is_empty() {
-            return None;
+            return IconLookup::Missing;
         }
         if !self.entries.contains_key(&key) {
             match self.resolve_icon_path(&key) {
                 Some(path) => {
                     self.entries.insert(key.clone(), IconSlot::Pending);
                     self.ensure_decode_worker();
-                    if let Some(tx) = self.decode_tx.as_ref()
-                        && tx.send((key.clone(), path)).is_ok()
-                    {
+                    let queued = self
+                        .decode_tx
+                        .as_ref()
+                        .is_some_and(|tx| tx.send((key.clone(), path)).is_ok());
+                    if queued {
                         self.pending_decodes += 1;
+                    } else {
+                        self.entries.insert(key.clone(), IconSlot::Missing);
                     }
                 }
                 // Before the index is ready, resolution always fails; leave the entry
                 // unrecorded so it retries once the index lands. Once indexed, an
-                // unresolved name is genuinely missing and is cached as such.
+                // unresolved name is genuinely missing and is cached as such. A miss
+                // from a disk-loaded index may mean the cache is stale, so request a
+                // fresh walk and keep the result pending until that walk completes.
+                None if self.loaded_disk_index => {
+                    self.request_index_refresh();
+                }
                 None if self.indexed => {
                     self.entries.insert(key.clone(), IconSlot::Missing);
-                    self.request_index_refresh();
                 }
                 None => {}
             }
         }
         match self.entries.get(&key) {
-            Some(IconSlot::Ready(raster)) => Some(raster),
-            _ => None,
+            Some(IconSlot::Ready(raster)) => IconLookup::Ready(raster),
+            Some(IconSlot::Missing) if self.loaded_disk_index => IconLookup::Pending,
+            Some(IconSlot::Missing) => IconLookup::Missing,
+            Some(IconSlot::Pending) | None => IconLookup::Pending,
         }
     }
 
@@ -1310,11 +1330,15 @@ fn draw_result_icon(
     let size = config.icon_size as i32;
     // Prefer a resolvable raster icon (apps); fall back to a drawn shape for kinds that
     // never carry one so the slot isn't blank.
-    if let Some(name) = result.icon_name.as_deref()
-        && let Some(raster) = icon_cache.load(name)
-    {
-        draw_raster(canvas, width, height, raster, x, y, size, size);
-        return;
+    if let Some(name) = result.icon_name.as_deref() {
+        match icon_cache.load(name) {
+            IconLookup::Ready(raster) => {
+                draw_raster(canvas, width, height, raster, x, y, size, size);
+                return;
+            }
+            IconLookup::Pending => return,
+            IconLookup::Missing => {}
+        }
     }
     let colors = Palette::from_config(config);
     let icon_color = parse_color(&config.colors.icon, colors.accent);
@@ -2208,9 +2232,45 @@ mod tests {
             config_icon: None,
         };
 
-        assert!(cache.load("new-app-icon").is_none());
+        assert!(matches!(cache.load("new-app-icon"), IconLookup::Pending));
 
         assert!(cache.needs_index());
+    }
+
+    #[test]
+    fn app_result_does_not_draw_fallback_while_icon_index_is_pending() {
+        let config = LiftConfig::default();
+        let mut cache = IconCache::new(&config);
+        cache.indexed = false;
+        cache.loaded_disk_index = false;
+        cache.index.clear();
+        let result = LiftResult {
+            section: "Applications".into(),
+            title: "Pending Icon App".into(),
+            subtitle: None,
+            icon_name: Some("pending-icon".into()),
+            kind: LiftResultKind::App,
+            score: 1.0,
+            is_field_pinned: false,
+            shortcut_hint: None,
+            action: LiftAction::ReloadConfig,
+        };
+        let width = 48;
+        let height = 48;
+        let mut canvas = vec![0; (width * height * 4) as usize];
+
+        draw_result_icon(
+            &mut canvas,
+            width,
+            height,
+            &mut cache,
+            &config,
+            &result,
+            8,
+            8,
+        );
+
+        assert!(canvas.chunks_exact(4).all(|pixel| pixel[3] == 0));
     }
 
     #[test]
@@ -2218,6 +2278,8 @@ mod tests {
         let config = LiftConfig::default();
         let mut cache = IconCache::new(&config);
         cache.indexed = true;
+        cache.loaded_disk_index = false;
+        cache.index.clear();
         let result = LiftResult {
             section: "Applications".into(),
             title: "Missing Icon App".into(),

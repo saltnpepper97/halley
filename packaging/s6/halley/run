@@ -1,0 +1,20 @@
+#!/bin/sh
+# Halley Wayland compositor — s6 *user* service (s6-svscan / s6-rc).
+#
+# Like runit, s6 has no standard per-user desktop service manager; prefer
+# launching Halley from a display manager via halley.desktop. This longrun
+# `run` script is for users who supervise their session under a personal s6
+# tree, e.g.:
+#   mkdir -p ~/.config/s6/halley
+#   install -Dm755 packaging/s6/halley/run  ~/.config/s6/halley/run
+#   install -Dm644 packaging/s6/halley/type ~/.config/s6/halley/type
+#
+# seatd (or elogind) must be running for the tty backend to acquire the seat.
+
+export HALLEY_WL_BACKEND=tty
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Halley
+export XDG_SESSION_DESKTOP=Halley
+export DESKTOP_SESSION=Halley
+
+exec /usr/bin/halley --session

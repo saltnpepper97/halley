@@ -302,7 +302,11 @@ pub(crate) fn resolve_action_target_monitor(st: &Halley) -> String {
         && !st.input.interaction_state.monitor_focus_pinned
         && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
         && let Some(pointer_monitor) = st.monitor_for_screen(sx, sy)
-        && st.model.monitor_state.monitors.contains_key(&pointer_monitor)
+        && st
+            .model
+            .monitor_state
+            .monitors
+            .contains_key(&pointer_monitor)
     {
         return pointer_monitor;
     }
@@ -1002,10 +1006,10 @@ mod tests {
         toggle_focused_maximize_node_state, toggle_focused_pin_state, toggle_node_maximize_state,
         toggle_node_state,
     };
-    use halley_config::InputFocusMode;
-    use halley_core::field::NodeId;
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
+    use halley_config::InputFocusMode;
+    use halley_core::field::NodeId;
     use smithay::reexports::wayland_server::Display;
     use std::time::Instant;
 

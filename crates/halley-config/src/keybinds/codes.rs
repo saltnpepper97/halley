@@ -74,6 +74,9 @@ pub fn key_name_to_evdev(name: &str) -> Option<u32> {
         "f11" => Some(87),
         "f12" => Some(88),
 
+        // KEY_SYSRQ — the PrintScreen key.
+        "print" | "printscreen" | "prtsc" | "prtscr" | "sysrq" => Some(99),
+
         "home" => Some(102),
         "up" => Some(103),
         "pageup" => Some(104),

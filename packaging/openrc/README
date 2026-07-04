@@ -1,0 +1,34 @@
+Halley on OpenRC
+================
+
+OpenRC is a system-level service manager and has no per-user session
+supervisor, so there is no user "halley" service to install here. A Wayland
+compositor is a user-scoped session, not a system daemon — launch it the same
+way you would on any init:
+
+1. Seat management
+   Install and enable `seatd` (or `elogind`) as a system service so the tty
+   backend can acquire the seat via libseat:
+
+       rc-update add seatd default
+       rc-service seatd start
+
+   Add your user to the `seat` group (or the group seatd is configured for).
+
+2. Start the session
+   Use a display manager that reads Wayland session entries — greetd is the
+   common OpenRC choice, but SDDM and LightDM also work. They read:
+
+       packaging/wayland-sessions/halley.desktop
+
+   which runs `halley-session`, which in turn execs `halley --session`.
+
+   For a login-shell / TTY autostart instead of a display manager, run
+   `halley-session` (or `halley --session`) directly from your shell profile.
+
+Halley detects that systemd is not the booted init at runtime (it checks for
+/run/systemd/system) and automatically skips all systemctl integration, so no
+extra configuration is required. To force the init-agnostic path explicitly
+(e.g. if the systemd package is installed but not booted), set:
+
+    export HALLEY_NO_INIT_INTEGRATION=1

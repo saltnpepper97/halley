@@ -15,12 +15,28 @@ All notable changes to this project will be documented in this file.
   deliberate travel is required before motion can retarget keyboard focus, so a
   desk bump or trackpad jitter reveals the cursor without stealing focus from
   what you're typing into (e.g. the Lift launcher). Continuous mousing is unaffected.
+- Add first-class compositor keybind actions for the native screenshot capture
+  menu (`screenshot`, default bare `PrintScreen`) and free-field directional
+  focus (`focus-left`, `focus-right`, `focus-up`, `focus-down`, and
+  `focus <direction>`, default `mod+h/j/k/l`), so keyboard focus can move to the
+  nearest visible field window without shelling out or using cluster-only focus
+  paths.
+- Add systemd-free session support docs and packaging snippets for dinit, runit,
+  s6, and OpenRC. `halley-session` now detects a dinit user service, falls back
+  cleanly to `halley --session`, and `HALLEY_NO_INIT_INTEGRATION=1` forces the
+  fully init-agnostic path.
 
 ### Fixed
 - Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
   tile instead of stale pointer coordinates, seed the first keyboard selection from
   the main monitor's top-left tile, and keep keyboard cursor warps using the
   backend window size.
+- Fix Halley Lift app-icon rendering while the icon index is pending or being
+  refreshed: app rows now leave the icon slot empty until lookup completes
+  instead of flashing fallback glyphs for icons that may still resolve.
+- Skip systemd-only activation-environment imports and portal restarts when
+  systemd is not the booted init, preventing systemctl failures on dinit, runit,
+  s6, OpenRC, and other systemd-free setups.
 - Stabilize fullscreen locked-pointer games (Xwayland/SDL). Locked-pointer
   relative motion is now delivered before Halley's monitor routing, with a 250ms
   "recent locked target" grace period, so an active pointer-constrained game
@@ -173,10 +189,11 @@ All notable changes to this project will be documented in this file.
   space (jump to the next monitor's tiles, no wrap).
 - Show a frosted name label below a hovered or keyboard-selected cluster **core** tile in Apogee
   (cores previously showed only their icon); the label stays up for the whole hover.
-- Add a `center-last-focused` keybind action (default `mod+h`) that pans the camera back to centre
-  on the last focused node — a quick "go back" after wandering the field. Wired into the internal
-  template, bootstrap backfill, and example configs. The bare-defaults field node-move bindings
-  also move from vim `hjkl` to the arrow keys, matching the generated config and freeing `mod+h`.
+- Add a `center-last-focused` keybind action (default `mod+space`) that pans the
+  camera back to centre on the last focused node — a quick "go back" after
+  wandering the field. Wired into the internal template, bootstrap backfill, and
+  example configs. The default `mod+h/j/k/l` bindings now perform free-field
+  directional focus, and Apogee moves to `mod+o`.
 - Add `cursor.hide-on-keyboard-nav` (default `true`): any compositor keybind and keyboard-driven
   window navigation (focus cycle, tile/stack/trail/monitor steps, and Apogee arrow keys) now hides
   the cursor image — the pointer position is preserved so focus-tracking warps keep working — and
