@@ -683,11 +683,12 @@ fn handle_keyboard_input_inner<B: crate::backend::interface::BackendView>(
                         if let Some((gsx, gsy)) =
                             crate::compositor::overview::apogee_tile_global_center(st, target)
                         {
+                            let (ws_w, ws_h) = ctx.backend.window_size_i32();
                             crate::input::pointer::motion::handle_pointer_motion_absolute(
                                 st,
                                 ctx,
-                                0,
-                                0,
+                                ws_w,
+                                ws_h,
                                 gsx,
                                 gsy,
                                 (0.0, 0.0),

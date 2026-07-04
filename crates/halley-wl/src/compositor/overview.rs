@@ -166,6 +166,7 @@ impl Halley {
         }
         self.input.interaction_state.apogee_live_preview_node = None;
         self.input.interaction_state.apogee_live_preview_last_at = None;
+        self.input.interaction_state.apogee_hover_node = None;
         self.ui.render_state.view.apogee_core_hover_mix.clear();
         let monitor_names = apogee_monitor_names(self);
         let collapsed_clusters =
@@ -435,6 +436,7 @@ impl Halley {
                     self.input.interaction_state.apogee_session = None;
                     self.input.interaction_state.apogee_live_preview_node = None;
                     self.input.interaction_state.apogee_live_preview_last_at = None;
+                    self.input.interaction_state.apogee_hover_node = None;
                     self.ui.render_state.view.apogee_core_hover_mix.clear();
                     if let Some(node_id) = pending {
                         activate_apogee_target_with_collapsed_clusters(
@@ -760,31 +762,25 @@ pub(crate) fn apogee_tile_global_center(st: &Halley, node_id: NodeId) -> Option<
 /// Every monitor's window mosaic and (scrolled) core rail are flattened into one
 /// **global** screen field, so navigation crosses monitor boundaries naturally (no wrap)
 /// and `Up`/`Down` step between the mosaic and the core rail. Navigation starts from the
-/// live cursor position (the single source of truth — same as mouse hover) and excludes
-/// the tile already under the cursor so each press advances.
+/// highlighted tile, which mouse hover and keyboard warps both update. If nothing is
+/// highlighted yet, the first arrow seeds the highlight at the main monitor's top-left
+/// window tile.
 pub(crate) fn apogee_navigate(
     st: &Halley,
     dir: halley_config::DirectionalAction,
 ) -> Option<NodeId> {
     use halley_config::DirectionalAction as D;
     let session = st.input.interaction_state.apogee_session.as_ref()?;
-    let (cx, cy) = st
-        .input
-        .interaction_state
-        .last_pointer_screen_global
-        .unwrap_or_else(|| {
-            let monitor = st.model.monitor_state.current_monitor.clone();
-            let (ox, oy) = apogee_monitor_global_offset(st, &monitor);
-            let (w, h) = st
-                .model
-                .monitor_state
-                .monitors
-                .get(&monitor)
-                .map(|space| (space.width as f32, space.height as f32))
-                .unwrap_or((1.0, 1.0));
-            (ox + w * 0.5, oy + h * 0.5)
-        });
     let exclude = st.input.interaction_state.apogee_hover_node;
+    let Some(exclude) = exclude else {
+        return apogee_initial_keyboard_tile(st, session);
+    };
+    let (cx, cy) = apogee_tile_global_center(st, exclude).or_else(|| {
+        st.input
+            .interaction_state
+            .last_pointer_screen_global
+            .filter(|_| apogee_session_has_tile(session, exclude))
+    })?;
 
     // (node, global_cx, global_cy) for every selectable tile across all monitors.
     let mut cands: Vec<(NodeId, f32, f32)> = Vec::new();
@@ -798,7 +794,7 @@ pub(crate) fn apogee_navigate(
             .unwrap_or(1);
         let (ox, oy) = apogee_monitor_global_offset(st, &monitor_session.monitor);
         for tile in &monitor_session.core_tiles {
-            if Some(tile.node_id) == exclude {
+            if tile.node_id == exclude {
                 continue;
             }
             let p = apogee_project_core_rect(
@@ -815,7 +811,7 @@ pub(crate) fn apogee_navigate(
             .iter()
             .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
         {
-            if Some(tile.node_id) == exclude {
+            if tile.node_id == exclude {
                 continue;
             }
             cands.push((tile.node_id, tile.to.cx + ox, tile.to.cy + oy));
@@ -823,17 +819,11 @@ pub(crate) fn apogee_navigate(
     }
 
     // Keep tiles strictly in the travel direction; score primary-axis distance plus a
-    // perpendicular penalty so the nearest aligned tile wins. Track the nearest tile
-    // overall too, to seed the very first press when the cursor isn't over any tile.
+    // perpendicular penalty so the nearest aligned tile wins.
     let mut best: Option<(f32, NodeId)> = None;
-    let mut nearest: Option<(f32, NodeId)> = None;
     for (id, gx, gy) in cands {
         let dx = gx - cx;
         let dy = gy - cy;
-        let dist2 = dx * dx + dy * dy;
-        if nearest.is_none_or(|(b, _)| dist2 < b) {
-            nearest = Some((dist2, id));
-        }
         let (primary, perp) = match dir {
             D::Left => (-dx, dy.abs()),
             D::Right => (dx, dy.abs()),
@@ -848,14 +838,45 @@ pub(crate) fn apogee_navigate(
             best = Some((cost, id));
         }
     }
-    best.map(|(_, id)| id).or_else(|| {
-        // Nothing in the travel direction: only seed from the nearest tile when the
-        // cursor isn't already on a tile (so a dead-end press at an edge is a no-op).
-        exclude
-            .is_none()
-            .then(|| nearest.map(|(_, id)| id))
-            .flatten()
+    best.map(|(_, id)| id)
+}
+
+fn apogee_session_has_tile(session: &ApogeeSession, node_id: NodeId) -> bool {
+    session.monitors.iter().any(|monitor_session| {
+        monitor_session
+            .core_tiles
+            .iter()
+            .chain(monitor_session.tiles.iter())
+            .any(|tile| tile.node_id == node_id)
     })
+}
+
+fn apogee_initial_keyboard_tile(st: &Halley, session: &ApogeeSession) -> Option<NodeId> {
+    let main_monitor = apogee_monitor_names(st).into_iter().find(|monitor| {
+        session
+            .monitor_session(monitor.as_str())
+            .is_some_and(|session| !session.tiles.is_empty() || !session.core_tiles.is_empty())
+    })?;
+    let monitor_session = session.monitor_session(main_monitor.as_str())?;
+    monitor_session
+        .tiles
+        .iter()
+        .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+        .min_by(tile_top_left_order)
+        .or_else(|| {
+            monitor_session
+                .core_tiles
+                .iter()
+                .min_by(tile_top_left_order)
+        })
+        .map(|tile| tile.node_id)
+}
+
+fn tile_top_left_order(a: &&ApogeeTile, b: &&ApogeeTile) -> Ordering {
+    a.to.cy
+        .total_cmp(&b.to.cy)
+        .then_with(|| a.to.cx.total_cmp(&b.to.cx))
+        .then_with(|| a.node_id.as_u64().cmp(&b.node_id.as_u64()))
 }
 
 /// Scroll the core rail of whichever monitor owns `node_id` so the core is on screen.
@@ -2205,6 +2226,42 @@ mod tests {
         tuning
     }
 
+    fn test_apogee_tile(node_id: NodeId, cx: f32, cy: f32) -> ApogeeTile {
+        ApogeeTile {
+            node_id,
+            kind: ApogeeTileKind::Window,
+            collapsed: false,
+            from: TileRect {
+                cx,
+                cy,
+                w: 100.0,
+                h: 80.0,
+            },
+            to: TileRect {
+                cx,
+                cy,
+                w: 100.0,
+                h: 80.0,
+            },
+        }
+    }
+
+    fn install_test_apogee_session(
+        state: &mut Halley,
+        monitors: Vec<ApogeeMonitorSession>,
+        now: Instant,
+    ) {
+        state.input.interaction_state.apogee_session = Some(ApogeeSession {
+            phase: ApogeePhase::Open,
+            started_at: now,
+            duration: std::time::Duration::from_millis(1),
+            monitors,
+            manual_progress: None,
+            pending_selection: None,
+            collapsed_clusters: Vec::new(),
+        });
+    }
+
     #[test]
     fn spatial_order_reads_top_left_to_bottom_right() {
         // Two rows of two, deliberately out of order in the input.
@@ -2225,6 +2282,82 @@ mod tests {
 
         assert_eq!(kind, ApogeeTileKind::Window);
         assert!(collapsed);
+    }
+
+    #[test]
+    fn apogee_keyboard_navigation_initial_selection_uses_main_monitor_top_left_window() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+        let now = Instant::now();
+        let left_top_left = NodeId::new(1);
+        let left_later = NodeId::new(2);
+        let right_under_pointer = NodeId::new(3);
+        install_test_apogee_session(
+            &mut state,
+            vec![
+                ApogeeMonitorSession {
+                    monitor: "right".to_string(),
+                    core_scroll_offset: 0.0,
+                    core_atlas_width: 800.0,
+                    tiles: vec![test_apogee_tile(right_under_pointer, 120.0, 80.0)],
+                    core_tiles: Vec::new(),
+                },
+                ApogeeMonitorSession {
+                    monitor: "left".to_string(),
+                    core_scroll_offset: 0.0,
+                    core_atlas_width: 800.0,
+                    tiles: vec![
+                        test_apogee_tile(left_later, 110.0, 280.0),
+                        test_apogee_tile(left_top_left, 90.0, 140.0),
+                    ],
+                    core_tiles: Vec::new(),
+                },
+            ],
+            now,
+        );
+        state.input.interaction_state.last_pointer_screen_global = Some((920.0, 80.0));
+        state.input.interaction_state.apogee_hover_node = None;
+
+        assert_eq!(
+            apogee_navigate(&state, halley_config::DirectionalAction::Right),
+            Some(left_top_left)
+        );
+    }
+
+    #[test]
+    fn apogee_keyboard_navigation_moves_from_highlight_not_stale_pointer() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+        let now = Instant::now();
+        let selected = NodeId::new(1);
+        let right_of_selected = NodeId::new(2);
+        let stale_pointer_neighbor = NodeId::new(3);
+        install_test_apogee_session(
+            &mut state,
+            vec![ApogeeMonitorSession {
+                monitor: "left".to_string(),
+                core_scroll_offset: 0.0,
+                core_atlas_width: 800.0,
+                tiles: vec![
+                    test_apogee_tile(selected, 120.0, 220.0),
+                    test_apogee_tile(right_of_selected, 330.0, 220.0),
+                    test_apogee_tile(stale_pointer_neighbor, 720.0, 220.0),
+                ],
+                core_tiles: Vec::new(),
+            }],
+            now,
+        );
+        state.input.interaction_state.apogee_hover_node = Some(selected);
+        state.input.interaction_state.last_pointer_screen_global = Some((690.0, 220.0));
+
+        assert_eq!(
+            apogee_navigate(&state, halley_config::DirectionalAction::Right),
+            Some(right_of_selected)
+        );
     }
 
     #[test]

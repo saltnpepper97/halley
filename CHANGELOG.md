@@ -17,6 +17,10 @@ All notable changes to this project will be documented in this file.
   what you're typing into (e.g. the Lift launcher). Continuous mousing is unaffected.
 
 ### Fixed
+- Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
+  tile instead of stale pointer coordinates, seed the first keyboard selection from
+  the main monitor's top-left tile, and keep keyboard cursor warps using the
+  backend window size.
 - Stabilize fullscreen locked-pointer games (Xwayland/SDL). Locked-pointer
   relative motion is now delivered before Halley's monitor routing, with a 250ms
   "recent locked target" grace period, so an active pointer-constrained game
