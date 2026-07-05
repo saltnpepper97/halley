@@ -71,6 +71,13 @@ All notable changes to this project will be documented in this file.
   now falls back to `node.resize_footprint` (pinned by
   `restore_fullscreen_snapshot`) for the saved size and intrinsic size, so the
   restore entry keeps the original windowed dimensions.
+- Recapture the close-animation offscreen snapshot for live-rendered
+  (direct-field) windows when a client commit marked it dirty. These
+  windows never wrote the cache through the normal path, so the close
+  ghost previously popped from live content to a stale frame at the
+  start of the animation; the dirty recapture is throttled to a 100ms
+  minimum so a continuously updating window can't drive a recapture
+  every frame.
 
 ### Changed
 - The compositor no longer drives xwayland-satellite's RandR primary output from

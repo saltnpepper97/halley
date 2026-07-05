@@ -878,7 +878,14 @@ pub(crate) fn prewarm_visible_close_animation_snapshots(
             continue;
         }
 
-        let cache_missing = st
+        // A live-rendered window (direct-field path) never writes this cache, so the
+        // close ghost draws whatever snapshot prewarm last took. Recapture when the
+        // cache is missing/wrong-size AND when a client commit marked it dirty, or the
+        // close animation pops from live content to a stale snapshot. Throttle the
+        // dirty case (`last_used_at` is touched on each recapture) so a continuously
+        // updating window can't drive a recapture every frame.
+        const MIN_RECAPTURE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+        let cache_needs_refresh = st
             .ui
             .render_state
             .cache
@@ -889,8 +896,12 @@ pub(crate) fn prewarm_visible_close_animation_snapshots(
                     || cache.texture.is_none()
                     || cache.bbox.is_none()
                     || !cache.has_content
+                    || (cache.dirty
+                        && cache.last_used_at.is_none_or(|t| {
+                            now.saturating_duration_since(t) >= MIN_RECAPTURE_INTERVAL
+                        }))
             });
-        if !cache_missing {
+        if !cache_needs_refresh {
             continue;
         }
 
