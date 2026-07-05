@@ -1,4 +1,65 @@
+use super::codes::evdev_to_key_name;
 use super::types::KeyModifiers;
+
+/// Render a `KeyModifiers` back to its canonical `+`-joined token string
+/// (e.g. `"super+shift"`), or `"none"` when no modifier is set. Ordering matches
+/// `Keybinds::modifier_name` so conflict messages read consistently.
+pub fn format_modifiers(m: &KeyModifiers) -> String {
+    let mut parts = Vec::new();
+    if m.left_super {
+        parts.push("lsuper");
+    }
+    if m.right_super {
+        parts.push("rsuper");
+    }
+    if m.super_key {
+        parts.push("super");
+    }
+    if m.left_ctrl {
+        parts.push("lctrl");
+    }
+    if m.right_ctrl {
+        parts.push("rctrl");
+    }
+    if m.ctrl {
+        parts.push("ctrl");
+    }
+    if m.left_alt {
+        parts.push("lalt");
+    }
+    if m.right_alt {
+        parts.push("ralt");
+    }
+    if m.alt {
+        parts.push("alt");
+    }
+    if m.left_shift {
+        parts.push("lshift");
+    }
+    if m.right_shift {
+        parts.push("rshift");
+    }
+    if m.shift {
+        parts.push("shift");
+    }
+
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join("+")
+    }
+}
+
+/// Render a modifier+key chord back to a human-readable string (e.g. `"super+A"`),
+/// used for conflict/diagnostic messages.
+pub fn format_chord(m: &KeyModifiers, key: u32) -> String {
+    let key_name = evdev_to_key_name(key);
+    if modifiers_empty(*m) {
+        key_name.to_string()
+    } else {
+        format!("{}+{key_name}", format_modifiers(m))
+    }
+}
 
 pub fn modifiers_empty(m: KeyModifiers) -> bool {
     !m.super_key

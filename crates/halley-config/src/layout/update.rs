@@ -429,6 +429,7 @@ fn resolve_explicit_keybinds(entries: &[(String, String)]) -> Result<RuntimeTuni
     tuning.compositor_bindings.clear();
     tuning.launch_bindings.clear();
     tuning.pointer_bindings.clear();
+    tuning.keybind_conflicts.clear();
     apply_explicit_keybind_overrides_entries(entries, &mut tuning)?;
     Ok(tuning)
 }

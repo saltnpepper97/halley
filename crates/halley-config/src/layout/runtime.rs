@@ -118,6 +118,11 @@ pub struct RuntimeTuning {
     pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
+    /// Human-readable warnings for keybind collisions detected while parsing
+    /// (same-scope chord overwritten last-wins, or a chord shadowed by a
+    /// compositor action so its launch binding is dead). Populated during load,
+    /// surfaced to the user via the error overlay; never fatal.
+    pub keybind_conflicts: Vec<String>,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,

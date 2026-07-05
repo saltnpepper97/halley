@@ -25,6 +25,15 @@ All notable changes to this project will be documented in this file.
   s6, and OpenRC. `halley-session` now detects a dinit user service, falls back
   cleanly to `halley --session`, and `HALLEY_NO_INIT_INTEGRATION=1` forces the
   fully init-agnostic path.
+- Detect keybind conflicts while parsing config and surface them through the
+  error overlay. Same-scope chord overwrites (last-wins) and launch bindings
+  shadowed by a global compositor action are reported as a non-fatal warning
+  titled "N keybind conflict(s) (last wins)", shown for ~9s on startup and after
+  each config reload; cross-scope chord sharing is intentionally not flagged.
+- Make error toasts expandable: click a toast to toggle a grow-to-fit layout
+  that word-wraps long lines (paths, commands) up to a screen-bounded height,
+  replacing horizontal scrolling for wrapped content. A ▾/▸ caret marks the
+  toggle.
 
 ### Fixed
 - Fix Apogee keyboard navigation so arrow keys move from the currently highlighted

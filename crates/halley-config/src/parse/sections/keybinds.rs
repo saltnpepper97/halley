@@ -18,5 +18,6 @@ pub(crate) fn load_keybind_sections(
     out.compositor_bindings.clear();
     out.launch_bindings.clear();
     out.pointer_bindings.clear();
+    out.keybind_conflicts.clear();
     apply_explicit_keybind_overrides(cfg, out)
 }

@@ -7,7 +7,8 @@ use crate::keybinds::{
     CompositorBindingScope, DirectionalAction, FocusCycleBindingAction, KeyModifiers,
     LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
     PointerBindingAction, StackBindingAction, StackCycleDirection, TileBindingAction,
-    TrailBindingAction, is_pointer_button_code, parse_chord, parse_modifiers,
+    TrailBindingAction, format_chord, format_modifiers, is_pointer_button_code, parse_chord,
+    parse_modifiers,
 };
 use crate::layout::RuntimeTuning;
 
@@ -635,7 +636,17 @@ fn upsert_compositor_binding(
         .iter_mut()
         .find(|b| b.scope == scope && b.key == key && b.modifiers == mods)
     {
-        existing.action = action;
+        // Only a *change* of action is a real conflict. Config is applied twice
+        // (rune-map path + inline path), so an unchanged re-assignment is a benign
+        // no-op, not a collision.
+        if existing.action != action {
+            let chord_key = format!("{} ({})", format_chord(&mods, key), scope_label(scope));
+            let detail = format!("{:?} overrides {:?}", action, existing.action);
+            existing.action = action;
+            record_keybind_conflict(out, &chord_key, &detail);
+        } else {
+            existing.action = action;
+        }
         return;
     }
 
@@ -647,13 +658,40 @@ fn upsert_compositor_binding(
     });
 }
 
+fn scope_label(scope: CompositorBindingScope) -> &'static str {
+    match scope {
+        CompositorBindingScope::Global => "global",
+        CompositorBindingScope::Field => "field",
+        CompositorBindingScope::Cluster => "cluster",
+        CompositorBindingScope::Tile => "tile",
+        CompositorBindingScope::Stack => "stack",
+    }
+}
+
+/// Record a keybind collision keyed by its chord identity (`chord_key`), keeping
+/// only the most recent churn message for that chord. Because config is applied
+/// through two passes, a single chord may be overwritten more than once; deduping
+/// by chord collapses those into one message reflecting the final winner.
+fn record_keybind_conflict(out: &mut RuntimeTuning, chord_key: &str, detail: &str) {
+    let prefix = format!("{chord_key}:");
+    out.keybind_conflicts.retain(|c| !c.starts_with(prefix.as_str()));
+    out.keybind_conflicts.push(format!("{chord_key}: {detail}"));
+}
+
 fn upsert_launch_binding(out: &mut RuntimeTuning, mods: KeyModifiers, key: u32, command: &str) {
     if let Some(existing) = out
         .launch_bindings
         .iter_mut()
         .find(|b| b.key == key && b.modifiers == mods)
     {
-        existing.command = command.to_string();
+        if existing.command != command {
+            let chord_key = format!("{} (launch)", format_chord(&mods, key));
+            let detail = format!("{command} overrides {}", existing.command);
+            existing.command = command.to_string();
+            record_keybind_conflict(out, &chord_key, &detail);
+        } else {
+            existing.command = command.to_string();
+        }
         return;
     }
 
@@ -675,7 +713,15 @@ fn upsert_pointer_binding(
         .iter_mut()
         .find(|b| b.button == button && b.modifiers == mods)
     {
-        existing.action = action;
+        if existing.action != action {
+            let chord_key =
+                format!("{} button {:#x} (pointer)", format_modifiers(&mods), button);
+            let detail = format!("{:?} overrides {:?}", action, existing.action);
+            existing.action = action;
+            record_keybind_conflict(out, &chord_key, &detail);
+        } else {
+            existing.action = action;
+        }
         return;
     }
 
@@ -686,11 +732,37 @@ fn upsert_pointer_binding(
     });
 }
 
+/// A launch binding never fires when a `Global`-scope compositor action claims the
+/// same chord, because compositor actions are dispatched first and `Global` is
+/// always in the active scope set. Record those dead launch bindings so the user
+/// is told their spawn command is unreachable. (Field/Tile/Stack/Cluster-scoped
+/// collisions are intentionally *not* flagged — those chords still reach the
+/// launch loop in other contexts, and same-chord-across-scopes is a design
+/// feature, not a conflict.)
+pub(crate) fn detect_shadowed_launch_bindings(out: &mut RuntimeTuning) {
+    let mut shadowed = Vec::new();
+    for launch in &out.launch_bindings {
+        if let Some(comp) = out.compositor_bindings.iter().find(|b| {
+            b.scope == CompositorBindingScope::Global
+                && b.key == launch.key
+                && b.modifiers == launch.modifiers
+        }) {
+            let chord_key = format!("{} (launch)", format_chord(&launch.modifiers, launch.key));
+            let detail = format!("{} shadowed by global {:?}", launch.command, comp.action);
+            shadowed.push((chord_key, detail));
+        }
+    }
+    for (chord_key, detail) in shadowed {
+        record_keybind_conflict(out, &chord_key, &detail);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         apply_explicit_keybind_overrides_entries, apply_explicit_keybind_overrides_map,
-        parse_inline_keybinds, parse_parameterized_compositor_action,
+        detect_shadowed_launch_bindings, parse_inline_keybinds,
+        parse_parameterized_compositor_action,
     };
     use crate::keybinds::{
         ClusterBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
@@ -865,6 +937,77 @@ end
                         crate::keybinds::StackCycleDirection::Backward,
                     ))
         }));
+    }
+
+    #[test]
+    fn same_scope_chord_collision_records_conflict_and_last_wins() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.keybind_conflicts.clear();
+
+        let bindings = vec![
+            ("mod".to_string(), "super".to_string()),
+            ("mod+a".to_string(), "reload".to_string()),
+            ("mod+a".to_string(), "apogee".to_string()),
+        ];
+
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        // Last-defined wins: only Apogee survives, Reload was clobbered.
+        assert!(
+            out.compositor_bindings
+                .iter()
+                .any(|b| b.action == CompositorBindingAction::Apogee)
+        );
+        assert!(
+            !out.compositor_bindings
+                .iter()
+                .any(|b| b.action == CompositorBindingAction::Reload)
+        );
+        // ...but the overwrite is reported as exactly one conflict.
+        assert_eq!(out.keybind_conflicts.len(), 1);
+    }
+
+    #[test]
+    fn launch_binding_shadowed_by_global_action_is_flagged() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.launch_bindings.clear();
+        out.keybind_conflicts.clear();
+
+        let bindings = vec![
+            ("mod".to_string(), "super".to_string()),
+            // A launch command and then a global compositor action on the same chord:
+            // the compositor action always wins at dispatch, so the launch is dead.
+            ("$var.mod+b".to_string(), "kitty".to_string()),
+            ("$var.mod+b".to_string(), "toggle-fullscreen".to_string()),
+        ];
+
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+        // The two live in separate Vecs, so no overwrite conflict yet.
+        assert!(out.keybind_conflicts.is_empty());
+
+        detect_shadowed_launch_bindings(&mut out);
+        assert_eq!(out.keybind_conflicts.len(), 1);
+        assert!(out.keybind_conflicts[0].contains("kitty"));
+    }
+
+    #[test]
+    fn cross_scope_chord_collision_is_not_a_conflict() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.keybind_conflicts.clear();
+
+        let bindings = vec![
+            ("mod".to_string(), "super".to_string()),
+            ("mod+left".to_string(), "move-left".to_string()),
+            ("mod+left".to_string(), "tile-focus left".to_string()),
+            ("mod+left".to_string(), "stack-cycle backward".to_string()),
+        ];
+
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+        assert_eq!(out.compositor_bindings.len(), 3);
+        assert!(out.keybind_conflicts.is_empty());
     }
 
     #[test]

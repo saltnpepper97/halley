@@ -127,6 +127,25 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         ctx.backend.request_redraw();
         return;
     }
+    if matches!(button_state, ButtonState::Pressed)
+        && left
+        && crate::overlay::error_toast_hit_test(
+            st,
+            target_monitor.as_str(),
+            local_w,
+            local_h,
+            local_sx as f64,
+            local_sy as f64,
+        )
+        && st
+            .ui
+            .render_state
+            .toggle_overlay_error_toast_expanded(target_monitor.as_str(), st.now_ms(Instant::now()))
+    {
+        ps.intercepted_binding_buttons.insert(button_code);
+        ctx.backend.request_redraw();
+        return;
+    }
     let layer_focus = layer_surface_focus_for_screen(
         st,
         local_w,

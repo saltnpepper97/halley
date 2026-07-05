@@ -1100,6 +1100,7 @@ impl RenderState {
         toast.kind = kind;
         toast.duration_ms = duration_ms.max(1);
         toast.hovered = false;
+        toast.expanded = false;
         toast.scroll_x = 0;
         toast.scroll_y = 0;
         toast.visible_until_ms = now_ms.saturating_add(toast.duration_ms);
@@ -1147,6 +1148,23 @@ impl RenderState {
         }
     }
 
+    /// Toggle the expanded (grow-to-fit + wrap) layout for an error toast. Resets
+    /// scroll (the layout changes shape) and refreshes the fade timer so the toast
+    /// stays up while the user reads the expanded list. Returns true if handled.
+    pub(crate) fn toggle_overlay_error_toast_expanded(&mut self, monitor: &str, now_ms: u64) -> bool {
+        let Some(toast) = self.overlays.overlay_toast.get_mut(monitor) else {
+            return false;
+        };
+        if !matches!(toast.kind, OverlayToastKind::Error) || toast.message.is_none() {
+            return false;
+        }
+        toast.expanded = !toast.expanded;
+        toast.scroll_x = 0;
+        toast.scroll_y = 0;
+        toast.visible_until_ms = now_ms.saturating_add(toast.duration_ms.max(1));
+        true
+    }
+
     pub(crate) fn dismiss_overlay_error_toast(&mut self, monitor: &str) -> bool {
         let Some(toast) = self.overlays.overlay_toast.get(monitor) else {
             return false;
@@ -1183,6 +1201,7 @@ impl RenderState {
         Some(OverlayToastSnapshot {
             message: toast.message.clone().unwrap_or_default(),
             kind: toast.kind,
+            expanded: toast.expanded,
             scroll_x: toast.scroll_x,
             scroll_y: toast.scroll_y,
             mix: toast.mix,

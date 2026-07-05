@@ -445,6 +445,10 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(diagnostic) = startup_config_error.as_ref() {
                     crate::bootstrap::show_config_startup_error(&mut state, diagnostic);
                 }
+                let startup_conflicts = state.runtime.tuning.keybind_conflicts.clone();
+                if !startup_conflicts.is_empty() {
+                    crate::bootstrap::show_keybind_conflict_warning(&mut state, &startup_conflicts);
+                }
             }
             if !state.runtime.tuning.autostart_once.is_empty() {
                 info!("nested winit backend: skipping session autostart");

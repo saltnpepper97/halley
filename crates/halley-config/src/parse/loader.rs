@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::layout::RuntimeTuning;
 
 use super::keybinds::{
-    apply_explicit_keybind_overrides_entries, parse_inline_keybinds, strip_inline_keybind_block,
+    apply_explicit_keybind_overrides_entries, detect_shadowed_launch_bindings, parse_inline_keybinds,
+    strip_inline_keybind_block,
 };
 use super::rules::load_rules_section;
 use super::sections::{
@@ -116,6 +117,8 @@ impl RuntimeTuning {
                 |err| diagnostic_from_message(path, raw, format!("keybind parse error: {err}")),
             )?;
         }
+
+        detect_shadowed_launch_bindings(&mut out);
 
         Ok(out)
     }
@@ -613,6 +616,75 @@ end
                 .compositor_bindings
                 .iter()
                 .any(|binding| binding.action == CompositorBindingAction::Apogee)
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_collects_same_scope_keybind_conflict() {
+        let dir = test_temp_dir("keybind-conflict");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"keybinds:
+  mod "super"
+  "$var.mod+a" "reload"
+  "$var.mod+a" "apogee"
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("config with a keybind conflict should still load");
+
+        // Last-defined wins through the full loader path.
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Apogee)
+        );
+        assert!(
+            !tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Reload)
+        );
+        // ...and the collision is recorded for the overlay warning.
+        assert_eq!(tuning.keybind_conflicts.len(), 1);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_normal_keybinds_report_no_conflict() {
+        // Regression guard: config is applied through both the rune-map and inline
+        // passes, so a normal (non-duplicated) binding is assigned twice. That
+        // idempotent re-assignment must NOT be reported as a conflict.
+        let dir = test_temp_dir("keybind-no-conflict");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"keybinds:
+  mod "super"
+  "$var.mod+a" "apogee"
+  "$var.mod+f" "toggle-fullscreen"
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("normal keybinds should load");
+
+        assert!(
+            tuning.keybind_conflicts.is_empty(),
+            "unexpected conflicts: {:?}",
+            tuning.keybind_conflicts
         );
 
         let _ = std::fs::remove_dir_all(dir);

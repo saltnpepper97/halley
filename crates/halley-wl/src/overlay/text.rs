@@ -42,6 +42,95 @@ pub(super) fn truncate_overlay_text_to_width(
     String::new()
 }
 
+/// Word-wrap `text` to fit within `max_width`, returning one string per physical
+/// line. Greedy packing on whitespace; a single word wider than `max_width` (e.g.
+/// a long file path) is hard-split by characters. Always returns at least one line.
+pub(super) fn wrap_overlay_text_to_width(
+    render_state: &RenderState,
+    font: &halley_config::FontConfig,
+    text: &str,
+    scale: i32,
+    max_width: i32,
+) -> Vec<String> {
+    let trimmed = text.trim_end();
+    if max_width <= 0 || trimmed.is_empty() {
+        return vec![trimmed.to_string()];
+    }
+    if ui_text_size_in(render_state, font, trimmed, scale).0 <= max_width {
+        return vec![trimmed.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in trimmed.split_whitespace() {
+        let candidate = if current.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current} {word}")
+        };
+        if ui_text_size_in(render_state, font, candidate.as_str(), scale).0 <= max_width {
+            current = candidate;
+            continue;
+        }
+        if !current.is_empty() {
+            lines.push(std::mem::take(&mut current));
+        }
+        if ui_text_size_in(render_state, font, word, scale).0 > max_width {
+            let pieces = hard_split_to_width(render_state, font, word, scale, max_width);
+            let last = pieces.len().saturating_sub(1);
+            for (i, piece) in pieces.into_iter().enumerate() {
+                if i < last {
+                    lines.push(piece);
+                } else {
+                    current = piece;
+                }
+            }
+        } else {
+            current = word.to_string();
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Split a single unbreakable token into character-runs that each fit `max_width`.
+/// A single glyph wider than `max_width` is kept alone (it overflows its line
+/// rather than looping forever).
+fn hard_split_to_width(
+    render_state: &RenderState,
+    font: &halley_config::FontConfig,
+    word: &str,
+    scale: i32,
+    max_width: i32,
+) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut current = String::new();
+    for ch in word.chars() {
+        let mut candidate = current.clone();
+        candidate.push(ch);
+        if !current.is_empty()
+            && ui_text_size_in(render_state, font, candidate.as_str(), scale).0 > max_width
+        {
+            pieces.push(std::mem::take(&mut current));
+            current.push(ch);
+        } else {
+            current = candidate;
+        }
+    }
+    if !current.is_empty() {
+        pieces.push(current);
+    }
+    if pieces.is_empty() {
+        pieces.push(String::new());
+    }
+    pieces
+}
+
 pub(super) fn visible_overlay_text_window(
     render_state: &RenderState,
     font: &halley_config::FontConfig,

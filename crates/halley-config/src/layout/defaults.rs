@@ -100,6 +100,7 @@ impl Default for RuntimeTuning {
             compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
+            keybind_conflicts: Vec::new(),
 
             tty_viewports: Vec::new(),
             autostart_once: Vec::new(),
