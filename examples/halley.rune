@@ -637,32 +637,40 @@ debug:
   show-ring-when-resizing true
 end
 
-# Gamescope integration. Put `halleyctl gamescope run -- %command%` in a game's
-# Steam launch options; matching games launch in a nested gamescope session
-# sized to the selected monitor. The `gamescope` binary is an optional runtime
-# dependency; missing it just launches the game unwrapped.
-gamescope:
-  enabled true
-  # "focused", "cursor", "primary", or a connector name.
-  monitor "focused"
-  # "auto" resolves from the selected monitor; or set explicit pixel values.
-  output-width "auto"
-  output-height "auto"
-  game-width "auto"
-  game-height "auto"
-  refresh "auto"
-  # Fullscreen wins if both fullscreen and borderless are true.
-  fullscreen true
-  borderless false
-  suppress-overlays true
-  passthrough-pointer-lock true
-  bypass-spatial-camera true
+# Gaming. Everything Halley does specially for games lives under this block.
+gaming:
+  # What Halley treats as a game (app-id glob patterns; `*` is a wildcard).
+  # Steam games are `steam_app_<id>`; raw XWayland titles use their WM_CLASS
+  # (e.g. `tf_linux64`), so add those yourself if a game isn't recognised.
+  games ["steam_app_*", "gamescope"]
 
-  # Per-game profiles match by `app-id` and inherit the globals above.
-  # Set `enabled false` to opt a game out of wrapping.
-  #game:
-  #  name "Deep Rock Galactic"
-  #  app-id "steam_app_548430"
-  #  enabled true
-  #end
+  # Gamescope integration. Put `halleyctl gamescope run -- %command%` in a game's
+  # Steam launch options; matching games launch in a nested gamescope session
+  # sized to the selected monitor. The `gamescope` binary is an optional runtime
+  # dependency; missing it just launches the game unwrapped.
+  gamescope:
+    enabled true
+    # "focused", "cursor", "primary", or a connector name.
+    monitor "focused"
+    # "auto" resolves from the selected monitor; or set explicit pixel values.
+    output-width "auto"
+    output-height "auto"
+    game-width "auto"
+    game-height "auto"
+    refresh "auto"
+    # Fullscreen wins if both fullscreen and borderless are true.
+    fullscreen true
+    borderless false
+    suppress-overlays true
+    passthrough-pointer-lock true
+    bypass-spatial-camera true
+
+    # Per-game profiles match by `app-id` and inherit the globals above.
+    # Set `enabled false` to opt a game out of wrapping.
+    #game:
+    #  name "Deep Rock Galactic"
+    #  app-id "steam_app_548430"
+    #  enabled true
+    #end
+  end
 end

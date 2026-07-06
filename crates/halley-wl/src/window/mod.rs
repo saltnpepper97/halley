@@ -258,7 +258,7 @@ pub(crate) fn node_is_game_like(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .node_app_ids
         .get(&node_id)
-        .is_some_and(|app_id| app_id.starts_with("steam_app_"))
+        .is_some_and(|app_id| st.runtime.tuning.gaming.matches_game(app_id))
         || node_is_gamescope(st, node_id)
 }
 

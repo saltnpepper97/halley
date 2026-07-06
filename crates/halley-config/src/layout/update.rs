@@ -98,6 +98,7 @@ fn migrate_legacy_sections(existing: &mut ParsedScope) -> bool {
     let mut changed = false;
 
     changed |= migrate_legacy_gesture_bindings(existing);
+    changed |= migrate_legacy_gamescope_section(existing);
 
     let Some(decorations) = find_section_mut(existing, "decorations") else {
         return changed;
@@ -171,6 +172,62 @@ fn migrate_legacy_gesture_bindings(existing: &mut ParsedScope) -> bool {
     changed
 }
 
+/// The `gamescope:` block moved under a new `gaming:` parent (which also owns the
+/// `games` classifier list). Wrap an existing top-level `gamescope:` into a
+/// `gaming:` block in place, preserving the user's per-game profiles. No-op if a
+/// `gaming:` section already exists or there is no legacy `gamescope:`.
+fn migrate_legacy_gamescope_section(existing: &mut ParsedScope) -> bool {
+    if find_section(existing, "gaming").is_some() {
+        return false;
+    }
+    let Some(mut gamescope_item) = take_subsection(existing, "gamescope") else {
+        return false;
+    };
+
+    // Re-indent the moved gamescope subtree one level deeper so it nests cleanly.
+    gamescope_item.leading = String::from("\n");
+    if let ScopeItemKind::Section(section) = &mut gamescope_item.kind {
+        indent_section_in_place(section, "  ");
+    }
+
+    let games_item = ScopeItem {
+        leading: String::new(),
+        kind: ScopeItemKind::Scalar(ScalarItem {
+            key: String::from("games"),
+            raw_line: String::from("  games [\"steam_app_*\", \"gamescope\"]"),
+        }),
+    };
+
+    existing.items.push(ScopeItem {
+        leading: String::from("\n"),
+        kind: ScopeItemKind::Section(SectionItem {
+            name: String::from("gaming"),
+            header_line: String::from("gaming:"),
+            body: ParsedScope {
+                items: vec![games_item, gamescope_item],
+                suffix: String::new(),
+            },
+            end_line: String::from("end"),
+        }),
+    });
+    true
+}
+
+/// Prefix `pad` onto a section's header/end and every descendant line, deepening
+/// its indentation by one level (indentation is baked into the raw line text).
+fn indent_section_in_place(section: &mut SectionItem, pad: &str) {
+    section.header_line = format!("{pad}{}", section.header_line);
+    section.end_line = format!("{pad}{}", section.end_line);
+    for item in &mut section.body.items {
+        match &mut item.kind {
+            ScopeItemKind::Scalar(scalar) => {
+                scalar.raw_line = format!("{pad}{}", scalar.raw_line);
+            }
+            ScopeItemKind::Section(sub) => indent_section_in_place(sub, pad),
+        }
+    }
+}
+
 /// Remove and return a named sub-section from a scope body, if present.
 fn take_subsection(scope: &mut ParsedScope, name: &str) -> Option<ScopeItem> {
     let idx = scope.items.iter().position(
@@ -190,11 +247,11 @@ fn merge_non_keybind_sections(existing: &mut ParsedScope, template: &ParsedScope
         if template_section.name == "keybinds" {
             continue;
         }
-        // `gamescope:` carries user-owned per-game `game:` blocks, so it is
-        // inject-if-absent only: add the template section for users who lack it,
-        // but never rewrite an existing one.
-        if template_section.name == "gamescope" {
-            if find_section_mut(existing, "gamescope").is_none() {
+        // `gaming:` carries user-owned per-game `game:` blocks and the `games`
+        // classifier list, so it is inject-if-absent only: add the template
+        // section for users who lack it, but never rewrite an existing one.
+        if template_section.name == "gaming" {
+            if find_section_mut(existing, "gaming").is_none() {
                 existing.items.push(template_item.clone());
                 changed = true;
             }
@@ -690,6 +747,37 @@ end
             assert!(updated.contains("steam_app_42"));
             // The template's `enabled true` default did not overwrite the user's.
             assert_eq!(updated.matches("gamescope:").count(), 1);
+        }
+    }
+
+    #[test]
+    fn updater_migrates_legacy_gamescope_into_gaming() {
+        let raw = "gamescope:\n  enabled false\n  monitor \"DP-1\"\n  game:\n    app-id \"steam_app_42\"\n    enabled false\n  end\nend\n";
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("legacy gamescope should migrate");
+
+        // Wrapped under a new gaming: block with the default classifier list;
+        // exactly one (now nested) gamescope block, user values preserved.
+        assert!(updated.contains("gaming:"));
+        assert!(updated.contains("games [\"steam_app_*\", \"gamescope\"]"));
+        assert_eq!(updated.matches("gamescope:").count(), 1);
+
+        // Re-parses cleanly with the user's values intact under gaming.gamescope.
+        let tuning = RuntimeTuning::from_rune_str(&updated).expect("migrated config parses");
+        assert_eq!(tuning.gaming.games, vec!["steam_app_*", "gamescope"]);
+        assert!(!tuning.gaming.gamescope.enabled);
+        assert_eq!(tuning.gaming.gamescope.monitor, "DP-1");
+        assert_eq!(
+            tuning.gaming.gamescope.games[0].app_id.as_deref(),
+            Some("steam_app_42")
+        );
+
+        // Idempotent: a second pass does not double-wrap.
+        if let Some(again) =
+            RuntimeTuning::update_user_config_text(&updated, &[]).expect("second update ok")
+        {
+            assert_eq!(again.matches("gaming:").count(), 1);
         }
     }
 

@@ -24,6 +24,7 @@ pub use layout::{
     CompositorGestureScope, ConfigPathSource, CursorConfig, DebugConfig, DecorationBorderColor,
     DecorationsConfig, DeviceOverride, DeviceSettings, EffectsConfig, ExpandedPlacementConfig,
     ExpandedPlacementStrategy, FindEmptyMode, FontConfig, GamescopeConfig, GamescopeGameProfile,
+    GamingConfig,
     GestureBinding, GestureBindingAction, GestureHoldBinding, GestureScrollPanMode,
     GestureSwipeDirection, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
     InitialWindowSpawnPlacement, InputConfig, InputFocusMode, KeyboardConfig,

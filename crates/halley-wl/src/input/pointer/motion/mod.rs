@@ -290,8 +290,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     };
 
     // While a game holds the pointer (lock/confine), never reveal Halley's own
-    // overlays over it (config-gated via `gamescope.suppress-overlays`).
-    let suppress_game_overlays = st.runtime.tuning.gamescope.suppress_overlays
+    // overlays over it (config-gated via `gaming.gamescope.suppress-overlays`).
+    let suppress_game_overlays = st.runtime.tuning.gaming.gamescope.suppress_overlays
         && crate::compositor::interaction::pointer::pointer_holds_game_constraint(&*st);
 
     let p = routing.world;

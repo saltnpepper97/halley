@@ -13,7 +13,7 @@ use super::{
     AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
-    EffectsConfig, FontConfig, GamescopeConfig, InputConfig, NodeBackgroundColorMode,
+    EffectsConfig, FontConfig, GamingConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
     PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
@@ -113,7 +113,7 @@ impl Default for RuntimeTuning {
             animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
             screenshot: ScreenshotConfig::default(),
-            gamescope: GamescopeConfig::default(),
+            gaming: GamingConfig::default(),
             env: HashMap::new(),
         }
     }

@@ -34,6 +34,12 @@ All notable changes to this project will be documented in this file.
   that word-wraps long lines (paths, commands) up to a screen-bounded height,
   replacing horizontal scrolling for wrapped content. A ▾/▸ caret marks the
   toggle.
+- Add a top-level `gaming:` config section grouping the `gamescope:` integration
+  (now nested under it) with a new `games` classifier list — glob patterns
+  (default `["steam_app_*", "gamescope"]`) for what Halley treats as a game.
+  The classifier replaces the hardcoded `steam_app_*` prefix check, so games
+  whose app-id isn't a Steam pattern (e.g. raw XWayland titles like `tf_linux64`
+  whose app-id is the WM_CLASS) can be recognised by adding them to the list.
 
 ### Fixed
 - Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
@@ -87,6 +93,12 @@ All notable changes to this project will be documented in this file.
   start of the animation; the dirty recapture is throttled to a 100ms
   minimum so a continuously updating window can't drive a recapture
   every frame.
+- Clamp locked-pointer cursor position hints to the locked surface's own
+  bounds. A game that warps-to-recenter could hint a position outside its
+  window (or, cross-monitor, one that resolves onto another output),
+  flinging the cursor off the game's monitor; the hint is now constrained
+  in surface-local space, independent of camera/monitor coords. No-op for
+  well-behaved in-bounds hints.
 
 ### Changed
 - The compositor no longer drives xwayland-satellite's RandR primary output from
@@ -94,6 +106,12 @@ All notable changes to this project will be documented in this file.
   The locked surface/output relationship is the single source of truth; forcing
   `xrandr --primary` had created a competing source that could disagree with it
   during fullscreen gaming.
+- The `gamescope:` config block has moved under a new `gaming:` parent. Existing
+  user configs are auto-migrated on update: the legacy top-level `gamescope:`
+  block is wrapped under `gaming:`, re-indented one level deeper, and the default
+  `games` classifier list is inserted alongside it; user values and per-game
+  profiles are preserved. A bare top-level `gamescope:` still parses for
+  hand-edited configs.
 
 ## [v0.5.0] - 2026-07-01
 

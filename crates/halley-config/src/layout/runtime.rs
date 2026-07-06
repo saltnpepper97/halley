@@ -15,7 +15,7 @@ use super::{
     AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
-    EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
+    EffectsConfig, FocusRingConfig, FontConfig, GamingConfig, InputConfig,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
     PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
     ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
@@ -135,7 +135,7 @@ pub struct RuntimeTuning {
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
-    pub gamescope: GamescopeConfig,
+    pub gaming: GamingConfig,
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
@@ -1085,35 +1085,44 @@ rules:
   end
 end
 
-# Gamescope integration. When enabled, `halleyctl gamescope run -- %command%`
-# (used in a game's Steam launch options) wraps the game in a nested gamescope
-# session sized to the selected monitor. The `gamescope` binary is an optional
-# runtime dependency; if it is missing the game still launches unwrapped.
-gamescope:
-  enabled true
-  # Monitor to size the session to: "focused", "cursor", "primary", or a connector name.
-  monitor "focused"
-  # "auto" resolves from the selected monitor; or set explicit pixel values.
-  output-width "auto"
-  output-height "auto"
-  game-width "auto"
-  game-height "auto"
-  refresh "auto"
-  # Fullscreen wins if both fullscreen and borderless are true.
-  fullscreen true
-  borderless false
-  # While a gamescope game holds the pointer, keep Halley's UI out of its way.
-  suppress-overlays true
-  passthrough-pointer-lock true
-  bypass-spatial-camera true
+# Gaming. Everything Halley does specially for games lives under this block.
+gaming:
+  # What Halley treats as a game (app-id glob patterns; `*` is a wildcard).
+  # Drives game-aware window handling (fullscreen/overlay behaviour, etc.).
+  # Steam games are `steam_app_<id>`; raw XWayland titles use their WM_CLASS
+  # (e.g. `tf_linux64`), so add those yourself if a game isn't recognised.
+  games ["steam_app_*", "gamescope"]
 
-  # Per-game profiles match by `app-id` and inherit the globals above.
-  # Set `enabled false` to opt a game out of wrapping.
-  #game:
-  #  name "Deep Rock Galactic"
-  #  app-id "steam_app_548430"
-  #  enabled true
-  #end
+  # Gamescope integration. When enabled, `halleyctl gamescope run -- %command%`
+  # (used in a game's Steam launch options) wraps the game in a nested gamescope
+  # session sized to the selected monitor. The `gamescope` binary is an optional
+  # runtime dependency; if it is missing the game still launches unwrapped.
+  gamescope:
+    enabled true
+    # Monitor to size the session to: "focused", "cursor", "primary", or a connector name.
+    monitor "focused"
+    # "auto" resolves from the selected monitor; or set explicit pixel values.
+    output-width "auto"
+    output-height "auto"
+    game-width "auto"
+    game-height "auto"
+    refresh "auto"
+    # Fullscreen wins if both fullscreen and borderless are true.
+    fullscreen true
+    borderless false
+    # While a gamescope game holds the pointer, keep Halley's UI out of its way.
+    suppress-overlays true
+    passthrough-pointer-lock true
+    bypass-spatial-camera true
+
+    # Per-game profiles match by `app-id` and inherit the globals above.
+    # Set `enabled false` to opt a game out of wrapping.
+    #game:
+    #  name "Deep Rock Galactic"
+    #  app-id "steam_app_548430"
+    #  enabled true
+    #end
+  end
 end
 "##;
 

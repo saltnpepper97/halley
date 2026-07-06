@@ -359,7 +359,7 @@ pub(super) fn dispatch_pointer_motion(
         // A gamescope-managed window fills its output and expects a 1:1 input
         // mapping; bypass the spatial camera scale for it (config-gated). This is
         // a no-op when the camera is unscaled, so it cannot regress normal output.
-        let bypass_spatial_camera = st.runtime.tuning.gamescope.bypass_spatial_camera
+        let bypass_spatial_camera = st.runtime.tuning.gaming.gamescope.bypass_spatial_camera
             && focus
                 .as_ref()
                 .is_some_and(|(surface, _)| crate::window::surface_is_gamescope(st, surface));

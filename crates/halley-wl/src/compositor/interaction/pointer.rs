@@ -621,19 +621,40 @@ pub(crate) fn apply_cursor_position_hint(
         && let Some(surface_origin) =
             related_surface_origin(&constraint.surface, constraint.origin, surface)
     {
-        let pointer_location = Point::<f64, Logical>::from((
-            surface_origin.x + location.x,
-            surface_origin.y + location.y,
-        ));
+        // Clamp the hinted position to the locked surface's own bounds. A game that
+        // warps-to-recenter can hint a location outside its window (or, cross-monitor,
+        // one that resolves onto another output); without this the cursor gets flung
+        // off the game's monitor. Mirrors Niri's cursor_position_hint output-constrain,
+        // but in Halley's surface-local space so it's independent of camera/monitor
+        // coords. A no-op for well-behaved in-bounds hints.
+        let (hint_x, hint_y) = st
+            .model
+            .surface_to_node
+            .get(&root.id())
+            .copied()
+            .and_then(|node_id| {
+                crate::compositor::surface::current_surface_size_for_node(st, node_id)
+            })
+            .map(|size| {
+                (
+                    location.x.clamp(0.0, (size.x as f64 - 1.0).max(0.0)),
+                    location.y.clamp(0.0, (size.y as f64 - 1.0).max(0.0)),
+                )
+            })
+            .unwrap_or((location.x, location.y));
+        let pointer_location =
+            Point::<f64, Logical>::from((surface_origin.x + hint_x, surface_origin.y + hint_y));
         pointer.set_location(pointer_location);
         trace_cursor_position_hint(
             "sync-locked",
             surface,
             &root,
             format_args!(
-                "location={:.1},{:.1} origin={:.1},{:.1} pointer={:.1},{:.1}",
+                "location={:.1},{:.1} clamped={:.1},{:.1} origin={:.1},{:.1} pointer={:.1},{:.1}",
                 location.x,
                 location.y,
+                hint_x,
+                hint_y,
                 surface_origin.x,
                 surface_origin.y,
                 pointer_location.x,

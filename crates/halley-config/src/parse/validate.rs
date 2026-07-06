@@ -142,6 +142,7 @@ impl ConfigSchema {
             "field",
             "focus-ring",
             "font",
+            "gaming",
             "gamescope",
             "input",
             "keybinds",
@@ -157,7 +158,7 @@ impl ConfigSchema {
             "viewport",
         ]);
         let ignored_sections =
-            HashSet::from(["autostart", "env", "gamescope", "keybinds", "rules"]);
+            HashSet::from(["autostart", "env", "gaming", "gamescope", "keybinds", "rules"]);
         let sections = HashSet::from([
             "animations",
             "animations.smooth-resize",
