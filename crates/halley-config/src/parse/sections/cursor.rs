@@ -48,7 +48,7 @@ mod tests {
     use super::load_cursor_section;
 
     #[test]
-    fn cursor_section_accepts_niri_style_hide_keys() {
+    fn cursor_section_accepts_inactive_hide_key_aliases() {
         let cfg = RuneConfig::from_str(
             r#"
 cursor:

@@ -224,6 +224,11 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+    # Sampling used when zoomed in past a window's own resolution.
+    # "bicubic" (Catmull-Rom) keeps magnified content crisp; "bilinear" is the
+    # cheap GPU default. `sharpen` (0..1) adds a light unsharp on top of bicubic.
+    filter "bicubic"
+    sharpen 0.2
   end
 end
 

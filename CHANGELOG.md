@@ -40,6 +40,26 @@ All notable changes to this project will be documented in this file.
   The classifier replaces the hardcoded `steam_app_*` prefix check, so games
   whose app-id isn't a Steam pattern (e.g. raw XWayland titles like `tf_linux64`
   whose app-id is the WM_CLASS) can be recognised by adding them to the list.
+- Resample magnified windows with a Catmull-Rom bicubic kernel plus an
+  optional unsharp pass instead of the plain bilinear tap, so content
+  stays crisp when the camera zooms past 1:1. New `field.zoom.filter`
+  (`"bicubic"` default, or `"bilinear"`) and `field.zoom.sharpen`
+  (0..1, default 0.2) tune it; the bicubic path only runs on actual
+  upscale, so unzoomed frames are pixel-identical to before, and
+  existing user configs are auto-migrated with the new keys.
+
+### Changed
+- The compositor no longer drives xwayland-satellite's RandR primary output from
+  pointer-motion and surface-map paths (`sync_xwayland_primary` is now a no-op).
+  The locked surface/output relationship is the single source of truth; forcing
+  `xrandr --primary` had created a competing source that could disagree with it
+  during fullscreen gaming.
+- The `gamescope:` config block has moved under a new `gaming:` parent. Existing
+  user configs are auto-migrated on update: the legacy top-level `gamescope:`
+  block is wrapped under `gaming:`, re-indented one level deeper, and the default
+  `games` classifier list is inserted alongside it; user values and per-game
+  profiles are preserved. A bare top-level `gamescope:` still parses for
+  hand-edited configs.
 
 ### Fixed
 - Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
@@ -100,18 +120,6 @@ All notable changes to this project will be documented in this file.
   in surface-local space, independent of camera/monitor coords. No-op for
   well-behaved in-bounds hints.
 
-### Changed
-- The compositor no longer drives xwayland-satellite's RandR primary output from
-  pointer-motion and surface-map paths (`sync_xwayland_primary` is now a no-op).
-  The locked surface/output relationship is the single source of truth; forcing
-  `xrandr --primary` had created a competing source that could disagree with it
-  during fullscreen gaming.
-- The `gamescope:` config block has moved under a new `gaming:` parent. Existing
-  user configs are auto-migrated on update: the legacy top-level `gamescope:`
-  block is wrapped under `gaming:`, re-indented one level deeper, and the default
-  `games` classifier list is inserted alongside it; user values and per-game
-  profiles are preserved. A bare top-level `gamescope:` still parses for
-  hand-edited configs.
 
 ## [v0.5.0] - 2026-07-01
 

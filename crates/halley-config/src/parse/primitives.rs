@@ -9,7 +9,7 @@ use crate::layout::{
     InputFocusMode, LandmarkPlacementStrategy, NodeBackgroundColorMode, NodeBorderColorMode,
     NodeDisplayPolicy, NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape,
     PanToNewMode, PinBadgeCorner, PinnedBlockerPolicy, RaiseAnimationTrigger, ScrollMethod,
-    ShadowColor, ShapeStyle, TapButtonMap, WindowCloseAnimationStyle,
+    ShadowColor, ShapeStyle, TapButtonMap, WindowCloseAnimationStyle, ZoomFilter,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -49,6 +49,21 @@ pub(crate) fn pick_pan_to_new_mode(
         "never" => PanToNewMode::Never,
         "if-needed" | "if_needed" => PanToNewMode::IfNeeded,
         "always" => PanToNewMode::Always,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_zoom_filter(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ZoomFilter,
+) -> ZoomFilter {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "bilinear" | "linear" => ZoomFilter::Bilinear,
+        "bicubic" | "cubic" => ZoomFilter::Bicubic,
         _ => default,
     }
 }

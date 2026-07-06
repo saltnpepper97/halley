@@ -15,7 +15,7 @@ use super::{
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
     EffectsConfig, FontConfig, GamingConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
+    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle, ZoomFilter,
 };
 
 impl Default for RuntimeTuning {
@@ -87,6 +87,8 @@ impl Default for RuntimeTuning {
             zoom_max: 1.35,
             zoom_smooth: true,
             zoom_smooth_rate: 12.5,
+            zoom_filter: ZoomFilter::Bicubic,
+            zoom_sharpen: 0.2,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
             non_overlap_bump_damping: 0.65,

@@ -344,6 +344,9 @@ pub(crate) fn capture_window_to_png_via_renderer(
                 &offscreen_textures,
                 st.ui.render_state.gpu.window_texture_program.as_ref(),
                 None,
+                // Snapshot capture is a 1:1 blit; keep the plain bilinear tap.
+                false,
+                0.0,
             )?;
             draw_window_borders(&mut frame, bounds.size, damage, &border_rects, st)?;
             let _ = frame.finish()?;

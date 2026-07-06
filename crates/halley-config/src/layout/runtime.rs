@@ -18,7 +18,7 @@ use super::{
     EffectsConfig, FocusRingConfig, FontConfig, GamingConfig, InputConfig,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
     PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule, ZoomFilter,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,6 +105,8 @@ pub struct RuntimeTuning {
     pub zoom_max: f32,
     pub zoom_smooth: bool,
     pub zoom_smooth_rate: f32,
+    pub zoom_filter: ZoomFilter,
+    pub zoom_sharpen: f32,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -675,6 +677,11 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+    # Sampling used when zoomed in past a window's own resolution. "bicubic"
+    # (Catmull-Rom) keeps magnified content crisp; "bilinear" is the cheap GPU
+    # default. `sharpen` (0..1) adds a light unsharp on top of bicubic.
+    filter "bicubic"
+    sharpen 0.2
   end
 
 end

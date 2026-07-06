@@ -726,6 +726,15 @@ pub enum ExpandedPlacementStrategy {
     FindEmpty,
 }
 
+/// Texture sampling used when a window is magnified past its source resolution
+/// (i.e. zoomed in). Bilinear is the cheap GPU default; bicubic is a
+/// Catmull-Rom resample that keeps zoomed content crisper.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ZoomFilter {
+    Bilinear,
+    Bicubic,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FindEmptyMode {
     BestEffort,

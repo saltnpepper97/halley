@@ -1,5 +1,6 @@
 use glam::{Mat3, Vec2, Vec3};
 use smithay::backend::renderer::{
+    Texture,
     element::{
         Element, Id, Kind, RenderElement, UnderlyingStorage, surface::WaylandSurfaceTexture,
     },
@@ -78,6 +79,7 @@ pub(crate) struct RescaledSurfaceElement {
     clip_input_to_geo_row_1: (f32, f32, f32),
     clip_input_to_geo_row_2: (f32, f32, f32),
     clip_scale: f32,
+    sharpen: f32,
 }
 
 impl RescaledSurfaceElement {
@@ -101,6 +103,7 @@ impl RescaledSurfaceElement {
         clip_program: Option<GlesTexProgram>,
         corner_radius: f32,
         render_scale: f32,
+        sharpen: f32,
     ) -> Self {
         let base_elem = inner.geometry(Scale::from(1.0));
         let post_zoom_elem = map_rect_between(base_elem, base_window_geo, visual_window_geo);
@@ -148,6 +151,7 @@ impl RescaledSurfaceElement {
                 input_to_geo.z_axis.z,
             ),
             clip_scale: render_scale,
+            sharpen,
         }
     }
 
@@ -233,6 +237,7 @@ impl RenderElement<GlesRenderer> for RescaledSurfaceElement {
         match self.inner.texture() {
             WaylandSurfaceTexture::Texture(texture) => {
                 if let Some(program) = self.clip_program.as_ref() {
+                    let tex_size = texture.size();
                     let uniforms = [
                         Uniform::new("clip_scale", self.clip_scale),
                         Uniform::new("geo_size", self.clip_geo_size),
@@ -240,6 +245,8 @@ impl RenderElement<GlesRenderer> for RescaledSurfaceElement {
                         Uniform::new("input_to_geo_row_0", self.clip_input_to_geo_row_0),
                         Uniform::new("input_to_geo_row_1", self.clip_input_to_geo_row_1),
                         Uniform::new("input_to_geo_row_2", self.clip_input_to_geo_row_2),
+                        Uniform::new("tex_size", (tex_size.w as f32, tex_size.h as f32)),
+                        Uniform::new("sharpen", self.sharpen),
                     ];
                     frame.render_texture_from_to(
                         texture,

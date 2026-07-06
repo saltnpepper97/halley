@@ -778,16 +778,24 @@ pub(crate) fn collect_active_surfaces(
                 (base_geometry_rect.0, base_geometry_rect.1).into(),
                 (base_geometry_rect.2.max(1), base_geometry_rect.3.max(1)).into(),
             );
+            // When zoomed in past 1:1, route content through the clip shader even if
+            // it needs no geometric clip, so its bicubic + sharpen resample runs on
+            // the magnified live buffer (the shader no-ops the clip at corner_radius 0).
+            let zoom_bicubic =
+                matches!(st.runtime.tuning.zoom_filter, halley_config::ZoomFilter::Bicubic);
+            let zoom_sharpen = st.runtime.tuning.zoom_sharpen;
+            let magnifying = zoom_bicubic && render_scale > 1.0;
             let clip_program = st.ui.render_state.gpu.surface_clip_program.as_ref();
             let cropped: Vec<CroppedClippedSurfaceElement> = elems
                 .into_iter()
                 .filter_map(|elem| {
-                    let program = if RescaledSurfaceElement::needs_clip(
-                        &elem,
-                        base_geo,
-                        post_zoom_geo,
-                        corner_radius,
-                    ) {
+                    let program = if magnifying
+                        || RescaledSurfaceElement::needs_clip(
+                            &elem,
+                            base_geo,
+                            post_zoom_geo,
+                            corner_radius,
+                        ) {
                         clip_program.cloned()
                     } else {
                         None
@@ -799,6 +807,7 @@ pub(crate) fn collect_active_surfaces(
                         program,
                         corner_radius,
                         render_scale,
+                        zoom_sharpen,
                     );
                     let direct: DirectSurfaceElement = rescaled.into();
                     CropRenderElement::from_element(direct, 1.0, display_clip)

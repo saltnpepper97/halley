@@ -21,6 +21,10 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+    # Sampling when zoomed past a window's own resolution: "bicubic"
+    # (crisp Catmull-Rom) or "bilinear" (cheap). `sharpen` (0..1) = unsharp.
+    filter "bicubic"
+    sharpen 0.2
   end
 end
 

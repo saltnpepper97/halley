@@ -802,6 +802,31 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_zoom_filter_and_sharpen() {
+        // An existing zoom block from before the shader-resample feature lacks the
+        // new keys; the merge should inject them without touching the user's values.
+        let raw = r#"
+field:
+  zoom:
+    enabled true
+    min 0.10
+    max 1.40
+  end
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("filter \"bicubic\""));
+        assert!(updated.contains("sharpen 0.2"));
+        // User's own values are preserved, not overwritten.
+        assert!(updated.contains("min 0.10"));
+        assert!(updated.contains("max 1.40"));
+    }
+
+    #[test]
     fn updater_injects_effects_block_with_blur_and_shadows() {
         let raw = r##"
 decorations:

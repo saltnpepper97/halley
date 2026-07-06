@@ -36,6 +36,6 @@ pub use layout::{
     ScreenshotConfig, ScrollMethod, SecondaryBorderConfig, ShadowColor, ShadowLayerConfig,
     ShadowsConfig, ShapeStyle, TapButtonMap, TimedAnimationConfig, ViewportOutputConfig,
     ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
-    WindowRulePattern, overlay_blur_enabled, window_blur_enabled,
+    WindowRulePattern, ZoomFilter, overlay_blur_enabled, window_blur_enabled,
 };
 pub use parse::{ConfigLoadDiagnostic, gather_dependencies_for_file};

@@ -90,6 +90,9 @@ pub(crate) fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mu
             UniformName::new("geo_size", UniformType::_2f),
             UniformName::new("src_uv_offset", UniformType::_2f),
             UniformName::new("src_uv_scale", UniformType::_2f),
+            UniformName::new("magnify", UniformType::_1f),
+            UniformName::new("tex_size", UniformType::_2f),
+            UniformName::new("sharpen", UniformType::_1f),
         ],
     ) {
         Ok(program) => st.ui.render_state.gpu.window_texture_program = Some(program),
@@ -147,6 +150,8 @@ fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
             UniformName::new("input_to_geo_row_0", UniformType::_3f),
             UniformName::new("input_to_geo_row_1", UniformType::_3f),
             UniformName::new("input_to_geo_row_2", UniformType::_3f),
+            UniformName::new("tex_size", UniformType::_2f),
+            UniformName::new("sharpen", UniformType::_1f),
         ],
     ) {
         Ok(program) => st.ui.render_state.gpu.surface_clip_program = Some(program),

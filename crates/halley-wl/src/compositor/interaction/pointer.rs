@@ -624,9 +624,8 @@ pub(crate) fn apply_cursor_position_hint(
         // Clamp the hinted position to the locked surface's own bounds. A game that
         // warps-to-recenter can hint a location outside its window (or, cross-monitor,
         // one that resolves onto another output); without this the cursor gets flung
-        // off the game's monitor. Mirrors Niri's cursor_position_hint output-constrain,
-        // but in Halley's surface-local space so it's independent of camera/monitor
-        // coords. A no-op for well-behaved in-bounds hints.
+        // off the game's monitor. Clamps in Halley's surface-local space so it's
+        // independent of camera/monitor coords. A no-op for well-behaved in-bounds hints.
         let (hint_x, hint_y) = st
             .model
             .surface_to_node
