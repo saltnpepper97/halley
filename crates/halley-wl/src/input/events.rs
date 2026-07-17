@@ -27,7 +27,6 @@ pub(crate) enum BackendInputEventData {
         state: ButtonState,
     },
     PointerAxis {
-        time_msec: u32,
         source: AxisSource,
         amount_v120_horizontal: Option<f64>,
         amount_v120_vertical: Option<f64>,
@@ -134,7 +133,6 @@ pub(crate) fn handle_backend_input_event<B: BackendView>(
             super::pointer::button::handle_pointer_button_input(st, ctx, button_code, state);
         }
         BackendInputEventData::PointerAxis {
-            time_msec,
             source,
             amount_v120_horizontal,
             amount_v120_vertical,
@@ -146,7 +144,6 @@ pub(crate) fn handle_backend_input_event<B: BackendView>(
             handle_pointer_axis_input(
                 st,
                 ctx,
-                time_msec,
                 source,
                 amount_v120_horizontal,
                 amount_v120_vertical,
