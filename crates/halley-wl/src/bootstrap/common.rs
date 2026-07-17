@@ -25,8 +25,6 @@ use rustix::net::{
 };
 use rustix::process::{Pid, Signal, kill_process_group, setpgid, test_kill_process};
 
-use crate::app_env::set_default_sdl_video_driver;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeBackend {
     Auto,
@@ -197,7 +195,6 @@ pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
         // What portals can use for backend matching
         env::set_var("XDG_CURRENT_DESKTOP", "Halley");
     }
-    set_default_sdl_video_driver();
     let vars = activation_environment_vars();
     if vars.is_empty() {
         return;

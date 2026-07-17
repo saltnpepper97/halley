@@ -7,10 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Add tty-backend VT switching for `Ctrl+Alt+F1` through `Ctrl+Alt+F12`, using the
   active libseat session, and recover redraw/output state immediately when returning to Halley.
-- Default `SDL_VIDEODRIVER` to `wayland,x11` (new `app_env` module) in the XDG
-  activation environment and for spawned apps, so SDL/Unity games prefer the
-  native Wayland backend while still falling back to X11; an explicit
-  `SDL_VIDEODRIVER` override is respected.
+- Stop forcing toolkit/backend environment variables in Halley's activation
+  environment and spawned apps. SDL, GTK, Qt, Clutter, Firefox, and Electron
+  now select their native session behavior themselves; an explicit user
+  `SDL_VIDEODRIVER` remains forwarded unchanged.
 - Add a hover-focus reveal gate: after the pointer has been idle, ~64px of
   deliberate travel is required before motion can retarget keyboard focus, so a
   desk bump or trackpad jitter reveals the cursor without stealing focus from
