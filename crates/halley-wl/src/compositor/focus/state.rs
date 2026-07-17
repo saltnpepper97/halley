@@ -9,9 +9,9 @@ use halley_core::viewport::{FocusRing, FocusZone};
 
 use crate::compositor::root::Halley;
 use smithay::reexports::wayland_server::Resource;
-use smithay::utils::SERIAL_COUNTER;
 
 pub(crate) struct FocusState {
+    pub(crate) seat: super::coordinator::SeatFocusState,
     pub(crate) primary_interaction_focus: Option<NodeId>,
     pub(crate) monitor_focus: HashMap<String, NodeId>,
     pub(crate) blocked_monitor_focus_restore: HashSet<String>,
@@ -240,11 +240,8 @@ pub fn set_interaction_focus(st: &mut Halley, id: Option<NodeId>, hold_ms: u64, 
                 spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::Focus;
                 spawn.spawn_pan_start_center = None;
             }
-
-            reassert_wayland_keyboard_focus_if_drifted(st, id);
         } else {
             st.model.focus_state.interaction_focus_until_ms = 0;
-            reassert_wayland_keyboard_focus_if_drifted(st, None);
         }
         st.request_maintenance();
         return;
@@ -344,38 +341,6 @@ pub(crate) fn restore_pan_return_active_focus(st: &mut Halley, now: Instant) {
 
     set_interaction_focus(st, Some(id), 12_000, now);
     st.model.focus_state.pan_restore_active_focus = None;
-}
-
-pub fn reassert_wayland_keyboard_focus_if_drifted(st: &mut Halley, id: Option<NodeId>) {
-    if st.model.monitor_state.layer_keyboard_focus.is_some() {
-        crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(
-            st,
-        );
-        return;
-    }
-    let desired_focus =
-        id.and_then(|fid| crate::compositor::focus::system::wl_surface_for_node(st, fid));
-    if let Some(keyboard) = st.platform.seat.get_keyboard() {
-        let current_focus = keyboard.current_focus();
-        let matches = match (&current_focus, &desired_focus) {
-            (Some(current), Some(desired)) => current.id() == desired.id(),
-            (None, None) => true,
-            _ => false,
-        };
-        if !matches {
-            debug!(
-                "keyboard focus drift detected; reasserting desired focus={:?} current={:?}",
-                desired_focus.as_ref().map(|wl| format!("{:?}", wl.id())),
-                current_focus.as_ref().map(|wl| format!("{:?}", wl.id()))
-            );
-            crate::compositor::focus::system::set_keyboard_focus(
-                st,
-                desired_focus.clone(),
-                SERIAL_COUNTER.next_serial(),
-            );
-            st.update_selection_focus_from_surface(desired_focus.as_ref());
-        }
-    }
 }
 
 #[allow(dead_code)]

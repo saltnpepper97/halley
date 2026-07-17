@@ -5,9 +5,7 @@ use crate::compositor::surface::stack_focus_target_for_node;
 use eventline::debug;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
-use smithay::utils::{SERIAL_COUNTER, Serial};
-use smithay::wayland::selection::data_device::set_data_device_focus;
-use smithay::wayland::selection::primary_selection::set_primary_focus;
+use smithay::utils::SERIAL_COUNTER;
 
 use crate::compositor::ctx::FocusCtx;
 use smithay::input::Seat;
@@ -24,29 +22,16 @@ pub(crate) fn on_seat_focus_changed(
     );
 
     let client = focused.and_then(|wl| wl.client());
-    set_data_device_focus(ctx.display_handle, seat, client.clone());
-    set_primary_focus(ctx.display_handle, seat, client);
-}
-
-/// Single choke point for every keyboard focus change. When focus actually moves
-/// to a *different* surface, it first flushes any stale non-modifier forwarded
-/// keys (see `crate::input::keyboard::flush_stuck_forwarded_keys`) so the newly
-/// focused surface can never inherit a stuck key that repeats forever. All
-/// `keyboard.set_focus(...)` calls in the compositor should go through this.
-pub(crate) fn set_keyboard_focus(st: &mut Halley, focus: Option<WlSurface>, serial: Serial) {
-    let Some(keyboard) = st.platform.seat.get_keyboard() else {
-        return;
-    };
-    let current = keyboard.current_focus();
-    let changed = match (&current, &focus) {
-        (Some(c), Some(n)) => c.id() != n.id(),
-        (None, None) => false,
-        _ => true,
-    };
-    if changed {
-        crate::input::keyboard::flush_stuck_forwarded_keys(st);
-    }
-    keyboard.set_focus(st, focus, serial);
+    smithay::wayland::selection::data_device::set_data_device_focus(
+        ctx.display_handle,
+        seat,
+        client.clone(),
+    );
+    smithay::wayland::selection::primary_selection::set_primary_focus(
+        ctx.display_handle,
+        seat,
+        client,
+    );
 }
 
 pub fn wl_surface_for_node(st: &Halley, id: NodeId) -> Option<WlSurface> {
@@ -83,16 +68,6 @@ fn keep_locked_focus_for_request(
         .unwrap_or_else(|| st.monitor_for_node_or_current(locked_node));
     let requested_monitor = st.monitor_for_node_or_current(requested_node);
     requested_monitor == locked_monitor
-}
-
-pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&WlSurface>) {
-    let client = surface.and_then(|wl| wl.client());
-    set_data_device_focus(
-        &st.platform.display_handle,
-        &st.platform.seat,
-        client.clone(),
-    );
-    set_primary_focus(&st.platform.display_handle, &st.platform.seat, client);
 }
 
 pub(crate) fn focus_pointer_target(
@@ -144,8 +119,7 @@ pub fn set_app_focused(st: &mut Halley, focused: bool) {
 }
 
 pub(crate) fn clear_keyboard_focus(st: &mut Halley) {
-    set_keyboard_focus(st, None, SERIAL_COUNTER.next_serial());
-    update_selection_focus_from_surface(st, None);
+    super::coordinator::set_interaction_focus(st, None, SERIAL_COUNTER.next_serial());
 }
 
 pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
@@ -234,8 +208,11 @@ pub fn apply_wayland_focus_state(st: &mut Halley, id: Option<NodeId>) {
     {
         crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
     }
-    set_keyboard_focus(st, focus_surface.clone(), SERIAL_COUNTER.next_serial());
-    update_selection_focus_from_surface(st, focus_surface.as_ref());
+    super::coordinator::set_interaction_focus(
+        st,
+        focus_surface.clone(),
+        SERIAL_COUNTER.next_serial(),
+    );
 
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let key = top.wl_surface().id();

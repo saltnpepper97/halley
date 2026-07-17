@@ -97,8 +97,10 @@ pub(crate) fn button_frame_for_monitor(
         !grabbed_layer_surface_active,
         !grabbed_layer_surface_active,
     );
-    st.input.interaction_state.cursor.last_screen_global =
-        Some((context.global_sx, context.global_sy));
+    crate::compositor::interaction::cursor::record_pointer_position(
+        st,
+        (context.global_sx, context.global_sy),
+    );
     (
         ButtonFrame {
             ws_w: context.ws_w,

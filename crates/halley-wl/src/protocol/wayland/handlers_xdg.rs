@@ -326,7 +326,8 @@ impl XdgShellHandler for Halley {
         let restore_drag_offset = self
             .input
             .interaction_state
-            .cursor.last_screen_global
+            .cursor
+            .last_screen_global
             .and_then(|(press_global_sx, press_global_sy)| {
                 crate::compositor::workspace::state::maximize_session_monitor_for_node(
                     self, node_id,
@@ -503,7 +504,11 @@ impl XdgShellHandler for Halley {
             }
             // Route popup-grab focus through the choke point so it flushes stale forwarded
             // keys like every other focus change (no surface inherits a stuck repeat).
-            crate::compositor::focus::system::set_keyboard_focus(self, grab.current_grab(), serial);
+            crate::compositor::focus::coordinator::set_interaction_focus(
+                self,
+                grab.current_grab(),
+                serial,
+            );
             keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
         }
 

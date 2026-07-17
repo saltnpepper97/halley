@@ -183,12 +183,11 @@ pub(crate) fn focus_surface(st: &mut Halley, surface: &WlSurface) -> bool {
     if st.platform.seat.get_keyboard().is_none() {
         return false;
     }
-    crate::compositor::focus::system::set_keyboard_focus(
+    crate::compositor::focus::coordinator::set_session_lock_focus(
         st,
         Some(root.clone()),
         SERIAL_COUNTER.next_serial(),
     );
-    st.update_selection_focus_from_surface(Some(&root));
     true
 }
 
@@ -271,12 +270,11 @@ pub(crate) fn reassert_keyboard_focus_if_drifted(st: &mut Halley) {
         return;
     }
 
-    crate::compositor::focus::system::set_keyboard_focus(
+    crate::compositor::focus::coordinator::set_session_lock_focus(
         st,
         Some(desired_focus.clone()),
         SERIAL_COUNTER.next_serial(),
     );
-    st.update_selection_focus_from_surface(Some(&desired_focus));
 }
 
 impl SessionLockHandler for Halley {

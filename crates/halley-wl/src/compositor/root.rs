@@ -277,6 +277,7 @@ impl Halley {
                     layer_keyboard_focus: None,
                 },
                 focus_state: FocusState {
+                    seat: Default::default(),
                     interaction_focus_until_ms: 0,
                     last_surface_focus_ms: HashMap::new(),
                     outside_focus_ring_since_ms: HashMap::new(),
@@ -1145,13 +1146,6 @@ impl Halley {
     #[cfg(test)]
     pub(crate) fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
         super::focus::system::fullscreen_focus_override(self, requested)
-    }
-
-    pub(crate) fn update_selection_focus_from_surface(
-        &self,
-        surface: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
-    ) {
-        super::focus::system::update_selection_focus_from_surface(self, surface)
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {

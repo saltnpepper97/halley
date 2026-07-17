@@ -305,12 +305,11 @@ fn apply_layer_surface_focus(
         crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
     }
 
-    crate::compositor::focus::system::set_keyboard_focus(
+    crate::compositor::focus::coordinator::set_layer_shell_focus(
         st,
         Some(surface.clone()),
         SERIAL_COUNTER.next_serial(),
     );
-    st.update_selection_focus_from_surface(Some(surface));
 
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let changed = top.with_pending_state(|state| {
@@ -988,12 +987,11 @@ pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(st: &mut Halley) 
         .is_some_and(|focus| focus.id() == desired_focus.id());
 
     if !matches {
-        crate::compositor::focus::system::set_keyboard_focus(
+        crate::compositor::focus::coordinator::set_layer_shell_focus(
             st,
             Some(desired_focus.clone()),
             SERIAL_COUNTER.next_serial(),
         );
-        st.update_selection_focus_from_surface(Some(&desired_focus));
     }
 }
 

@@ -335,7 +335,6 @@ pub(crate) fn commit_focus_cycle(st: &mut Halley, now: Instant) -> bool {
         }
         st.apply_wayland_focus_state(Some(target));
         let _ = st.raise_overlap_policy_node(target);
-        crate::compositor::interaction::pointer::center_pointer_on_node(st, target, now);
         if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
             session.closing_started_at = Some(now);
         }
@@ -391,9 +390,6 @@ pub(crate) fn commit_focus_cycle(st: &mut Halley, now: Instant) -> bool {
                 || crate::compositor::actions::window::focus_or_reveal_surface_node(st, target, now)
         }
     };
-    if changed {
-        crate::compositor::interaction::pointer::center_pointer_on_node(st, target, now);
-    }
     if let Some(session) = st.input.interaction_state.focus_cycle_session.as_mut() {
         session.closing_started_at = Some(now);
     }
@@ -568,9 +564,20 @@ mod tests {
 
         let now = Instant::now();
         state.set_interaction_focus(Some(a), 30_000, now);
+        state.input.interaction_state.cursor.last_screen_global = Some((41.0, 73.0));
+        state.input.interaction_state.cursor.pending_screen_hint = None;
         assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, now));
         assert!(state.focus_cycle_session_active());
         assert!(state.commit_focus_cycle(now));
+
+        assert_eq!(
+            state.input.interaction_state.cursor.last_screen_global,
+            Some((41.0, 73.0))
+        );
+        assert_eq!(
+            state.input.interaction_state.cursor.pending_screen_hint,
+            None
+        );
 
         assert!(!state.focus_cycle_session_active());
         assert!(

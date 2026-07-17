@@ -15,7 +15,7 @@ pub(crate) struct PointerContents {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct PointerFocusState {
+pub(crate) struct PointerFocusTracker {
     pub(crate) contents: PointerContents,
     /// Exact ungrabbed focus produced by normal pointer routing. New pointer
     /// constraints may activate only from this live target.
@@ -24,7 +24,7 @@ pub(crate) struct PointerFocusState {
     pub(crate) seat_focus: Option<(WlSurface, Point<f64, Logical>)>,
 }
 
-impl PointerFocusState {
+impl PointerFocusTracker {
     pub(crate) fn clear(&mut self) {
         *self = Self::default();
     }

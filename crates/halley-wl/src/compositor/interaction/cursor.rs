@@ -1,4 +1,5 @@
-use smithay::input::pointer::CursorIcon;
+use smithay::input::pointer::{CursorIcon, PointerHandle};
+use smithay::utils::{Logical, Point};
 
 use crate::compositor::root::Halley;
 
@@ -41,7 +42,7 @@ impl CursorPresentationState {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct CursorState {
+pub(crate) struct CursorController {
     pub(crate) pending_screen_hint: Option<(f32, f32)>,
     pub(crate) last_screen_global: Option<(f32, f32)>,
     pub(crate) presentation: CursorPresentationState,
@@ -95,6 +96,23 @@ pub(crate) fn expire_temporary_feedback(st: &mut Halley, now_ms: u64) -> bool {
 
 pub(crate) fn take_screen_hint(st: &mut Halley) -> Option<(f32, f32)> {
     st.input.interaction_state.cursor.pending_screen_hint.take()
+}
+
+pub(crate) fn record_pointer_position(st: &mut Halley, position: (f32, f32)) {
+    st.input.interaction_state.cursor.last_screen_global = Some(position);
+}
+
+/// Synchronize a protocol-approved locked-pointer position hint with the seat
+/// and backend accumulator without emitting absolute client motion.
+pub(crate) fn sync_locked_position_hint(
+    st: &mut Halley,
+    pointer: &PointerHandle<Halley>,
+    target: Point<f64, Logical>,
+) {
+    pointer.set_location(target);
+    let screen = (target.x as f32, target.y as f32);
+    st.input.interaction_state.cursor.last_screen_global = Some(screen);
+    st.input.interaction_state.cursor.pending_screen_hint = Some(screen);
 }
 
 #[cfg(test)]

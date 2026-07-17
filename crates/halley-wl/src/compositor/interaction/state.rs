@@ -331,15 +331,15 @@ impl FocusCycleSession {
 
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
-    pub(crate) cursor: super::cursor::CursorState,
+    pub(crate) cursor: super::cursor::CursorController,
     /// When set, an explicit `monitor-focus` keybind has pinned the spawn-target
     /// monitor to `focused_monitor`, overriding hover focus-mode until the pointer
     /// actually moves (cleared in the pointer-motion handler). Keeps a deliberate
     /// keyboard monitor switch from being ignored when the cursor sits on another
     /// monitor under `focus-mode "hover"`.
     pub(crate) monitor_focus_pinned: bool,
-    pub(crate) pointer_focus: super::pointer_focus::PointerFocusState,
-    pub(crate) pointer_constraint: super::pointer_constraint::PointerConstraintState,
+    pub(crate) pointer_focus: super::pointer_focus::PointerFocusTracker,
+    pub(crate) pointer_constraint: super::pointer_constraint::PointerConstraintController,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,
