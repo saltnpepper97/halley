@@ -385,7 +385,8 @@ pub(crate) fn draw_cluster_naming_dialog(
     let pointer_local = st
         .input
         .interaction_state
-        .cursor.last_screen_global
+        .cursor
+        .last_screen_global
         .map(|(sx, sy)| st.local_screen_in_monitor(monitor.as_str(), sx, sy))
         .map(|(_, _, sx, sy)| (sx, sy));
     {

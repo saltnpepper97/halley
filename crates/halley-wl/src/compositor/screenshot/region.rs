@@ -199,7 +199,8 @@ pub(super) fn screenshot_session_monitor(st: &Halley, output: Option<&str>) -> S
         .or_else(|| {
             st.input
                 .interaction_state
-                .cursor.last_screen_global
+                .cursor
+                .last_screen_global
                 .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy))
         })
         .or_else(|| {

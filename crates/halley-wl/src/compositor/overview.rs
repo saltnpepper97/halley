@@ -778,7 +778,8 @@ pub(crate) fn apogee_navigate(
     let (cx, cy) = apogee_tile_global_center(st, exclude).or_else(|| {
         st.input
             .interaction_state
-            .cursor.last_screen_global
+            .cursor
+            .last_screen_global
             .filter(|_| apogee_session_has_tile(session, exclude))
     })?;
 

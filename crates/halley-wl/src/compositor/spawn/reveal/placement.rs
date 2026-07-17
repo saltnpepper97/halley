@@ -1103,7 +1103,8 @@ pub(crate) fn pick_spawn_position_with_intent(
     let cursor_anchor = st
         .input
         .interaction_state
-        .cursor.last_screen_global
+        .cursor
+        .last_screen_global
         .and_then(|(sx, sy)| world_from_monitor_screen(st, target_monitor.as_str(), sx, sy));
 
     match placement {
