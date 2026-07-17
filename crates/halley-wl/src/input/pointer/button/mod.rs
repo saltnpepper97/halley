@@ -15,11 +15,11 @@ use crate::render::bearing_hit_test;
 use crate::spatial::pick_hit_node_at;
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
-    popup_focus_for_screen,
+    popup_focus_for_screen, seat_focus_from_local,
 };
 use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
@@ -832,7 +832,7 @@ pub(super) fn dispatch_pointer_button(
         st.now_ms(Instant::now()),
     );
 
-    let location = if locked_surface.is_some() {
+    let local_location = if locked_surface.is_some() {
         pointer.current_location()
     } else if focus.as_ref().is_some_and(|(surface, _)| {
         crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
@@ -842,6 +842,16 @@ pub(super) fn dispatch_pointer_button(
     } else {
         let cam_scale = st.camera_render_scale() as f64;
         (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+    };
+    let seat_location =
+        Point::<f64, Logical>::from((frame.global_sx as f64, frame.global_sy as f64));
+    let (focus, location) = if locked_surface.is_some() {
+        (focus, local_location)
+    } else {
+        (
+            seat_focus_from_local(focus, local_location, seat_location),
+            seat_location,
+        )
     };
     let should_send_motion = match (locked_surface.as_ref(), pointer.current_focus()) {
         (Some(locked), Some(current)) => current != *locked,

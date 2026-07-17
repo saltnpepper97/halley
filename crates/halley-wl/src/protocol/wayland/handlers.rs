@@ -262,25 +262,8 @@ impl DrmSyncobjHandler for Halley {
 }
 
 impl PointerConstraintsHandler for Halley {
-    fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
-        // Keep this path free of fresh absolute pointer motion. Recomputing focus here
-        // regressed Tiny Glade's right-click camera lock by injecting a motion event at
-        // lock creation time; use the existing pointer focus origin instead.
-        let focus =
-            interaction::pointer::current_pointer_focus_with_origin(self, pointer, Instant::now());
-        let Some(surface_origin) = interaction::pointer::retarget_pointer_focus_for_constraint(
-            self,
-            surface,
-            pointer,
-            focus.as_ref(),
-        ) else {
-            return;
-        };
-        interaction::pointer::activate_pointer_constraint_for_surface_at(
-            self,
-            surface,
-            Some(surface_origin),
-        );
+    fn new_constraint(&mut self, surface: &WlSurface, _pointer: &PointerHandle<Self>) {
+        interaction::pointer::activate_new_pointer_constraint(self, surface);
     }
 
     fn cursor_position_hint(

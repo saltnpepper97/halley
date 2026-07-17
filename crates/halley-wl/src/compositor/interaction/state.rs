@@ -341,13 +341,6 @@ pub(crate) struct PointerContents {
     pub(crate) is_session_lock_surface: bool,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct RecentLockedPointerTarget {
-    pub(crate) surface: WlSurface,
-    pub(crate) origin: Point<f64, Logical>,
-    pub(crate) until_ms: u64,
-}
-
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -359,9 +352,14 @@ pub(crate) struct InteractionState {
     /// monitor under `focus-mode "hover"`.
     pub(crate) monitor_focus_pinned: bool,
     pub(crate) pointer_contents: PointerContents,
+    /// Exact ungrabbed focus produced by the normal pointer route. This is the
+    /// only valid origin for a newly-created pointer constraint.
+    pub(crate) pointer_contents_target: Option<(WlSurface, Point<f64, Logical>)>,
+    /// Constraint owner and global Smithay origin, held for the complete lock
+    /// lifetime. Do not derive this again from cursor or camera coordinates.
+    pub(crate) active_pointer_constraint: Option<(WlSurface, Point<f64, Logical>)>,
     pub(crate) pointer_surface_origin: Option<(ObjectId, f64, f64)>,
     pub(crate) pointer_focus: Option<(WlSurface, Point<f64, Logical>)>,
-    pub(crate) recent_locked_pointer_target: Option<RecentLockedPointerTarget>,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,

@@ -52,6 +52,32 @@ pub(crate) struct ActivePointerConstraint {
     pub(crate) region: Option<RegionAttributes>,
 }
 
+// POINTER-LOCK INVARIANTS — KEEP THESE TOGETHER.
+//
+// TF2/XWayland exposed a session-latched failure where a compositor started
+// with mismatched cursor, focus-origin, and camera-local coordinates; every
+// subsequent game lock in that compositor session was then broken. The working
+// behavior was verified against Niri and across repeated fresh Halley starts.
+//
+// 1. Smithay's seat cursor and every surface focus origin use one global logical
+//    coordinate space. Camera-local hit-test coordinates must be translated by
+//    `seat_focus_from_local` before entering pointer APIs.
+// 2. A new constraint activates only when a fresh hit-test at the current seat
+//    cursor and `pointer.current_focus()` both belong to its surface tree. Never
+//    attach a lock from cached focus/origin state and never synthesize an
+//    absolute `pointer.motion()` to force the focus to match.
+// 3. While locked, physical input is relative-only. Do not send absolute
+//    `pointer.motion()` events or let maintenance replace the focused surface.
+// 4. Active `set_cursor_position_hint` requests are live XWayland seat state,
+//    not a fixed recenter command. Apply `constraint_origin + surface_hint` to
+//    the seat cursor, constrain it to the owning output, and synchronize the
+//    backend accumulator without emitting absolute client motion.
+// 5. The active protocol constraint is the sole routing authority. Do not add a
+//    timed "recent lock" target or other stale-owner fallback.
+//
+// Breaking any one of these rules can bring back the all-games-broken-for-this-
+// compositor-run failure even when lock/unlock protocol events look normal.
+
 pub(crate) const CORE_BLOOM_HOLD_MS: u64 = 1_700;
 
 #[derive(Clone)]
@@ -176,6 +202,10 @@ pub(crate) fn activate_pointer_constraint_for_surface_at(
             }
         });
         if activated {
+            st.input.interaction_state.active_pointer_constraint = Some((
+                current.clone(),
+                current_origin.unwrap_or_else(|| pointer.current_location()),
+            ));
             break;
         }
         if let Some(parent) = get_parent(&current) {
@@ -197,21 +227,64 @@ pub(crate) fn activate_pointer_constraint_for_surface_at(
     }
 }
 
-pub(crate) fn maybe_activate_pointer_constraint(st: &mut Halley, now: Instant) {
+pub(crate) fn maybe_activate_pointer_constraint(st: &mut Halley, _now: Instant) {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
     let Some(current_focus) = pointer.current_focus() else {
         return;
     };
-    let focus = pointer_focus_at_last_screen(st, None, now).and_then(|(focus, _, _)| focus);
-    let Some((surface, surface_origin)) = focus else {
+    let Some(surface_origin) = st
+        .input
+        .interaction_state
+        .pointer_contents_target
+        .as_ref()
+        .and_then(|(surface, origin)| (surface.id() == current_focus.id()).then_some(*origin))
+    else {
         return;
     };
-    if surface != current_focus {
+    activate_pointer_constraint_for_surface_at(st, &current_focus, Some(surface_origin));
+}
+
+/// Attach a newly-created protocol constraint only when a fresh hit-test at the
+/// seat cursor still lands in the requesting surface tree. Refresh Halley's
+/// bookkeeping from that live result, but never synthesize an absolute
+/// `wl_pointer.motion` merely to make a stale focus fit the request.
+pub(crate) fn activate_new_pointer_constraint(st: &mut Halley, surface: &WlSurface) {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return;
+    };
+    let Some((fresh_focus, _, contents)) = pointer_focus_at_last_screen(st, None, Instant::now())
+    else {
+        return;
+    };
+    let Some((contents_surface, contents_origin)) = fresh_focus else {
+        return;
+    };
+    let Some(seat_focus) = pointer.current_focus() else {
+        return;
+    };
+    let requesting_root = surface_tree_root(surface).id();
+    if surface_tree_root(&contents_surface).id() != requesting_root
+        || surface_tree_root(&seat_focus).id() != requesting_root
+    {
         return;
     }
-    activate_pointer_constraint_for_surface_at(st, &surface, Some(surface_origin));
+    let Some(origin) = related_surface_origin(&contents_surface, contents_origin, surface) else {
+        return;
+    };
+    update_pointer_contents_from_focus(
+        st,
+        contents.monitor.unwrap_or_default(),
+        Some(&(contents_surface, contents_origin)),
+    );
+    if with_pointer_constraint(surface, &pointer, |constraint| {
+        constraint.is_some_and(|constraint| constraint.is_active())
+    }) {
+        st.input.interaction_state.active_pointer_constraint = Some((surface.clone(), origin));
+        return;
+    }
+    activate_pointer_constraint_for_surface_at(st, surface, Some(origin));
 }
 
 fn pointer_focus_at_last_screen(
@@ -224,29 +297,8 @@ fn pointer_focus_at_last_screen(
     PointerContents,
 )> {
     let pointer = st.platform.seat.get_pointer()?;
-    let (global_sx, global_sy) = st
-        .input
-        .interaction_state
-        .last_pointer_screen_global
-        .unwrap_or_else(|| {
-            let location = pointer.current_location();
-            let cam_scale = st.camera_render_scale().max(0.001) as f64;
-            let monitor = st.model.monitor_state.current_monitor.as_str();
-            st.model
-                .monitor_state
-                .monitors
-                .get(monitor)
-                .map(|space| {
-                    (
-                        space.offset_x as f32 + (location.x * cam_scale) as f32,
-                        space.offset_y as f32 + (location.y * cam_scale) as f32,
-                    )
-                })
-                .unwrap_or((
-                    (location.x * cam_scale) as f32,
-                    (location.y * cam_scale) as f32,
-                ))
-        });
+    let seat_location = pointer.current_location();
+    let (global_sx, global_sy) = (seat_location.x as f32, seat_location.y as f32);
     let monitor = st.monitor_for_screen_or_interaction(global_sx, global_sy);
     let (ws_w, ws_h, local_sx, local_sy) =
         st.local_screen_in_monitor(monitor.as_str(), global_sx, global_sy);
@@ -259,7 +311,7 @@ fn pointer_focus_at_last_screen(
         now,
         resize_preview,
     );
-    let location = if focus.as_ref().is_some_and(|(surface, _)| {
+    let local_location = if focus.as_ref().is_some_and(|(surface, _)| {
         crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
             || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
     }) {
@@ -268,8 +320,10 @@ fn pointer_focus_at_last_screen(
         let cam_scale = st.camera_render_scale() as f64;
         (local_sx as f64 / cam_scale, local_sy as f64 / cam_scale).into()
     };
+    let focus =
+        crate::input::pointer::focus::seat_focus_from_local(focus, local_location, seat_location);
     let contents = pointer_contents_for_focus(st, monitor, focus.as_ref());
-    Some((focus, location, contents))
+    Some((focus, seat_location, contents))
 }
 
 fn pointer_contents_for_focus(
@@ -354,55 +408,26 @@ pub(crate) fn constrained_focus_in_hierarchy(
     Some((constrained, origin))
 }
 
-pub(crate) fn current_pointer_focus_with_origin(
-    st: &mut Halley,
-    pointer: &PointerHandle<Halley>,
-    now: Instant,
-) -> Option<(WlSurface, Point<f64, Logical>)> {
-    let focused = pointer.current_focus()?;
-    if let Some((surface_id, x, y)) = st.input.interaction_state.pointer_surface_origin.as_ref()
-        && *surface_id == focused.id()
-    {
-        return Some((focused, (*x, *y).into()));
-    }
-
-    let (focus, _, _) = pointer_focus_at_last_screen(st, None, now)?;
-    let (surface, origin) = focus?;
-    (surface == focused).then_some((surface, origin))
-}
-
-pub(crate) fn retarget_pointer_focus_for_constraint(
-    st: &mut Halley,
-    surface: &WlSurface,
-    pointer: &PointerHandle<Halley>,
-    current_focus: Option<&(WlSurface, Point<f64, Logical>)>,
-) -> Option<Point<f64, Logical>> {
-    let (focused, focused_origin) = current_focus?;
-    let origin = related_surface_origin(focused, *focused_origin, surface)?;
-    if pointer.current_focus().as_ref() != Some(surface) {
-        pointer.motion(
-            st,
-            Some((surface.clone(), origin)),
-            &MotionEvent {
-                location: pointer.current_location(),
-                serial: SERIAL_COUNTER.next_serial(),
-                time: crate::input::pointer::button::now_millis_u32(),
-            },
-        );
-        pointer.frame(st);
-    }
-    let focus = (surface.clone(), origin);
-    let monitor = st.monitor_for_constrained_surface_or_current(surface);
-    update_pointer_contents_from_focus(st, monitor, Some(&focus));
-    Some(origin)
-}
-
 pub(crate) fn update_pointer_contents_from_focus(
     st: &mut Halley,
     monitor: String,
     focus: Option<&(WlSurface, Point<f64, Logical>)>,
 ) -> bool {
+    let constraint_lost_focus = st
+        .input
+        .interaction_state
+        .active_pointer_constraint
+        .as_ref()
+        .is_some_and(|(constrained, _)| {
+            focus.is_some_and(|(surface, _)| {
+                surface_tree_root(surface).id() != surface_tree_root(constrained).id()
+            })
+        });
+    if constraint_lost_focus {
+        release_active_pointer_constraint(st);
+    }
     let contents = pointer_contents_for_focus(st, monitor, focus);
+    st.input.interaction_state.pointer_contents_target = focus.cloned();
     st.input.interaction_state.pointer_surface_origin = pointer_surface_origin_for_focus(focus);
     st.input.interaction_state.pointer_focus = focus.cloned();
     if st.input.interaction_state.pointer_contents == contents {
@@ -417,6 +442,9 @@ pub(crate) fn update_pointer_contents_at_last_screen(
     resize_preview: Option<ResizeCtx>,
     now: Instant,
 ) -> bool {
+    if active_pointer_constraint(st).is_some_and(|constraint| constraint.locked) {
+        return false;
+    }
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return false;
     };
@@ -427,7 +455,11 @@ pub(crate) fn update_pointer_contents_at_last_screen(
     else {
         return false;
     };
-    if st.input.interaction_state.pointer_contents == contents {
+    let target = focus.clone();
+    if st.input.interaction_state.pointer_contents == contents
+        && st.input.interaction_state.pointer_contents_target == target
+        && pointer.current_location() == location
+    {
         return false;
     }
 
@@ -441,10 +473,11 @@ pub(crate) fn update_pointer_contents_at_last_screen(
         },
     );
     pointer.frame(st);
-    st.input.interaction_state.pointer_contents = contents;
-    st.input.interaction_state.pointer_surface_origin =
-        pointer_surface_origin_for_focus(focus.as_ref());
-    st.input.interaction_state.pointer_focus = focus;
+    update_pointer_contents_from_focus(
+        st,
+        contents.monitor.clone().unwrap_or_default(),
+        focus.as_ref(),
+    );
     maybe_activate_pointer_constraint(st, now);
     true
 }
@@ -469,9 +502,10 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     );
     pointer.frame(st);
     st.input.interaction_state.pointer_contents = PointerContents::default();
+    st.input.interaction_state.pointer_contents_target = None;
+    st.input.interaction_state.active_pointer_constraint = None;
     st.input.interaction_state.pointer_surface_origin = None;
     st.input.interaction_state.pointer_focus = None;
-    st.input.interaction_state.recent_locked_pointer_target = None;
 }
 
 pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Instant) -> bool {
@@ -521,11 +555,16 @@ pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Inst
         None,
     );
     let cam_scale = st.camera_render_scale().max(0.001) as f64;
+    let local_location =
+        Point::<f64, Logical>::from((local_sx_f as f64 / cam_scale, local_sy_f as f64 / cam_scale));
+    let seat_location = Point::<f64, Logical>::from((global_sx as f64, global_sy as f64));
+    let focus =
+        crate::input::pointer::focus::seat_focus_from_local(focus, local_location, seat_location);
     pointer.motion(
         st,
         focus,
         &MotionEvent {
-            location: (local_sx_f as f64 / cam_scale, local_sy_f as f64 / cam_scale).into(),
+            location: seat_location,
             serial: SERIAL_COUNTER.next_serial(),
             time: 0,
         },
@@ -615,49 +654,44 @@ pub(crate) fn apply_cursor_position_hint(
         return;
     }
 
-    if constraint_locked
-        && let Some(constraint) =
-            active_pointer_constraint(st).filter(|constraint| constraint.locked)
-        && let Some(surface_origin) =
-            related_surface_origin(&constraint.surface, constraint.origin, surface)
-    {
-        // Clamp the hinted position to the locked surface's own bounds. A game that
-        // warps-to-recenter can hint a location outside its window (or, cross-monitor,
-        // one that resolves onto another output); without this the cursor gets flung
-        // off the game's monitor. Clamps in Halley's surface-local space so it's
-        // independent of camera/monitor coords. A no-op for well-behaved in-bounds hints.
-        let (hint_x, hint_y) = st
-            .model
-            .surface_to_node
-            .get(&root.id())
-            .copied()
-            .and_then(|node_id| {
-                crate::compositor::surface::current_surface_size_for_node(st, node_id)
-            })
-            .map(|size| {
-                (
-                    location.x.clamp(0.0, (size.x as f64 - 1.0).max(0.0)),
-                    location.y.clamp(0.0, (size.y as f64 - 1.0).max(0.0)),
-                )
-            })
-            .unwrap_or((location.x, location.y));
-        let pointer_location =
-            Point::<f64, Logical>::from((surface_origin.x + hint_x, surface_origin.y + hint_y));
-        pointer.set_location(pointer_location);
+    if constraint_locked {
+        let Some(constraint) = active_pointer_constraint(st).filter(|constraint| constraint.locked)
+        else {
+            return;
+        };
+        let Some(origin) = related_surface_origin(&constraint.surface, constraint.origin, surface)
+        else {
+            return;
+        };
+
+        // Match Niri's working Xwayland path: a locked pointer still accepts the
+        // client's surface-local position hint. Convert it through the exact
+        // global seat origin captured when the constraint activated, constrain
+        // it to the owning output, and keep the backend's physical accumulator
+        // synchronized without emitting an absolute wl_pointer.motion event.
+        let monitor = st.monitor_for_constrained_surface_or_current(&constraint.surface);
+        let mut target = origin + location;
+        if let Some(space) = st.model.monitor_state.monitors.get(monitor.as_str()) {
+            let min_x = space.offset_x as f64;
+            let min_y = space.offset_y as f64;
+            let max_x = min_x + space.width.saturating_sub(1).max(0) as f64;
+            let max_y = min_y + space.height.saturating_sub(1).max(0) as f64;
+            target.x = target.x.clamp(min_x, max_x);
+            target.y = target.y.clamp(min_y, max_y);
+        }
+
+        pointer.set_location(target);
+        st.input.interaction_state.last_pointer_screen_global =
+            Some((target.x as f32, target.y as f32));
+        st.input.interaction_state.pending_pointer_screen_hint =
+            Some((target.x as f32, target.y as f32));
         trace_cursor_position_hint(
             "sync-locked",
             surface,
             &root,
             format_args!(
-                "location={:.1},{:.1} clamped={:.1},{:.1} origin={:.1},{:.1} pointer={:.1},{:.1}",
-                location.x,
-                location.y,
-                hint_x,
-                hint_y,
-                surface_origin.x,
-                surface_origin.y,
-                pointer_location.x,
-                pointer_location.y,
+                "location={:.1},{:.1} origin={:.1},{:.1} target={:.1},{:.1}",
+                location.x, location.y, origin.x, origin.y, target.x, target.y,
             ),
         );
         return;
@@ -723,24 +757,18 @@ fn surface_tree_root(surface: &WlSurface) -> WlSurface {
     root
 }
 
-fn trace_pointer_constraint_active(source: &str, constraint: &ActivePointerConstraint) {
-    if pointer_trace_enabled() {
-        eventline::info!(
-            "pointer_constraint active source={} surface={:?} locked={} origin={:.1},{:.1}",
-            source,
-            constraint.surface.id(),
-            constraint.locked,
-            constraint.origin.x,
-            constraint.origin.y,
-        );
-    }
-}
-
 pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return false;
     };
-    let Some(focus) = pointer.current_focus() else {
+    let focus = st
+        .input
+        .interaction_state
+        .active_pointer_constraint
+        .as_ref()
+        .map(|(surface, _)| surface.clone())
+        .or_else(|| pointer.current_focus());
+    let Some(focus) = focus else {
         return false;
     };
     let mut released = false;
@@ -764,8 +792,7 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
         }
     }
     if released {
-        clear_pointer_focus(st);
-        st.input.interaction_state.reset_input_state_requested = true;
+        st.input.interaction_state.active_pointer_constraint = None;
     }
     released
 }
@@ -847,58 +874,21 @@ fn active_pointer_constraint_for_focus(
 }
 
 pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerConstraint> {
-    let pointer = st.platform.seat.get_pointer()?;
-    if let Some(focus) = st.input.interaction_state.pointer_focus.as_ref()
-        && let Some(constraint) = active_pointer_constraint_for_focus(&pointer, focus)
-    {
-        trace_pointer_constraint_active("tracked", &constraint);
-        return Some(constraint);
-    }
-
-    let focus = pointer.current_focus()?;
-    let mut current = focus;
-    let mut current_origin = st
+    let (surface, origin) = st
         .input
         .interaction_state
-        .pointer_surface_origin
-        .as_ref()
-        .and_then(|(surface_id, x, y)| {
-            (surface_id == &current.id()).then(|| Point::<f64, Logical>::from((*x, *y)))
-        });
-    loop {
-        let res = with_pointer_constraint(&current, &pointer, |constraint| {
-            let constraint = constraint.as_deref()?;
-            if !constraint.is_active() {
-                return None;
-            }
-            Some(ActivePointerConstraint {
-                surface: current.clone(),
-                origin: current_origin.unwrap_or_else(|| pointer.current_location()),
-                locked: matches!(constraint, PointerConstraint::Locked(_)),
-                region: constraint.region().cloned(),
-            })
-        });
-        if res.is_some() {
-            return res;
-        }
-        if let Some(parent) = get_parent(&current) {
-            if let Some(origin) = current_origin.as_mut() {
-                let location = with_states(&current, |states| {
-                    states
-                        .cached_state
-                        .get::<SubsurfaceCachedState>()
-                        .current()
-                        .location
-                });
-                origin.x -= location.x as f64;
-                origin.y -= location.y as f64;
-            }
-            current = parent;
-        } else {
-            break;
-        }
-    }
-    None
+        .active_pointer_constraint
+        .as_ref()?;
+    let pointer = st.platform.seat.get_pointer()?;
+    with_pointer_constraint(surface, &pointer, |constraint| {
+        let constraint = constraint.as_deref()?;
+        constraint.is_active().then(|| ActivePointerConstraint {
+            surface: surface.clone(),
+            origin: *origin,
+            locked: matches!(constraint, PointerConstraint::Locked(_)),
+            region: constraint.region().cloned(),
+        })
+    })
 }
 
 /// Second-chance lock detection seeded from a *fresh* pointer focus (e.g. the

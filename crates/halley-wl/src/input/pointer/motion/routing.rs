@@ -2,17 +2,16 @@ use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::reexports::wayland_server::Resource;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use super::super::button::active_pointer_binding;
 use super::super::context::{clamp_screen_to_monitor, pointer_screen_context_for_monitor};
-use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
-use crate::compositor::interaction::state::RecentLockedPointerTarget;
+use super::super::focus::{
+    grabbed_layer_surface_focus, pointer_focus_for_screen, seat_focus_from_local,
+};
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
 use halley_config::PointerBindingAction;
-
-const RECENT_LOCKED_POINTER_TARGET_MS: u64 = 250;
 
 pub(crate) struct MotionRoutingContext {
     pub monitor: String,
@@ -46,38 +45,13 @@ pub(super) fn dispatch_locked_pointer_motion(
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return false;
     };
-    let now_ms = st.now_ms(Instant::now());
-    let active_constraint = crate::compositor::interaction::pointer::active_pointer_constraint(st)
-        .filter(|constraint| constraint.locked);
-    let (surface, origin, source) = if let Some(constraint) = active_constraint {
-        st.input.interaction_state.recent_locked_pointer_target = Some(RecentLockedPointerTarget {
-            surface: constraint.surface.clone(),
-            origin: constraint.origin,
-            until_ms: now_ms.saturating_add(RECENT_LOCKED_POINTER_TARGET_MS),
-        });
-        (constraint.surface, constraint.origin, "active")
-    } else {
-        let Some(recent) = st
-            .input
-            .interaction_state
-            .recent_locked_pointer_target
-            .clone()
-        else {
-            return false;
-        };
-        if now_ms > recent.until_ms {
-            st.input.interaction_state.recent_locked_pointer_target = None;
-            return false;
-        }
-        let same_client = pointer
-            .current_focus()
-            .as_ref()
-            .is_some_and(|focus| focus.id().same_client_as(&recent.surface.id()));
-        if !same_client {
-            return false;
-        }
-        (recent.surface, recent.origin, "recent")
+    let Some(constraint) = crate::compositor::interaction::pointer::active_pointer_constraint(st)
+        .filter(|constraint| constraint.locked)
+    else {
+        return false;
     };
+    let surface = constraint.surface;
+    let origin = constraint.origin;
 
     if pointer_trace_enabled() {
         // Smithay delivers relative_motion + frame to its current pointer focus,
@@ -89,8 +63,7 @@ pub(super) fn dispatch_locked_pointer_motion(
             .as_ref()
             .is_some_and(|focus| focus.id().same_client_as(&surface.id()));
         eventline::info!(
-            "pointer_constraint locked_relative source={} surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
-            source,
+            "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
             surface.id(),
             current_focus.as_ref().map(|focus| focus.id()),
             same_client,
@@ -364,7 +337,7 @@ pub(super) fn dispatch_pointer_motion(
                 .as_ref()
                 .is_some_and(|(surface, _)| crate::window::surface_is_gamescope(st, surface));
 
-        let location = if locked_surface.is_some() {
+        let local_location = if locked_surface.is_some() {
             pointer.current_location()
         } else if bypass_spatial_camera
             || focus.as_ref().is_some_and(|(surface, _)| {
@@ -380,6 +353,17 @@ pub(super) fn dispatch_pointer_motion(
                 routing.local_sy as f64 / cam_scale,
             )
                 .into()
+        };
+
+        let seat_location =
+            Point::<f64, Logical>::from((routing.global_sx as f64, routing.global_sy as f64));
+        let (focus, location) = if locked_surface.is_some() {
+            (focus, local_location)
+        } else {
+            (
+                seat_focus_from_local(focus, local_location, seat_location),
+                seat_location,
+            )
         };
 
         if let Some(constraint) = active_constraint

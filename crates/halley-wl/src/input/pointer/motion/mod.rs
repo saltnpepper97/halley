@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Point, SERIAL_COUNTER};
 
 use crate::backend::interface::BackendView;
 use crate::compositor::exit_confirm;
@@ -33,7 +33,7 @@ const HOVER_FOCUS_IDLE_REARM_MS: u64 = 400;
 pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 
 use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
-use super::focus::pointer_focus_for_screen;
+use super::focus::{pointer_focus_for_screen, seat_focus_from_local};
 use super::portal_chooser::handle_portal_chooser_pointer_motion;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
@@ -176,6 +176,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 now,
                 None,
             );
+            let local_location = Point::<f64, smithay::utils::Logical>::from((
+                context.local_sx as f64,
+                context.local_sy as f64,
+            ));
+            let seat_location = Point::<f64, smithay::utils::Logical>::from((
+                context.global_sx as f64,
+                context.global_sy as f64,
+            ));
+            let focus = seat_focus_from_local(focus, local_location, seat_location);
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,
@@ -191,7 +200,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 st,
                 focus,
                 &MotionEvent {
-                    location: (context.local_sx as f64, context.local_sy as f64).into(),
+                    location: seat_location,
                     serial: SERIAL_COUNTER.next_serial(),
                     time: event_time_msec(time_usec),
                 },

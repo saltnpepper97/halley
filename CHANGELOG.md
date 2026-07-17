@@ -62,6 +62,16 @@ All notable changes to this project will be documented in this file.
   hand-edited configs.
 
 ### Fixed
+- Make XWayland pointer locks seat-owned across the full protocol lifecycle:
+  use global seat coordinates for every pointer path; require a fresh cursor
+  hit-test and matching seat focus before activation; retain the exact surface
+  origin through relative-only motion; and prevent maintenance from replacing
+  the lock focus. Active XWayland cursor-position hints now update the seat
+  cursor live through that origin, constrained to the owning output and without
+  emitting absolute client motion. The backend accumulator follows the same
+  target, and the old timed "recent lock" fallback is removed. This fixes the
+  per-compositor-session failure where every fresh TF2 game had broken mouselook
+  despite lock acquisition itself succeeding.
 - Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
   tile instead of stale pointer coordinates, seed the first keyboard selection from
   the main monitor's top-left tile, and keep keyboard cursor warps using the
@@ -72,13 +82,6 @@ All notable changes to this project will be documented in this file.
 - Skip systemd-only activation-environment imports and portal restarts when
   systemd is not the booted init, preventing systemctl failures on dinit, runit,
   s6, OpenRC, and other systemd-free setups.
-- Stabilize fullscreen locked-pointer games (Xwayland/SDL). Locked-pointer
-  relative motion is now delivered before Halley's monitor routing, with a 250ms
-  "recent locked target" grace period, so an active pointer-constrained game
-  keeps receiving motion and doesn't have its active monitor/RandR primary
-  churned while it consumes relative deltas. Cursor position hints now sync
-  through the locked constraint's surface origin, and the tty render order
-  prioritizes the monitor holding the active locked-pointer surface.
 - Recover cleanly from tty VT switches by dropping DRM master while the session
   is paused (so the incoming VT can take the GPU) and re-acquiring it — plus
   resetting each DRM surface's compositor state — on activation, fixing the
