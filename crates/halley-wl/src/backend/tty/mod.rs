@@ -1832,6 +1832,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                             &input_ctx,
                             BackendInputEventData::PointerAxis {
+                                time_msec: event.time_msec(),
                                 source: event.source(),
                                 amount_v120_horizontal: event.amount_v120(Axis::Horizontal),
                                 amount_v120_vertical: event.amount_v120(Axis::Vertical),

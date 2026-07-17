@@ -22,13 +22,16 @@ use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource};
 
 const TOUCHPAD_DISCRETE_STEP_PX: f32 = 96.0;
 
-#[inline]
-fn now_millis_u32() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| (d.as_millis() & 0xffff_ffff) as u32)
-        .unwrap_or(0)
+fn axis_frame_for_event(
+    time_msec: u32,
+    source: AxisSource,
+    relative_direction_horizontal: AxisRelativeDirection,
+    relative_direction_vertical: AxisRelativeDirection,
+) -> AxisFrame {
+    AxisFrame::new(time_msec)
+        .source(source)
+        .relative_direction(Axis::Horizontal, relative_direction_horizontal)
+        .relative_direction(Axis::Vertical, relative_direction_vertical)
 }
 
 fn axis_scroll_delta(amount_v120: Option<f64>, amount_px: Option<f64>) -> i32 {
@@ -152,6 +155,7 @@ fn handle_touchpad_scroll_pan<B: BackendView>(
 pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
+    time_msec: u32,
     source: AxisSource,
     amount_v120_horizontal: Option<f64>,
     amount_v120_vertical: Option<f64>,
@@ -211,15 +215,17 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                     &MotionEvent {
                         location: seat_location,
                         serial: SERIAL_COUNTER.next_serial(),
-                        time: now_millis_u32(),
+                        time: time_msec,
                     },
                 );
             }
             if pointer.current_focus().is_some() {
-                let mut frame = AxisFrame::new(now_millis_u32())
-                    .source(source)
-                    .relative_direction(Axis::Horizontal, relative_direction_horizontal)
-                    .relative_direction(Axis::Vertical, relative_direction_vertical);
+                let mut frame = axis_frame_for_event(
+                    time_msec,
+                    source,
+                    relative_direction_horizontal,
+                    relative_direction_vertical,
+                );
                 if let Some(v120) = amount_v120_horizontal {
                     frame = frame.v120(Axis::Horizontal, v120.round() as i32);
                 }
@@ -482,7 +488,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                     &MotionEvent {
                         location: seat_location,
                         serial: SERIAL_COUNTER.next_serial(),
-                        time: now_millis_u32(),
+                        time: time_msec,
                     },
                 );
             } else {
@@ -496,16 +502,18 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                     &MotionEvent {
                         location: pointer.current_location(),
                         serial: SERIAL_COUNTER.next_serial(),
-                        time: now_millis_u32(),
+                        time: time_msec,
                     },
                 );
             }
         }
         if pointer.current_focus().is_some() {
-            let mut frame = AxisFrame::new(now_millis_u32())
-                .source(source)
-                .relative_direction(Axis::Horizontal, relative_direction_horizontal)
-                .relative_direction(Axis::Vertical, relative_direction_vertical);
+            let mut frame = axis_frame_for_event(
+                time_msec,
+                source,
+                relative_direction_horizontal,
+                relative_direction_vertical,
+            );
             if let Some(v120) = amount_v120_horizontal {
                 frame = frame.v120(Axis::Horizontal, v120.round() as i32);
             }
@@ -609,6 +617,26 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
 mod tests {
     use super::*;
     use halley_core::field::Vec2;
+
+    #[test]
+    fn client_axis_frame_preserves_backend_event_time() {
+        let frame = axis_frame_for_event(
+            42_424,
+            AxisSource::Wheel,
+            AxisRelativeDirection::Identical,
+            AxisRelativeDirection::Inverted,
+        );
+
+        assert_eq!(frame.time, 42_424);
+        assert_eq!(frame.source, Some(AxisSource::Wheel));
+        assert_eq!(
+            frame.relative_direction,
+            (
+                AxisRelativeDirection::Identical,
+                AxisRelativeDirection::Inverted
+            )
+        );
+    }
 
     #[test]
     fn touchpad_discrete_steps_accumulate_until_threshold() {
