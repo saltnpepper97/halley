@@ -1,5 +1,8 @@
+pub mod cursor;
 pub mod drag;
 pub mod pointer;
+pub mod pointer_constraint;
+pub mod pointer_focus;
 pub mod resize;
 pub mod state;
 

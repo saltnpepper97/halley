@@ -361,7 +361,7 @@ pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> 
 /// other namespace falls back to the current (focused) monitor.
 fn assigned_monitor_for_no_output(st: &Halley, namespace: &str) -> String {
     if namespace == "halley-lift"
-        && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+        && let Some((sx, sy)) = st.input.interaction_state.cursor.last_screen_global
     {
         return st.monitor_for_screen_or_current(sx, sy);
     }
@@ -1141,7 +1141,7 @@ mod tests {
 
         // Focus on the left monitor, but the cursor is over the right one.
         state.model.monitor_state.current_monitor = "left".to_string();
-        state.input.interaction_state.last_pointer_screen_global = Some((3200.0, 300.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((3200.0, 300.0));
 
         assert_eq!(
             super::assigned_monitor_for_no_output(&state, "halley-lift"),
@@ -1163,7 +1163,7 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
-        state.input.interaction_state.last_pointer_screen_global = None;
+        state.input.interaction_state.cursor.last_screen_global = None;
 
         let current = state.model.monitor_state.current_monitor.clone();
         assert_eq!(

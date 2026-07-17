@@ -326,7 +326,7 @@ impl XdgShellHandler for Halley {
         let restore_drag_offset = self
             .input
             .interaction_state
-            .last_pointer_screen_global
+            .cursor.last_screen_global
             .and_then(|(press_global_sx, press_global_sy)| {
                 crate::compositor::workspace::state::maximize_session_monitor_for_node(
                     self, node_id,
@@ -354,7 +354,7 @@ impl XdgShellHandler for Halley {
         self.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
         self.set_interaction_focus(Some(focus_target), 700, now);
         if let Some((press_global_sx, press_global_sy)) =
-            self.input.interaction_state.last_pointer_screen_global
+            self.input.interaction_state.cursor.last_screen_global
         {
             self.input.interaction_state.pending_move_press =
                 Some(crate::compositor::interaction::state::PendingMovePress {

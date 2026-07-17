@@ -176,7 +176,7 @@ impl CompositorHandler for Halley {
             let output_name = self
                 .input
                 .interaction_state
-                .last_pointer_screen_global
+                .cursor.last_screen_global
                 .and_then(|(sx, sy)| self.monitor_for_screen(sx, sy))
                 .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
             self.request_tty_redraw_for_monitor(output_name.as_str());

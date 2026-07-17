@@ -1052,7 +1052,7 @@ mod tests {
         state.model.focus_state.primary_interaction_focus = Some(focused);
         state.set_focused_monitor("left");
         state.set_interaction_monitor("right");
-        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((900.0, 120.0));
 
         latch_keyboard_spawn_monitor(&mut state);
 
@@ -1061,7 +1061,7 @@ mod tests {
             Some("left")
         );
         assert_eq!(
-            state.input.interaction_state.last_pointer_screen_global,
+            state.input.interaction_state.cursor.last_screen_global,
             Some((900.0, 120.0))
         );
         assert_eq!(state.interaction_monitor(), "right");

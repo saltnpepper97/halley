@@ -86,7 +86,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let previous_monitor = st
             .input
             .interaction_state
-            .last_pointer_screen_global
+            .cursor.last_screen_global
             .map(|(last_sx, last_sy)| st.monitor_for_screen_or_interaction(last_sx, last_sy));
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
         let now = Instant::now();
@@ -99,7 +99,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.hover_node = None;
             ps.hover_started_at = None;
         }
-        st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+        st.input.interaction_state.cursor.last_screen_global = Some((sx, sy));
         st.input.interaction_state.overlay_hover_target = None;
         st.input.interaction_state.pending_core_hover = None;
         let hit = crate::compositor::overview::apogee_tile_at(
@@ -133,7 +133,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         } else {
             Some(smithay::input::pointer::CursorIcon::Default)
         };
-        if st.input.interaction_state.cursor_override_icon != icon {
+        if crate::compositor::interaction::cursor::effective_override(st) != icon {
             crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
         }
         request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
@@ -163,7 +163,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.workspace_size = (context.ws_w, context.ws_h);
             ps.world = context.world;
         }
-        st.input.interaction_state.last_pointer_screen_global =
+        st.input.interaction_state.cursor.last_screen_global =
             Some((context.global_sx, context.global_sy));
         crate::compositor::platform::refresh_cursor_surface_outputs(st);
         if let Some(pointer) = st.platform.seat.get_pointer() {
@@ -331,7 +331,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);
     ps.workspace_size = (routing.ws_w, routing.ws_h);
-    st.input.interaction_state.last_pointer_screen_global =
+    st.input.interaction_state.cursor.last_screen_global =
         Some((routing.global_sx, routing.global_sy));
     // Real desktop pointer movement releases an explicit monitor-focus pin so
     // hover focus-mode resumes driving the spawn target.

@@ -630,7 +630,7 @@ mod tests {
         );
         assert!(!state.input.interaction_state.cursor_hidden_by_keyboard_nav);
         assert_eq!(
-            state.input.interaction_state.cursor_override_icon,
+            crate::compositor::interaction::cursor::effective_override(&state),
             Some(smithay::input::pointer::CursorIcon::ZoomOut)
         );
     }

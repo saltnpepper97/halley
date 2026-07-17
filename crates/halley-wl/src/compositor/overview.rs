@@ -778,7 +778,7 @@ pub(crate) fn apogee_navigate(
     let (cx, cy) = apogee_tile_global_center(st, exclude).or_else(|| {
         st.input
             .interaction_state
-            .last_pointer_screen_global
+            .cursor.last_screen_global
             .filter(|_| apogee_session_has_tile(session, exclude))
     })?;
 
@@ -2317,7 +2317,7 @@ mod tests {
             ],
             now,
         );
-        state.input.interaction_state.last_pointer_screen_global = Some((920.0, 80.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((920.0, 80.0));
         state.input.interaction_state.apogee_hover_node = None;
 
         assert_eq!(
@@ -2352,7 +2352,7 @@ mod tests {
             now,
         );
         state.input.interaction_state.apogee_hover_node = Some(selected);
-        state.input.interaction_state.last_pointer_screen_global = Some((690.0, 220.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((690.0, 220.0));
 
         assert_eq!(
             apogee_navigate(&state, halley_config::DirectionalAction::Right),

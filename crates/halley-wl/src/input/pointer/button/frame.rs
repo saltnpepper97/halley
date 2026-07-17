@@ -97,7 +97,7 @@ pub(crate) fn button_frame_for_monitor(
         !grabbed_layer_surface_active,
         !grabbed_layer_surface_active,
     );
-    st.input.interaction_state.last_pointer_screen_global =
+    st.input.interaction_state.cursor.last_screen_global =
         Some((context.global_sx, context.global_sy));
     (
         ButtonFrame {

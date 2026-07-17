@@ -5,8 +5,7 @@ use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
-use smithay::reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface};
-use smithay::utils::{Logical, Point};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
@@ -14,7 +13,6 @@ use crate::compositor::screenshot::state::{
     InflightScreenshotCapture, PendingScreenshotCapture, ScreenshotCaptureResult,
     ScreenshotSessionState,
 };
-use smithay::input::pointer::CursorIcon;
 
 const BLOOM_PULL_SLOP_PX: f32 = 12.0;
 const BLOOM_TETHER_MAX_PX: f32 = 60.0;
@@ -331,35 +329,17 @@ impl FocusCycleSession {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PointerContents {
-    pub(crate) monitor: Option<String>,
-    pub(crate) surface: Option<ObjectId>,
-    pub(crate) root_surface: Option<ObjectId>,
-    pub(crate) node_id: Option<NodeId>,
-    pub(crate) is_layer_surface: bool,
-    pub(crate) is_session_lock_surface: bool,
-}
-
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
-    pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
-    pub(crate) last_pointer_screen_global: Option<(f32, f32)>,
+    pub(crate) cursor: super::cursor::CursorState,
     /// When set, an explicit `monitor-focus` keybind has pinned the spawn-target
     /// monitor to `focused_monitor`, overriding hover focus-mode until the pointer
     /// actually moves (cleared in the pointer-motion handler). Keeps a deliberate
     /// keyboard monitor switch from being ignored when the cursor sits on another
     /// monitor under `focus-mode "hover"`.
     pub(crate) monitor_focus_pinned: bool,
-    pub(crate) pointer_contents: PointerContents,
-    /// Exact ungrabbed focus produced by the normal pointer route. This is the
-    /// only valid origin for a newly-created pointer constraint.
-    pub(crate) pointer_contents_target: Option<(WlSurface, Point<f64, Logical>)>,
-    /// Constraint owner and global Smithay origin, held for the complete lock
-    /// lifetime. Do not derive this again from cursor or camera coordinates.
-    pub(crate) active_pointer_constraint: Option<(WlSurface, Point<f64, Logical>)>,
-    pub(crate) pointer_surface_origin: Option<(ObjectId, f64, f64)>,
-    pub(crate) pointer_focus: Option<(WlSurface, Point<f64, Logical>)>,
+    pub(crate) pointer_focus: super::pointer_focus::PointerFocusState,
+    pub(crate) pointer_constraint: super::pointer_constraint::PointerConstraintState,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,
@@ -419,7 +399,6 @@ pub(crate) struct InteractionState {
     /// hover ring. Unlike `apogee_live_preview_node` this also tracks core tiles.
     pub(crate) apogee_hover_node: Option<NodeId>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
-    pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
     pub(crate) pending_collapsed_node_press: Option<PendingCollapsedNodePress>,
@@ -430,13 +409,11 @@ pub(crate) struct InteractionState {
     pub(crate) grabbed_edge_pan_direction: Vec2,
     pub(crate) grabbed_edge_pan_pressure: Vec2,
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
-    pub(crate) cursor_override_icon: Option<CursorIcon>,
     pub(crate) cursor_hidden_by_typing: bool,
     /// Cursor hidden because the user is driving window navigation from the
     /// keyboard (focus cycle, tile/stack/trail/monitor steps, apogee arrows).
-    /// Only the cursor *image* is suppressed — the pointer position is untouched,
-    /// so the warp-to-focused-node machinery keeps working. Any real pointer
-    /// activity (motion/button/axis, including inside the apogee overview) clears it.
+    /// Only the cursor image is suppressed; focus changes do not reposition the
+    /// pointer. Any real pointer activity clears the suppression.
     pub(crate) cursor_hidden_by_keyboard_nav: bool,
     pub(crate) last_cursor_activity_at_ms: u64,
     /// Wall-clock of the previous pointer-motion event, used to detect a lull.
@@ -505,10 +482,7 @@ pub(crate) fn take_input_state_reset_request(st: &mut Halley) -> bool {
 }
 
 pub(crate) fn take_pointer_screen_hint_request(st: &mut Halley) -> Option<(f32, f32)> {
-    st.input
-        .interaction_state
-        .pending_pointer_screen_hint
-        .take()
+    super::cursor::take_screen_hint(st)
 }
 
 pub(crate) fn tick_cluster_join_candidate_ready(st: &mut Halley, now_ms: u64) {

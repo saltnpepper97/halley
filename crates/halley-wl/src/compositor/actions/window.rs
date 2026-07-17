@@ -300,7 +300,7 @@ pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::Nod
 pub(crate) fn resolve_action_target_monitor(st: &Halley) -> String {
     if st.runtime.tuning.input.focus_mode == InputFocusMode::Hover
         && !st.input.interaction_state.monitor_focus_pinned
-        && let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global
+        && let Some((sx, sy)) = st.input.interaction_state.cursor.last_screen_global
         && let Some(pointer_monitor) = st.monitor_for_screen(sx, sy)
         && st
             .model
@@ -2131,7 +2131,7 @@ mod tests {
         let mut st = Halley::new_for_test(&dh, tuning);
         let win = hover_setup_with_focused_left_window(&mut st);
         // Pointer on the empty right monitor (x >= 800).
-        st.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+        st.input.interaction_state.cursor.last_screen_global = Some((1200.0, 300.0));
 
         assert_eq!(resolve_action_target_monitor(&st), "right");
         assert!(!toggle_focused_fullscreen_node_state(&mut st));
@@ -2154,7 +2154,7 @@ mod tests {
         let mut st = Halley::new_for_test(&dh, tuning);
         let win = hover_setup_with_focused_left_window(&mut st);
         // Pointer over `left`, where the window actually lives.
-        st.input.interaction_state.last_pointer_screen_global = Some((400.0, 300.0));
+        st.input.interaction_state.cursor.last_screen_global = Some((400.0, 300.0));
 
         assert_eq!(resolve_action_target_monitor(&st), "left");
         assert!(toggle_focused_fullscreen_node_state(&mut st));
@@ -2169,7 +2169,7 @@ mod tests {
         let tuning = two_monitor_tuning(); // default focus_mode == Click
         let mut st = Halley::new_for_test(&dh, tuning);
         let win = hover_setup_with_focused_left_window(&mut st);
-        st.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+        st.input.interaction_state.cursor.last_screen_global = Some((1200.0, 300.0));
 
         assert_eq!(resolve_action_target_monitor(&st), "left");
         assert!(toggle_focused_fullscreen_node_state(&mut st));

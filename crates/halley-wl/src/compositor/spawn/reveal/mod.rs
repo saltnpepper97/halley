@@ -826,7 +826,7 @@ mod tests {
         );
         state.assign_node_to_monitor(focused, "right");
         state.set_interaction_focus(Some(focused), 30_000, Instant::now());
-        state.input.interaction_state.last_pointer_screen_global = Some((200.0, 120.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((200.0, 120.0));
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
 
@@ -886,7 +886,7 @@ mod tests {
             Vec2 { x: 120.0, y: 90.0 },
         );
         state.assign_node_to_monitor(existing_right, "right");
-        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((900.0, 120.0));
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
 
@@ -1391,7 +1391,7 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((900.0, 120.0));
 
         let intent = test_intent(
             InitialWindowOverlapPolicy::None,

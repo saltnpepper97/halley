@@ -743,7 +743,7 @@ fn cursor_surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str)
 }
 
 fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
-    if let Some(pos) = st.input.interaction_state.last_pointer_screen_global {
+    if let Some(pos) = st.input.interaction_state.cursor.last_screen_global {
         return Some(pos);
     }
 

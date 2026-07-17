@@ -649,7 +649,7 @@ fn resolve_cursor_meta_for_region(
     if matches!(status, CursorImageStatus::Hidden) {
         return None;
     }
-    let (sx, sy) = st.input.interaction_state.last_pointer_screen_global?;
+    let (sx, sy) = st.input.interaction_state.cursor.last_screen_global?;
     if st.monitor_for_screen(sx, sy).as_deref() != Some(output_name) {
         return None;
     }

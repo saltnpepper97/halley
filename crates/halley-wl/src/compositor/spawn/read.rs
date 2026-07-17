@@ -255,7 +255,7 @@ pub(crate) fn spawn_read_context(st: &Halley) -> SpawnReadContext<'_> {
         pointer_monitor: st
             .input
             .interaction_state
-            .last_pointer_screen_global
+            .cursor.last_screen_global
             .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy)),
         input_focus_mode: st.runtime.tuning.input.focus_mode,
         monitor_focus_pinned: st.input.interaction_state.monitor_focus_pinned,

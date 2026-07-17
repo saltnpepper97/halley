@@ -75,7 +75,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let (local_w, local_h, local_sx, local_sy) = (frame.ws_w, frame.ws_h, frame.sx, frame.sy);
     ps.screen = (sx, sy);
     ps.workspace_size = (local_w, local_h);
-    st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+    st.input.interaction_state.cursor.last_screen_global = Some((sx, sy));
     crate::compositor::platform::refresh_cursor_surface_outputs(st);
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
         let resize = ps.resize;
