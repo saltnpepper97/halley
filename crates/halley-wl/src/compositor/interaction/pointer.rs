@@ -489,8 +489,9 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     st.input.interaction_state.pointer_constraint.clear();
 }
 
-fn pointer_trace_enabled() -> bool {
+fn pointer_trace_verbose_enabled() -> bool {
     std::env::var_os("HALLEY_POINTER_TRACE").is_some_and(|value| value != "0")
+        && std::env::var_os("HALLEY_POINTER_TRACE_VERBOSE").is_some_and(|value| value != "0")
 }
 
 fn trace_cursor_position_hint(
@@ -499,7 +500,7 @@ fn trace_cursor_position_hint(
     root: &WlSurface,
     detail: impl std::fmt::Display,
 ) {
-    if pointer_trace_enabled() {
+    if pointer_trace_verbose_enabled() {
         eventline::info!(
             "cursor_position_hint {label} surface={:?} root={:?} {detail}",
             surface.id(),

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
-use eventline::{debug, warn};
+use eventline::debug;
 use smithay::reexports::wayland_server::{
     Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
@@ -195,7 +195,7 @@ fn forget_token(st: &mut Halley, token: &str) {
         .xdg_activation_state
         .remove_token(&token.to_string().into());
     if !removed {
-        warn!("activation token {} was not tracked by smithay", token);
+        debug!("activation token already absent from Smithay state");
     }
 }
 

@@ -39,7 +39,7 @@ fn main() {
 
     if let Err(e) = pollster::block_on(eventline::setup(eventline::Setup {
         verbose: true,
-        level: Some(eventline::LogLevel::Debug),
+        level: Some(configured_log_level()),
         console_level: None,
         file_level: None,
         file: None,
@@ -48,11 +48,23 @@ fn main() {
         eprintln!("failed to configure logging: {e}");
     }
 
-    info!("xdg-desktop-portal-halley starting");
-
     if let Err(e) = run() {
         error!("xdg-desktop-portal-halley: {e}");
         std::process::exit(1);
+    }
+}
+
+fn configured_log_level() -> eventline::LogLevel {
+    let raw = std::env::var("HALLEY_PORTAL_LOG")
+        .or_else(|_| std::env::var("HALLEY_WL_LOG"))
+        .unwrap_or_else(|_| "warn".to_string());
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "trace" | "debug" => eventline::LogLevel::Debug,
+        "info" => eventline::LogLevel::Info,
+        "warn" | "warning" => eventline::LogLevel::Warning,
+        "error" => eventline::LogLevel::Error,
+        "off" => eventline::LogLevel::Off,
+        _ => eventline::LogLevel::Warning,
     }
 }
 
@@ -76,7 +88,6 @@ fn run() -> zbus::Result<()> {
     screencast_state.set_pipewire(pipewire);
 
     let connection = Connection::session()?;
-    info!("connected to session bus");
 
     screencast_state.set_connection(connection.clone());
     let shared_connection = screencast_state.connection_arc();
@@ -89,8 +100,7 @@ fn run() -> zbus::Result<()> {
         .at(OBJECT_PATH, ScreenshotInterface::new(shared_connection))?;
 
     connection.request_name(BUS_NAME)?;
-    info!("acquired bus name {BUS_NAME}");
-    info!("ScreenCast + Screenshot backend ready at {OBJECT_PATH}");
+    info!("portal ready: bus={BUS_NAME} object={OBJECT_PATH}");
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(3600));

@@ -24,15 +24,10 @@ pub(crate) fn log_rounded_shader_failure(
     err: &dyn std::fmt::Display,
 ) {
     eventline::error!(
-        "rounded rendering disabled: role={} shader={} renderer_info=unavailable error={}",
+        "rounded rendering disabled; fallback active: role={} shader={} renderer_info=unavailable error={}",
         role,
         shader_name,
         err
-    );
-    eventline::warn!(
-        "rounded shader fallback active: role={} shader={} strict_env=HALLEY_WL_DEBUG_STRICT_ROUNDED",
-        role,
-        shader_name
     );
 }
 

@@ -5,7 +5,7 @@ use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use eventline::{debug, info, warn};
+use eventline::{debug, info};
 use halley_core::field::NodeId;
 use memmap2::MmapMut;
 use smithay::backend::allocator::{
@@ -168,10 +168,16 @@ impl ScreencastSession {
     pub fn write_frame(&mut self, frame_data: &[u8]) {
         let expected = (self.stride as usize) * (self.height as usize);
         if frame_data.len() < expected {
-            warn!(
-                "screencast frame too small: {} bytes, expected {}",
-                frame_data.len(),
-                expected
+            crate::diagnostics::warn_throttled(
+                "screencast-short-frame",
+                Duration::from_secs(5),
+                || {
+                    format!(
+                        "screencast frame too small: {} bytes, expected {}",
+                        frame_data.len(),
+                        expected
+                    )
+                },
             );
             return;
         }

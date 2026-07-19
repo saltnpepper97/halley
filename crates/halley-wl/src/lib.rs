@@ -7,6 +7,7 @@
 pub mod animation;
 #[cfg(feature = "aperture")]
 pub(crate) mod aperture;
+pub(crate) mod diagnostics;
 #[cfg(not(feature = "aperture"))]
 pub(crate) mod aperture {
     use std::collections::HashSet;

@@ -48,7 +48,11 @@ pub(crate) fn draw_overlay_backdrop_blur(
         let ctx =
             unsafe { &mut *(ptr as *mut crate::render::frame::draw::FrameBlurContext<'static>) };
         if let Err(err) = ctx.draw_patch(frame, damage, rect, corner_radius, alpha) {
-            eventline::warn!("overlay blur skipped this frame: {err}");
+            crate::diagnostics::warn_throttled(
+                "render-overlay-blur",
+                std::time::Duration::from_secs(5),
+                || format!("overlay blur temporarily unavailable: {err}"),
+            );
         }
         Ok(())
     })

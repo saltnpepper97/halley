@@ -236,7 +236,12 @@ pub(crate) fn enter_cluster_workspace_by_core(
     }
     let overflow_start = crate::perf::start();
     refresh_cluster_overflow_for_monitor(st, monitor, now_ms, false);
-    if let Some(start) = perf_start {
+    if let Some(start) = perf_start
+        && crate::diagnostics::should_emit(
+            "perf-cluster-entry",
+            std::time::Duration::from_millis(500),
+        )
+    {
         let members = st
             .model
             .field

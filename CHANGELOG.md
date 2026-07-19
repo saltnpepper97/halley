@@ -49,6 +49,11 @@ All notable changes to this project will be documented in this file.
   existing user configs are auto-migrated with the new keys.
 
 ### Changed
+- Reduce routine runtime logging across the compositor and portal: warning is
+  now the default level, recoverable frame/render failures are rate-limited,
+  ordinary lifecycle events move to opt-in info/debug output, and high-volume
+  pointer/performance diagnostics retain explicit verbose gates without
+  flooding normal development logs.
 - Change overlapping active-window selection so a normal single click focuses
   without raising the window. A deliberate same-window double-click within
   350ms focuses and brings it forward; intervening drag, resize, workspace,

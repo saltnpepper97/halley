@@ -1,6 +1,6 @@
 use crate::compositor::root::Halley;
 use crate::window::active_window_frame_pad_px;
-use eventline::{debug, info};
+use eventline::debug;
 use halley_api::{NodeMoveDirection, TrailDirection};
 use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, InputFocusMode};
 use halley_core::decay::DecayLevel;
@@ -718,7 +718,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     let target_monitor = resolve_action_target_monitor(st);
 
     let Some(id) = fullscreen_node_for_action(st, target_monitor.as_str()) else {
-        info!(
+        debug!(
             "toggle-fullscreen: no focused surface on {:?}; cluster_ws={}",
             target_monitor,
             st.has_active_cluster_workspace()
@@ -740,7 +740,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     // second session you couldn't escape. `exit_xdg_fullscreen` resumes-from-
     // suspend internally before exiting.
     if st.is_fullscreen_session_node(id) {
-        info!("toggle-fullscreen: exit id={}", id.as_u64());
+        debug!("toggle-fullscreen: exit id={}", id.as_u64());
         crate::compositor::fullscreen::system::block_client_fullscreen_for_cluster_node(st, id);
         st.exit_xdg_fullscreen(id, now);
         return true;
@@ -749,7 +749,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     if node.state == halley_core::field::NodeState::Node {
         uncollapse_surface_node_for_action(st, id, now);
     }
-    info!(
+    debug!(
         "toggle-fullscreen: enter id={} cluster_member={}",
         id.as_u64(),
         st.model.field.cluster_id_for_member_public(id).is_some()

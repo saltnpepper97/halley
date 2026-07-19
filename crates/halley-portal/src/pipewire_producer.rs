@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use eventline::{debug, error, info, warn};
+use eventline::{debug, error, warn};
 use memmap2::Mmap;
 use pipewire::context::ContextRc;
 use pipewire::core::CoreRc;
@@ -35,6 +35,8 @@ const CURSOR_META_SIZE: usize = std::mem::size_of::<spa_sys::spa_meta_cursor>()
     + SHM_CURSOR_BITMAP_BYTES;
 const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
 const DRM_FORMAT_MOD_INVALID: u64 = u64::MAX;
+static DMABUF_RENDER_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static NON_MAPPABLE_BUFFER_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub enum PwCommand {
     CreateStream {
@@ -144,7 +146,7 @@ impl Drop for PipewireProducer {
 
 fn pipewire_thread(command_rx: Receiver<PwCommand>, quit_flag: Arc<AtomicBool>) {
     pipewire::init();
-    info!("pipewire thread started");
+    debug!("pipewire thread started");
 
     let mainloop = match MainLoopRc::new(None) {
         Ok(ml) => ml,
@@ -186,7 +188,7 @@ fn pipewire_thread(command_rx: Receiver<PwCommand>, quit_flag: Arc<AtomicBool>) 
                     match create_pw_stream(&mainloop, &core, &session_id, width, height, &shm_path)
                     {
                         Ok((stream, listener, mmap, node_id, serial)) => {
-                            info!(
+                            debug!(
                                 "pipewire stream created for {}: node_id={}",
                                 session_id, node_id
                             );
@@ -220,7 +222,7 @@ fn pipewire_thread(command_rx: Receiver<PwCommand>, quit_flag: Arc<AtomicBool>) 
                     }
                 }
                 Ok(PwCommand::Quit) => {
-                    info!("pipewire thread quitting");
+                    debug!("pipewire thread quitting");
                     for (_, s) in streams.drain() {
                         let _ = s.stream.disconnect();
                     }
@@ -228,7 +230,7 @@ fn pipewire_thread(command_rx: Receiver<PwCommand>, quit_flag: Arc<AtomicBool>) 
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    info!("pipewire thread: command channel closed, quitting");
+                    debug!("pipewire thread: command channel closed, quitting");
                     return;
                 }
             }
@@ -296,7 +298,7 @@ fn create_pw_stream(
         .state_changed({
             let session_id_for_state = session_id.to_string();
             move |_stream, _user_data, _old, new| {
-                info!(
+                debug!(
                     "pipewire state changed: session={} state={:?}",
                     session_id_for_state, new
                 );
@@ -378,10 +380,12 @@ fn create_pw_stream(
                         *frame_count = frame_count.wrapping_add(1);
                     }
                     Err(err) => {
-                        warn!(
-                            "pipewire process: dmabuf render failed session={} buffer={} err={}",
-                            session_id_for_process, buffer_id, err
-                        );
+                        if !DMABUF_RENDER_FAILURE_LOGGED.swap(true, Ordering::Relaxed) {
+                            warn!(
+                                "pipewire process: dmabuf render failed session={} buffer={} err={} (further failures suppressed)",
+                                session_id_for_process, buffer_id, err
+                            );
+                        }
                     }
                 }
                 return;
@@ -396,11 +400,13 @@ fn create_pw_stream(
                 // negotiation. We can't fill it via memcpy; warn instead of silently
                 // shipping a black frame. The buffers POD restricts dataType to
                 // MemFd/MemPtr so this should not happen.
-                warn!(
-                    "pipewire process: session={} dequeued buffer has no CPU pointer \
-                     (non-mappable buffer type) - dropping frame",
-                    session_id_for_process
-                );
+                if !NON_MAPPABLE_BUFFER_LOGGED.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        "pipewire process: session={} dequeued buffer has no CPU pointer \
+                         (non-mappable buffer type) - dropping frames; further warnings suppressed",
+                        session_id_for_process
+                    );
+                }
                 0
             };
 

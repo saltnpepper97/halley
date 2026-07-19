@@ -67,10 +67,12 @@ impl TtyFrameClock {
             let jitter_threshold = self.refresh_interval + self.refresh_interval / 2;
             if interval > jitter_threshold {
                 let periods = interval.as_secs_f32() / self.refresh_interval.as_secs_f32();
-                warn!(
-                    "tty frame pacing miss: output={} present_interval={:?} refresh={:?} (~{:.1} refresh periods)",
-                    output_name, interval, self.refresh_interval, periods
-                );
+                if crate::diagnostics::should_emit("tty-frame-pacing", Duration::from_secs(1)) {
+                    warn!(
+                        "tty frame pacing miss: output={} present_interval={:?} refresh={:?} (~{:.1} refresh periods)",
+                        output_name, interval, self.refresh_interval, periods
+                    );
+                }
             }
         }
         if !presentation_time.is_zero() {
@@ -188,10 +190,9 @@ pub(super) fn present_tty_frame_feedback<E: std::fmt::Display>(
     let Some(mut feedback) = (match submitted {
         Ok(feedback) => feedback,
         Err(err) => {
-            warn!(
-                "failed to mark drm frame submitted for {}: {}",
-                output_name, err
-            );
+            crate::diagnostics::warn_throttled("tty-frame-submit", Duration::from_secs(5), || {
+                format!("failed to mark drm frame submitted for {output_name}: {err}")
+            });
             return;
         }
     }) else {

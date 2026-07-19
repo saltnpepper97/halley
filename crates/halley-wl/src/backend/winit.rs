@@ -207,10 +207,11 @@ fn publish_winit_output_snapshot(
 }
 
 fn warn_winit_physical_input_settings_ignored(input: &halley_config::InputConfig, source: &str) {
-    if input.has_physical_device_settings() {
+    if input.has_physical_device_settings()
+        && crate::diagnostics::should_emit("winit-physical-input-settings", Duration::from_secs(30))
+    {
         warn!(
-            "{}: input.touchpad/input.mouse/input.devices are ignored by the winit backend; configure physical input devices in the host compositor or run Halley on tty",
-            source
+            "{source}: input.touchpad/input.mouse/input.devices are ignored by the winit backend; configure physical input devices in the host compositor or run Halley on tty",
         );
     }
 }
@@ -261,7 +262,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             ensure_xdg_runtime_dir()?;
             ensure_dbus_session_bus_address();
             init_logging()?;
-            info!("running nested winit backend");
             let _host_backend_guard = ensure_host_display()?;
 
             let mut display: Display<Halley> = Display::new()?;
@@ -287,7 +287,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 config_source.as_str(),
                 config_path.as_str()
             );
-            info!(
+            debug!(
                 "keyboard config: layout={} variant={} options={}",
                 tuning.input.keyboard.layout,
                 tuning.input.keyboard.variant,
@@ -360,7 +360,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 (Some(watch_rx), Some(watcher))
             };
 
-            info!("creating nested winit host window");
             let window_attributes = Window::default_attributes()
                 .with_inner_size(LogicalSize::new(1280.0, 800.0))
                 .with_title("Halley")
@@ -378,11 +377,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     wayland_display, x11_display, err
                 ))
             })?;
-            info!(
-                "nested winit host window ready: {:?}",
-                backend.window_size()
-            );
-
             let listening = ListeningSocketSource::new_auto().map_err(|err| {
                 let xdg_runtime_dir =
                     env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "<unset>".to_string());
@@ -392,7 +386,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 ))
             })?;
             let sock_name = listening.socket_name().to_string_lossy().to_string();
-            info!("nested WAYLAND_DISPLAY={}", sock_name);
+            info!(
+                "nested backend ready: size={:?} WAYLAND_DISPLAY={}",
+                backend.window_size(),
+                sock_name
+            );
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
@@ -451,7 +449,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 }
             }
             if !state.runtime.tuning.autostart_once.is_empty() {
-                info!("nested winit backend: skipping session autostart");
+                debug!("nested winit backend: skipping session autostart");
             }
             apply_host_cursor(&backend, &state.effective_cursor_image_status());
             let backend_for_winit = backend.clone();
@@ -528,7 +526,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             hover_node,
                             preview_hover_node,
                         ) {
-                            debug!("draw failed: {}", err);
+                            crate::diagnostics::warn_throttled(
+                                "winit-draw",
+                                Duration::from_secs(5),
+                                || format!("nested draw failed: {err}"),
+                            );
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
                             crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
@@ -536,7 +538,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     WinitEvent::Resized { size, .. } => {
-                        debug!("winit event: {:?}", event);
                         st.model.zoom_ref_size = halley_core::field::Vec2 {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
@@ -573,7 +574,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             hover_node,
                             preview_hover_node,
                         ) {
-                            debug!("draw failed: {}", err);
+                            crate::diagnostics::warn_throttled(
+                                "winit-draw",
+                                Duration::from_secs(5),
+                                || format!("nested draw failed: {err}"),
+                            );
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
                             crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
@@ -581,7 +586,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     WinitEvent::Focus(false) => {
-                        debug!("winit event: {:?}", event);
                         *mod_state_for_winit.borrow_mut() = ModState::default();
                         let mut ps = pointer_state_for_winit.borrow_mut();
                         if ps.resize.is_none() {
@@ -593,7 +597,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.set_app_focused(false);
                     }
                     WinitEvent::Focus(true) => {
-                        debug!("winit event: {:?}", event);
                         st.set_app_focused(true);
                         let now = Instant::now();
                         if let Some(id) = st.last_input_surface_node() {
@@ -601,7 +604,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     WinitEvent::CloseRequested => {
-                        debug!("winit event: {:?}", event);
                         crate::compositor::runtime::request_exit(st);
                     }
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
@@ -874,7 +876,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
 
                 drain_ipc_commands_with_fds(|request, fds| match request {
                     Request::Compositor(CompositorRequest::Quit) => {
-                        info!("ipc: quit requested");
+                        debug!("ipc: quit requested");
                         exit_confirm::show(&mut *st);
                         Response::Ok
                     }
@@ -947,7 +949,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     &xwayland_for_timer,
                     &xwayland_watch_tokens_for_timer,
                 ) {
-                    warn!("failed to register X11 socket watchers: {}", err);
+                    crate::diagnostics::warn_throttled(
+                        "x11-socket-watchers",
+                        Duration::from_secs(10),
+                        || format!("failed to register X11 socket watchers: {err}"),
+                    );
                 }
                 let resize_active = {
                     let ps = pointer_state_for_timer.borrow();

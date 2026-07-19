@@ -504,10 +504,6 @@ pub fn bootstrap_default_config() {
         );
         return;
     }
-    eprintln!(
-        "halley-lift: bootstrap: wrote default config to {}",
-        path.display()
-    );
 }
 
 pub fn resolved_halley_config_path() -> PathBuf {

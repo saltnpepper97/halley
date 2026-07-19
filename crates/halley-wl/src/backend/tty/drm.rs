@@ -238,7 +238,12 @@ fn tty_env_flag(name: &str) -> bool {
 }
 
 fn tty_game_path_debug(output_name: &str, node_id: halley_core::field::NodeId, message: &str) {
-    if tty_env_flag("HALLEY_TTY_GAME_DEBUG") {
+    if tty_env_flag("HALLEY_TTY_GAME_DEBUG")
+        && crate::diagnostics::should_emit(
+            "tty-game-render-path",
+            std::time::Duration::from_millis(500),
+        )
+    {
         debug!(
             "tty game render path: output={} node={} {}",
             output_name, node_id, message
@@ -639,7 +644,7 @@ fn probe_tty_drm_device_path_into_manager(
         );
         Vec::new()
     });
-    info!(
+    debug!(
         "tty drm device ready: card={} node={} render_node={} atomic={} crtcs={} outputs={}",
         card_path.display(),
         node,
@@ -1372,19 +1377,25 @@ pub(crate) fn queue_tty_drm_frame(
                                 let wait_duration = wait_started.elapsed();
                                 sync_wait = Some(wait_duration);
                                 if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
-                                    warn!(
-                                        "slow tty drm sync wait: output={} path=session-lock-direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                                        output_name,
-                                        wait_duration,
-                                        output_device_node,
-                                        primary_render_node,
-                                        output_render_node
+                                    crate::diagnostics::warn_throttled(
+                                        "tty-sync-wait",
+                                        Duration::from_secs(5),
+                                        || {
+                                            format!(
+                                                "slow tty drm sync wait: output={output_name} path=session-lock-direct duration={wait_duration:?} device_node={output_device_node} primary_render_node={primary_render_node} output_render_node={output_render_node}"
+                                            )
+                                        },
                                     );
                                 }
                                 if let Err(err) = wait_result {
-                                    warn!(
-                                        "failed to wait for tty drm session-lock direct frame completion on {}: {:?}",
-                                        output_name, err
+                                    crate::diagnostics::warn_throttled(
+                                        "tty-sync-error",
+                                        Duration::from_secs(5),
+                                        || {
+                                            format!(
+                                                "failed to wait for tty drm session-lock direct frame completion on {output_name}: {err:?}"
+                                            )
+                                        },
                                     );
                                 }
                             }
@@ -1526,19 +1537,25 @@ pub(crate) fn queue_tty_drm_frame(
                                     sync_wait = Some(wait_duration);
                                     if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS)
                                     {
-                                        warn!(
-                                            "slow tty drm sync wait: output={} path=direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                                            output_name,
-                                            wait_duration,
-                                            output_device_node,
-                                            primary_render_node,
-                                            output_render_node
+                                        crate::diagnostics::warn_throttled(
+                                            "tty-sync-wait",
+                                            Duration::from_secs(5),
+                                            || {
+                                                format!(
+                                                    "slow tty drm sync wait: output={output_name} path=direct duration={wait_duration:?} device_node={output_device_node} primary_render_node={primary_render_node} output_render_node={output_render_node}"
+                                                )
+                                            },
                                         );
                                     }
                                     if let Err(err) = wait_result {
-                                        warn!(
-                                            "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
-                                            output_name, err
+                                        crate::diagnostics::warn_throttled(
+                                            "tty-sync-error",
+                                            Duration::from_secs(5),
+                                            || {
+                                                format!(
+                                                    "failed to wait for tty drm direct-scanout frame completion on {output_name}: {err:?}"
+                                                )
+                                            },
                                         );
                                     }
                                 }
@@ -1703,19 +1720,25 @@ pub(crate) fn queue_tty_drm_frame(
                     let wait_duration = wait_started.elapsed();
                     sync_wait = Some(wait_duration);
                     if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
-                        warn!(
-                            "slow tty drm sync wait: output={} path=composed-hwcursor duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                            output_name,
-                            wait_duration,
-                            output_device_node,
-                            primary_render_node,
-                            output_render_node
+                        crate::diagnostics::warn_throttled(
+                            "tty-sync-wait",
+                            Duration::from_secs(5),
+                            || {
+                                format!(
+                                    "slow tty drm sync wait: output={output_name} path=composed-hwcursor duration={wait_duration:?} device_node={output_device_node} primary_render_node={primary_render_node} output_render_node={output_render_node}"
+                                )
+                            },
                         );
                     }
                     if let Err(err) = wait_result {
-                        warn!(
-                            "failed to wait for tty drm composed frame completion on {}: {:?}",
-                            output_name, err
+                        crate::diagnostics::warn_throttled(
+                            "tty-sync-error",
+                            Duration::from_secs(5),
+                            || {
+                                format!(
+                                    "failed to wait for tty drm composed frame completion on {output_name}: {err:?}"
+                                )
+                            },
                         );
                     }
                 }
@@ -1791,19 +1814,25 @@ pub(crate) fn queue_tty_drm_frame(
                     let wait_duration = wait_started.elapsed();
                     sync_wait = Some(wait_duration);
                     if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
-                        warn!(
-                            "slow tty drm sync wait: output={} path=composed duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                            output_name,
-                            wait_duration,
-                            output_device_node,
-                            primary_render_node,
-                            output_render_node
+                        crate::diagnostics::warn_throttled(
+                            "tty-sync-wait",
+                            Duration::from_secs(5),
+                            || {
+                                format!(
+                                    "slow tty drm sync wait: output={output_name} path=composed duration={wait_duration:?} device_node={output_device_node} primary_render_node={primary_render_node} output_render_node={output_render_node}"
+                                )
+                            },
                         );
                     }
                     if let Err(err) = wait_result {
-                        warn!(
-                            "failed to wait for tty drm composed frame completion on {}: {:?}",
-                            output_name, err
+                        crate::diagnostics::warn_throttled(
+                            "tty-sync-error",
+                            Duration::from_secs(5),
+                            || {
+                                format!(
+                                    "failed to wait for tty drm composed frame completion on {output_name}: {err:?}"
+                                )
+                            },
                         );
                     }
                 }

@@ -240,7 +240,12 @@ fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option
                 .monitor_state
                 .pending_workarea_refresh
                 .insert(monitor_name.clone());
-            if crate::perf::enabled() {
+            if crate::perf::enabled()
+                && crate::diagnostics::should_emit(
+                    "perf-workarea-defer",
+                    std::time::Duration::from_secs(1),
+                )
+            {
                 eventline::info!(
                     "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (session_locked)",
                     monitor_name,

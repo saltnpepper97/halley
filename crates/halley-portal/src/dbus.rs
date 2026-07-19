@@ -117,7 +117,7 @@ impl ScreenCastInterface {
             owned_from_value(Value::from(session.session_id.clone()))?,
         );
 
-        info!(
+        debug!(
             "ScreenCast session created: {} (id={})",
             session_path, session.session_id
         );
@@ -410,11 +410,11 @@ impl ScreenshotInterface {
                 let uri = path_to_file_uri(&path);
                 let mut results = Vardict::new();
                 results.insert("uri".into(), owned_from_value(Value::from(uri))?);
-                info!("Screenshot: captured for app_id={app_id}");
+                debug!("Screenshot: captured for app_id={app_id}");
                 Ok((0, results))
             }
             Ok(ScreenshotOutcome::Cancelled) => {
-                info!("Screenshot: user cancelled (app_id={app_id})");
+                debug!("Screenshot: user cancelled (app_id={app_id})");
                 Ok((1, Vardict::new()))
             }
             Err(e) => {
@@ -432,7 +432,7 @@ impl ScreenshotInterface {
         _options: Vardict,
     ) -> fdo::Result<(u32, Vardict)> {
         export_request_object(&self.connection, &handle)?;
-        warn!("PickColor: not supported");
+        debug!("PickColor: not supported");
         Ok((2, Vardict::new()))
     }
 
@@ -470,7 +470,7 @@ impl SessionInterface {
 #[interface(name = "org.freedesktop.impl.portal.Session")]
 impl SessionInterface {
     fn close(&self) -> fdo::Result<()> {
-        info!("Session.Close: {}", self.session_handle);
+        debug!("Session.Close: {}", self.session_handle);
         if let Some(ref pw) = self.pipewire {
             pw.destroy_stream(&self.session_handle);
         }

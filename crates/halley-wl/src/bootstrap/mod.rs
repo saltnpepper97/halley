@@ -541,7 +541,7 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
         let shared_level = env::var("HALLEY_WL_LOG")
             .ok()
             .and_then(|v| parse_log_level(v.as_str()))
-            .unwrap_or(LogLevel::Info);
+            .unwrap_or(LogLevel::Warning);
 
         let log_file = configured_halley_log_file();
         let file = match log_file.as_ref() {

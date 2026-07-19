@@ -306,7 +306,11 @@ fn queue_ready_tty_outputs(
                 output_frame_pending_since
                     .borrow_mut()
                     .remove(output.connector_name.as_str());
-                warn!("tty drm frame queue skipped for {}: {}", output_name, err)
+                crate::diagnostics::warn_throttled(
+                    "tty-frame-queue",
+                    Duration::from_secs(5),
+                    || format!("tty drm frame queue failed for {output_name}: {err}"),
+                )
             }
             Ok(report) => {
                 record_tty_frame_queue(frame_stats, &report);
@@ -379,10 +383,12 @@ fn release_pending_tty_outputs(
             continue;
         }
         if let Err(err) = output.compositor.borrow_mut().frame_submitted() {
-            warn!(
-                "failed to release pending tty frame for {} during {}: {}",
-                output.connector_name, reason, err
-            );
+            crate::diagnostics::warn_throttled("tty-frame-release", Duration::from_secs(5), || {
+                format!(
+                    "failed to release pending tty frame for {} during {}: {}",
+                    output.connector_name, reason, err
+                )
+            });
         }
         released.push(output.connector_name.clone());
     }
@@ -713,7 +719,6 @@ fn apply_tty_reload(
 }
 
 pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
-    eprintln!("halley-wl tty: starting");
     scope!(
         "halley-wl-tty",
         success = "compositor exited",
@@ -728,7 +733,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 eprintln!("halley-wl tty: logging init failed: {err}");
                 return Err(err);
             }
-            eprintln!("halley-wl tty: logging initialized");
 
             let resolved_config_path = RuntimeTuning::resolved_config_path();
             let (
@@ -744,7 +748,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let (tty_session, session_notifier) = LibSeatSession::new().map_err(|err| {
                     io::Error::other(format!("failed to initialize libseat session: {:?}", err))
                 })?;
-                info!("tty libseat backend=auto");
+                debug!("tty libseat backend=auto");
                 let tty_session = Rc::new(RefCell::new(tty_session));
                 let seat_name = tty_session.borrow().seat();
                 let drm_probe = probe_tty_drm_device_via_session(
@@ -795,7 +799,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 config_source.as_str(),
                 config_path.as_str()
             );
-            info!(
+            debug!(
                 "keyboard config: layout={} variant={} options={}",
                 tuning.input.keyboard.layout,
                 tuning.input.keyboard.variant,
@@ -1490,7 +1494,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             mismatch_state.reported_active = false;
                         }
                         }
-                        DrmEvent::Error(err) => warn!("drm event error: {}", err),
+                        DrmEvent::Error(err) => crate::diagnostics::warn_throttled(
+                            "tty-drm-event",
+                            Duration::from_secs(5),
+                            || format!("drm event error: {err}"),
+                        ),
                     },
                 )?;
             }
@@ -1742,6 +1750,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // shrunk on the way to a locked game (TF2 mouselook debug).
                         if std::env::var_os("HALLEY_POINTER_TRACE")
                             .is_some_and(|value| value != "0")
+                            && std::env::var_os("HALLEY_POINTER_TRACE_VERBOSE")
+                                .is_some_and(|value| value != "0")
                         {
                             eventline::info!(
                                 "libinput_motion delta={:.3},{:.3} unaccel={:.3},{:.3}",
@@ -2098,7 +2108,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                     _ => {}
                 })?;
-            info!("libinput event source enabled for tty backend");
+            debug!("libinput event source enabled for tty backend");
 
             let initial_frame_interval = frame_interval_for_refresh_hz(
                 active_modes
@@ -2155,7 +2165,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 drain_ipc_commands_with_fds(|request, fds| match request {
                     halley_api::Request::Compositor(halley_api::CompositorRequest::Quit) => {
-                        info!("ipc: quit requested");
+                        debug!("ipc: quit requested");
                         exit_confirm::show(&mut *st);
                         halley_api::Response::Ok
                     }
@@ -2244,7 +2254,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     &xwayland_for_timer,
                     &xwayland_watch_tokens_for_timer,
                 ) {
-                    warn!("failed to register X11 socket watchers: {}", err);
+                    crate::diagnostics::warn_throttled(
+                        "x11-socket-watchers",
+                        Duration::from_secs(10),
+                        || format!("failed to register X11 socket watchers: {err}"),
+                    );
                 }
                 st.run_maintenance_if_needed(now);
 
@@ -2361,10 +2375,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     })
                     .collect();
                 if !stalled_outputs.is_empty() {
-                    warn!(
-                        "releasing stalled tty frames after {:?} for {:?}",
-                        Duration::from_millis(PENDING_FRAME_TIMEOUT_MS),
-                        stalled_outputs
+                    crate::diagnostics::warn_throttled(
+                        "tty-stalled-frames",
+                        Duration::from_secs(5),
+                        || {
+                            format!(
+                                "releasing stalled tty frames after {:?} for {:?}",
+                                Duration::from_millis(PENDING_FRAME_TIMEOUT_MS),
+                                stalled_outputs
+                            )
+                        },
                     );
                     let released = release_pending_tty_outputs(
                         &outputs_for_timer,

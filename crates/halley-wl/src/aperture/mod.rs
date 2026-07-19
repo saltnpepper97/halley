@@ -146,7 +146,12 @@ fn derive_aperture_mode_for_monitor(st: &Halley, monitor: &str) -> ApertureMode 
     );
     let mode = derive_aperture_mode(st, monitor, output_rect, output_rect, 1.0);
     st.aperture.store_mode(monitor, mode, now);
-    if let Some(start) = perf_start {
+    if let Some(start) = perf_start
+        && crate::diagnostics::should_emit(
+            "perf-aperture-derive",
+            std::time::Duration::from_secs(1),
+        )
+    {
         eventline::info!(
             "perf aperture_derive monitor={} mode={:?} took={:.2}ms",
             monitor,

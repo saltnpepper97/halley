@@ -93,7 +93,11 @@ impl FrameBlurContext<'_> {
             tex.corner_radius,
             tex.blur_alpha.clamp(0.0, 1.0),
         ) {
-            eventline::warn!("window blur skipped this frame: {err}");
+            crate::diagnostics::warn_throttled(
+                "render-window-blur",
+                std::time::Duration::from_secs(5),
+                || format!("window blur temporarily unavailable: {err}"),
+            );
         }
         Ok(())
     }
@@ -606,7 +610,11 @@ pub(super) fn draw_layer_groups(
             && let Some(ctx) = blur_ctx.as_deref_mut()
             && let Err(err) = ctx.draw_layer_group_blur(frame, damage, group)
         {
-            eventline::warn!("layer-shell blur skipped this frame: {err}");
+            crate::diagnostics::warn_throttled(
+                "render-layer-blur",
+                std::time::Duration::from_secs(5),
+                || format!("layer-shell blur temporarily unavailable: {err}"),
+            );
         }
         let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
     }
@@ -694,7 +702,13 @@ pub(crate) fn draw_single_offscreen_texture(
             1.0
         };
         let sharpen = if zoom_bicubic { zoom_sharpen } else { 0.0 };
-        if magnify > 1.01 && crate::perf::enabled() {
+        if magnify > 1.01
+            && crate::perf::enabled()
+            && crate::diagnostics::should_emit(
+                "perf-zoom-sample",
+                std::time::Duration::from_secs(1),
+            )
+        {
             eventline::info!(
                 "perf zoom-sample magnify={:.3} sharpen={:.2} src={}x{} dst={}x{} tex={}x{}",
                 magnify,
@@ -971,7 +985,11 @@ fn draw_direct_blur_rects(
             rect.corner_radius,
             rect.alpha.clamp(0.0, 1.0),
         ) {
-            eventline::warn!("window blur skipped this frame: {err}");
+            crate::diagnostics::warn_throttled(
+                "render-window-blur",
+                std::time::Duration::from_secs(5),
+                || format!("window blur temporarily unavailable: {err}"),
+            );
         }
     }
     Ok(())
@@ -1293,7 +1311,11 @@ fn draw_hover_preview(
         && let Err(err) =
             draw_overlay_hover_preview_card(frame, st, card.rect, card.node_id, card.alpha, damage)
     {
-        eventline::warn!("hover preview card skipped this frame: {err}");
+        crate::diagnostics::warn_throttled(
+            "render-hover-preview",
+            std::time::Duration::from_secs(5),
+            || format!("hover preview temporarily unavailable: {err}"),
+        );
     }
 
     Ok(())

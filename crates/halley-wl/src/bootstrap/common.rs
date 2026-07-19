@@ -18,7 +18,7 @@ use std::process::Child;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use eventline::{debug, info, warn};
+use eventline::{debug, warn};
 use rustix::io::{FdFlags, fcntl_setfd};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
@@ -95,7 +95,7 @@ pub(crate) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
     if runtime_dir_is_usable(run_user_path) {
         // SAFETY: Called during startup before worker threads are spawned.
         unsafe { env::set_var("XDG_RUNTIME_DIR", run_user_path) };
-        info!("XDG_RUNTIME_DIR={}", run_user_path.display());
+        debug!("XDG_RUNTIME_DIR={}", run_user_path.display());
         return Ok(());
     }
 
@@ -727,7 +727,7 @@ pub(crate) fn ensure_xwayland_satellite(
         .ok()
         .filter(|value| !value.trim().is_empty());
     if mode == XwaylandMode::Off {
-        info!("xwayland integration disabled (HALLEY_DEV_WL_XWAYLAND=off)");
+        debug!("xwayland integration disabled (HALLEY_DEV_WL_XWAYLAND=off)");
         // SAFETY: Called during startup before worker threads are spawned.
         unsafe { env::remove_var("DISPLAY") };
         return Ok(XwaylandSatellite {

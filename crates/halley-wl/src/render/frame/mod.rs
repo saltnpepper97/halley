@@ -386,7 +386,11 @@ pub(crate) fn draw_debug_frame_to_target(
                 blur_cfg.passes,
             ) {
                 Ok(()) => blur_textures = st.ui.render_state.gpu.blur_textures.take(),
-                Err(err) => eventline::warn!("apogee overlay blur disabled this frame: {err}"),
+                Err(err) => crate::diagnostics::warn_throttled(
+                    "render-apogee-blur",
+                    std::time::Duration::from_secs(5),
+                    || format!("apogee overlay blur temporarily unavailable: {err}"),
+                ),
             }
         }
 
@@ -610,9 +614,11 @@ pub(crate) fn draw_debug_frame_to_target(
             blur_cfg.passes,
         ) {
             Ok(()) => blur_textures = st.ui.render_state.gpu.blur_textures.take(),
-            Err(err) => {
-                eventline::warn!("blur disabled this frame: texture allocation failed: {err}")
-            }
+            Err(err) => crate::diagnostics::warn_throttled(
+                "render-blur-texture",
+                std::time::Duration::from_secs(5),
+                || format!("blur texture allocation failed: {err}"),
+            ),
         }
         if let Some(mask_size) = layer_mask_size {
             match crate::render::blur::ensure_scratch_texture(
@@ -621,8 +627,10 @@ pub(crate) fn draw_debug_frame_to_target(
                 mask_size,
             ) {
                 Ok(()) => layer_mask_texture = st.ui.render_state.gpu.layer_mask_texture.take(),
-                Err(err) => eventline::warn!(
-                    "layer-shell blur disabled this frame: mask texture allocation failed: {err}"
+                Err(err) => crate::diagnostics::warn_throttled(
+                    "render-layer-mask",
+                    std::time::Duration::from_secs(5),
+                    || format!("layer-shell blur mask allocation failed: {err}"),
                 ),
             }
         }
@@ -711,8 +719,6 @@ pub(crate) fn draw_debug_frame_to_target(
             .and_then(|vp| vp.refresh_rate)
             .map(|hz| (1000.0 / hz as f32 * 1.5).max(4.0))
             .unwrap_or(16.0);
-        // During a cluster tile slide, log every frame regardless of budget so we
-        // capture the whole tween, not just the worst spike.
         let tile_anim = crate::animation::cluster_tile_tracks_animating(
             st.ui.render_state.cluster_tile_tracks(),
             prepared.now,
@@ -728,7 +734,12 @@ pub(crate) fn draw_debug_frame_to_target(
             .values()
             .any(|anim| anim.monitor == current_monitor);
         let cam_zoom = crate::compositor::monitor::camera::camera_render_scale(st);
-        if total_ms > budget_ms || tile_anim || fs_anim {
+        if total_ms > budget_ms
+            && crate::diagnostics::should_emit(
+                "perf-frame-overrun",
+                std::time::Duration::from_millis(500),
+            )
+        {
             eventline::warn!(
                 "perf frame took={:.2}ms budget={:.2} tile_anim={} fs_anim={} cam_zoom={:.3} (snapshot_prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
                 total_ms,

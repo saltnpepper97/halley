@@ -149,7 +149,10 @@ pub(super) fn log_window_render_path(
     // Only log the expensive paths. `offscreen-compose` (the cheap cached reuse)
     // fires for every window every frame and churned the log into rapid rotation,
     // evicting the very spike lines we needed to see.
-    if crate::perf::enabled() && path != "offscreen-compose" {
+    if crate::perf::enabled()
+        && path != "offscreen-compose"
+        && crate::diagnostics::should_emit("perf-render-path", std::time::Duration::from_secs(1))
+    {
         eventline::info!(
             "perf render-path node={} path={} {}",
             node_id.as_u64(),

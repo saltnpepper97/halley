@@ -1,4 +1,4 @@
-use eventline::{debug, info, warn};
+use eventline::{debug, warn};
 
 use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
@@ -201,7 +201,7 @@ pub(crate) fn apply_compositor_action_press(
     match action {
         CompositorBindingAction::Quit { .. } => {
             exit_confirm::show(st);
-            info!("quit requested via keybind");
+            debug!("quit requested via keybind");
             true
         }
         CompositorBindingAction::Reload => {

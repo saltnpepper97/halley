@@ -28,6 +28,11 @@ fn pointer_trace_enabled() -> bool {
     std::env::var_os("HALLEY_POINTER_TRACE").is_some_and(|value| value != "0")
 }
 
+fn pointer_trace_verbose_enabled() -> bool {
+    pointer_trace_enabled()
+        && std::env::var_os("HALLEY_POINTER_TRACE_VERBOSE").is_some_and(|value| value != "0")
+}
+
 pub(super) enum MotionDispatchResult {
     ConsumedByPointerConstraint,
     Forwarded {
@@ -53,7 +58,7 @@ pub(super) fn dispatch_locked_pointer_motion(
     let surface = constraint.surface;
     let origin = constraint.origin;
 
-    if pointer_trace_enabled() {
+    if pointer_trace_verbose_enabled() {
         // Smithay delivers relative_motion + frame to its current pointer focus,
         // and only to relative-pointer objects of that surface's client. If
         // current_focus is None or a different client than the constraint
@@ -289,7 +294,7 @@ pub(super) fn dispatch_pointer_motion(
                     focus_tuple,
                 )
         {
-            if pointer_trace_enabled() {
+            if pointer_trace_verbose_enabled() {
                 eventline::info!(
                     "pointer_constraint locked_relative_fallback surface={:?} hit_focus={:?} delta={:.3},{:.3} unaccel={:.3},{:.3}",
                     constraint.surface.id(),
