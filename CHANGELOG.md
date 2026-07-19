@@ -49,6 +49,10 @@ All notable changes to this project will be documented in this file.
   existing user configs are auto-migrated with the new keys.
 
 ### Changed
+- Change overlapping active-window selection so a normal single click focuses
+  without raising the window. A deliberate same-window double-click within
+  350ms focuses and brings it forward; intervening drag, resize, workspace,
+  core, or collapsed-node interactions cancel the pending double-click.
 - The compositor no longer drives xwayland-satellite's RandR primary output from
   pointer-motion and surface-map paths (`sync_xwayland_primary` is now a no-op).
   The locked surface/output relationship is the single source of truth; forcing

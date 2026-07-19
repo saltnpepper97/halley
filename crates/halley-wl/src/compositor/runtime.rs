@@ -169,6 +169,13 @@ fn interaction_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .as_ref()
         .map(|pending| pending.deadline_ms)
         .filter(|&deadline_ms| deadline_ms > now_ms);
+    let pending_active_surface_click_deadline_ms = st
+        .input
+        .interaction_state
+        .pending_active_surface_click
+        .as_ref()
+        .map(|pending| pending.deadline_ms)
+        .filter(|&deadline_ms| deadline_ms > now_ms);
     let cluster_name_prompt_repeat_at_ms = st
         .input
         .interaction_state
@@ -190,6 +197,7 @@ fn interaction_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
     min_optional_deadlines([
         pending_core_click_deadline_ms,
         pending_collapsed_node_click_deadline_ms,
+        pending_active_surface_click_deadline_ms,
         cluster_name_prompt_repeat_at_ms,
         pending_screenshot_capture_at_ms,
         crate::compositor::interaction::cursor::feedback_deadline_ms(st),
@@ -442,6 +450,15 @@ pub fn run_maintenance(st: &mut Halley, now: Instant) {
         && now_ms >= pending.deadline_ms
     {
         st.input.interaction_state.pending_collapsed_node_click = None;
+    }
+    if let Some(pending) = st
+        .input
+        .interaction_state
+        .pending_active_surface_click
+        .clone()
+        && now_ms >= pending.deadline_ms
+    {
+        st.input.interaction_state.pending_active_surface_click = None;
     }
     let _ = crate::compositor::clusters::system::repeat_cluster_name_prompt_input_if_due(
         &mut *st, now_ms,

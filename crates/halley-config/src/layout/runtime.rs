@@ -15,10 +15,10 @@ use super::{
     AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
-    EffectsConfig, FocusRingConfig, FontConfig, GamingConfig, InputConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule, ZoomFilter,
+    EffectsConfig, FocusRingConfig, FontConfig, GamingConfig, InputConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
+    PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    WindowCloseAnimationStyle, WindowRule, ZoomFilter,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -543,7 +543,7 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
-  # Raise clicked windows independently from focus mode. Hover focus does not imply raise.
+  # Raise a focused window only after a deliberate double-click.
   raise-on-click true
   keyboard:
     layout "us"

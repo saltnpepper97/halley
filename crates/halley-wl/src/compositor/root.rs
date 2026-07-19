@@ -458,6 +458,8 @@ impl Halley {
                     pending_move_press: None,
                     pending_core_click: None,
                     pending_collapsed_node_click: None,
+                    pending_active_surface_press: None,
+                    pending_active_surface_click: None,
                     grabbed_edge_pan_active: false,
                     grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },

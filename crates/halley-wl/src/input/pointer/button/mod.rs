@@ -4,10 +4,15 @@ use eventline::debug;
 use halley_config::PointerBindingAction;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::interaction::state::{PendingCollapsedNodeClick, PendingCoreClick};
+use crate::compositor::interaction::state::{
+    PendingActiveSurfaceClick, PendingCollapsedNodeClick, PendingCoreClick,
+};
 use crate::compositor::interaction::{BloomDragCtx, OverflowDragCtx};
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
+use crate::input::keyboard::bindings::{
+    apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
+};
 use crate::overlay::{
     bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
 };
@@ -23,9 +28,8 @@ use super::focus::{
 };
 use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
-use crate::input::keyboard::bindings::{
-    apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
-};
+
+const ACTIVE_SURFACE_DOUBLE_CLICK_MS: u64 = 350;
 
 mod frame;
 mod press;
@@ -620,6 +624,25 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                     Some(PendingCollapsedNodeClick {
                         node_id: pending_press.node_id,
                         deadline_ms: st.now_ms(now).saturating_add(180),
+                    });
+                st.request_maintenance();
+                ctx.backend.request_redraw();
+                return;
+            }
+            if left
+                && let Some(pending_press) = st
+                    .input
+                    .interaction_state
+                    .pending_active_surface_press
+                    .take()
+            {
+                let now = Instant::now();
+                st.input.interaction_state.pending_active_surface_click =
+                    Some(PendingActiveSurfaceClick {
+                        node_id: pending_press.node_id,
+                        deadline_ms: st
+                            .now_ms(now)
+                            .saturating_add(ACTIVE_SURFACE_DOUBLE_CLICK_MS),
                     });
                 st.request_maintenance();
                 ctx.backend.request_redraw();

@@ -259,6 +259,17 @@ pub(crate) struct PendingCollapsedNodeClick {
     pub(crate) deadline_ms: u64,
 }
 
+#[derive(Clone)]
+pub(crate) struct PendingActiveSurfacePress {
+    pub(crate) node_id: NodeId,
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingActiveSurfaceClick {
+    pub(crate) node_id: NodeId,
+    pub(crate) deadline_ms: u64,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum ClusterNamePromptRepeatAction {
     Insert(char),
@@ -405,6 +416,8 @@ pub(crate) struct InteractionState {
     pub(crate) pending_move_press: Option<PendingMovePress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) pending_collapsed_node_click: Option<PendingCollapsedNodeClick>,
+    pub(crate) pending_active_surface_press: Option<PendingActiveSurfacePress>,
+    pub(crate) pending_active_surface_click: Option<PendingActiveSurfaceClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,
     pub(crate) grabbed_edge_pan_pressure: Vec2,
