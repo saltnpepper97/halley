@@ -4,10 +4,15 @@ use eventline::debug;
 use halley_config::PointerBindingAction;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::interaction::state::{PendingCollapsedNodeClick, PendingCoreClick};
+use crate::compositor::interaction::state::{
+    PendingActiveSurfaceClick, PendingCollapsedNodeClick, PendingCoreClick,
+};
 use crate::compositor::interaction::{BloomDragCtx, OverflowDragCtx};
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
+use crate::input::keyboard::bindings::{
+    apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
+};
 use crate::overlay::{
     bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
 };
@@ -15,17 +20,16 @@ use crate::render::bearing_hit_test;
 use crate::spatial::pick_hit_node_at;
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
-    popup_focus_for_screen,
+    popup_focus_for_screen, seat_focus_from_local,
 };
 use super::portal_chooser::handle_portal_chooser_pointer_button;
 use super::screenshot::handle_screenshot_pointer_button;
-use crate::input::keyboard::bindings::{
-    apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
-};
+
+const ACTIVE_SURFACE_DOUBLE_CLICK_MS: u64 = 350;
 
 mod frame;
 mod press;
@@ -75,7 +79,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let (local_w, local_h, local_sx, local_sy) = (frame.ws_w, frame.ws_h, frame.sx, frame.sy);
     ps.screen = (sx, sy);
     ps.workspace_size = (local_w, local_h);
-    st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+    crate::compositor::interaction::cursor::record_pointer_position(st, (sx, sy));
     crate::compositor::platform::refresh_cursor_surface_outputs(st);
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
         let resize = ps.resize;
@@ -122,6 +126,25 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             .ui
             .render_state
             .dismiss_overlay_error_toast(target_monitor.as_str())
+    {
+        ps.intercepted_binding_buttons.insert(button_code);
+        ctx.backend.request_redraw();
+        return;
+    }
+    if matches!(button_state, ButtonState::Pressed)
+        && left
+        && crate::overlay::error_toast_hit_test(
+            st,
+            target_monitor.as_str(),
+            local_w,
+            local_h,
+            local_sx as f64,
+            local_sy as f64,
+        )
+        && st
+            .ui
+            .render_state
+            .toggle_overlay_error_toast_expanded(target_monitor.as_str(), st.now_ms(Instant::now()))
     {
         ps.intercepted_binding_buttons.insert(button_code);
         ctx.backend.request_redraw();
@@ -606,6 +629,25 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 ctx.backend.request_redraw();
                 return;
             }
+            if left
+                && let Some(pending_press) = st
+                    .input
+                    .interaction_state
+                    .pending_active_surface_press
+                    .take()
+            {
+                let now = Instant::now();
+                st.input.interaction_state.pending_active_surface_click =
+                    Some(PendingActiveSurfaceClick {
+                        node_id: pending_press.node_id,
+                        deadline_ms: st
+                            .now_ms(now)
+                            .saturating_add(ACTIVE_SURFACE_DOUBLE_CLICK_MS),
+                    });
+                st.request_maintenance();
+                ctx.backend.request_redraw();
+                return;
+            }
             if left && ps.bloom_drag.take().is_some() {
                 let now_ms = st.now_ms(Instant::now());
                 let phase = st
@@ -813,7 +855,7 @@ pub(super) fn dispatch_pointer_button(
         st.now_ms(Instant::now()),
     );
 
-    let location = if locked_surface.is_some() {
+    let local_location = if locked_surface.is_some() {
         pointer.current_location()
     } else if focus.as_ref().is_some_and(|(surface, _)| {
         crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
@@ -823,6 +865,16 @@ pub(super) fn dispatch_pointer_button(
     } else {
         let cam_scale = st.camera_render_scale() as f64;
         (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+    };
+    let seat_location =
+        Point::<f64, Logical>::from((frame.global_sx as f64, frame.global_sy as f64));
+    let (focus, location) = if locked_surface.is_some() {
+        (focus, local_location)
+    } else {
+        (
+            seat_focus_from_local(focus, local_location, seat_location),
+            seat_location,
+        )
     };
     let should_send_motion = match (locked_surface.as_ref(), pointer.current_focus()) {
         (Some(locked), Some(current)) => current != *locked,

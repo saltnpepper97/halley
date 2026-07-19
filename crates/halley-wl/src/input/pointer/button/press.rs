@@ -101,6 +101,8 @@ pub(super) fn handle_left_press(
     frame: ButtonFrame,
 ) {
     let Some(hit) = hit else {
+        st.input.interaction_state.pending_active_surface_press = None;
+        st.input.interaction_state.pending_active_surface_click = None;
         let now = Instant::now();
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
@@ -108,19 +110,20 @@ pub(super) fn handle_left_press(
         begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
-    if st.runtime.tuning.input.raise_on_click {
-        let _ = st.raise_overlap_policy_node(hit.node_id);
-    }
     if !drag_binding_active
         && !hit.is_core
         && !hit.move_surface
         && edge_resize_handle_at(st, frame.ws_w, frame.ws_h, hit.node_id, frame.sx, frame.sy)
             .is_some()
     {
+        st.input.interaction_state.pending_active_surface_press = None;
+        st.input.interaction_state.pending_active_surface_click = None;
         begin_resize(st, ps, backend, hit, frame);
         return;
     }
     if frame.workspace_active {
+        st.input.interaction_state.pending_active_surface_press = None;
+        st.input.interaction_state.pending_active_surface_click = None;
         let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
         if drag_binding_active && drag_target_ok && !hit.is_core {
             begin_drag(
@@ -159,6 +162,40 @@ pub(super) fn handle_left_press(
 
     if !drag_binding_active && restore_fullscreen_click_focus(st, hit.node_id, Instant::now()) {
         backend.request_redraw();
+    }
+
+    let active_surface_click = !drag_binding_active
+        && !hit.is_core
+        && st.model.field.node(hit.node_id).is_some_and(|node| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && node.state == halley_core::field::NodeState::Active
+                && st.model.field.is_visible(hit.node_id)
+        });
+    if active_surface_click {
+        let now = Instant::now();
+        let now_ms = st.now_ms(now);
+        let is_double_click = st
+            .input
+            .interaction_state
+            .pending_active_surface_click
+            .as_ref()
+            .is_some_and(|pending| pending.node_id == hit.node_id && pending.deadline_ms > now_ms);
+        st.input.interaction_state.pending_active_surface_click = None;
+        st.input.interaction_state.pending_active_surface_press = None;
+        if is_double_click {
+            if st.runtime.tuning.input.raise_on_click && st.raise_overlap_policy_node(hit.node_id) {
+                backend.request_redraw();
+            }
+        } else {
+            st.input.interaction_state.pending_active_surface_press = Some(
+                crate::compositor::interaction::state::PendingActiveSurfacePress {
+                    node_id: hit.node_id,
+                },
+            );
+        }
+    } else {
+        st.input.interaction_state.pending_active_surface_press = None;
+        st.input.interaction_state.pending_active_surface_click = None;
     }
 
     let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
@@ -316,6 +353,8 @@ fn handle_collapsed_node_left_press(
     now: Instant,
 ) -> bool {
     let now_ms = st.now_ms(now);
+    st.input.interaction_state.pending_active_surface_press = None;
+    st.input.interaction_state.pending_active_surface_click = None;
     if st
         .input
         .interaction_state
@@ -348,6 +387,8 @@ pub(crate) fn handle_core_left_press(
     st.input.interaction_state.pending_core_hover = None;
     st.input.interaction_state.pending_collapsed_node_press = None;
     st.input.interaction_state.pending_collapsed_node_click = None;
+    st.input.interaction_state.pending_active_surface_press = None;
+    st.input.interaction_state.pending_active_surface_click = None;
     st.set_interaction_focus(Some(hit.node_id), 700, now);
     if st
         .input

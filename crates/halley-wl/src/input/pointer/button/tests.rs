@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 use super::press::{handle_left_press, handle_pan_binding_press, handle_right_press};
 use super::*;
 use crate::backend::interface::TtyBackendHandle;
-use crate::compositor::interaction::state::{PendingCollapsedNodeClick, PendingCoreClick};
+use crate::compositor::interaction::state::{
+    PendingActiveSurfaceClick, PendingCollapsedNodeClick, PendingCoreClick,
+};
 use crate::compositor::interaction::{HitNode, PointerState};
 use smithay::reexports::wayland_server::Display;
 
@@ -54,6 +56,110 @@ fn spawn_collapsed_surface(
             .set_state(node, halley_core::field::NodeState::Node)
     );
     node
+}
+
+fn spawn_active_surface(st: &mut Halley, label: &str) -> halley_core::field::NodeId {
+    let node = st.model.field.spawn_surface(
+        label,
+        halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(node, "monitor_a");
+    assert!(
+        st.model
+            .field
+            .set_state(node, halley_core::field::NodeState::Active)
+    );
+    node
+}
+
+#[test]
+fn active_surface_single_click_focuses_without_raising() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let back = spawn_active_surface(&mut st, "back");
+    let front = spawn_active_surface(&mut st, "front");
+    assert!(st.raise_overlap_policy_node(back));
+    assert!(st.raise_overlap_policy_node(front));
+    let raise_order_before = st.model.focus_state.next_overlap_raise_order;
+    let back_order_before = st.model.focus_state.overlap_raise_order[&back];
+
+    handle_left_press(
+        &mut st,
+        &mut PointerState::default(),
+        &backend,
+        false,
+        false,
+        Some(HitNode {
+            node_id: back,
+            move_surface: false,
+            is_core: false,
+        }),
+        pointer_frame(),
+    );
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(back));
+    assert_eq!(
+        st.model.focus_state.next_overlap_raise_order,
+        raise_order_before
+    );
+    assert_eq!(
+        st.model.focus_state.overlap_raise_order[&back],
+        back_order_before
+    );
+    assert!(
+        st.input
+            .interaction_state
+            .pending_active_surface_press
+            .as_ref()
+            .is_some_and(|pending| pending.node_id == back)
+    );
+}
+
+#[test]
+fn active_surface_double_click_focuses_and_raises() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+    let back = spawn_active_surface(&mut st, "back");
+    let front = spawn_active_surface(&mut st, "front");
+    assert!(st.raise_overlap_policy_node(back));
+    assert!(st.raise_overlap_policy_node(front));
+    let front_order = st.model.focus_state.overlap_raise_order[&front];
+    st.input.interaction_state.pending_active_surface_click = Some(PendingActiveSurfaceClick {
+        node_id: back,
+        deadline_ms: st.now_ms(Instant::now()) + ACTIVE_SURFACE_DOUBLE_CLICK_MS,
+    });
+
+    handle_left_press(
+        &mut st,
+        &mut PointerState::default(),
+        &backend,
+        false,
+        false,
+        Some(HitNode {
+            node_id: back,
+            move_surface: false,
+            is_core: false,
+        }),
+        pointer_frame(),
+    );
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(back));
+    assert!(st.model.focus_state.overlap_raise_order[&back] > front_order);
+    assert!(
+        st.input
+            .interaction_state
+            .pending_active_surface_click
+            .is_none()
+    );
+    assert!(
+        st.input
+            .interaction_state
+            .pending_active_surface_press
+            .is_none()
+    );
 }
 
 #[test]

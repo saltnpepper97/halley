@@ -15,10 +15,10 @@ use super::{
     AnimationsConfig, ApogeeConfig, BackgroundConfig, BearingsConfig,
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig, DecorationsConfig,
-    EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    EffectsConfig, FocusRingConfig, FontConfig, GamingConfig, InputConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
+    PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    WindowCloseAnimationStyle, WindowRule, ZoomFilter,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,6 +105,8 @@ pub struct RuntimeTuning {
     pub zoom_max: f32,
     pub zoom_smooth: bool,
     pub zoom_smooth_rate: f32,
+    pub zoom_filter: ZoomFilter,
+    pub zoom_sharpen: f32,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -118,6 +120,11 @@ pub struct RuntimeTuning {
     pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
+    /// Human-readable warnings for keybind collisions detected while parsing
+    /// (same-scope chord overwritten last-wins, or a chord shadowed by a
+    /// compositor action so its launch binding is dead). Populated during load,
+    /// surfaced to the user via the error overlay; never fatal.
+    pub keybind_conflicts: Vec<String>,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,
@@ -130,7 +137,7 @@ pub struct RuntimeTuning {
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
-    pub gamescope: GamescopeConfig,
+    pub gaming: GamingConfig,
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
@@ -536,7 +543,7 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
-  # Raise clicked windows independently from focus mode. Hover focus does not imply raise.
+  # Raise a focused window only after a deliberate double-click.
   raise-on-click true
   keyboard:
     layout "us"
@@ -670,6 +677,11 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+    # Sampling used when zoomed in past a window's own resolution. "bicubic"
+    # (Catmull-Rom) keeps magnified content crisp; "bilinear" is the cheap GPU
+    # default. `sharpen` (0..1) adds a light unsharp on top of bicubic.
+    filter "bicubic"
+    sharpen 0.2
   end
 
 end
@@ -970,6 +982,10 @@ keybinds:
   "$var.mod+f" "toggle-fullscreen"
   "$var.mod+p" "toggle-focused-pin"
   "$var.mod+q" "close-focused"
+  "$var.mod+o" "apogee"          # the Observatory overview
+
+  # Screenshot capture menu on the bare PrintScreen key.
+  "print" "screenshot"
 
   # Zoom controls for the field camera.
   "$var.mod+mousewheelup" "zoom-in"
@@ -984,8 +1000,14 @@ keybinds:
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
+  # Vim-style directional focus: walk focus to the nearest window in the field.
+  "$var.mod+h" "focus-left"
+  "$var.mod+j" "focus-down"
+  "$var.mod+k" "focus-up"
+  "$var.mod+l" "focus-right"
+
   # Pan the camera back to centre on the last focused node (quick "go back").
-  "$var.mod+h" "center-last-focused"
+  "$var.mod+space" "center-last-focused"
 
   # Switch active monitor focus.
   "$var.mod+shift+left" "monitor-focus left"
@@ -1044,9 +1066,6 @@ keybinds:
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
 
-  # Screenshot UI
-  "$var.mod+shift+s" "halleyctl capture menu"
-
   # Media keys.
   "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
   "XF86AudioLowerVolume" "wpctl set-volume @default_audio_sink@ 5%-"
@@ -1073,35 +1092,44 @@ rules:
   end
 end
 
-# Gamescope integration. When enabled, `halleyctl gamescope run -- %command%`
-# (used in a game's Steam launch options) wraps the game in a nested gamescope
-# session sized to the selected monitor. The `gamescope` binary is an optional
-# runtime dependency; if it is missing the game still launches unwrapped.
-gamescope:
-  enabled true
-  # Monitor to size the session to: "focused", "cursor", "primary", or a connector name.
-  monitor "focused"
-  # "auto" resolves from the selected monitor; or set explicit pixel values.
-  output-width "auto"
-  output-height "auto"
-  game-width "auto"
-  game-height "auto"
-  refresh "auto"
-  # Fullscreen wins if both fullscreen and borderless are true.
-  fullscreen true
-  borderless false
-  # While a gamescope game holds the pointer, keep Halley's UI out of its way.
-  suppress-overlays true
-  passthrough-pointer-lock true
-  bypass-spatial-camera true
+# Gaming. Everything Halley does specially for games lives under this block.
+gaming:
+  # What Halley treats as a game (app-id glob patterns; `*` is a wildcard).
+  # Drives game-aware window handling (fullscreen/overlay behaviour, etc.).
+  # Steam games are `steam_app_<id>`; raw XWayland titles use their WM_CLASS
+  # (e.g. `tf_linux64`), so add those yourself if a game isn't recognised.
+  games ["steam_app_*", "gamescope"]
 
-  # Per-game profiles match by `app-id` and inherit the globals above.
-  # Set `enabled false` to opt a game out of wrapping.
-  #game:
-  #  name "Deep Rock Galactic"
-  #  app-id "steam_app_548430"
-  #  enabled true
-  #end
+  # Gamescope integration. When enabled, `halleyctl gamescope run -- %command%`
+  # (used in a game's Steam launch options) wraps the game in a nested gamescope
+  # session sized to the selected monitor. The `gamescope` binary is an optional
+  # runtime dependency; if it is missing the game still launches unwrapped.
+  gamescope:
+    enabled true
+    # Monitor to size the session to: "focused", "cursor", "primary", or a connector name.
+    monitor "focused"
+    # "auto" resolves from the selected monitor; or set explicit pixel values.
+    output-width "auto"
+    output-height "auto"
+    game-width "auto"
+    game-height "auto"
+    refresh "auto"
+    # Fullscreen wins if both fullscreen and borderless are true.
+    fullscreen true
+    borderless false
+    # While a gamescope game holds the pointer, keep Halley's UI out of its way.
+    suppress-overlays true
+    passthrough-pointer-lock true
+    bypass-spatial-camera true
+
+    # Per-game profiles match by `app-id` and inherit the globals above.
+    # Set `enabled false` to opt a game out of wrapping.
+    #game:
+    #  name "Deep Rock Galactic"
+    #  app-id "steam_app_548430"
+    #  enabled true
+    #end
+  end
 end
 "##;
 

@@ -12,10 +12,11 @@ use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
     BANNER_EDGE_PAD, BANNER_GAP, ERROR_TOAST_BODY_MAX_H, ERROR_TOAST_BODY_PAD_X,
-    ERROR_TOAST_BODY_PAD_Y, ERROR_TOAST_LINE_GAP, ERROR_TOAST_SCROLLBAR_W, OverlayToastKind,
-    OverlayToastSnapshot, OverlayVisuals, TOAST_META_SCALE, TOAST_PAD_X, TOAST_PAD_Y, TOAST_SCALE,
+    ERROR_TOAST_BODY_PAD_Y, ERROR_TOAST_CARET_RESERVE, ERROR_TOAST_LINE_GAP,
+    ERROR_TOAST_SCROLLBAR_W, OverlayToastKind, OverlayToastSnapshot, OverlayVisuals,
+    TOAST_META_SCALE, TOAST_PAD_X, TOAST_PAD_Y, TOAST_SCALE,
     draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow, overlay_text_mix,
-    truncate_overlay_text_to_width, visible_overlay_text_window,
+    truncate_overlay_text_to_width, visible_overlay_text_window, wrap_overlay_text_to_width,
 };
 
 pub(super) fn draw_toast(
@@ -65,6 +66,23 @@ pub(super) fn draw_toast(
         title_color,
         damage,
     )?;
+
+    if is_error && !layout.body_lines.is_empty() {
+        // Expand/collapse affordance: ▾ when expanded, ▸ when collapsed.
+        let caret = if toast.expanded { "\u{25BE}" } else { "\u{25B8}" };
+        let (caret_w, _) = ui_text_size_in(render_state, font, caret, TOAST_SCALE);
+        draw_ui_text_in(
+            frame,
+            render_state,
+            font,
+            layout.rect.loc.x + layout.rect.size.w - TOAST_PAD_X - caret_w,
+            layout.rect.loc.y + TOAST_PAD_Y,
+            caret,
+            TOAST_SCALE,
+            title_color,
+            damage,
+        )?;
+    }
 
     if is_error {
         draw_error_toast_body(frame, render_state, visuals, font, damage, toast, &layout)?;
@@ -229,6 +247,7 @@ pub(crate) fn error_toast_hit_test(
         screen_w,
         screen_h,
         message,
+        toast.expanded,
     );
     sx >= rect.loc.x as f64
         && sx < (rect.loc.x + rect.size.w) as f64
@@ -253,6 +272,7 @@ pub(crate) fn scroll_error_toast(
     let snapshot = OverlayToastSnapshot {
         message: toast.message.clone().unwrap_or_default(),
         kind: toast.kind,
+        expanded: toast.expanded,
         scroll_x: toast.scroll_x,
         scroll_y: toast.scroll_y,
         mix: toast.mix,
@@ -280,10 +300,12 @@ fn error_toast_rect(
     screen_w: i32,
     screen_h: i32,
     message: &str,
+    expanded: bool,
 ) -> Rectangle<i32, Physical> {
     let snapshot = OverlayToastSnapshot {
         message: message.to_string(),
         kind: OverlayToastKind::Error,
+        expanded,
         scroll_x: 0,
         scroll_y: 0,
         mix: 1.0,
@@ -317,20 +339,41 @@ fn toast_layout(
 ) -> ToastLayout {
     let mut lines = toast.message.lines();
     let title_raw = lines.next().unwrap_or_default();
+    let expanded = is_error && toast.expanded;
     let max_content_width = if is_error {
-        (screen_w - BANNER_EDGE_PAD * 2 - TOAST_PAD_X * 2).clamp(180, 420)
+        // Expanded errors widen (up to 720px) so wrapped lines read comfortably and
+        // the box uses more of the screen; collapsed stays compact.
+        let cap = if expanded { 720 } else { 420 };
+        (screen_w - BANNER_EDGE_PAD * 2 - TOAST_PAD_X * 2).clamp(180, cap)
     } else {
         (screen_w - BANNER_EDGE_PAD * 2 - TOAST_PAD_X * 2).max(120)
+    };
+    // Error toasts draw an expand caret at the top-right, so keep the title clear of it.
+    let title_max_width = if is_error {
+        (max_content_width - ERROR_TOAST_CARET_RESERVE).max(1)
+    } else {
+        max_content_width
     };
     let title = truncate_overlay_text_to_width(
         render_state,
         font,
         title_raw,
         TOAST_SCALE,
-        max_content_width,
+        title_max_width,
     );
     let body_lines = if is_error {
-        lines.map(str::to_string).collect::<Vec<_>>()
+        if expanded {
+            // Grow-to-fit + wrap: break long lines to the content width so nothing
+            // runs off-edge and the horizontal scrollbar becomes unnecessary.
+            let wrap_w = (max_content_width - ERROR_TOAST_BODY_PAD_X * 2).max(1);
+            lines
+                .flat_map(|line| {
+                    wrap_overlay_text_to_width(render_state, font, line, TOAST_META_SCALE, wrap_w)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            lines.map(str::to_string).collect::<Vec<_>>()
+        }
     } else {
         let body = lines.collect::<Vec<_>>().join(" ");
         if body.is_empty() {
@@ -356,8 +399,17 @@ fn toast_layout(
     } else {
         0
     };
+    // Expanded errors grow to fit all wrapped lines, bounded only by the screen
+    // (title + paddings + top/bottom edge gaps reserved). Vertical scroll only kicks
+    // in if the wrapped content still exceeds this screen-bounded cap.
+    let body_max_h = if expanded {
+        (screen_h - BANNER_EDGE_PAD * 2 - TOAST_PAD_Y * 2 - title_h - BANNER_GAP)
+            .max(ERROR_TOAST_BODY_MAX_H)
+    } else {
+        ERROR_TOAST_BODY_MAX_H
+    };
     let mut body_rect_h = if has_body {
-        (body_content_h + ERROR_TOAST_BODY_PAD_Y * 2).clamp(44, ERROR_TOAST_BODY_MAX_H)
+        (body_content_h + ERROR_TOAST_BODY_PAD_Y * 2).clamp(44, body_max_h)
     } else {
         0
     };

@@ -166,6 +166,8 @@ pub(crate) fn begin_drag(
     st.input.interaction_state.pending_core_click = None;
     st.input.interaction_state.pending_collapsed_node_press = None;
     st.input.interaction_state.pending_collapsed_node_click = None;
+    st.input.interaction_state.pending_active_surface_press = None;
+    st.input.interaction_state.pending_active_surface_click = None;
     // Grabbing a core whose bloom is open (from hover) collapses the bloom first so
     // the drag moves the core itself rather than leaving the fan-out behind. Single
     // choke point for every core-drag entry (plain press, drag/move bindings).

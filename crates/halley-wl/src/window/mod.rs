@@ -258,7 +258,7 @@ pub(crate) fn node_is_game_like(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .node_app_ids
         .get(&node_id)
-        .is_some_and(|app_id| app_id.starts_with("steam_app_"))
+        .is_some_and(|app_id| st.runtime.tuning.gaming.matches_game(app_id))
         || node_is_gamescope(st, node_id)
 }
 
@@ -778,16 +778,24 @@ pub(crate) fn collect_active_surfaces(
                 (base_geometry_rect.0, base_geometry_rect.1).into(),
                 (base_geometry_rect.2.max(1), base_geometry_rect.3.max(1)).into(),
             );
+            // When zoomed in past 1:1, route content through the clip shader even if
+            // it needs no geometric clip, so its bicubic + sharpen resample runs on
+            // the magnified live buffer (the shader no-ops the clip at corner_radius 0).
+            let zoom_bicubic =
+                matches!(st.runtime.tuning.zoom_filter, halley_config::ZoomFilter::Bicubic);
+            let zoom_sharpen = st.runtime.tuning.zoom_sharpen;
+            let magnifying = zoom_bicubic && render_scale > 1.0;
             let clip_program = st.ui.render_state.gpu.surface_clip_program.as_ref();
             let cropped: Vec<CroppedClippedSurfaceElement> = elems
                 .into_iter()
                 .filter_map(|elem| {
-                    let program = if RescaledSurfaceElement::needs_clip(
-                        &elem,
-                        base_geo,
-                        post_zoom_geo,
-                        corner_radius,
-                    ) {
+                    let program = if magnifying
+                        || RescaledSurfaceElement::needs_clip(
+                            &elem,
+                            base_geo,
+                            post_zoom_geo,
+                            corner_radius,
+                        ) {
                         clip_program.cloned()
                     } else {
                         None
@@ -799,6 +807,7 @@ pub(crate) fn collect_active_surfaces(
                         program,
                         corner_radius,
                         render_scale,
+                        zoom_sharpen,
                     );
                     let direct: DirectSurfaceElement = rescaled.into();
                     CropRenderElement::from_element(direct, 1.0, display_clip)
@@ -1345,8 +1354,13 @@ pub(crate) fn collect_active_surfaces(
         ));
         let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
         let mut popup_cropped = Vec::new();
-        let mut popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
-        popups.reverse();
+        // Smithay yields popups top-first (child/nested before parent). The
+        // element path (draw_render_elements, index 0 = topmost) wants exactly
+        // this order, so we iterate as-is. The offscreen path (forward draw,
+        // index 0 = bottom) wants the opposite, so its textures are collected
+        // into a local group and reversed after the loop.
+        let mut popup_offscreen_local: Vec<OffscreenNodeTexture> = Vec::new();
+        let popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
             // Pinning anchors a popup to the monitor for the non-fullscreen panned
@@ -1426,11 +1440,7 @@ pub(crate) fn collect_active_surfaces(
                             geo_w: 0.0,
                             geo_h: 0.0,
                         };
-                        if render_route.popups_above_fullscreen() {
-                            above_fullscreen_popup_offscreen_textures.push(offscreen_texture);
-                        } else {
-                            popup_offscreen_textures.push(offscreen_texture);
-                        }
+                        popup_offscreen_local.push(offscreen_texture);
                     }
                     Err(_) => {
                         let popup_elems: Vec<SurfaceElement> = render_elements_from_surface_tree(
@@ -1488,10 +1498,17 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
+        // Offscreen textures were collected top-first; the forward draw loop
+        // (index 0 = bottom) needs bottom-first, so reverse this window's group
+        // before appending. Per-window grouping preserves cross-window order.
+        popup_offscreen_local.reverse();
+
         if render_route.popups_above_fullscreen() {
             above_fullscreen_popup_elements.extend(popup_cropped);
+            above_fullscreen_popup_offscreen_textures.extend(popup_offscreen_local);
         } else {
             popup_elements.extend(popup_cropped);
+            popup_offscreen_textures.extend(popup_offscreen_local);
         }
     }
 

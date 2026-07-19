@@ -112,13 +112,10 @@ pub(super) fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<()
         FieldNodeState::Active | FieldNodeState::Drifting => {
             st.set_interaction_focus(Some(id), 30_000, now);
             let _ = st.animate_viewport_center_to(node.pos, now);
-            let _ = crate::compositor::interaction::pointer::center_pointer_on_node(st, id, now);
             Ok(())
         }
         FieldNodeState::Node => {
             if promote_node_level(st, id, now) {
-                let _ =
-                    crate::compositor::interaction::pointer::center_pointer_on_node(st, id, now);
                 Ok(())
             } else {
                 Err(ApiError::Internal(format!(

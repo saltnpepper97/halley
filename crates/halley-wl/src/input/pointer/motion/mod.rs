@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Point, SERIAL_COUNTER};
 
 use crate::backend::interface::BackendView;
 use crate::compositor::exit_confirm;
@@ -19,10 +19,21 @@ pub(crate) mod routing;
 #[cfg(test)]
 pub(crate) mod tests;
 
+/// Logical-pixel distance the pointer must travel out of a rest before
+/// hover-focus is allowed to move keyboard focus again. Large enough to swallow
+/// a desk bump or trackpad jitter, small enough that a genuine reach for the
+/// mouse crosses it almost immediately.
+const HOVER_FOCUS_REVEAL_GATE_PX: f64 = 64.0;
+
+/// Idle gap after which the hover-focus gate re-arms. A pointer silent for
+/// longer than this is treated as "at rest", so its next motion must prove it is
+/// deliberate. Short enough to be invisible during continuous use.
+const HOVER_FOCUS_IDLE_REARM_MS: u64 = 400;
+
 pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 
 use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
-use super::focus::pointer_focus_for_screen;
+use super::focus::{pointer_focus_for_screen, seat_focus_from_local};
 use super::portal_chooser::handle_portal_chooser_pointer_motion;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
@@ -75,7 +86,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let previous_monitor = st
             .input
             .interaction_state
-            .last_pointer_screen_global
+            .cursor
+            .last_screen_global
             .map(|(last_sx, last_sy)| st.monitor_for_screen_or_interaction(last_sx, last_sy));
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
         let now = Instant::now();
@@ -88,7 +100,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.hover_node = None;
             ps.hover_started_at = None;
         }
-        st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+        crate::compositor::interaction::cursor::record_pointer_position(st, (sx, sy));
         st.input.interaction_state.overlay_hover_target = None;
         st.input.interaction_state.pending_core_hover = None;
         let hit = crate::compositor::overview::apogee_tile_at(
@@ -122,7 +134,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         } else {
             Some(smithay::input::pointer::CursorIcon::Default)
         };
-        if st.input.interaction_state.cursor_override_icon != icon {
+        if crate::compositor::interaction::cursor::effective_override(st) != icon {
             crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
         }
         request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
@@ -132,20 +144,17 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         return;
     }
 
-    if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
-        ctx.backend.request_redraw();
-    }
-
-    let allow_unbounded_screen = {
-        let ps = ctx.pointer_state.borrow();
-        ps.drag.is_some() || ps.resize.is_some() || ps.panning
-    };
-
-    let raw_sx = sx;
-    let raw_sy = sy;
-    let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        if crate::compositor::interaction::state::note_cursor_activity(
+            st,
+            st.now_ms(Instant::now()),
+        ) {
+            ctx.backend.request_redraw();
+        }
+        let raw_sx = sx;
+        let raw_sy = sy;
+        let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
         st.activate_monitor(target_monitor.as_str());
         let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
@@ -155,8 +164,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.workspace_size = (context.ws_w, context.ws_h);
             ps.world = context.world;
         }
-        st.input.interaction_state.last_pointer_screen_global =
-            Some((context.global_sx, context.global_sy));
+        crate::compositor::interaction::cursor::record_pointer_position(
+            st,
+            (context.global_sx, context.global_sy),
+        );
         crate::compositor::platform::refresh_cursor_surface_outputs(st);
         if let Some(pointer) = st.platform.seat.get_pointer() {
             let focus = pointer_focus_for_screen(
@@ -168,6 +179,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 now,
                 None,
             );
+            let local_location = Point::<f64, smithay::utils::Logical>::from((
+                context.local_sx as f64,
+                context.local_sy as f64,
+            ));
+            let seat_location = Point::<f64, smithay::utils::Logical>::from((
+                context.global_sx as f64,
+                context.global_sy as f64,
+            ));
+            let focus = seat_focus_from_local(focus, local_location, seat_location);
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,
@@ -183,7 +203,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 st,
                 focus,
                 &MotionEvent {
-                    location: (context.local_sx as f64, context.local_sy as f64).into(),
+                    location: seat_location,
                     serial: SERIAL_COUNTER.next_serial(),
                     time: event_time_msec(time_usec),
                 },
@@ -191,6 +211,54 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         }
         return;
     }
+
+    // Locked pointer motion belongs to the constrained surface only. Do this
+    // before Halley's monitor routing so a fullscreen Xwayland game cannot have
+    // its active monitor/RandR primary churned while it is consuming relative
+    // deltas.
+    if routing::dispatch_locked_pointer_motion(st, delta, delta_unaccel, time_usec) {
+        return;
+    }
+
+    let now_ms = st.now_ms(now);
+    if crate::compositor::interaction::state::note_cursor_activity(st, now_ms) {
+        ctx.backend.request_redraw();
+    }
+
+    // Arm the hover-focus gate after any lull in pointer movement. A pointer at
+    // rest that suddenly reports motion is most likely a desk bump or trackpad
+    // jitter, not a deliberate reach — so require real travel before it may move
+    // keyboard focus off whatever you're typing into (e.g. the Lift launcher).
+    // Continuous movement keeps the gate open, so ordinary mousing is untouched.
+    {
+        let idle = st.input.interaction_state.last_pointer_motion_at_ms;
+        if idle == 0 || now_ms.saturating_sub(idle) >= HOVER_FOCUS_IDLE_REARM_MS {
+            st.input.interaction_state.hover_focus_reveal_gate_px = HOVER_FOCUS_REVEAL_GATE_PX;
+        }
+        st.input.interaction_state.last_pointer_motion_at_ms = now_ms;
+    }
+
+    // Consume the gate as the pointer actually moves. Deliberate motion burns
+    // through it within a frame or two; jitter from a tap never does.
+    let deliberate_pointer_motion = {
+        let remaining = &mut st.input.interaction_state.hover_focus_reveal_gate_px;
+        if *remaining > 0.0 {
+            let traveled = (delta.0 * delta.0 + delta.1 * delta.1).sqrt();
+            *remaining = (*remaining - traveled).max(0.0);
+            *remaining <= 0.0
+        } else {
+            true
+        }
+    };
+
+    let allow_unbounded_screen = {
+        let ps = ctx.pointer_state.borrow();
+        ps.drag.is_some() || ps.resize.is_some() || ps.panning
+    };
+
+    let raw_sx = sx;
+    let raw_sy = sy;
+    let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
 
     let mods = ctx.mod_state.borrow().clone();
     let routing = {
@@ -234,8 +302,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     };
 
     // While a game holds the pointer (lock/confine), never reveal Halley's own
-    // overlays over it (config-gated via `gamescope.suppress-overlays`).
-    let suppress_game_overlays = st.runtime.tuning.gamescope.suppress_overlays
+    // overlays over it (config-gated via `gaming.gamescope.suppress-overlays`).
+    let suppress_game_overlays = st.runtime.tuning.gaming.gamescope.suppress_overlays
         && crate::compositor::interaction::pointer::pointer_holds_game_constraint(&*st);
 
     let p = routing.world;
@@ -266,8 +334,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);
     ps.workspace_size = (routing.ws_w, routing.ws_h);
-    st.input.interaction_state.last_pointer_screen_global =
-        Some((routing.global_sx, routing.global_sy));
+    crate::compositor::interaction::cursor::record_pointer_position(
+        st,
+        (routing.global_sx, routing.global_sy),
+    );
     // Real desktop pointer movement releases an explicit monitor-focus pin so
     // hover focus-mode resumes driving the spawn target.
     st.input.interaction_state.monitor_focus_pinned = false;
@@ -582,7 +652,12 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         })
     };
 
-    focus::apply_hover_focus_mode(st, hover_hit, hover_focus_blocked, now);
+    // Only a deliberate move retargets keyboard focus. A cursor-reveal bump or
+    // sub-threshold jitter reveals the pointer but leaves focus where it is
+    // (e.g. on the Lift launcher you're typing into).
+    if deliberate_pointer_motion {
+        focus::apply_hover_focus_mode(st, hover_hit, hover_focus_blocked, now);
+    }
 
     let hover_changed = next_hover != ps.hover_node;
     if hover_changed {

@@ -10,6 +10,8 @@ use std::process::Command;
 use eventline::{debug, warn};
 use halley_config::CursorConfig;
 
+use crate::app_env::explicit_sdl_video_driver;
+
 const WAYLAND_TERMINAL_CANDIDATES: &[&str] = &[
     "ghostty",
     "kitty",
@@ -30,15 +32,12 @@ fn apply_spawn_environment(
     let path = augmented_spawn_path();
     cmd.env("WAYLAND_DISPLAY", wayland_display)
         .env_remove("HALLEY_WL_BACKEND")
-        .env("XDG_SESSION_TYPE", "wayland")
-        .env("GDK_BACKEND", "wayland,x11")
-        .env("QT_QPA_PLATFORM", "wayland;xcb")
-        .env("CLUTTER_BACKEND", "wayland")
-        .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
         .env("PATH", path)
         .env("XCURSOR_THEME", cursor.theme.trim())
         .env("XCURSOR_SIZE", cursor.size.to_string());
+    if let Some(driver) = explicit_sdl_video_driver() {
+        cmd.env("SDL_VIDEODRIVER", driver);
+    }
     if let Some(token) = activation_token {
         cmd.env("XDG_ACTIVATION_TOKEN", token);
     }
@@ -210,6 +209,29 @@ mod tests {
             Some(&Some("wayland-7".to_string()))
         );
         assert_eq!(envs.get("HALLEY_WL_BACKEND"), Some(&None));
+        assert!(
+            !envs.contains_key("XDG_SESSION_TYPE"),
+            "Halley must preserve the session type inherited by applications"
+        );
+        let expected_sdl_video_driver = std::env::var("SDL_VIDEODRIVER")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        assert_eq!(
+            envs.get("SDL_VIDEODRIVER").cloned().flatten(),
+            expected_sdl_video_driver
+        );
+        for name in [
+            "GDK_BACKEND",
+            "QT_QPA_PLATFORM",
+            "CLUTTER_BACKEND",
+            "MOZ_ENABLE_WAYLAND",
+            "ELECTRON_OZONE_PLATFORM_HINT",
+        ] {
+            assert!(
+                !envs.contains_key(name),
+                "Halley must not force {name} for spawned applications"
+            );
+        }
         assert_eq!(envs.get("XCURSOR_THEME"), Some(&Some("Bibata".to_string())));
         assert_eq!(envs.get("XCURSOR_SIZE"), Some(&Some("32".to_string())));
         assert_eq!(

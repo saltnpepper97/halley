@@ -16,6 +16,21 @@ use crate::window::{pinned_popup_origin_for_camera, popup_origin_from_parent_vis
 
 use super::super::resize::active_node_surface_transform_screen_details;
 
+/// Adapt Halley's monitor-local/spatial hit-test result to Smithay's seat
+/// contract. Both the seat pointer and the surface origin must be expressed in
+/// one global compositor coordinate space; the translated origin still yields
+/// the exact local point selected by Halley's spatial hit-test.
+pub(crate) fn seat_focus_from_local(
+    focus: Option<(WlSurface, Point<f64, Logical>)>,
+    local_location: Point<f64, Logical>,
+    seat_location: Point<f64, Logical>,
+) -> Option<(WlSurface, Point<f64, Logical>)> {
+    focus.map(|(surface, local_origin)| {
+        let surface_local = local_location - local_origin;
+        (surface, seat_location - surface_local)
+    })
+}
+
 fn clamp_layer_popup_origin(
     popup: &smithay::desktop::PopupKind,
     popup_origin: (i32, i32),

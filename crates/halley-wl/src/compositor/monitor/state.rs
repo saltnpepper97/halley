@@ -12,7 +12,10 @@ use smithay::{
     reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
     utils::{Logical, Physical, Raw, Size, Transform},
     wayland::{
-        compositor::{get_parent, send_surface_state, with_states},
+        compositor::{
+            TraversalAction, get_parent, send_surface_state, with_states,
+            with_surface_tree_downward,
+        },
         fractional_scale::with_fractional_scale,
     },
 };
@@ -152,49 +155,14 @@ pub(crate) fn activate_monitor(st: &mut Halley, name: &str) -> bool {
     load_monitor_state(st, name)
 }
 
-thread_local! {
-    static LAST_XWAYLAND_PRIMARY: std::cell::RefCell<Option<String>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Point the Xwayland (xwayland-satellite) RandR primary output at `monitor`.
+/// Keep this as a semantic hook for places that choose a Wayland output for a
+/// surface, but do not force xwayland-satellite's RandR primary from Halley.
 ///
-/// XWayland clients such as SDL/Unity games read the X RandR *primary* at startup to
-/// pick their resolution and "current" monitor. xwayland-satellite only updates the
-/// primary on X-window focus and never resets a stale value, so a game launched on one
-/// monitor can read the leftover primary of another (renders at the wrong monitor's
-/// resolution and thinks it is on that monitor). The compositor therefore drives the
-/// primary to follow the active monitor (the one the cursor — and hence a freshly
-/// spawned window — is on), so it is already correct when the game reads it.
-///
-/// Runs `xrandr` against the satellite `DISPLAY` (X output names equal connector names).
-/// Debounced (called on every pointer motion), and a no-op when Xwayland is disabled
-/// (`DISPLAY` unset) or `monitor` is not a real output.
-pub(crate) fn sync_xwayland_primary(st: &mut Halley, monitor: &str) {
-    // Cheapest check first: this runs on every pointer-motion event.
-    let already = LAST_XWAYLAND_PRIMARY.with(|last| last.borrow().as_deref() == Some(monitor));
-    if already {
-        return;
-    }
-    let Ok(display) = std::env::var("DISPLAY") else {
-        return;
-    };
-    if display.trim().is_empty() || !st.model.monitor_state.outputs.contains_key(monitor) {
-        return;
-    }
-    LAST_XWAYLAND_PRIMARY.with(|last| *last.borrow_mut() = Some(monitor.to_string()));
-
-    let mut command = std::process::Command::new("xrandr");
-    command
-        .args(["--output", monitor, "--primary"])
-        .env("DISPLAY", display)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    match command.spawn() {
-        Ok(child) => st.runtime.spawned_children.push(child),
-        Err(err) => eventline::warn!("failed to set Xwayland primary to {}: {}", monitor, err),
-    }
+/// For gaming, spawning `xrandr --primary` from pointer and map paths created a
+/// second, compositor-local source of truth that could disagree with the locked
+/// surface/output relationship.
+pub(crate) fn sync_xwayland_primary(_st: &mut Halley, _monitor: &str) {
+    // Intentionally no-op.
 }
 
 pub(crate) fn begin_temporary_render_monitor(st: &mut Halley, name: &str) -> Option<String> {
@@ -508,11 +476,20 @@ pub(crate) fn assign_node_to_monitor(st: &mut Halley, id: NodeId, monitor: &str)
 
 pub(crate) fn assign_surface_to_monitor(st: &Halley, surface: &WlSurface, monitor: &str) {
     for (name, output) in &st.model.monitor_state.outputs {
-        if name == monitor {
-            output.enter(surface);
-        } else {
-            output.leave(surface);
-        }
+        let enters_monitor = name == monitor;
+        with_surface_tree_downward(
+            surface,
+            (),
+            |_, _, &()| TraversalAction::DoChildren(()),
+            |wl_surface, _, &()| {
+                if enters_monitor {
+                    output.enter(wl_surface);
+                } else {
+                    output.leave(wl_surface);
+                }
+            },
+            |_, _, _| true,
+        );
     }
     set_surface_preferred_scale_for_monitor(st, surface, monitor);
 }

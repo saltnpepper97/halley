@@ -149,6 +149,7 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
     matches!(
         action,
         CompositorBindingAction::Node(NodeBindingAction::Move(_))
+            | CompositorBindingAction::Focus(_)
             | CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Forward)
             | CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Backward)
             | CompositorBindingAction::Stack(StackBindingAction::Cycle(_))
@@ -249,6 +250,17 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
         CompositorBindingAction::Apogee => st.toggle_apogee(Instant::now()),
+        CompositorBindingAction::Screenshot => {
+            crate::compositor::screenshot::start_screenshot_session(
+                st,
+                halley_api::CaptureMode::Menu,
+                None,
+                Instant::now(),
+            )
+        }
+        CompositorBindingAction::Focus(direction) => {
+            crate::compositor::focus::directional::focus_directional(st, direction, Instant::now())
+        }
         CompositorBindingAction::FocusCycle(direction) => {
             st.start_or_step_focus_cycle(direction, Instant::now())
         }
@@ -420,7 +432,9 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::Apogee
+            | CompositorBindingAction::Screenshot
             | CompositorBindingAction::CenterLastFocused
+            | CompositorBindingAction::Focus(_)
             | CompositorBindingAction::FocusCycle(_)
             | CompositorBindingAction::Stack(_)
             | CompositorBindingAction::Tile(_)
@@ -616,7 +630,7 @@ mod tests {
         );
         assert!(!state.input.interaction_state.cursor_hidden_by_keyboard_nav);
         assert_eq!(
-            state.input.interaction_state.cursor_override_icon,
+            crate::compositor::interaction::cursor::effective_override(&state),
             Some(smithay::input::pointer::CursorIcon::ZoomOut)
         );
     }

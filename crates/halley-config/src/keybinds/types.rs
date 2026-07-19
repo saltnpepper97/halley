@@ -114,9 +114,13 @@ pub enum CompositorBindingAction {
     CloseFocusedWindow,
     ClusterMode,
     Apogee,
+    /// Open the interactive screenshot capture menu (region/screen/window chooser).
+    Screenshot,
     /// Pan the camera back to centre on the last focused node — a quick "go back"
     /// after wandering the field.
     CenterLastFocused,
+    /// Move keyboard focus to the nearest window in a direction on the free field.
+    Focus(DirectionalAction),
     FocusCycle(FocusCycleBindingAction),
     Quit {
         requires_shift: bool,

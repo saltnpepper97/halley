@@ -1,0 +1,15 @@
+# Halley Wayland compositor — dinit *user* service.
+#
+# Install as a dinit user service, e.g.:
+#   install -Dm644 packaging/dinit/halley ~/.config/dinit.d/halley
+# then let `halley-session` start it (it autodetects `dinitctl --user`), or:
+#   dinitctl --user start halley
+#
+# This runs the compositor directly on the tty backend; the session-critical
+# environment is set inline so the service is self-contained regardless of how
+# the dinit user instance was launched.
+
+type = process
+command = /bin/sh -c 'HALLEY_WL_BACKEND=tty XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=Halley XDG_SESSION_DESKTOP=Halley DESKTOP_SESSION=Halley exec /usr/bin/halley --session'
+restart = false
+smooth-recovery = false

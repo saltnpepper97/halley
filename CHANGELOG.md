@@ -2,6 +2,132 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0] - TBD
+
+### Added
+- Add tty-backend VT switching for `Ctrl+Alt+F1` through `Ctrl+Alt+F12`, using the
+  active libseat session, and recover redraw/output state immediately when returning to Halley.
+- Stop forcing toolkit/backend environment variables in Halley's activation
+  environment and spawned apps. SDL, GTK, Qt, Clutter, Firefox, and Electron
+  now select their native session behavior themselves; an explicit user
+  `SDL_VIDEODRIVER` remains forwarded unchanged.
+- Add a hover-focus reveal gate: after the pointer has been idle, ~64px of
+  deliberate travel is required before motion can retarget keyboard focus, so a
+  desk bump or trackpad jitter reveals the cursor without stealing focus from
+  what you're typing into (e.g. the Lift launcher). Continuous mousing is unaffected.
+- Add first-class compositor keybind actions for the native screenshot capture
+  menu (`screenshot`, default bare `PrintScreen`) and free-field directional
+  focus (`focus-left`, `focus-right`, `focus-up`, `focus-down`, and
+  `focus <direction>`, default `mod+h/j/k/l`), so keyboard focus can move to the
+  nearest visible field window without shelling out or using cluster-only focus
+  paths.
+- Add systemd-free session support docs and packaging snippets for dinit, runit,
+  s6, and OpenRC. `halley-session` now detects a dinit user service, falls back
+  cleanly to `halley --session`, and `HALLEY_NO_INIT_INTEGRATION=1` forces the
+  fully init-agnostic path.
+- Detect keybind conflicts while parsing config and surface them through the
+  error overlay. Same-scope chord overwrites (last-wins) and launch bindings
+  shadowed by a global compositor action are reported as a non-fatal warning
+  titled "N keybind conflict(s) (last wins)", shown for ~9s on startup and after
+  each config reload; cross-scope chord sharing is intentionally not flagged.
+- Make error toasts expandable: click a toast to toggle a grow-to-fit layout
+  that word-wraps long lines (paths, commands) up to a screen-bounded height,
+  replacing horizontal scrolling for wrapped content. A ▾/▸ caret marks the
+  toggle.
+- Add a top-level `gaming:` config section grouping the `gamescope:` integration
+  (now nested under it) with a new `games` classifier list — glob patterns
+  (default `["steam_app_*", "gamescope"]`) for what Halley treats as a game.
+  The classifier replaces the hardcoded `steam_app_*` prefix check, so games
+  whose app-id isn't a Steam pattern (e.g. raw XWayland titles like `tf_linux64`
+  whose app-id is the WM_CLASS) can be recognised by adding them to the list.
+- Resample magnified windows with a Catmull-Rom bicubic kernel plus an
+  optional unsharp pass instead of the plain bilinear tap, so content
+  stays crisp when the camera zooms past 1:1. New `field.zoom.filter`
+  (`"bicubic"` default, or `"bilinear"`) and `field.zoom.sharpen`
+  (0..1, default 0.2) tune it; the bicubic path only runs on actual
+  upscale, so unzoomed frames are pixel-identical to before, and
+  existing user configs are auto-migrated with the new keys.
+
+### Changed
+- Change overlapping active-window selection so a normal single click focuses
+  without raising the window. A deliberate same-window double-click within
+  350ms focuses and brings it forward; intervening drag, resize, workspace,
+  core, or collapsed-node interactions cancel the pending double-click.
+- The compositor no longer drives xwayland-satellite's RandR primary output from
+  pointer-motion and surface-map paths (`sync_xwayland_primary` is now a no-op).
+  The locked surface/output relationship is the single source of truth; forcing
+  `xrandr --primary` had created a competing source that could disagree with it
+  during fullscreen gaming.
+- The `gamescope:` config block has moved under a new `gaming:` parent. Existing
+  user configs are auto-migrated on update: the legacy top-level `gamescope:`
+  block is wrapped under `gaming:`, re-indented one level deeper, and the default
+  `games` classifier list is inserted alongside it; user values and per-game
+  profiles are preserved. A bare top-level `gamescope:` still parses for
+  hand-edited configs.
+
+### Fixed
+- Make XWayland pointer locks seat-owned across the full protocol lifecycle:
+  use global seat coordinates for every pointer path; require a fresh cursor
+  hit-test and matching seat focus before activation; retain the exact surface
+  origin through relative-only motion; and prevent maintenance from replacing
+  the lock focus. Active XWayland cursor-position hints now update the seat
+  cursor live through that origin, constrained to the owning output and without
+  emitting absolute client motion. The backend accumulator follows the same
+  target, and the old timed "recent lock" fallback is removed. This fixes the
+  per-compositor-session failure where every fresh TF2 game had broken mouselook
+  despite lock acquisition itself succeeding.
+- Fix Apogee keyboard navigation so arrow keys move from the currently highlighted
+  tile instead of stale pointer coordinates, seed the first keyboard selection from
+  the main monitor's top-left tile, and keep keyboard cursor warps using the
+  backend window size.
+- Fix Halley Lift app-icon rendering while the icon index is pending or being
+  refreshed: app rows now leave the icon slot empty until lookup completes
+  instead of flashing fallback glyphs for icons that may still resolve.
+- Skip systemd-only activation-environment imports and portal restarts when
+  systemd is not the booted init, preventing systemctl failures on dinit, runit,
+  s6, OpenRC, and other systemd-free setups.
+- Recover cleanly from tty VT switches by dropping DRM master while the session
+  is paused (so the incoming VT can take the GPU) and re-acquiring it — plus
+  resetting each DRM surface's compositor state — on activation, fixing the
+  frozen display / failing atomic commits when switching back to Halley.
+- Assign the entire surface tree (subsurfaces and popups, not just the top-level)
+  to a monitor on enter/leave, so subsurfaces receive correct output enter/leave
+  and scale.
+- In hover focus-mode, scope keybind-driven window verbs (fullscreen, maximize,
+  pin, toggle-active, close) to the monitor under the pointer via a shared
+  `resolve_action_target_monitor`, and strictly scope the node selectors to that
+  monitor. Firing a verb while the cursor is on an empty monitor is now a no-op
+  instead of reaching across to a window on another monitor. Click focus-mode
+  keeps the sticky `focused_monitor` behavior.
+- Fix popup stacking order in the window render path. Smithay yields popups
+  top-first (child before parent); the live element path draws with index 0 =
+  topmost and needs that order, while the offscreen-texture path draws forward
+  (index 0 = bottom) and needs the reverse. The old global `popups.reverse()`
+  suited one path but inverted the other, so nested popups could stack under
+  their parent; popups are now iterated as-is for the element path and a
+  per-window offscreen group is reversed locally before appending, giving both
+  paths the order they expect.
+- Preserve the windowed restore size on rapid fullscreen re-entry. A fast
+  re-toggle before the client commits the windowed configure could capture the
+  still-fullscreen live geometry as the restore snapshot. `enter_fullscreen`
+  now falls back to `node.resize_footprint` (pinned by
+  `restore_fullscreen_snapshot`) for the saved size and intrinsic size, so the
+  restore entry keeps the original windowed dimensions.
+- Recapture the close-animation offscreen snapshot for live-rendered
+  (direct-field) windows when a client commit marked it dirty. These
+  windows never wrote the cache through the normal path, so the close
+  ghost previously popped from live content to a stale frame at the
+  start of the animation; the dirty recapture is throttled to a 100ms
+  minimum so a continuously updating window can't drive a recapture
+  every frame.
+- Clamp locked-pointer cursor position hints to the locked surface's own
+  bounds. A game that warps-to-recenter could hint a position outside its
+  window (or, cross-monitor, one that resolves onto another output),
+  flinging the cursor off the game's monitor; the hint is now constrained
+  in surface-local space, independent of camera/monitor coords. No-op for
+  well-behaved in-bounds hints.
+
+
 ## [v0.5.0] - 2026-07-01
 
 ### Added
@@ -112,10 +238,11 @@ All notable changes to this project will be documented in this file.
   space (jump to the next monitor's tiles, no wrap).
 - Show a frosted name label below a hovered or keyboard-selected cluster **core** tile in Apogee
   (cores previously showed only their icon); the label stays up for the whole hover.
-- Add a `center-last-focused` keybind action (default `mod+h`) that pans the camera back to centre
-  on the last focused node — a quick "go back" after wandering the field. Wired into the internal
-  template, bootstrap backfill, and example configs. The bare-defaults field node-move bindings
-  also move from vim `hjkl` to the arrow keys, matching the generated config and freeing `mod+h`.
+- Add a `center-last-focused` keybind action (default `mod+space`) that pans the
+  camera back to centre on the last focused node — a quick "go back" after
+  wandering the field. Wired into the internal template, bootstrap backfill, and
+  example configs. The default `mod+h/j/k/l` bindings now perform free-field
+  directional focus, and Apogee moves to `mod+o`.
 - Add `cursor.hide-on-keyboard-nav` (default `true`): any compositor keybind and keyboard-driven
   window navigation (focus cycle, tile/stack/trail/monitor steps, and Apogee arrow keys) now hides
   the cursor image — the pointer position is preserved so focus-tracking warps keep working — and

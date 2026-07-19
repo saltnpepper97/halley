@@ -67,7 +67,10 @@ use exit_confirm::draw_exit_confirmation;
 use focus_cycle::draw_focus_cycle_switcher;
 use fps::draw_debug_fps_overlay;
 pub(crate) use observatory::draw_observatory;
-use text::{truncate_overlay_text, truncate_overlay_text_to_width, visible_overlay_text_window};
+use text::{
+    truncate_overlay_text, truncate_overlay_text_to_width, visible_overlay_text_window,
+    wrap_overlay_text_to_width,
+};
 use toast::draw_toast;
 
 const BANNER_PAD_X: i32 = 14;
@@ -94,6 +97,8 @@ const ERROR_TOAST_BODY_PAD_Y: i32 = 6;
 const ERROR_TOAST_BODY_MAX_H: i32 = 120;
 const ERROR_TOAST_LINE_GAP: i32 = 5;
 const ERROR_TOAST_SCROLLBAR_W: i32 = 4;
+/// Horizontal space reserved at the title's right edge for the expand caret glyph.
+const ERROR_TOAST_CARET_RESERVE: i32 = 24;
 const FOCUS_CYCLE_BACKDROP_ALPHA: f32 = 0.55;
 const FOCUS_CYCLE_GAP: i32 = 18;
 const FOCUS_CYCLE_LABEL_SCALE: i32 = 2;

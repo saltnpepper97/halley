@@ -142,6 +142,7 @@ impl ConfigSchema {
             "field",
             "focus-ring",
             "font",
+            "gaming",
             "gamescope",
             "input",
             "keybinds",
@@ -157,7 +158,7 @@ impl ConfigSchema {
             "viewport",
         ]);
         let ignored_sections =
-            HashSet::from(["autostart", "env", "gamescope", "keybinds", "rules"]);
+            HashSet::from(["autostart", "env", "gaming", "gamescope", "keybinds", "rules"]);
         let sections = HashSet::from([
             "animations",
             "animations.smooth-resize",
@@ -361,6 +362,8 @@ impl ConfigSchema {
             "field.zoom.smooth",
             "field.zoom.smooth-rate",
             "field.zoom-smooth-rate",
+            "field.zoom.filter",
+            "field.zoom.sharpen",
             "focus-ring.rx",
             "focus-ring.ry",
             "focus-ring.radius-x",
@@ -634,6 +637,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "field.zoom.max"
             | "field.zoom.smooth-rate"
             | "field.zoom-smooth-rate"
+            | "field.zoom.sharpen"
             | "focus-ring.rx"
             | "focus-ring.ry"
             | "focus-ring.radius-x"
@@ -804,6 +808,7 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
         "clusters.default-layout" => Some(&["tiling", "tile", "stacking", "stack"]),
         "field.close-restore-pan" => Some(&["never", "if-offscreen", "if_offscreen", "always"]),
         "field.pan-to-new" => Some(&["never", "if-needed", "if_needed", "always", "true", "false"]),
+        "field.zoom.filter" => Some(&["bilinear", "linear", "bicubic", "cubic"]),
         "field.pins.corner" | "field.pins.badge-corner" => Some(&[
             "top-left",
             "top_left",

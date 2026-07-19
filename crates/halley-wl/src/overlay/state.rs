@@ -29,6 +29,7 @@ pub(crate) struct OverlayToastState {
     pub(crate) visible_until_ms: u64,
     pub(crate) duration_ms: u64,
     pub(crate) hovered: bool,
+    pub(crate) expanded: bool,
     pub(crate) scroll_x: i32,
     pub(crate) scroll_y: i32,
     pub(crate) mix: f32,
@@ -38,6 +39,7 @@ pub(crate) struct OverlayToastState {
 pub(crate) struct OverlayToastSnapshot {
     pub(crate) message: String,
     pub(crate) kind: OverlayToastKind,
+    pub(crate) expanded: bool,
     pub(crate) scroll_x: i32,
     pub(crate) scroll_y: i32,
     pub(crate) mix: f32,

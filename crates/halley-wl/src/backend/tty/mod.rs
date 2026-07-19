@@ -9,6 +9,7 @@ use super::*;
 
 use crate::input::ctx::InputCtx;
 use smithay::backend::renderer::ImportEgl;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -50,6 +51,7 @@ use calloop::ping::make_ping;
 use smithay::backend::drm::DrmNode;
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
+use smithay::reexports::wayland_server::Resource;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, DeviceCapability, Event, GestureBeginEvent, GestureEndEvent,
@@ -62,6 +64,66 @@ const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 const PENDING_FRAME_TIMEOUT_MS: u64 = 1_500;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
+
+fn vt_switch_target_from_keycode(
+    code: u32,
+    mods: &crate::compositor::interaction::ModState,
+) -> Option<i32> {
+    if !mods.ctrl_down || !mods.alt_down {
+        return None;
+    }
+    match code {
+        // Smithay's libinput backend gives XKB keycodes (evdev + 8).
+        // KEY_F1..KEY_F10 are evdev 59..68, F11/F12 are 87/88.
+        67..=76 => Some((code - 66) as i32),
+        95 => Some(11),
+        96 => Some(12),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod vt_switch_tests {
+    use super::vt_switch_target_from_keycode;
+    use crate::compositor::interaction::ModState;
+
+    fn ctrl_alt_mods() -> ModState {
+        ModState {
+            ctrl_down: true,
+            left_ctrl_down: true,
+            alt_down: true,
+            left_alt_down: true,
+            ..ModState::default()
+        }
+    }
+
+    #[test]
+    fn maps_ctrl_alt_function_keys_to_vts() {
+        let mods = ctrl_alt_mods();
+
+        assert_eq!(vt_switch_target_from_keycode(67, &mods), Some(1));
+        assert_eq!(vt_switch_target_from_keycode(74, &mods), Some(8));
+        assert_eq!(vt_switch_target_from_keycode(76, &mods), Some(10));
+        assert_eq!(vt_switch_target_from_keycode(95, &mods), Some(11));
+        assert_eq!(vt_switch_target_from_keycode(96, &mods), Some(12));
+    }
+
+    #[test]
+    fn ignores_function_keys_without_ctrl_alt() {
+        let mut mods = ctrl_alt_mods();
+        mods.ctrl_down = false;
+        assert_eq!(vt_switch_target_from_keycode(67, &mods), None);
+
+        let mut mods = ctrl_alt_mods();
+        mods.alt_down = false;
+        assert_eq!(vt_switch_target_from_keycode(67, &mods), None);
+    }
+
+    #[test]
+    fn ignores_non_function_keys() {
+        assert_eq!(vt_switch_target_from_keycode(38, &ctrl_alt_mods()), None);
+    }
+}
 
 fn tty_env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| {
@@ -125,6 +187,20 @@ fn take_ready_tty_redraw_outputs(
     ready
 }
 
+fn active_locked_pointer_monitor(st: &Halley) -> Option<String> {
+    let constraint = crate::compositor::interaction::pointer::active_pointer_constraint(st)?;
+    if !constraint.locked {
+        return None;
+    }
+
+    let mut root = constraint.surface.clone();
+    while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
+        root = parent;
+    }
+    let node_id = st.model.surface_to_node.get(&root.id())?;
+    st.model.monitor_state.node_monitor.get(node_id).cloned()
+}
+
 fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
@@ -151,18 +227,35 @@ fn queue_ready_tty_outputs(
 
     let cursor_image = st.effective_cursor_image_status();
     let previous_monitor = st.model.monitor_state.current_monitor.clone();
+    let locked_pointer_monitor = active_locked_pointer_monitor(st);
 
     let outputs_ref = outputs.borrow();
     let mut render_order: Vec<_> = outputs_ref.iter().collect();
-    render_order.sort_by_key(|output| {
-        let animation_active = tty_output_animation_redraw_active(
-            st,
-            pointer_state,
-            output.connector_name.as_str(),
-            now,
-        );
-        (!animation_active, output.mode.vrefresh())
-    });
+    if let Some(locked_pointer_monitor) = locked_pointer_monitor.as_deref() {
+        render_order.sort_by_key(|output| {
+            let animation_active = tty_output_animation_redraw_active(
+                st,
+                pointer_state,
+                output.connector_name.as_str(),
+                now,
+            );
+            (
+                output.connector_name.as_str() != locked_pointer_monitor,
+                !animation_active,
+                Reverse(output.mode.vrefresh()),
+            )
+        });
+    } else {
+        render_order.sort_by_key(|output| {
+            let animation_active = tty_output_animation_redraw_active(
+                st,
+                pointer_state,
+                output.connector_name.as_str(),
+                now,
+            );
+            (!animation_active, output.mode.vrefresh())
+        });
+    }
 
     for output in render_order {
         let output_name = output.connector_name.as_str();
@@ -638,7 +731,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             eprintln!("halley-wl tty: logging initialized");
 
             let resolved_config_path = RuntimeTuning::resolved_config_path();
-            let (seat_name, drm_probe, libinput_backend, libinput_context, session_notifier) = {
+            let (
+                seat_name,
+                drm_probe,
+                libinput_backend,
+                libinput_context,
+                tty_session,
+                session_notifier,
+            ) = {
                 let config_path = resolved_config_path.path.to_string_lossy().to_string();
                 let tuning = RuntimeTuning::load_from_path(config_path.as_str());
                 let (tty_session, session_notifier) = LibSeatSession::new().map_err(|err| {
@@ -659,6 +759,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     drm_probe,
                     libinput_backend,
                     libinput_context,
+                    tty_session,
                     session_notifier,
                 )
             };
@@ -814,6 +915,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             if let Some(diagnostic) = startup_config_error.as_ref() {
                 crate::bootstrap::show_config_startup_error(&mut state, diagnostic);
             }
+            let startup_conflicts = state.runtime.tuning.keybind_conflicts.clone();
+            if !startup_conflicts.is_empty() {
+                crate::bootstrap::show_keybind_conflict_warning(&mut state, &startup_conflicts);
+            }
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(
                     drm_probe.gpu_manager.clone(),
@@ -873,25 +978,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             )?;
 
             let pending_output_rescan_at = Rc::new(RefCell::new(None::<Instant>));
-            {
-                let libinput_context_for_session = libinput_context.clone();
-                let pending_output_rescan_at_for_session = pending_output_rescan_at.clone();
-                ev.handle()
-                    .insert_source(session_notifier, move |event, _, _st| match event {
-                        SessionEvent::PauseSession => {
-                            debug!("tty session paused");
-                            libinput_context_for_session.borrow_mut().suspend();
-                        }
-                        SessionEvent::ActivateSession => {
-                            debug!("tty session activated");
-                            if libinput_context_for_session.borrow_mut().resume().is_err() {
-                                warn!("failed to resume libinput context after session activation");
-                            }
-                            *pending_output_rescan_at_for_session.borrow_mut() =
-                                Some(Instant::now() + Duration::from_millis(400));
-                        }
-                    })?;
-            }
 
             match UdevBackend::new(seat_name.as_str()) {
                 Ok(udev_backend) => {
@@ -1111,6 +1197,82 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let redraw_ping = Rc::new(redraw_ping);
             backend_handle.set_redraw_ping(redraw_ping.clone());
             let redraw_ping_for_vblank = redraw_ping.clone();
+            {
+                let libinput_context_for_session = libinput_context.clone();
+                let pending_output_rescan_at_for_session = pending_output_rescan_at.clone();
+                let outputs_for_session = outputs.clone();
+                let output_frame_pending_for_session = output_frame_pending.clone();
+                let output_frame_pending_since_for_session = output_frame_pending_since.clone();
+                let backend_handle_for_session = backend_handle.clone();
+                let drm_devices_for_session = drm_devices.clone();
+                ev.handle()
+                    .insert_source(session_notifier, move |event, _, st| match event {
+                        SessionEvent::PauseSession => {
+                            debug!("tty session paused");
+                            libinput_context_for_session.borrow_mut().suspend();
+                            // Drop DRM master while the session is inactive so the
+                            // incoming VT can take over the GPU cleanly.
+                            for device in drm_devices_for_session.borrow().iter() {
+                                device.dev.borrow_mut().pause();
+                            }
+                        }
+                        SessionEvent::ActivateSession => {
+                            debug!("tty session activated");
+                            if libinput_context_for_session.borrow_mut().resume().is_err() {
+                                warn!("failed to resume libinput context after session activation");
+                            }
+
+                            // Re-acquire DRM master and resync each surface with the
+                            // current KMS state. Without this the compositor keeps
+                            // submitting against stale state and every atomic commit
+                            // fails after the switch back, freezing the display.
+                            for device in drm_devices_for_session.borrow().iter() {
+                                if let Err(err) = device.dev.borrow_mut().activate(false) {
+                                    warn!(
+                                        "failed to reactivate tty drm device after session activation: {}",
+                                        err
+                                    );
+                                }
+                            }
+                            for output in outputs_for_session.borrow().iter() {
+                                if let Err(err) = output.compositor.borrow_mut().reset_state() {
+                                    warn!(
+                                        "failed to reset tty drm surface state for {} after session activation: {}",
+                                        output.connector_name, err
+                                    );
+                                }
+                            }
+
+                            let output_names =
+                                active_output_names(outputs_for_session.borrow().as_slice());
+                            let pending_outputs: Vec<String> = {
+                                let pending = output_frame_pending_for_session.borrow();
+                                output_names
+                                    .iter()
+                                    .filter(|output_name| {
+                                        pending.get(output_name.as_str()).copied().unwrap_or(false)
+                                    })
+                                    .cloned()
+                                    .collect()
+                            };
+                            if !pending_outputs.is_empty() {
+                                let _ = release_pending_tty_outputs(
+                                    &outputs_for_session,
+                                    &output_frame_pending_for_session,
+                                    &output_frame_pending_since_for_session,
+                                    pending_outputs.as_slice(),
+                                    "session-activate",
+                                );
+                            }
+                            output_frame_pending_since_for_session.borrow_mut().clear();
+                            st.runtime.tty_redraw_outputs.extend(output_names);
+                            st.runtime.tty_redraw_all = true;
+                            backend_handle_for_session.request_redraw();
+                            *pending_output_rescan_at_for_session.borrow_mut() =
+                                Some(Instant::now());
+                        }
+                    })?;
+            }
             let drm_notifiers = drm_devices
                 .borrow_mut()
                 .iter_mut()
@@ -1422,6 +1584,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     redraw_ping_for_maintenance.ping();
                 })?;
 
+            let tty_session_for_input = tty_session.clone();
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
@@ -1448,6 +1611,19 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // both stop matching.
                         let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
+                        if pressed {
+                            let target_vt = {
+                                let mods = mod_state_for_input.borrow();
+                                vt_switch_target_from_keycode(code, &mods)
+                            };
+                            if let Some(vt) = target_vt {
+                                match tty_session_for_input.borrow_mut().change_vt(vt) {
+                                    Ok(()) => debug!("tty input: requested VT switch to {}", vt),
+                                    Err(err) => warn!("failed to switch to VT {}: {:?}", vt, err),
+                                }
+                                return;
+                            }
+                        }
                         let input_ctx = InputCtx {
                             mod_state: &mod_state_for_input,
                             pointer_state: &pointer_state_for_input,

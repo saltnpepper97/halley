@@ -145,6 +145,11 @@ fn apply_reloaded_tuning_state(st: &mut Halley, next: RuntimeTuning) {
     if opacity_changed {
         st.runtime.tty_redraw_all = true;
     }
+
+    let conflicts = st.runtime.tuning.keybind_conflicts.clone();
+    if !conflicts.is_empty() {
+        show_keybind_conflict_warning(st, &conflicts);
+    }
 }
 
 pub(crate) fn apply_reloaded_tuning(
@@ -215,6 +220,33 @@ fn show_config_error_with_title(
         duration_ms,
         now_ms,
     );
+}
+
+/// Surface keybind collisions (last-wins overwrites, or launch bindings shadowed
+/// by a global compositor action) through the error overlay. Not a failure — the
+/// config loaded fine — so this uses a moderate duration and its own title.
+pub(crate) fn show_keybind_conflict_warning(st: &mut Halley, conflicts: &[String]) {
+    if conflicts.is_empty() {
+        return;
+    }
+    let monitor = st.model.monitor_state.current_monitor.clone();
+    let now_ms = st.now_ms(std::time::Instant::now());
+    let message = keybind_conflict_message(conflicts);
+    st.ui
+        .render_state
+        .show_overlay_error_toast(monitor.as_str(), message.as_str(), 9000, now_ms);
+}
+
+fn keybind_conflict_message(conflicts: &[String]) -> String {
+    let title = if conflicts.len() == 1 {
+        "1 keybind conflict (last wins)".to_string()
+    } else {
+        format!("{} keybind conflicts (last wins)", conflicts.len())
+    };
+    let mut lines = Vec::with_capacity(conflicts.len() + 1);
+    lines.push(title);
+    lines.extend(conflicts.iter().cloned());
+    lines.join("\n")
 }
 
 fn config_error_message(diagnostic: &ConfigLoadDiagnostic, title: &str) -> String {

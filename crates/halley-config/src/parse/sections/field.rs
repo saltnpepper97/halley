@@ -4,7 +4,7 @@ use crate::layout::RuntimeTuning;
 
 use super::super::primitives::{
     pick_bool, pick_close_restore_pan_mode, pick_f32, pick_overlay_color_mode,
-    pick_pan_to_new_mode, pick_pin_badge_corner, pick_u64,
+    pick_pan_to_new_mode, pick_pin_badge_corner, pick_u64, pick_zoom_filter,
 };
 
 pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -89,15 +89,47 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.zoom_smooth_rate,
     );
+    out.zoom_filter = pick_zoom_filter(
+        cfg,
+        &["field.zoom.filter", "field.zoom_filter"],
+        out.zoom_filter,
+    );
+    out.zoom_sharpen = pick_f32(
+        cfg,
+        &["field.zoom.sharpen", "field.zoom_sharpen"],
+        out.zoom_sharpen,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use rune_cfg::RuneConfig;
 
-    use crate::layout::{OverlayColorMode, PinBadgeCorner, RuntimeTuning};
+    use crate::layout::{OverlayColorMode, PinBadgeCorner, RuntimeTuning, ZoomFilter};
 
     use super::load_field_section;
+
+    #[test]
+    fn field_section_parses_zoom_filter_and_sharpen() {
+        let cfg = RuneConfig::from_str(
+            r##"
+field:
+  zoom:
+    filter "bilinear"
+    sharpen 0.5
+  end
+end
+"##,
+        )
+        .expect("field zoom config should parse");
+
+        let mut out = RuntimeTuning::default();
+        assert_eq!(out.zoom_filter, ZoomFilter::Bicubic); // default
+        load_field_section(&cfg, &mut out);
+
+        assert_eq!(out.zoom_filter, ZoomFilter::Bilinear);
+        assert_eq!(out.zoom_sharpen, 0.5);
+    }
 
     #[test]
     fn field_section_parses_active_window_limit_without_touching_tile_stack_limit() {

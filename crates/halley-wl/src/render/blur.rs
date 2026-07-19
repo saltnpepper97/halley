@@ -218,9 +218,9 @@ pub(crate) fn blur_offset(radius: f32) -> f32 {
 
 /// Capture the current output framebuffer, blur it, and composite a patch at `dst`.
 ///
-/// This is the same z-ordered backdrop model used by Niri's framebuffer effects:
-/// call it immediately before drawing the translucent/blurred surface so the
-/// captured pixels are exactly what is currently behind that surface.
+/// Uses a z-ordered backdrop model: call it immediately before drawing the
+/// translucent/blurred surface so the captured pixels are exactly what is
+/// currently behind that surface.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn capture_current_framebuffer_blur_patch(
     frame: &mut GlesFrame<'_, '_>,

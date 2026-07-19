@@ -90,7 +90,7 @@ pub(crate) fn parse_gamescope_request(args: &[String]) -> Result<ParseOutcome, U
 /// process (via `exec`) and only returns on failure.
 pub(crate) fn run(invocation: GamescopeInvocation) -> ! {
     let config = load_runtime_tuning();
-    let gamescope = &config.gamescope;
+    let gamescope = &config.gaming.gamescope;
     let app_id = invocation.app_id.clone().or_else(steam_app_id_from_env);
 
     match resolve_profile(gamescope, app_id.as_deref()) {

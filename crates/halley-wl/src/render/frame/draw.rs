@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use halley_config::ZoomFilter;
 use halley_core::field::Vec2;
 use halley_core::viewport::FocusRing;
 use smithay::{
@@ -311,6 +312,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
     draw_stack_window_units_with_closing(
@@ -351,6 +354,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.resized_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     draw_window_borders(
         frame,
@@ -366,6 +371,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     draw_direct_blur_rects(
         frame,
@@ -469,6 +476,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.fullscreen_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     draw_offscreen_textures(
         frame,
@@ -476,6 +485,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     if !scene.fullscreen_popup_elements.is_empty() {
         let _ = draw_render_elements(
@@ -504,6 +515,8 @@ pub(super) fn draw_scene_windows_and_hud(
         &scene.above_fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx.as_deref_mut(),
+        matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+        st.runtime.tuning.zoom_sharpen,
     )?;
     draw_direct_blur_rects(
         frame,
@@ -563,12 +576,21 @@ pub(crate) fn draw_offscreen_textures(
     offscreen_textures: &[OffscreenNodeTexture],
     window_texture_program: Option<&GlesTexProgram>,
     mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+    zoom_bicubic: bool,
+    zoom_sharpen: f32,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
         if let Some(ctx) = blur_ctx.as_deref_mut() {
             ctx.draw_before_texture(frame, damage, tex)?;
         }
-        draw_single_offscreen_texture(frame, damage, tex, window_texture_program)?;
+        draw_single_offscreen_texture(
+            frame,
+            damage,
+            tex,
+            window_texture_program,
+            zoom_bicubic,
+            zoom_sharpen,
+        )?;
     }
     Ok(())
 }
@@ -628,6 +650,8 @@ pub(crate) fn draw_single_offscreen_texture(
     damage: Rectangle<i32, Physical>,
     tex: &OffscreenNodeTexture,
     window_texture_program: Option<&GlesTexProgram>,
+    zoom_bicubic: bool,
+    zoom_sharpen: f32,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     {
         let tex_size = tex.texture.size();
@@ -658,6 +682,31 @@ pub(crate) fn draw_single_offscreen_texture(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
+        // Effective magnification: how far the sampled `src` region is stretched onto
+        // the `dst` quad. > 1 means the client buffer is upscaled (camera zoomed in),
+        // where the bicubic + sharpen shader path pays off. `filter=bilinear` (or no
+        // upscale) passes magnify = 1.0, which keeps the cheap single-tap path.
+        let magnify = if zoom_bicubic {
+            let mag_x = dst.size.w as f32 / (src.size.w as f32).max(1.0);
+            let mag_y = dst.size.h as f32 / (src.size.h as f32).max(1.0);
+            mag_x.min(mag_y).max(1.0)
+        } else {
+            1.0
+        };
+        let sharpen = if zoom_bicubic { zoom_sharpen } else { 0.0 };
+        if magnify > 1.01 && crate::perf::enabled() {
+            eventline::info!(
+                "perf zoom-sample magnify={:.3} sharpen={:.2} src={}x{} dst={}x{} tex={}x{}",
+                magnify,
+                sharpen,
+                src.size.w as f32,
+                src.size.h as f32,
+                dst.size.w,
+                dst.size.h,
+                tex_size.w,
+                tex_size.h
+            );
+        }
         let uniforms = [
             Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
             Uniform::new("corner_radius", tex.corner_radius.max(0.0)),
@@ -669,6 +718,9 @@ pub(crate) fn draw_single_offscreen_texture(
             Uniform::new("geo_size", (tex.geo_w, tex.geo_h)),
             Uniform::new("src_uv_offset", (0.0f32, 0.0f32)),
             Uniform::new("src_uv_scale", (0.0f32, 0.0f32)),
+            Uniform::new("magnify", magnify),
+            Uniform::new("tex_size", (tex_size.w as f32, tex_size.h as f32)),
+            Uniform::new("sharpen", sharpen),
         ];
 
         frame.render_texture_from_to(
@@ -756,6 +808,8 @@ fn draw_closing_window_shrink(
             &offscreen_textures,
             st.ui.render_state.gpu.window_texture_program.as_ref(),
             None,
+            matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic),
+            st.runtime.tuning.zoom_sharpen,
         )?;
         if !border_rects.is_empty() {
             draw_window_borders(frame, size, damage, &border_rects, st)?;
@@ -1013,12 +1067,16 @@ fn draw_stack_window_unit(
     if !unit.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
     }
+    let zoom_bicubic = matches!(st.runtime.tuning.zoom_filter, ZoomFilter::Bicubic);
+    let zoom_sharpen = st.runtime.tuning.zoom_sharpen;
     draw_offscreen_textures(
         frame,
         damage,
         &unit.offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
         blur_ctx,
+        zoom_bicubic,
+        zoom_sharpen,
     )?;
     if !unit.border_rects.is_empty() {
         draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
@@ -1172,6 +1230,11 @@ pub(crate) fn draw_window_borders(
                     Uniform::new("geo_size", (0.0f32, 0.0f32)),
                     Uniform::new("src_uv_offset", (0.0f32, 0.0f32)),
                     Uniform::new("src_uv_scale", (0.0f32, 0.0f32)),
+                    // Border-only draw (no content sampled); keep the cheap tap and
+                    // reset the zoom uniforms so a prior magnified draw can't leak in.
+                    Uniform::new("magnify", 1.0f32),
+                    Uniform::new("tex_size", (0.0f32, 0.0f32)),
+                    Uniform::new("sharpen", 0.0f32),
                 ];
 
                 frame.render_texture_from_to(

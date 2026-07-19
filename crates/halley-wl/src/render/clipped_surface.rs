@@ -161,6 +161,10 @@ impl RenderElement<GlesRenderer> for ClippedSurfaceRenderElement {
                     Uniform::new("input_to_geo_row_0", self.input_to_geo_row_0),
                     Uniform::new("input_to_geo_row_1", self.input_to_geo_row_1),
                     Uniform::new("input_to_geo_row_2", self.input_to_geo_row_2),
+                    // clip_scale is fixed at 1.0 here, so the shader never takes the
+                    // bicubic path; set the zoom uniforms inert for program-state safety.
+                    Uniform::new("tex_size", (0.0f32, 0.0f32)),
+                    Uniform::new("sharpen", 0.0f32),
                 ];
                 frame.render_texture_from_to(
                     texture,

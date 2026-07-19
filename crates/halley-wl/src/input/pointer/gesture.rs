@@ -21,7 +21,7 @@ use crate::input::keyboard::bindings::apply_compositor_action_press;
 use crate::input::keyboard::modkeys::modifier_active;
 use halley_core::field::Vec2;
 
-use super::focus::pointer_focus_for_screen;
+use super::focus::{pointer_focus_for_screen, seat_focus_from_local};
 
 const PINCH_ZOOM_ACTIVATE_LOG_DELTA: f32 = 0.12;
 const PINCH_ZOOM_NOISE_LOG_DELTA: f32 = 0.04;
@@ -146,11 +146,17 @@ fn focus_pointer_for_client_gesture(st: &mut Halley, target: &GesturePointerTarg
             .into()
     };
 
+    let monitor = st.model.monitor_state.monitors.get(target.monitor.as_str());
+    let seat_location = Point::<f64, Logical>::from((
+        monitor.map_or(0.0, |monitor| monitor.offset_x as f64) + target.local_sx as f64,
+        monitor.map_or(0.0, |monitor| monitor.offset_y as f64) + target.local_sy as f64,
+    ));
+    let focus = seat_focus_from_local(Some(focus), location, seat_location);
     pointer.motion(
         st,
-        Some(focus),
+        focus,
         &MotionEvent {
-            location,
+            location: seat_location,
             serial: SERIAL_COUNTER.next_serial(),
             time: now_msec(),
         },

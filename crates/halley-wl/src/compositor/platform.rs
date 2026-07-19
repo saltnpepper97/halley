@@ -160,7 +160,7 @@ mod tests {
             .platform
             .cursor_manager
             .set_cursor_image(CursorImageStatus::Hidden);
-        state.input.interaction_state.cursor_override_icon = Some(CursorIcon::Pointer);
+        crate::compositor::interaction::cursor::set_override(&mut state, Some(CursorIcon::Pointer));
 
         assert!(matches!(
             effective_cursor_image_status(&state),
@@ -195,18 +195,15 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         return CursorImageStatus::Hidden;
     }
 
-    // Keyboard-driven navigation hides the cursor image (position is preserved).
-    // Checked before the apogee block so the overview honors the hide too; the
-    // pointer still warps to each selected tile, only the image is suppressed.
+    // Keyboard-driven navigation hides the cursor image while preserving its
+    // position. Checked before the apogee block so the overview honors it too.
     if st.input.interaction_state.cursor_hidden_by_keyboard_nav {
         return CursorImageStatus::Hidden;
     }
 
     if st.input.interaction_state.apogee_session.is_some() {
         return CursorImageStatus::Named(
-            st.input
-                .interaction_state
-                .cursor_override_icon
+            crate::compositor::interaction::cursor::effective_override(st)
                 .unwrap_or(smithay::input::pointer::CursorIcon::Default),
         );
     }
@@ -237,9 +234,7 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         return CursorImageStatus::default_named();
     }
 
-    st.input
-        .interaction_state
-        .cursor_override_icon
+    crate::compositor::interaction::cursor::effective_override(st)
         .map(CursorImageStatus::Named)
         .unwrap_or_else(|| cursor_image.clone())
 }
@@ -261,7 +256,7 @@ fn client_cursor_surface_looks_broken(surface: &WlSurface) -> bool {
 }
 
 fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
-    if let Some(pos) = st.input.interaction_state.last_pointer_screen_global {
+    if let Some(pos) = st.input.interaction_state.cursor.last_screen_global {
         return Some(pos);
     }
 

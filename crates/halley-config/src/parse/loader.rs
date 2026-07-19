@@ -6,14 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::layout::RuntimeTuning;
 
 use super::keybinds::{
-    apply_explicit_keybind_overrides_entries, parse_inline_keybinds, strip_inline_keybind_block,
+    apply_explicit_keybind_overrides_entries, detect_shadowed_launch_bindings, parse_inline_keybinds,
+    strip_inline_keybind_block,
 };
 use super::rules::load_rules_section;
 use super::sections::{
     load_animations_section, load_apogee_section, load_autostart_section, load_background_section,
     load_bearings_section, load_clusters_section, load_cursor_section, load_debug_section,
     load_decay_section, load_decorations_section, load_effects_section, load_env_section,
-    load_field_section, load_focus_ring_section, load_font_section, load_gamescope_section,
+    load_field_section, load_focus_ring_section, load_font_section, load_gaming_section,
     load_input_section, load_keybind_sections, load_nodes_section, load_overlays_section,
     load_physics_section, load_placement_section, load_screenshot_section, load_stacking_section,
     load_tile_section, load_trail_section, load_viewport_section,
@@ -103,8 +104,8 @@ impl RuntimeTuning {
         load_rules_section(raw, &mut out).map_err(|err| {
             diagnostic_from_message(path, raw, format!("rules parse error: {err}"))
         })?;
-        load_gamescope_section(raw, &mut out).map_err(|err| {
-            diagnostic_from_message(path, raw, format!("gamescope parse error: {err}"))
+        load_gaming_section(raw, &mut out).map_err(|err| {
+            diagnostic_from_message(path, raw, format!("gaming parse error: {err}"))
         })?;
         load_config_sections(cfg, &mut out);
         load_keybind_sections(cfg, &mut out).map_err(|err| {
@@ -116,6 +117,8 @@ impl RuntimeTuning {
                 |err| diagnostic_from_message(path, raw, format!("keybind parse error: {err}")),
             )?;
         }
+
+        detect_shadowed_launch_bindings(&mut out);
 
         Ok(out)
     }
@@ -613,6 +616,75 @@ end
                 .compositor_bindings
                 .iter()
                 .any(|binding| binding.action == CompositorBindingAction::Apogee)
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_collects_same_scope_keybind_conflict() {
+        let dir = test_temp_dir("keybind-conflict");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"keybinds:
+  mod "super"
+  "$var.mod+a" "reload"
+  "$var.mod+a" "apogee"
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("config with a keybind conflict should still load");
+
+        // Last-defined wins through the full loader path.
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Apogee)
+        );
+        assert!(
+            !tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Reload)
+        );
+        // ...and the collision is recorded for the overlay warning.
+        assert_eq!(tuning.keybind_conflicts.len(), 1);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_normal_keybinds_report_no_conflict() {
+        // Regression guard: config is applied through both the rune-map and inline
+        // passes, so a normal (non-duplicated) binding is assigned twice. That
+        // idempotent re-assignment must NOT be reported as a conflict.
+        let dir = test_temp_dir("keybind-no-conflict");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"keybinds:
+  mod "super"
+  "$var.mod+a" "apogee"
+  "$var.mod+f" "toggle-fullscreen"
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("normal keybinds should load");
+
+        assert!(
+            tuning.keybind_conflicts.is_empty(),
+            "unexpected conflicts: {:?}",
+            tuning.keybind_conflicts
         );
 
         let _ = std::fs::remove_dir_all(dir);

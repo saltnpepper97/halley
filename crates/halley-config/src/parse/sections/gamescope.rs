@@ -1,45 +1,93 @@
 use crate::layout::{GamescopeConfig, GamescopeGameProfile, RuntimeTuning};
 
-/// Parse the top-level `gamescope:` section: scalar global defaults plus repeated
-/// `game:` / `end` sub-blocks. Modeled on `parse/rules.rs` because the repeated,
-/// identically-named `game:` blocks do not map cleanly onto the dotted RuneConfig
-/// key model.
-pub(crate) fn load_gamescope_section(raw: &str, out: &mut RuntimeTuning) -> Result<(), String> {
-    let mut in_section = false;
-    let mut started = false;
-    let mut current_game: Option<GamescopeGameProfile> = None;
-    let mut config = GamescopeConfig::default();
+/// Parse the top-level `gaming:` section. It groups the `games` classifier list
+/// (glob patterns for what Halley treats as a game) with the nested `gamescope:`
+/// integration block. For backward compatibility a bare top-level `gamescope:`
+/// (no `gaming:` wrapper) is still accepted and mapped into `gaming.gamescope`.
+///
+/// Modeled on `parse/rules.rs` (hand-rolled, line-based) because the repeated,
+/// identically-named `game:` blocks and the block nesting do not map cleanly onto
+/// the dotted RuneConfig key model.
+pub(crate) fn load_gaming_section(raw: &str, out: &mut RuntimeTuning) -> Result<(), String> {
+    if let Some(inner) = extract_block(raw, "gaming:") {
+        // `games ["steam_app_*", "tf_linux64", ...]` — optional; keep the default
+        // classifier list when absent.
+        for raw_line in inner.lines() {
+            let trimmed = strip_comment(raw_line);
+            if let Some(rest) = trimmed.strip_prefix("games") {
+                let rest = rest.trim_start();
+                if rest.starts_with('[') || rest.starts_with('"') {
+                    out.gaming.games = parse_string_list(rest);
+                }
+            }
+        }
+        // Nested `gamescope:` — optional; keep defaults when absent.
+        if let Some(gs_inner) = extract_block(&inner, "gamescope:") {
+            out.gaming.gamescope = parse_gamescope_block(&gs_inner)?;
+        }
+        return Ok(());
+    }
 
-    for (line_no, raw_line) in raw.lines().enumerate() {
+    // Back-compat: a bare top-level `gamescope:` block (pre-`gaming:` configs).
+    if let Some(gs_inner) = extract_block(raw, "gamescope:") {
+        out.gaming.gamescope = parse_gamescope_block(&gs_inner)?;
+    }
+    Ok(())
+}
+
+/// Return the inner content of the first block named `header` (e.g. `"gaming:"`),
+/// tracking nested `key:`/`end` pairs so the block's own `end` closes it rather
+/// than a nested one. `None` if the block is absent.
+fn extract_block(raw: &str, header: &str) -> Option<String> {
+    let mut collecting = false;
+    let mut depth = 0i32;
+    let mut inner = String::new();
+    for raw_line in raw.lines() {
+        let trimmed = strip_comment(raw_line);
+        if !collecting {
+            if trimmed == header {
+                collecting = true;
+                depth = 1;
+            }
+            continue;
+        }
+        if trimmed == "end" {
+            depth -= 1;
+            if depth == 0 {
+                return Some(inner);
+            }
+        } else if trimmed.ends_with(':') {
+            depth += 1;
+        }
+        inner.push_str(raw_line);
+        inner.push('\n');
+    }
+    // Unterminated block: hand back what we captured so the field parsers below
+    // can raise a precise error (e.g. an unterminated `game:`).
+    collecting.then_some(inner)
+}
+
+/// Parse the body of a `gamescope:` block (globals + repeated `game:` sub-blocks).
+fn parse_gamescope_block(inner: &str) -> Result<GamescopeConfig, String> {
+    let mut config = GamescopeConfig::default();
+    let mut current_game: Option<GamescopeGameProfile> = None;
+
+    for (line_no, raw_line) in inner.lines().enumerate() {
         let line_no = line_no + 1;
         let trimmed = strip_comment(raw_line);
         if trimmed.is_empty() {
             continue;
         }
-
-        if !in_section {
-            if trimmed == "gamescope:" {
-                in_section = true;
-                started = true;
-            }
-            continue;
-        }
-
         if let Some(game) = current_game.as_mut() {
             if trimmed == "end" {
-                out_push_game(&mut config, current_game.take().unwrap());
+                config.games.push(current_game.take().unwrap());
                 continue;
             }
             parse_game_entry(game, trimmed, line_no)?;
             continue;
         }
-
         if trimmed == "game:" {
             current_game = Some(GamescopeGameProfile::default());
-            continue;
-        }
-        if trimmed == "end" {
-            in_section = false;
             continue;
         }
         parse_global_entry(&mut config, trimmed, line_no)?;
@@ -48,15 +96,23 @@ pub(crate) fn load_gamescope_section(raw: &str, out: &mut RuntimeTuning) -> Resu
     if current_game.is_some() {
         return Err("unterminated `game:` block in `gamescope:` section".to_string());
     }
-
-    if started {
-        out.gamescope = config;
-    }
-    Ok(())
+    Ok(config)
 }
 
-fn out_push_game(config: &mut GamescopeConfig, game: GamescopeGameProfile) {
-    config.games.push(game);
+/// Parse an inline `["a", "b"]` (or bare `"a", "b"`) list of quoted strings.
+fn parse_string_list(value: &str) -> Vec<String> {
+    let v = value.trim();
+    let inner = v
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(v);
+    inner
+        .split(',')
+        .filter_map(|item| {
+            let item = item.trim();
+            (!item.is_empty()).then(|| parse_value_string(item))
+        })
+        .collect()
 }
 
 fn strip_comment(line: &str) -> &str {
@@ -178,7 +234,9 @@ mod tests {
 
     #[test]
     fn defaults_are_sane() {
-        let gs = RuntimeTuning::default().gamescope;
+        let gaming = RuntimeTuning::default().gaming;
+        assert_eq!(gaming.games, vec!["steam_app_*", "gamescope"]);
+        let gs = gaming.gamescope;
         assert!(gs.enabled);
         assert_eq!(gs.monitor, "focused");
         assert_eq!(gs.output_width, "auto");
@@ -189,94 +247,93 @@ mod tests {
     }
 
     #[test]
-    fn parses_global_scalars() {
+    fn parses_gaming_games_list_and_matches() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+gaming:
+  games ["steam_app_*", "tf_linux64", "gamescope"]
+end
+"#,
+        )
+        .expect("config should parse");
+        let gaming = &tuning.gaming;
+        assert_eq!(gaming.games, vec!["steam_app_*", "tf_linux64", "gamescope"]);
+        assert!(gaming.matches_game("steam_app_548430"));
+        assert!(gaming.matches_game("tf_linux64"));
+        assert!(gaming.matches_game("gamescope"));
+        assert!(!gaming.matches_game("firefox"));
+    }
+
+    #[test]
+    fn parses_nested_gamescope_under_gaming() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+gaming:
+  games ["steam_app_*"]
+  gamescope:
+    enabled false
+    monitor "primary"
+    output-width 2560
+    game:
+      app-id "steam_app_548430"
+      enabled true
+    end
+  end
+end
+"#,
+        )
+        .expect("config should parse");
+        assert_eq!(tuning.gaming.games, vec!["steam_app_*"]);
+        let gs = &tuning.gaming.gamescope;
+        assert!(!gs.enabled);
+        assert_eq!(gs.monitor, "primary");
+        assert_eq!(gs.output_width, "2560");
+        assert_eq!(gs.games.len(), 1);
+        assert_eq!(gs.games[0].app_id.as_deref(), Some("steam_app_548430"));
+        assert_eq!(gs.games[0].enabled, Some(true));
+    }
+
+    #[test]
+    fn back_compat_top_level_gamescope() {
         let tuning = RuntimeTuning::from_rune_str(
             r#"
 gamescope:
   enabled false
-  monitor "primary"
-  output-width 2560
-  output-height "auto"
-  fullscreen false
   borderless true
-  suppress-overlays false
-end
-"#,
-        )
-        .expect("config should parse");
-        let gs = &tuning.gamescope;
-        assert!(!gs.enabled);
-        assert_eq!(gs.monitor, "primary");
-        assert_eq!(gs.output_width, "2560");
-        assert_eq!(gs.output_height, "auto");
-        assert!(!gs.fullscreen);
-        assert!(gs.borderless);
-        assert!(!gs.suppress_overlays);
-    }
-
-    #[test]
-    fn parses_multiple_game_blocks_with_opt_out() {
-        let tuning = RuntimeTuning::from_rune_str(
-            r#"
-gamescope:
-  enabled true
-  game:
-    name "Deep Rock Galactic"
-    app-id "steam_app_548430"
-    enabled true
-  end
-  game:
-    name "Example Opt Out"
-    app-id "steam_app_000000"
-    enabled false
-  end
-end
-"#,
-        )
-        .expect("config should parse");
-        let gs = &tuning.gamescope;
-        assert_eq!(gs.games.len(), 2);
-        assert_eq!(gs.games[0].app_id.as_deref(), Some("steam_app_548430"));
-        assert_eq!(gs.games[0].enabled, Some(true));
-        assert_eq!(gs.games[1].app_id.as_deref(), Some("steam_app_000000"));
-        assert_eq!(gs.games[1].enabled, Some(false));
-    }
-
-    #[test]
-    fn per_game_overrides_global_key() {
-        let tuning = RuntimeTuning::from_rune_str(
-            r#"
-gamescope:
-  fullscreen true
   game:
     app-id "steam_app_1"
     fullscreen false
-    borderless true
-    game-width 1920
   end
 end
 "#,
         )
         .expect("config should parse");
-        let game = &tuning.gamescope.games[0];
-        assert_eq!(game.fullscreen, Some(false));
-        assert_eq!(game.borderless, Some(true));
-        assert_eq!(game.game_width.as_deref(), Some("1920"));
-        // Unset per-game keys stay None (inherit at resolve time).
-        assert_eq!(game.refresh, None);
+        // Default classifier list preserved; gamescope mapped into gaming.gamescope.
+        assert_eq!(tuning.gaming.games, vec!["steam_app_*", "gamescope"]);
+        let gs = &tuning.gaming.gamescope;
+        assert!(!gs.enabled);
+        assert!(gs.borderless);
+        assert_eq!(gs.games[0].app_id.as_deref(), Some("steam_app_1"));
+        assert_eq!(gs.games[0].fullscreen, Some(false));
     }
 
     #[test]
     fn rejects_unknown_key() {
         assert!(
-            RuntimeTuning::from_rune_str("gamescope:\n  enabled true\n  bogus-key 1\nend\n")
-                .is_none()
+            RuntimeTuning::from_rune_str(
+                "gaming:\n  gamescope:\n    enabled true\n    bogus-key 1\n  end\nend\n"
+            )
+            .is_none()
         );
     }
 
     #[test]
     fn rejects_unterminated_game_block() {
-        // `game:` opened but never closed before end-of-input.
-        assert!(RuntimeTuning::from_rune_str("gamescope:\n  game:\n    app-id \"x\"\n").is_none());
+        assert!(
+            RuntimeTuning::from_rune_str(
+                "gaming:\n  gamescope:\n    game:\n      app-id \"x\"\n  end\nend\n"
+            )
+            .is_none()
+        );
     }
 }

@@ -24,6 +24,7 @@ pub use layout::{
     CompositorGestureScope, ConfigPathSource, CursorConfig, DebugConfig, DecorationBorderColor,
     DecorationsConfig, DeviceOverride, DeviceSettings, EffectsConfig, ExpandedPlacementConfig,
     ExpandedPlacementStrategy, FindEmptyMode, FontConfig, GamescopeConfig, GamescopeGameProfile,
+    GamingConfig,
     GestureBinding, GestureBindingAction, GestureHoldBinding, GestureScrollPanMode,
     GestureSwipeDirection, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
     InitialWindowSpawnPlacement, InputConfig, InputFocusMode, KeyboardConfig,
@@ -35,6 +36,6 @@ pub use layout::{
     ScreenshotConfig, ScrollMethod, SecondaryBorderConfig, ShadowColor, ShadowLayerConfig,
     ShadowsConfig, ShapeStyle, TapButtonMap, TimedAnimationConfig, ViewportOutputConfig,
     ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
-    WindowRulePattern, overlay_blur_enabled, window_blur_enabled,
+    WindowRulePattern, ZoomFilter, overlay_blur_enabled, window_blur_enabled,
 };
 pub use parse::{ConfigLoadDiagnostic, gather_dependencies_for_file};

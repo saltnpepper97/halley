@@ -2,11 +2,13 @@ use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::reexports::wayland_server::Resource;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use super::super::button::active_pointer_binding;
 use super::super::context::{clamp_screen_to_monitor, pointer_screen_context_for_monitor};
-use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
+use super::super::focus::{
+    grabbed_layer_surface_focus, pointer_focus_for_screen, seat_focus_from_local,
+};
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
 use halley_config::PointerBindingAction;
@@ -32,6 +34,59 @@ pub(super) enum MotionDispatchResult {
         desktop_hover: bool,
         hover_focus_blocked: bool,
     },
+}
+
+pub(super) fn dispatch_locked_pointer_motion(
+    st: &mut Halley,
+    delta: (f64, f64),
+    delta_unaccel: (f64, f64),
+    time_usec: u64,
+) -> bool {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return false;
+    };
+    let Some(constraint) = crate::compositor::interaction::pointer::active_pointer_constraint(st)
+        .filter(|constraint| constraint.locked)
+    else {
+        return false;
+    };
+    let surface = constraint.surface;
+    let origin = constraint.origin;
+
+    if pointer_trace_enabled() {
+        // Smithay delivers relative_motion + frame to its current pointer focus,
+        // and only to relative-pointer objects of that surface's client. If
+        // current_focus is None or a different client than the constraint
+        // surface, the game will not see motion.
+        let current_focus = pointer.current_focus();
+        let same_client = current_focus
+            .as_ref()
+            .is_some_and(|focus| focus.id().same_client_as(&surface.id()));
+        eventline::info!(
+            "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
+            surface.id(),
+            current_focus.as_ref().map(|focus| focus.id()),
+            same_client,
+            delta.0,
+            delta.1,
+            delta_unaccel.0,
+            delta_unaccel.1,
+        );
+    }
+
+    if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+        pointer.relative_motion(
+            st,
+            Some((surface, origin)),
+            &RelativeMotionEvent {
+                delta: delta.into(),
+                delta_unaccel: delta_unaccel.into(),
+                utime: time_usec,
+            },
+        );
+    }
+    pointer.frame(st);
+    true
 }
 
 pub(super) fn compute_motion_routing(
@@ -171,48 +226,12 @@ pub(super) fn dispatch_pointer_motion(
     let mut hover_focus_blocked = false;
 
     if let Some(pointer) = st.platform.seat.get_pointer() {
-        let active_constraint =
-            crate::compositor::interaction::pointer::active_pointer_constraint(st);
-
-        if let Some(constraint) = active_constraint
-            .as_ref()
-            .filter(|constraint| constraint.locked)
-        {
-            if pointer_trace_enabled() {
-                // Smithay delivers relative_motion + frame to its *current* pointer
-                // focus (the `focus` arg is ignored), and only to relative-pointer
-                // objects of that surface's client. So if current_focus is None or a
-                // different client than the constraint surface, the game never sees
-                // the motion. Log both to confirm they match.
-                let current_focus = pointer.current_focus();
-                let same_client = current_focus
-                    .as_ref()
-                    .is_some_and(|focus| focus.id().same_client_as(&constraint.surface.id()));
-                eventline::info!(
-                    "pointer_constraint locked_relative surface={:?} current_focus={:?} same_client={} delta={:.3},{:.3} unaccel={:.3},{:.3}",
-                    constraint.surface.id(),
-                    current_focus.as_ref().map(|focus| focus.id()),
-                    same_client,
-                    delta.0,
-                    delta.1,
-                    delta_unaccel.0,
-                    delta_unaccel.1,
-                );
-            }
-            if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
-                pointer.relative_motion(
-                    st,
-                    Some((constraint.surface.clone(), constraint.origin)),
-                    &RelativeMotionEvent {
-                        delta: delta.into(),
-                        delta_unaccel: delta_unaccel.into(),
-                        utime: time_usec,
-                    },
-                );
-            }
-            pointer.frame(st);
+        if dispatch_locked_pointer_motion(st, delta, delta_unaccel, time_usec) {
             return MotionDispatchResult::ConsumedByPointerConstraint;
         }
+
+        let active_constraint =
+            crate::compositor::interaction::pointer::active_pointer_constraint(st);
 
         let locked_surface = active_constraint
             .as_ref()
@@ -313,12 +332,12 @@ pub(super) fn dispatch_pointer_motion(
         // A gamescope-managed window fills its output and expects a 1:1 input
         // mapping; bypass the spatial camera scale for it (config-gated). This is
         // a no-op when the camera is unscaled, so it cannot regress normal output.
-        let bypass_spatial_camera = st.runtime.tuning.gamescope.bypass_spatial_camera
+        let bypass_spatial_camera = st.runtime.tuning.gaming.gamescope.bypass_spatial_camera
             && focus
                 .as_ref()
                 .is_some_and(|(surface, _)| crate::window::surface_is_gamescope(st, surface));
 
-        let location = if locked_surface.is_some() {
+        let local_location = if locked_surface.is_some() {
             pointer.current_location()
         } else if bypass_spatial_camera
             || focus.as_ref().is_some_and(|(surface, _)| {
@@ -334,6 +353,17 @@ pub(super) fn dispatch_pointer_motion(
                 routing.local_sy as f64 / cam_scale,
             )
                 .into()
+        };
+
+        let seat_location =
+            Point::<f64, Logical>::from((routing.global_sx as f64, routing.global_sy as f64));
+        let (focus, location) = if locked_surface.is_some() {
+            (focus, local_location)
+        } else {
+            (
+                seat_focus_from_local(focus, local_location, seat_location),
+                seat_location,
+            )
         };
 
         if let Some(constraint) = active_constraint

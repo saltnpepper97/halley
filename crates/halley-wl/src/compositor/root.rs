@@ -277,6 +277,7 @@ impl Halley {
                     layer_keyboard_focus: None,
                 },
                 focus_state: FocusState {
+                    seat: Default::default(),
                     interaction_focus_until_ms: 0,
                     last_surface_focus_ms: HashMap::new(),
                     outside_focus_ring_since_ms: HashMap::new(),
@@ -406,12 +407,10 @@ impl Halley {
             input: InputState {
                 interaction_state: InteractionState {
                     reset_input_state_requested: false,
-                    pending_pointer_screen_hint: None,
-                    last_pointer_screen_global: None,
+                    cursor: Default::default(),
                     monitor_focus_pinned: false,
-                    pointer_contents: Default::default(),
-                    pointer_surface_origin: None,
-                    pointer_focus: None,
+                    pointer_focus: Default::default(),
+                    pointer_constraint: Default::default(),
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,
@@ -453,21 +452,23 @@ impl Halley {
                     apogee_live_preview_last_at: None,
                     apogee_hover_node: None,
                     overlay_hover_target: None,
-                    cursor_override_until_ms: None,
                     pending_core_hover: None,
                     pending_core_press: None,
                     pending_collapsed_node_press: None,
                     pending_move_press: None,
                     pending_core_click: None,
                     pending_collapsed_node_click: None,
+                    pending_active_surface_press: None,
+                    pending_active_surface_click: None,
                     grabbed_edge_pan_active: false,
                     grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_monitor: None,
-                    cursor_override_icon: None,
                     cursor_hidden_by_typing: false,
                     cursor_hidden_by_keyboard_nav: false,
                     last_cursor_activity_at_ms: 0,
+                    last_pointer_motion_at_ms: 0,
+                    hover_focus_reveal_gate_px: 0.0,
                 },
                 devices: Vec::new(),
             },
@@ -1147,13 +1148,6 @@ impl Halley {
     #[cfg(test)]
     pub(crate) fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
         super::focus::system::fullscreen_focus_override(self, requested)
-    }
-
-    pub(crate) fn update_selection_focus_from_surface(
-        &self,
-        surface: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
-    ) {
-        super::focus::system::update_selection_focus_from_surface(self, surface)
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {

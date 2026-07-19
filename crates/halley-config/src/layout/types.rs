@@ -726,6 +726,15 @@ pub enum ExpandedPlacementStrategy {
     FindEmpty,
 }
 
+/// Texture sampling used when a window is magnified past its source resolution
+/// (i.e. zoomed in). Bilinear is the cheap GPU default; bicubic is a
+/// Catmull-Rom resample that keeps zoomed content crisper.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ZoomFilter {
+    Bilinear,
+    Bicubic,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FindEmptyMode {
     BestEffort,
@@ -1210,6 +1219,62 @@ impl Default for GamescopeConfig {
             games: Vec::new(),
         }
     }
+}
+
+/// Top-level `gaming:` block. Groups everything Halley does specially for games:
+/// the `games` classifier list (what counts as a game — previously the hardcoded
+/// `steam_app_*` / `gamescope` check) and the nested `gamescope:` integration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GamingConfig {
+    /// app-id glob patterns (`*` wildcard) that Halley treats as a game. Feeds
+    /// `node_is_game_like`. Users add their own here (e.g. raw XWayland titles
+    /// like `tf_linux64` whose app-id is the WM_CLASS, not `steam_app_*`).
+    pub games: Vec<String>,
+    pub gamescope: GamescopeConfig,
+}
+
+impl Default for GamingConfig {
+    fn default() -> Self {
+        Self {
+            games: vec!["steam_app_*".to_string(), "gamescope".to_string()],
+            gamescope: GamescopeConfig::default(),
+        }
+    }
+}
+
+impl GamingConfig {
+    /// Whether `app_id` matches any configured `games` pattern (glob `*`).
+    pub fn matches_game(&self, app_id: &str) -> bool {
+        self.games.iter().any(|pat| glob_match(pat, app_id))
+    }
+}
+
+/// Minimal case-sensitive glob: `*` matches any run (including empty); every other
+/// char is literal. Enough for app-id classifiers (`steam_app_*`, `tf_linux64`).
+pub fn glob_match(pattern: &str, text: &str) -> bool {
+    let (pat, txt): (Vec<char>, Vec<char>) = (pattern.chars().collect(), text.chars().collect());
+    let (mut p, mut t) = (0usize, 0usize);
+    let (mut star_p, mut star_t): (Option<usize>, usize) = (None, 0);
+    while t < txt.len() {
+        if p < pat.len() && (pat[p] == txt[t]) {
+            p += 1;
+            t += 1;
+        } else if p < pat.len() && pat[p] == '*' {
+            star_p = Some(p);
+            star_t = t;
+            p += 1;
+        } else if let Some(sp) = star_p {
+            p = sp + 1;
+            star_t += 1;
+            t = star_t;
+        } else {
+            return false;
+        }
+    }
+    while p < pat.len() && pat[p] == '*' {
+        p += 1;
+    }
+    p == pat.len()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

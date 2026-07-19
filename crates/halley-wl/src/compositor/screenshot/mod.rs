@@ -580,7 +580,7 @@ mod tests {
     fn screenshot_session_uses_pointer_monitor_by_default() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
-        state.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+        state.input.interaction_state.cursor.last_screen_global = Some((1200.0, 300.0));
 
         assert!(super::start_screenshot_session(
             &mut state,

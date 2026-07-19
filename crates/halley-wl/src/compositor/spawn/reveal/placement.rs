@@ -893,7 +893,7 @@ pub(crate) fn spawn_target_monitor_for_intent(st: &Halley, intent: &InitialWindo
             resolve_parent_monitor(st, intent.parent_node).unwrap_or(default_monitor)
         }
         InitialWindowSpawnPlacement::Cursor => {
-            if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
+            if let Some((sx, sy)) = st.input.interaction_state.cursor.last_screen_global {
                 st.monitor_for_screen(sx, sy).unwrap_or(default_monitor)
             } else {
                 default_monitor
@@ -1103,7 +1103,8 @@ pub(crate) fn pick_spawn_position_with_intent(
     let cursor_anchor = st
         .input
         .interaction_state
-        .last_pointer_screen_global
+        .cursor
+        .last_screen_global
         .and_then(|(sx, sy)| world_from_monitor_screen(st, target_monitor.as_str(), sx, sy));
 
     match placement {

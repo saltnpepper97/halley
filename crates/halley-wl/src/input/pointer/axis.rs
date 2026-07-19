@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use smithay::input::pointer::{AxisFrame, MotionEvent};
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use crate::backend::interface::BackendView;
 use crate::compositor::exit_confirm;
@@ -10,7 +10,7 @@ use crate::compositor::screenshot;
 use crate::input::ctx::InputCtx;
 
 use super::context::pointer_screen_context_for_monitor;
-use super::focus::pointer_focus_for_screen;
+use super::focus::{pointer_focus_for_screen, seat_focus_from_local};
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
@@ -198,11 +198,18 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                     None,
                 )
             {
+                let local_location =
+                    Point::<f64, Logical>::from((context.local_sx as f64, context.local_sy as f64));
+                let seat_location = Point::<f64, Logical>::from((
+                    context.global_sx as f64,
+                    context.global_sy as f64,
+                ));
+                let focus = seat_focus_from_local(Some(focus), local_location, seat_location);
                 pointer.motion(
                     st,
-                    Some(focus),
+                    focus,
                     &MotionEvent {
-                        location: (context.local_sx as f64, context.local_sy as f64).into(),
+                        location: seat_location,
                         serial: SERIAL_COUNTER.next_serial(),
                         time: now_millis_u32(),
                     },
@@ -464,11 +471,16 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                         )
                             .into()
                     };
+                let seat_location = Point::<f64, Logical>::from((
+                    context.global_sx as f64,
+                    context.global_sy as f64,
+                ));
+                let focus = seat_focus_from_local(Some(focus), location, seat_location);
                 pointer.motion(
                     st,
-                    Some(focus),
+                    focus,
                     &MotionEvent {
-                        location,
+                        location: seat_location,
                         serial: SERIAL_COUNTER.next_serial(),
                         time: now_millis_u32(),
                     },

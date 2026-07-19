@@ -514,6 +514,10 @@ impl LiftApp {
 
     fn poll_background_jobs(&mut self) {
         self.poll_live_refresh();
+        if self.icon_cache.has_requested_index_refresh() {
+            self.icon_cache.start_index();
+            perf(format_args!("icon index refresh started"));
+        }
         self.poll_icon_index();
         if self.icon_cache.poll_decodes() {
             self.mark_redraw();
@@ -667,6 +671,7 @@ impl LiftApp {
         self.index.has_pending_live_refresh()
             || self.icon_cache.has_pending_index()
             || self.icon_cache.has_pending_decodes()
+            || self.icon_cache.has_requested_index_refresh()
     }
 
     fn dispatch_timeout(&self) -> Option<Duration> {

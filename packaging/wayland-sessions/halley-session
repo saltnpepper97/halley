@@ -20,7 +20,26 @@ fi
 
 HALLEY_BIN=${HALLEY_BIN:-/usr/bin/halley}
 
-if command -v systemctl >/dev/null 2>&1 && [ -z "${HALLEY_SYSTEMD_SERVICE:-}" ]; then
+# Whether integration with a user service manager is wanted at all.
+# HALLEY_NO_INIT_INTEGRATION=1 forces the plain `exec halley --session` path.
+init_integration_enabled() {
+    case "${HALLEY_NO_INIT_INTEGRATION:-}" in
+        1 | true | yes | on) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# True only when systemd is the *booted* init (PID 1), matching sd_booted().
+# Guards against systemd being installed but not the active init, in which case
+# `systemctl --user` calls would fail.
+is_systemd_managed() {
+    [ -d /run/systemd/system ]
+}
+
+# ---- systemd user service ------------------------------------------------
+if init_integration_enabled && is_systemd_managed \
+    && [ -z "${HALLEY_SYSTEMD_SERVICE:-}" ] \
+    && command -v systemctl >/dev/null 2>&1; then
     if systemctl --user list-unit-files halley.service >/dev/null 2>&1; then
         export HALLEY_SYSTEMD_SERVICE=1
 
@@ -46,4 +65,41 @@ if command -v systemctl >/dev/null 2>&1 && [ -z "${HALLEY_SYSTEMD_SERVICE:-}" ];
     fi
 fi
 
+# ---- dinit user service --------------------------------------------------
+# Detect the service by file presence (dinitctl has no stable "is-loaded"
+# query), then drive it with the stable start/status/stop subcommands.
+halley_dinit_service_exists() {
+    for dir in \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/dinit.d" \
+        "$HOME/.dinit.d"; do
+        if [ -f "$dir/halley" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if init_integration_enabled \
+    && [ -z "${HALLEY_DINIT_SERVICE:-}" ] \
+    && command -v dinitctl >/dev/null 2>&1 \
+    && halley_dinit_service_exists; then
+    export HALLEY_DINIT_SERVICE=1
+
+    cleanup() {
+        dinitctl --user stop halley >/dev/null 2>&1 || true
+    }
+    trap cleanup INT TERM HUP EXIT
+
+    # `dinitctl start` blocks until the service is up; then poll its status and
+    # exit once it is no longer running.
+    if dinitctl --user start halley >/dev/null 2>&1; then
+        while dinitctl --user status halley 2>/dev/null | grep -q 'STARTED'; do
+            sleep 1
+        done
+        exit 0
+    fi
+fi
+
+# ---- universal fallback --------------------------------------------------
+# Used by runit, OpenRC, s6, or any setup without a user service manager.
 exec "$HALLEY_BIN" --session "$@"
