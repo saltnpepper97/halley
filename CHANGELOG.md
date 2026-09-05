@@ -50,6 +50,8 @@ All notable changes to this project will be documented in this file.
 - Drive close custom shaders with linear wall-clock progress instead of the
   CPU shrink/fade ease-in-out cubic, so the effect starts on the first frame
   instead of holding near zero.
+- Refresh the codebase for current Rust Clippy guidance and clear the warning
+  baseline without changing compositor behavior.
 
 ### Fixed
 - Protect scoped accessibility keyboard grabs with the same active screen-reader
