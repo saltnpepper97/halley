@@ -4,8 +4,15 @@ use zbus::fdo;
 use zbus::message::Header;
 use zbus::names::{BusName, OwnedUniqueName, UniqueName, WellKnownName};
 
-fn same_unique_name(sender: &UniqueName<'_>, owner: &UniqueName<'_>) -> bool {
-    sender == owner
+fn authorized_name_owner(
+    sender: &UniqueName<'_>,
+    owner: OwnedUniqueName,
+    denial: &str,
+) -> fdo::Result<OwnedUniqueName> {
+    if sender != &owner.as_ref() {
+        return Err(fdo::Error::AccessDenied(denial.to_owned()));
+    }
+    Ok(owner)
 }
 
 pub(super) async fn require_name_owner(
@@ -26,22 +33,30 @@ pub(super) async fn require_name_owner(
         .get_name_owner(BusName::WellKnown(authorized_name))
         .await
         .map_err(|_| fdo::Error::AccessDenied(denial.to_owned()))?;
-    if !same_unique_name(sender, &owner.as_ref()) {
-        return Err(fdo::Error::AccessDenied(denial.to_owned()));
-    }
-    Ok(owner)
+    authorized_name_owner(sender, owner, denial)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::same_unique_name;
-    use zbus::names::UniqueName;
+    use super::authorized_name_owner;
+    use zbus::{fdo, names::OwnedUniqueName};
 
     #[test]
-    fn unique_name_comparison_rejects_a_different_bus_client() {
-        let authorized = UniqueName::try_from(":1.42").unwrap();
-        let other = UniqueName::try_from(":1.43").unwrap();
-        assert!(same_unique_name(&authorized, &authorized));
-        assert!(!same_unique_name(&other, &authorized));
+    fn name_owner_authorization_accepts_the_owner() {
+        let owner = OwnedUniqueName::try_from(":1.42").unwrap();
+        assert_eq!(
+            authorized_name_owner(&owner.as_ref(), owner.clone(), "denied").unwrap(),
+            owner
+        );
+    }
+
+    #[test]
+    fn name_owner_authorization_rejects_an_untrusted_bus_client() {
+        let owner = OwnedUniqueName::try_from(":1.42").unwrap();
+        let untrusted = OwnedUniqueName::try_from(":1.43").unwrap();
+        assert!(matches!(
+            authorized_name_owner(&untrusted.as_ref(), owner, "denied"),
+            Err(fdo::Error::AccessDenied(message)) if message == "denied"
+        ));
     }
 }

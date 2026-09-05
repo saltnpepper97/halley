@@ -52,6 +52,8 @@ All notable changes to this project will be documented in this file.
   instead of holding near zero.
 
 ### Fixed
+- Protect scoped accessibility keyboard grabs with the same active screen-reader
+  authorization as full keyboard monitoring.
 - Hide Bearings on an output while immersive fullscreen owns it, including
   games and browser video, so chips do not paint over the client. Parked
   fullscreen and field-maximize still allow Bearings.
