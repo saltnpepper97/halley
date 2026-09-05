@@ -77,6 +77,7 @@ fn compositor_chrome_visible(logical_fullscreen: bool, x11_fullscreen: bool) -> 
     !logical_fullscreen && !x11_fullscreen
 }
 
+#[allow(clippy::too_many_arguments)]
 fn opening_shader_elements(
     renderer: &mut GlesRenderer,
     window: &smithay::desktop::Window,

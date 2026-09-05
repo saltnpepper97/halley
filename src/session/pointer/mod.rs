@@ -182,7 +182,7 @@ pub(super) fn relative_motion_allowed<D: SessionDriver>(
         crate::input::pointer::PointerTarget::Layer(_)
         | crate::input::pointer::PointerTarget::Background => None,
     };
-    let routed_is_x11 = routed_window.is_some_and(|window| crate::xwayland::is_x11(window));
+    let routed_is_x11 = routed_window.is_some_and(crate::xwayland::is_x11);
     if !routed_is_x11 {
         return true;
     }

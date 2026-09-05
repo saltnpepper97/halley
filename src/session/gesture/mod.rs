@@ -276,18 +276,18 @@ where
     } else {
         &settings.swipe_bindings
     };
-    let action_bindings = (!pan)
-        .then(|| {
-            bindings
-                .iter()
-                .filter(|binding| {
-                    binding.fingers == fingers
-                        && (session.settings.apogee.enabled || !is_apogee_action(&binding.action))
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let action_bindings = if pan {
+        Vec::new()
+    } else {
+        bindings
+            .iter()
+            .filter(|binding| {
+                binding.fingers == fingers
+                    && (session.settings.apogee.enabled || !is_apogee_action(&binding.action))
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     let scope = if action_bindings
         .iter()
         .any(|binding| is_apogee_action(&binding.action))

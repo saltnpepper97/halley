@@ -152,6 +152,7 @@ impl BackdropBlurRenderer {
         self.outputs.remove(output);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn blur_element(
         &mut self,
         renderer: &mut GlesRenderer,

@@ -815,6 +815,9 @@ fn handle_control_request<D: crate::session::SessionDriver>(
     halley_ipc::Response::Ack
 }
 
+// Returning the protocol response directly keeps request dispatch explicit and
+// avoids a second error translation at each caller.
+#[allow(clippy::result_large_err)]
 fn control_output<D: crate::session::SessionDriver>(
     session: &crate::session::Session<D>,
     requested: Option<&str>,

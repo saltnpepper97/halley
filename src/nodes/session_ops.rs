@@ -1180,16 +1180,15 @@ pub fn reveal_cluster_core<D: crate::session::SessionDriver>(
     if let (Some(output_geometry), Some(view)) = (
         session.wayland.space.output_geometry(&output),
         session.cameras.view(&metadata.output),
-    ) {
-        if pan {
-            let delta = landmark_reveal_delta(
-                crate::presentation::camera::world_viewport(view, output_geometry),
-                metadata.core_position,
-                crate::clusters::CORE_DIAMETER_PX,
-                view.scale,
-            );
-            apply_camera_reveal_delta(session, &metadata.output, delta);
-        }
+    ) && pan
+    {
+        let delta = landmark_reveal_delta(
+            crate::presentation::camera::world_viewport(view, output_geometry),
+            metadata.core_position,
+            crate::clusters::CORE_DIAMETER_PX,
+            view.scale,
+        );
+        apply_camera_reveal_delta(session, &metadata.output, delta);
     }
     session.request_redraw();
     true

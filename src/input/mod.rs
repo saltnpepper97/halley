@@ -315,6 +315,7 @@ pub enum PointerBindingResult {
 
 /// Applies the backend-independent pointer-bind policy: consume the release
 /// paired with an intercepted press and let an exact configured chord win.
+#[allow(clippy::too_many_arguments)]
 pub fn process_pointer_binding(
     binds: &[ResolvedBind],
     mods: &ModifiersState,

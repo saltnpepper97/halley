@@ -151,6 +151,7 @@ impl WindowAnimationShaders {
         self.close.is_some()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn open_element(
         &self,
         renderer: &GlesRenderer,
@@ -178,6 +179,7 @@ impl WindowAnimationShaders {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn close_element(
         &self,
         renderer: &GlesRenderer,
@@ -206,6 +208,7 @@ impl WindowAnimationShaders {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn shader_element(
     texture: &WindowTexture,
     id: Id,

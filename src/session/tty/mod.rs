@@ -769,13 +769,13 @@ fn complete_vblank(
             output.name()
         );
     }
-    if !app.driver.backend.output_dpms_enabled(&output) {
+    if !app.driver.backend.output_dpms_enabled(output) {
         return;
     }
 
     if let Some(mut submission) = submission {
         if let Some(generation) = submission.session_lock_generation {
-            app.session_lock.presented(&output, generation);
+            app.session_lock.presented(output, generation);
         }
         // Keep the prediction attached to its submitted frame for
         // diagnostics, while reporting the kernel page-flip timestamp to

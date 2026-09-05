@@ -1091,13 +1091,15 @@ mod tests {
         };
         use smithay::wayland::shell::xdg::PositionerState;
 
-        let mut positioner = PositionerState::default();
-        positioner.rect_size = (200, 300).into();
-        positioner.anchor_rect = Rectangle::new((50, 50).into(), (1, 1).into());
-        positioner.anchor_edges = Anchor::TopLeft;
-        positioner.gravity = Gravity::BottomRight;
-        positioner.constraint_adjustment = ConstraintAdjustment::SlideX;
-        positioner.offset = (0, 0).into();
+        let positioner = PositionerState {
+            rect_size: (200, 300).into(),
+            anchor_rect: Rectangle::new((50, 50).into(), (1, 1).into()),
+            anchor_edges: Anchor::TopLeft,
+            gravity: Gravity::BottomRight,
+            constraint_adjustment: ConstraintAdjustment::SlideX,
+            offset: (0, 0).into(),
+            ..Default::default()
+        };
 
         let output = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
         let source = output;

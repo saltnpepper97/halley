@@ -1167,14 +1167,13 @@ fn set_entry_vrr(entry: &mut DrmOutputEntry, requested: bool) {
     if let Err(err) = entry
         .drm_output
         .with_compositor(|compositor| compositor.use_vrr(requested))
+        && entry.vrr_failure_warned_for != Some(requested)
     {
-        if entry.vrr_failure_warned_for != Some(requested) {
-            eventline::warn!(
-                "output {name:?}: failed to {} VRR: {err}",
-                if requested { "enable" } else { "disable" }
-            );
-            entry.vrr_failure_warned_for = Some(requested);
-        }
+        eventline::warn!(
+            "output {name:?}: failed to {} VRR: {err}",
+            if requested { "enable" } else { "disable" }
+        );
+        entry.vrr_failure_warned_for = Some(requested);
     }
     entry.vrr_active = entry
         .drm_output
