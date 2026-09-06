@@ -207,6 +207,7 @@ pub struct FullscreenAnimation {
 pub struct NodeAnimation {
     pub enabled: bool,
     pub duration_ms: u32,
+    pub collapse_duration_ms: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,6 +319,7 @@ impl Default for NodeAnimation {
         Self {
             enabled: true,
             duration_ms: 280,
+            collapse_duration_ms: 280,
         }
     }
 }
@@ -481,6 +483,10 @@ pub fn parse_animations(config: &RuneConfig) -> Animations {
         node: NodeAnimation {
             enabled: config.get_or("animations.node.enabled", defaults.node.enabled),
             duration_ms: config.get_or("animations.node.duration-ms", defaults.node.duration_ms),
+            collapse_duration_ms: config.get_or(
+                "animations.node.collapse-duration-ms",
+                defaults.node.collapse_duration_ms,
+            ),
         },
         cluster: ClusterAnimation {
             enabled: config.get_or("animations.cluster.enabled", defaults.cluster.enabled),
@@ -551,6 +557,26 @@ pub fn load_animations() -> Animations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_collapse_defaults_independently_of_existing_durations() {
+        let config = RuneConfig::from_str("animations:\n  node:\n    duration-ms 910\n  end\n  window-close:\n    duration-ms 1800\n  end\nend\n").unwrap();
+        let animations = parse_animations(&config);
+        assert_eq!(animations.node.duration_ms, 910);
+        assert_eq!(animations.node.collapse_duration_ms, 280);
+        assert_eq!(animations.window_close.duration_ms, 1800);
+        assert_eq!(Animations::default().node.collapse_duration_ms, 280);
+    }
+
+    #[test]
+    fn parses_independent_node_collapse_duration_including_zero() {
+        for duration in [0, 470] {
+            let config = RuneConfig::from_str(&format!("animations:\n  node:\n    duration-ms 910\n    collapse-duration-ms {duration}\n  end\nend\n")).unwrap();
+            let animations = parse_animations(&config);
+            assert_eq!(animations.node.duration_ms, 910);
+            assert_eq!(animations.node.collapse_duration_ms, duration);
+        }
+    }
 
     #[test]
     fn parses_window_open_animation() {

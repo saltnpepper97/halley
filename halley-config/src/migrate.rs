@@ -283,6 +283,11 @@ pub fn migrate_config_at(path: &Path, dry_run: bool) -> Result<MigrationReport, 
     if arrange_changed {
         applied.push("arrange animation".to_string());
     }
+    let (backfilled, node_changed) = backfill_node_collapse_animation(&updated);
+    updated = backfilled;
+    if node_changed {
+        applied.push("node collapse animation duration".to_string());
+    }
     let (backfilled, zoom_changed) = backfill_zoom_indicator(&updated)?;
     updated = backfilled;
     if zoom_changed {
@@ -589,6 +594,30 @@ fn block_offsets(source: &str, path: &[&str]) -> Option<(usize, usize)> {
         offset += line.len();
     }
     None
+}
+
+fn backfill_node_collapse_animation(source: &str) -> (String, bool) {
+    if let Some((body_start, end)) = block_offsets(source, &["animations", "node"]) {
+        if has_assignment(&source[body_start..end], "collapse-duration-ms") {
+            return (source.to_string(), false);
+        }
+        let mut updated = source.to_string();
+        updated.insert_str(end, "    collapse-duration-ms 280\n");
+        return (updated, true);
+    }
+    let node_block = "  node:\n    collapse-duration-ms 280\n  end\n";
+    let mut updated = source.to_string();
+    if let Some((_, end)) = block_offsets(source, &["animations"]) {
+        updated.insert_str(end, node_block);
+    } else {
+        if !updated.is_empty() && !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str("animations:\n");
+        updated.push_str(node_block);
+        updated.push_str("end\n");
+    }
+    (updated, true)
 }
 
 fn backfill_arrange_animation(source: &str) -> Result<(String, bool), MigrationError> {
@@ -1081,6 +1110,52 @@ mod tests {
         assert!(
             updated.contains("\"$var.mod+ctrl+left\" \"resize-window-left\" with scope \"field\"")
         );
+    }
+
+    #[test]
+    fn node_collapse_backfill_preserves_customization_and_is_idempotent() {
+        for existing in [
+            "",
+            "animations:\nend\n",
+            "animations:\n  node:\n    duration-ms 910\n    enabled false\n  end\nend\n",
+        ] {
+            let (updated, changed) = backfill_node_collapse_animation(existing);
+            assert!(changed);
+            let parsed =
+                crate::parse_animations(&rune_cfg::RuneConfig::from_str(&updated).unwrap());
+            assert_eq!(parsed.node.collapse_duration_ms, 280);
+            if existing.contains("910") {
+                assert_eq!(parsed.node.duration_ms, 910);
+                assert!(!parsed.node.enabled);
+            }
+            assert_eq!(backfill_node_collapse_animation(&updated), (updated, false));
+        }
+        for duration in [0, 630] {
+            let existing =
+                format!("animations:\n  node:\n    collapse-duration-ms {duration}\n  end\nend\n");
+            assert_eq!(
+                backfill_node_collapse_animation(&existing),
+                (existing, false)
+            );
+        }
+    }
+
+    #[test]
+    fn migration_writes_missing_node_collapse_duration() {
+        let scratch = ScratchDir::new("node-collapse");
+        let path = scratch.config();
+        fs::write(&path, minimal("")).unwrap();
+        let report = migrate_config_at(&path, false).unwrap();
+        assert!(
+            report
+                .applied
+                .iter()
+                .any(|item| item == "node collapse animation duration")
+        );
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("collapse-duration-ms 280"));
+        migrate_config_at(&path, false).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), updated);
     }
 
     #[test]

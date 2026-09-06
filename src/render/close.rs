@@ -102,11 +102,12 @@ impl WindowCloseAnimations {
         window: &Window,
         texture: super::window_texture::WindowTexture,
         metadata: CloseSnapshotMetadata,
+        node_collapse: bool,
     ) -> Result<bool, Box<dyn Error>> {
         let Some(surface) = window.wl_surface().map(|surface| surface.into_owned()) else {
             return Ok(false);
         };
-        if !close_enabled(&self.config) {
+        if !snapshot_enabled(&self.config, node_collapse) {
             self.provisional.remove(&surface);
             self.pending.remove(&surface);
             return Ok(false);
@@ -138,11 +139,12 @@ impl WindowCloseAnimations {
         let Some(captured) = self.pending.remove(surface) else {
             return false;
         };
-        if !close_enabled(&self.config) {
+        let node_collapse = captured.metadata.collapse_target.is_some();
+        if !snapshot_enabled(&self.config, node_collapse) {
             return false;
         }
 
-        let config = self.config.window_close.clone();
+        let config = snapshot_animation(&self.config, node_collapse);
         self.active.insert(
             surface.clone(),
             ActiveClose {
@@ -218,8 +220,10 @@ impl WindowCloseAnimations {
         if !close_enabled(&self.config) {
             self.provisional.clear();
             self.speculative.clear();
-            self.pending.clear();
         }
+        self.pending.retain(|_, captured| {
+            snapshot_enabled(&self.config, captured.metadata.collapse_target.is_some())
+        });
     }
 
     pub fn is_animating_on_output(&self, output: &Output, now: Duration) -> bool {
@@ -392,6 +396,30 @@ fn collapse_destination(
     )
 }
 
+fn snapshot_enabled(config: &Animations, node_collapse: bool) -> bool {
+    if node_collapse {
+        config.enabled && config.node.enabled && config.node.collapse_duration_ms > 0
+    } else {
+        close_enabled(config)
+    }
+}
+
+fn snapshot_animation(
+    config: &Animations,
+    node_collapse: bool,
+) -> halley_config::WindowCloseAnimation {
+    if node_collapse {
+        halley_config::WindowCloseAnimation {
+            enabled: config.node.enabled,
+            duration_ms: config.node.collapse_duration_ms,
+            animation_type: halley_config::WindowCloseAnimationType::Shrink,
+            custom_shader: None,
+        }
+    } else {
+        config.window_close.clone()
+    }
+}
+
 fn close_enabled(config: &Animations) -> bool {
     config.enabled && config.window_close.enabled && config.window_close.duration_ms > 0
 }
@@ -452,6 +480,46 @@ mod tests {
         animations.window_close.enabled = true;
         animations.window_close.duration_ms = 0;
         assert!(!close_enabled(&animations));
+    }
+
+    #[test]
+    fn node_collapse_timeline_is_independent_of_marker_and_close_shader() {
+        let mut animations = Animations::default();
+        animations.node.duration_ms = 900;
+        animations.node.collapse_duration_ms = 280;
+        animations.window_close.duration_ms = 1700;
+        animations.window_close.custom_shader = Some("close.frag".into());
+        let collapse =
+            CloseTimeline::new(snapshot_animation(&animations, true), Duration::ZERO, 1.0);
+        let close = CloseTimeline::new(snapshot_animation(&animations, false), Duration::ZERO, 1.0);
+        assert!(!collapse.shader_pixels());
+        assert!(close.shader_pixels());
+        assert_eq!(collapse.visual_at(Duration::from_millis(140)).progress, 0.5);
+        assert!(collapse.is_finished_at(Duration::from_millis(280)));
+        assert!(!close.is_finished_at(Duration::from_millis(280)));
+        assert!(close.is_finished_at(Duration::from_millis(1700)));
+        assert_eq!(animations.node.duration_ms, 900);
+    }
+
+    #[test]
+    fn node_collapse_has_its_own_enable_and_zero_duration_policy() {
+        let mut animations = Animations::default();
+        animations.window_close.enabled = false;
+        animations.window_close.duration_ms = 0;
+        animations.node.duration_ms = 0;
+        assert!(snapshot_enabled(&animations, true));
+        assert!(!snapshot_enabled(&animations, false));
+        animations.node.collapse_duration_ms = 0;
+        assert!(!snapshot_enabled(&animations, true));
+        animations.node.collapse_duration_ms = 280;
+        animations.node.enabled = false;
+        assert!(!snapshot_enabled(&animations, true));
+        animations.node.enabled = true;
+        animations.enabled = false;
+        assert!(!snapshot_enabled(&animations, true));
+        animations = Animations::default();
+        animations.node.enabled = false;
+        assert!(snapshot_enabled(&animations, false));
     }
 
     #[test]

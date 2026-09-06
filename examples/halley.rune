@@ -826,7 +826,8 @@ animations:
 
   node:
     enabled true
-    duration-ms 280
+    duration-ms 280 # Node marker appearance.
+    collapse-duration-ms 280 # Window snapshot shrinking/traveling into the node.
   end
 
   cluster:

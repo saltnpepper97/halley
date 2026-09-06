@@ -64,16 +64,23 @@ pub(crate) fn capture_window<D: SessionDriver>(session: &mut Session<D>, window:
 /// full-window capture can delay unrelated input on every output. Prefer an
 /// existing overview snapshot and otherwise use the single-pass client
 /// capture for windows without a server-side titlebar.
-pub(crate) fn capture_window_for_decay<D: SessionDriver>(
+pub(crate) fn capture_window_for_node<D: SessionDriver>(
     session: &mut Session<D>,
     window: &Window,
+    decay: bool,
 ) -> bool {
-    capture_window_inner(session, window, false, CaptureKind::Decay)
+    let kind = if decay {
+        CaptureKind::Decay
+    } else {
+        CaptureKind::Node
+    };
+    capture_window_inner(session, window, false, kind)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CaptureKind {
     Decorated,
+    Node,
     Decay,
 }
 
@@ -294,6 +301,7 @@ fn capture_window_inner<D: SessionDriver>(
                 window,
                 cached.expect("cached capture path requires a texture"),
                 decorated_metadata,
+                kind != CaptureKind::Decorated,
             ),
             CapturePath::Client => {
                 let texture = crate::render::window_texture::capture(renderer, window, None)?;
@@ -302,7 +310,12 @@ fn capture_window_inner<D: SessionDriver>(
                     // the now-unmapped node. Overlay chrome supplies its frame.
                     overlay_previews.store_last_good(id, texture.clone(), maximized);
                 }
-                window_close_animations.capture(window, texture, client_metadata)
+                window_close_animations.capture(
+                    window,
+                    texture,
+                    client_metadata,
+                    kind != CaptureKind::Decorated,
+                )
             }
             CapturePath::Decorated => {
                 let texture = crate::render::window_texture::capture_decorated(
@@ -322,7 +335,12 @@ fn capture_window_inner<D: SessionDriver>(
                 if let Some(id) = preview_id {
                     overlay_previews.store_last_good(id, texture.clone(), maximized);
                 }
-                window_close_animations.capture(window, texture, decorated_metadata)
+                window_close_animations.capture(
+                    window,
+                    texture,
+                    decorated_metadata,
+                    kind != CaptureKind::Decorated,
+                )
             }
         }
     });

@@ -583,3 +583,27 @@ fn example_config_view_has_no_hardware_overrides_by_default() {
     assert_eq!(view.outputs, Vec::new());
     assert_eq!(view.focus_rings.by_output.len(), 2);
 }
+
+#[test]
+fn all_templates_ship_explicit_node_collapse_duration() {
+    for path in [EXAMPLE_PATH, SPLIT_EXAMPLE_PATH] {
+        let config = RuneConfig::from_file(path).unwrap();
+        assert_eq!(
+            config
+                .get_optional::<u32>("animations.node.collapse-duration-ms")
+                .unwrap(),
+            Some(280)
+        );
+        assert_eq!(
+            halley_config::parse_animations(&config).node.duration_ms,
+            280
+        );
+    }
+    let config = RuneConfig::from_str(halley_config::DEFAULT_CONFIG).unwrap();
+    assert_eq!(
+        config
+            .get_optional::<u32>("animations.node.collapse-duration-ms")
+            .unwrap(),
+        Some(280)
+    );
+}

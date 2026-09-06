@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add `animations.node.collapse-duration-ms` (280 ms by default) for the window
+  snapshot shrinking and traveling into a node, independent of marker appearance
+  and ordinary window-close/custom-shader duration. Manual `Mod+N` collapse and
+  automatic decay use it; existing configs receive the setting through migration.
 - Add smooth, output-local `Mod+A` `arrange-visible` Field mosaics for
   ordinary windows centered in the active output's visible work area, with
   constraint-aware exclusions and minimum-travel placement. Pressing `Mod+A`

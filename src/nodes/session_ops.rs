@@ -693,11 +693,7 @@ fn collapse_inner<D: crate::session::SessionDriver>(
     let logical_focus =
         logical_focus_after_collapse(session.nodes.focused(), id, client_was_focused);
 
-    let _ = if decay {
-        crate::session::closing::capture_window_for_decay(session, &record.window)
-    } else {
-        crate::session::closing::capture_window(session, &record.window)
-    };
+    let _ = crate::session::closing::capture_window_for_node(session, &record.window, decay);
     if let Some(restore) = session.maximize.take_restore(&record.surface) {
         session.render.fullscreen_textures.remove(&restore.surface);
         crate::session::configure_field_geometry(session, &restore);

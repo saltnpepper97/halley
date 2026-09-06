@@ -171,6 +171,7 @@ mod tests {
             "maximize:",
             "motion \"easing\"",
             "duration-ms 240",
+            "collapse-duration-ms 280",
             "damping-ratio 1.0",
             "stiffness 800.0",
             "bloom-direction \"clockwise\"",
