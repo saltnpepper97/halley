@@ -2,7 +2,7 @@ mod constraints;
 
 pub(super) use constraints::PointerConstraintLifecycle;
 
-use smithay::input::pointer::{MotionEvent, PointerHandle, RelativeMotionEvent};
+use smithay::input::pointer::{ClickGrab, MotionEvent, PointerHandle, RelativeMotionEvent};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use smithay::wayland::seat::WaylandFocus;
@@ -81,9 +81,74 @@ fn desktop_refresh_allowed(blockers: DesktopRefreshBlockers) -> bool {
         && !blockers.fullscreen_active
 }
 
+/// Smithay's default click grab retains the mouse-down focus origin. A
+/// client-positioned popup can move underneath that grab, so rebase its current
+/// local coordinates onto that fixed origin before Smithay subtracts it.
+fn popup_grab_location(
+    grab_origin: Point<f64, Logical>,
+    current_source: Point<f64, Logical>,
+    current_origin: Point<f64, Logical>,
+) -> Point<f64, Logical> {
+    grab_origin + (current_source - current_origin)
+}
+
+fn route_grabbed_popup<D: SessionDriver>(
+    session: &Session<D>,
+) -> Option<crate::input::pointer::PointerRoute> {
+    if !matches!(session.interactions.grab, crate::input::grab::Grab::None) {
+        return None;
+    }
+    let pointer = session.seat.get_pointer()?;
+    let (surface, grab_origin) = pointer.with_grab(|_, grab| {
+        grab.downcast_ref::<ClickGrab<Session<D>>>()
+            .and_then(|_| grab.start_data().focus.clone())
+    })??;
+    let window = session.wayland.space.elements().find(|window| {
+        crate::xwayland::is_override_redirect(window)
+            && window
+                .wl_surface()
+                .is_some_and(|candidate| candidate.as_ref() == &surface)
+    })?;
+    let output = session.wayland.space.outputs().find(|output| {
+        crate::wayland::window_is_on_output(window, output, session.driver.primary_output())
+    })?;
+    let presentation = crate::presentation::window::WindowPresentation::for_window(
+        &session.wayland.space,
+        &session.cameras,
+        Some(&session.clusters),
+        Some(&session.nodes),
+        &session.window_animations,
+        &session.fullscreen,
+        &session.maximize,
+        &session.settings.decorations,
+        &session.settings.font,
+        window,
+        output,
+        crate::frame_clock::monotonic_now(),
+    )?;
+    let source = presentation.source_from_screen(session.pointer.position().into());
+    Some(crate::input::pointer::PointerRoute {
+        output: output.clone(),
+        location: popup_grab_location(
+            grab_origin,
+            source,
+            presentation.root_source_origin().to_f64(),
+        ),
+        focus: Some((surface, grab_origin)),
+        target: crate::input::pointer::PointerTarget::Window(window.clone()),
+        visual_geometry: Some(presentation.visual_geometry()),
+        // A held client click keeps its original target, including outside its
+        // shaped input region. Normal hit testing resumes after button release.
+        is_desktop_popup: true,
+    })
+}
+
 pub(super) fn route_client<D: SessionDriver>(
     session: &Session<D>,
 ) -> Option<crate::input::pointer::PointerRoute> {
+    if let Some(route) = route_grabbed_popup(session) {
+        return Some(route);
+    }
     let mut route = crate::input::pointer::route_to_client(
         crate::input::pointer::PointerRoutingContext {
             space: &session.wayland.space,
@@ -651,6 +716,55 @@ mod tests {
         should_emit_absolute_motion, should_refresh_constraint_focus,
         xwayland_relative_motion_allowed,
     };
+
+    #[test]
+    fn moving_popup_does_not_feed_its_own_motion_back_into_pointer_coordinates() {
+        let grab_origin = (1400.0, -300.0).into();
+        let pointer_screen = (1800.0, 1100.0);
+        for origin in [(1400.0, -300.0), (1410.0, -290.0), (2245.0, -1350.0)] {
+            let event =
+                super::popup_grab_location(grab_origin, pointer_screen.into(), origin.into());
+            // Smithay subtracts its frozen origin; XWayland reconstructs root
+            // pointer coordinates using the window's current X11 origin.
+            let client_local = event - grab_origin;
+            assert_eq!(
+                client_local + smithay::utils::Point::<f64, smithay::utils::Logical>::from(origin),
+                smithay::utils::Point::<f64, smithay::utils::Logical>::from(pointer_screen),
+            );
+        }
+    }
+
+    #[test]
+    fn popup_grab_coordinates_follow_target_across_output_camera_transforms() {
+        let grab_origin = (7000.0, -1800.0).into();
+        let expected_local = (370.0, 1400.0);
+        // Different output origins, camera offsets and zoom scales. Coordinates
+        // from another window under the pointer must never enter this equation.
+        for (screen_origin, world_origin, scale) in [
+            ((1400.0, -300.0), (7000.0, -1800.0), 1.0),
+            ((2560.0, -1000.0), (-8000.0, 9500.0), 0.5),
+            ((3100.0, -1300.0), (24000.0, -12500.0), 1.75),
+        ] {
+            let screen = (
+                screen_origin.0 + expected_local.0 * scale,
+                screen_origin.1 + expected_local.1 * scale,
+            );
+            let source = (
+                world_origin.0 + (screen.0 - screen_origin.0) / scale,
+                world_origin.1 + (screen.1 - screen_origin.1) / scale,
+            );
+            let event = super::popup_grab_location(grab_origin, source.into(), world_origin.into());
+            assert_eq!(event - grab_origin, expected_local.into());
+        }
+    }
+
+    #[test]
+    fn held_popup_click_keeps_outside_coordinates_without_clamping() {
+        let grab_origin = (500.0, -300.0).into();
+        let current_origin = (700.0, -900.0).into();
+        let event = super::popup_grab_location(grab_origin, (600.0, 2100.0).into(), current_origin);
+        assert_eq!(event - grab_origin, (-100.0, 3000.0).into());
+    }
 
     #[test]
     fn interactive_overlays_force_the_cursor_visible() {

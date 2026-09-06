@@ -58,6 +58,9 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Keep client-dragged XWayland popups in their grabbed surface's coordinate
+  system as they move across windows and output cameras, preventing stale
+  mouse-down origins from turning popup movement into extra pointer movement.
 - Honor client-supplied input regions on XWayland override-redirect popups, so
   transparent margins around shaped overlays such as ChatGPT voice controls
   pass pointer input through to windows underneath.
