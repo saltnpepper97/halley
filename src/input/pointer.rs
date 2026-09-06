@@ -8,6 +8,7 @@ use smithay::input::pointer::AxisFrame;
 use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle};
+use smithay::wayland::compositor::{RegionAttributes, SurfaceAttributes, with_states};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::wlr_layer::Layer;
 
@@ -573,9 +574,8 @@ fn window_under(
 fn visual_bounds_required(hit_kind: WindowHitKind, is_x11: bool) -> bool {
     // Native popup trees perform their own surface-local hit testing and may
     // legitimately extend beyond the toplevel's visual rectangle. X11
-    // override-redirect windows are independent rectangular surfaces; the
-    // X11 fast path below intentionally skips surface-tree input regions, so
-    // it must retain this explicit bounds gate in the popup plane.
+    // override-redirect windows are independent surfaces. Retain this bounds
+    // gate as well as their surface-local input-region check below.
     hit_kind == WindowHitKind::Any || is_x11
 }
 
@@ -615,13 +615,10 @@ fn decoration_hit_at(
 
 /// Resolves the client surface under a window-local point.
 ///
-/// X11 toplevels deliberately skip both the input region and the surface-tree
-/// walk. XWayland derives a `wl_surface` input region from the X window's input
-/// shape, and an X11 client's idea of that shape is expressed against the X
-/// server's geometry rather than the compositor's placement. Consulting it lets
-/// a stale region silently drop the window out of routing. Hyprland made the
-/// same call: its hit tester asserts it is never asked to walk an X11 surface
-/// tree and returns `pos - window_location` unconditionally.
+/// Managed X11 windows retain the compatibility fast path: their input shape
+/// can lag compositor-owned geometry changes. Override-redirect windows are
+/// client-positioned, so honor the surface-local input shape XWayland supplies.
+/// Their transparent margins must not steal input from surfaces underneath.
 fn window_focus(
     window: &Window,
     location: Point<f64, Logical>,
@@ -634,6 +631,14 @@ fn window_focus(
             return None;
         }
         let surface = window.wl_surface()?.into_owned();
+        if crate::xwayland::is_override_redirect(window)
+            && !with_states(&surface, |states| {
+                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+                popup_input_region_contains(attributes.current().input_region.as_ref(), local)
+            })
+        {
+            return None;
+        }
         return Some((surface, render_location.to_f64()));
     }
     if !window.is_in_input_region(&local) {
@@ -642,6 +647,13 @@ fn window_focus(
     window
         .surface_under(local, surface_type)
         .map(|(surface, surface_location)| (surface, (surface_location + render_location).to_f64()))
+}
+
+fn popup_input_region_contains(
+    region: Option<&RegionAttributes>,
+    local: Point<f64, Logical>,
+) -> bool {
+    region.is_none_or(|region| region.contains(local.to_i32_floor()))
 }
 
 fn exclusive_pointer_member_is_allowed(
@@ -799,6 +811,74 @@ mod tests {
         assert!(visual_bounds_required(WindowHitKind::Any, true));
         assert!(visual_bounds_required(WindowHitKind::Any, false));
         assert!(!visual_bounds_required(WindowHitKind::Popup, false));
+    }
+
+    #[test]
+    fn shaped_x11_popup_passes_through_tall_transparent_margins() {
+        use smithay::wayland::compositor::{RectangleKind, RegionAttributes};
+        // Representative live ChatGPT voice input shape inside its 772x2849
+        // bounding rectangle. Shape coordinates are local, not output-global.
+        let region = RegionAttributes {
+            rects: vec![
+                (
+                    RectangleKind::Add,
+                    Rectangle::new((225, 1296).into(), (293, 56).into()),
+                ),
+                (
+                    RectangleKind::Add,
+                    Rectangle::new((315, 1354).into(), (113, 121).into()),
+                ),
+            ],
+        };
+        for point in [
+            (370.0, 100.0),
+            (370.0, 2300.0),
+            (100.0, 1400.0),
+            (370.0, 1353.0),
+        ] {
+            assert!(!super::popup_input_region_contains(
+                Some(&region),
+                point.into()
+            ));
+        }
+        for point in [(230.0, 1300.0), (370.0, 1400.0)] {
+            assert!(super::popup_input_region_contains(
+                Some(&region),
+                point.into()
+            ));
+        }
+    }
+
+    #[test]
+    fn popup_input_region_preserves_empty_default_and_subtracted_holes() {
+        use smithay::wayland::compositor::{RectangleKind, RegionAttributes};
+        let point = (20.0, 20.0).into();
+        assert!(super::popup_input_region_contains(None, point));
+        assert!(!super::popup_input_region_contains(
+            Some(&RegionAttributes::default()),
+            point
+        ));
+        let region = RegionAttributes {
+            rects: vec![
+                (
+                    RectangleKind::Add,
+                    Rectangle::new((0, 0).into(), (100, 100).into()),
+                ),
+                (
+                    RectangleKind::Subtract,
+                    Rectangle::new((10, 10).into(), (20, 20).into()),
+                ),
+            ],
+        };
+        assert!(!super::popup_input_region_contains(Some(&region), point));
+        assert!(super::popup_input_region_contains(
+            Some(&region),
+            (40.0, 40.0).into()
+        ));
+        assert!(!super::popup_input_region_contains(
+            Some(&region),
+            (-0.1, 40.0).into()
+        ));
     }
 
     #[test]

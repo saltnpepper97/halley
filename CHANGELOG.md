@@ -58,6 +58,9 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Honor client-supplied input regions on XWayland override-redirect popups, so
+  transparent margins around shaped overlays such as ChatGPT voice controls
+  pass pointer input through to windows underneath.
 - Require a matching left-button press and release on the same Steam close
   control before starting its close animation. Releasing a scrollbar drag over
   the close button no longer briefly hides and restores the still-open window;
