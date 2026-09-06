@@ -65,6 +65,9 @@ pub(super) fn forget_window<D: SessionDriver>(
     let Some(window) = window_for_surface(&session.wayland, &session.nodes, surface) else {
         return was_pending;
     };
+    if session.interactions.steam_close_pressed.as_ref() == Some(&window) {
+        session.interactions.steam_close_pressed = None;
+    }
     if let Some(geometry) = session.wayland.space.element_geometry(&window) {
         remember_normal_size(session, surface, geometry.size);
     }

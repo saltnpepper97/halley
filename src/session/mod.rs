@@ -201,6 +201,7 @@ pub(crate) fn cancel_grab_for_surface<D: SessionDriver>(
 /// destruction all use this path so a held workspace window cannot remain
 /// floating or assigned to the wrong output.
 pub(crate) fn cancel_compositor_grab<D: SessionDriver>(session: &mut Session<D>) {
+    session.interactions.steam_close_pressed = None;
     let provisional_cluster = match &session.interactions.grab {
         crate::input::grab::Grab::MoveWindow {
             id: Some(id),

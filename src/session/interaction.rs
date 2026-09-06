@@ -18,6 +18,7 @@ pub struct InteractionState {
     pub(crate) pointer_constraints: super::pointer::PointerConstraintLifecycle,
     pub(crate) client_pointer_route: Option<super::pointer::ClientPointerRoute>,
     pub(crate) titlebar_hovered: Option<crate::titlebar::ButtonTarget>,
+    pub(crate) steam_close_pressed: Option<smithay::desktop::Window>,
     pub(crate) titlebar_pressed: Option<crate::titlebar::ButtonTarget>,
     pub(crate) titlebar_last_click: Option<crate::titlebar::LastClick>,
 }
@@ -35,6 +36,7 @@ impl Default for InteractionState {
             client_pointer_route: None,
             titlebar_hovered: None,
             titlebar_pressed: None,
+            steam_close_pressed: None,
             titlebar_last_click: None,
         }
     }

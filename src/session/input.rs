@@ -139,6 +139,35 @@ fn dismiss_lift_on_outside_press<D: SessionDriver>(
     }
 }
 
+// Retire the previous press before any input interception can return early.
+// Only the final client-forwarding path may arm a new press or use this release.
+fn take_steam_close_press<T>(pending: &mut Option<T>, button: u32) -> Option<T> {
+    if button == BTN_LEFT {
+        pending.take()
+    } else {
+        None
+    }
+}
+
+fn forwarded_steam_close_button<T: PartialEq>(
+    pending: &mut Option<T>,
+    previous: Option<T>,
+    button: u32,
+    state: ButtonState,
+    target: Option<T>,
+) -> Option<T> {
+    if button != BTN_LEFT {
+        return None;
+    }
+    match state {
+        ButtonState::Pressed => {
+            *pending = target;
+            None
+        }
+        ButtonState::Released => target.filter(|target| previous.as_ref() == Some(target)),
+    }
+}
+
 fn steam_client_close_target(
     route: Option<&crate::input::pointer::PointerRoute>,
 ) -> Option<Window> {
@@ -1477,17 +1506,30 @@ where
     D: SessionDriver,
     B: InputBackend,
 {
+    let steam_close_press = match event {
+        InputEvent::PointerButton { event } => take_steam_close_press(
+            &mut session.interactions.steam_close_pressed,
+            event.button_code(),
+        ),
+        InputEvent::DeviceRemoved { .. } => {
+            session.interactions.steam_close_pressed = None;
+            None
+        }
+        _ => None,
+    };
     if is_user_activity(event) {
         let seat = session.seat.clone();
         session.idle_notifier_state.notify_activity(&seat);
     }
     if session.session_lock.active() {
+        session.interactions.steam_close_pressed = None;
         crate::wayland::session_lock::handle_input(session, event);
         return;
     }
     if session.shell.overlays.confirmation_modal_active()
         && !matches!(event, InputEvent::Keyboard { .. })
     {
+        session.interactions.steam_close_pressed = None;
         match event {
             InputEvent::PointerMotion { .. } | InputEvent::PointerMotionAbsolute { .. } => {
                 session
@@ -3562,10 +3604,13 @@ where
         }
 
         if forward_pointer_button(intercepted, finishing_client_move) {
-            if button == BTN_LEFT
-                && state == ButtonState::Released
-                && let Some(window) = steam_client_close_target(route.as_ref())
-            {
+            if let Some(window) = forwarded_steam_close_button(
+                &mut session.interactions.steam_close_pressed,
+                steam_close_press,
+                button,
+                state,
+                steam_client_close_target(route.as_ref()),
+            ) {
                 super::closing::start_steam_client_close_control(session, &window);
             }
             pointer_handle.button(
@@ -3757,6 +3802,117 @@ mod tests {
         releases_pending_window_move, sampled_drag_velocity, shortcut_policy_allows_bindings,
         stacking_cycle_direction, typing_abandons_bloom,
     };
+    // Model the real two-phase dispatch: consume pending state before interception,
+    // then call the forwarding hook only for events delivered to the client.
+    fn steam_button(
+        pending: &mut Option<u32>,
+        button: u32,
+        state: ButtonState,
+        target: Option<u32>,
+        forwarded: bool,
+    ) -> Option<u32> {
+        let previous = super::take_steam_close_press(pending, button);
+        if forwarded {
+            super::forwarded_steam_close_button(pending, previous, button, state, target)
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn steam_close_scrollbar_press_does_not_arm_close_release() {
+        let mut pending = None;
+        steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, None, true);
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            None
+        );
+    }
+
+    #[test]
+    fn steam_close_matching_click_fires_once() {
+        let mut pending = None;
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, Some(1), true),
+            None
+        );
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            Some(1)
+        );
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            None
+        );
+    }
+
+    #[test]
+    fn steam_close_release_elsewhere_cancels() {
+        for target in [None, Some(2)] {
+            let mut pending = None;
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, Some(1), true);
+            assert_eq!(
+                steam_button(&mut pending, BTN_LEFT, ButtonState::Released, target, true),
+                None
+            );
+            assert_eq!(pending, None);
+        }
+    }
+
+    #[test]
+    fn steam_close_intercepted_buttons_cannot_arm_or_retain_press() {
+        let mut pending = None;
+        steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, Some(1), false);
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            None
+        );
+        steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, Some(1), true);
+        steam_button(
+            &mut pending,
+            BTN_LEFT,
+            ButtonState::Released,
+            Some(1),
+            false,
+        );
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            None
+        );
+    }
+
+    #[test]
+    fn steam_close_new_press_replaces_stale_target() {
+        let mut pending = Some(1);
+        steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, None, true);
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            None
+        );
+    }
+
+    #[test]
+    fn steam_close_other_buttons_neither_arm_nor_complete_left_click() {
+        let mut pending = None;
+        steam_button(&mut pending, BTN_RIGHT, ButtonState::Pressed, Some(1), true);
+        assert_eq!(pending, None);
+        steam_button(&mut pending, BTN_LEFT, ButtonState::Pressed, Some(1), true);
+        assert_eq!(
+            steam_button(
+                &mut pending,
+                BTN_RIGHT,
+                ButtonState::Released,
+                Some(1),
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            steam_button(&mut pending, BTN_LEFT, ButtonState::Released, Some(1), true),
+            Some(1)
+        );
+    }
+
     fn sample_constant_motion(report_hz: u32) -> Vec2 {
         let step = Duration::from_secs_f64(1.0 / f64::from(report_hz));
         let mut previous = Vec2 { x: 0.0, y: 0.0 };

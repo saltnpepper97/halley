@@ -552,6 +552,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     // The switch may prevent every held key's release from
                     // reaching this VT. Do not retain compositor release-pair
                     // bookkeeping across that boundary.
+                    app.interactions.steam_close_pressed = None;
                     app.interactions.suppressed_keys.clear();
                     app.key_repeat.cancel();
                     match app.driver.backend.change_vt(vt) {
@@ -620,6 +621,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     eventline::info!("session event: pause");
                     let was_paused = app.driver.pause_reasons.any();
                     app.driver.pause_reasons.session = true;
+                    app.interactions.steam_close_pressed = None;
                     libinput_for_session.suspend();
                     if !was_paused {
                         suspend_redraw_state(app, &loop_handle);
