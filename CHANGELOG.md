@@ -54,6 +54,10 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Require a matching left-button press and release on the same Steam close
+  control before starting its close animation. Releasing a scrollbar drag over
+  the close button no longer briefly hides and restores the still-open window;
+  genuine close clicks retain the workaround for Steam's black teardown frames.
 - Protect scoped accessibility keyboard grabs with the same active screen-reader
   authorization as full keyboard monitoring.
 - Hide Bearings on an output while immersive fullscreen owns it, including
