@@ -58,6 +58,9 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Dismiss grabbed native popup menus on presses outside their popup tree,
+  including elsewhere on the same panel, before dispatching the outside click
+  normally. Menu button events take priority over desktop bindings.
 - Track visibility for layer-shell popup trees as well as their parent panels,
   so visible tray menus receive normal frame callbacks instead of the hidden
   surface throttle that made hover highlights update slowly.

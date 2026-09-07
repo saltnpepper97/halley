@@ -994,7 +994,7 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
         let grab =
             wayland::popup::begin_grab(&mut self.wayland.popup_manager, &seat, surface, serial);
         if let Some(grab) = grab {
-            wayland::popup::install_grab(self, &seat, grab, serial);
+            self.popup_grab = wayland::popup::install_grab(self, &seat, grab, serial);
         }
     }
 }

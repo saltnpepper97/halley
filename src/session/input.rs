@@ -2779,7 +2779,60 @@ where
                 _ => {}
             }
         }
-        let route = super::pointer::route_for_discrete_input(session, time);
+        let mut route = super::pointer::route_for_discrete_input(session, time);
+        let native_popup_grab = pointer_handle
+            .with_grab(|_, grab| {
+                grab.downcast_ref::<smithay::desktop::PopupPointerGrab<Session<D>>>()
+                    .is_some()
+            })
+            .unwrap_or(false);
+        if native_popup_grab && let Some(mut grab) = session.popup_grab.take() {
+            let popup_roots = grab
+                .pointer_grab_start_data()
+                .focus
+                .as_ref()
+                .map(|(root, _)| {
+                    smithay::desktop::PopupManager::popups_for_surface(root)
+                        .map(|(popup, _)| popup.wl_surface().clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let target_root = route
+                .as_ref()
+                .and_then(|route| route.focus.as_ref())
+                .map(|(surface, _)| wayland::compositor::root_surface(surface));
+            if !grab.has_ended()
+                && wayland::popup::outside_popup_press(
+                    state == ButtonState::Pressed,
+                    target_root.as_ref(),
+                    &popup_roots,
+                )
+            {
+                grab.ungrab(smithay::desktop::PopupUngrabStrategy::All);
+                // Motion retires Smithay's ended pointer/keyboard grabs and
+                // restores the actual outside target before normal dispatch.
+                // Do not deliver a synthetic button or consume the real click.
+                route = super::pointer::route_for_motion(session, time);
+                session.request_redraw();
+            } else if !grab.has_ended() {
+                session.popup_grab = Some(grab);
+                // The popup owns this event, including releases. Compositor
+                // bindings and desktop interactions must not steal it.
+                pointer_handle.button(
+                    session,
+                    &ButtonEvent {
+                        serial,
+                        time,
+                        button,
+                        state,
+                    },
+                );
+                super::pointer::finish_frame(session, &pointer_handle);
+                return;
+            }
+        } else if !native_popup_grab {
+            session.popup_grab = None;
+        }
         dismiss_lift_on_outside_press(session, route.as_ref(), button, state);
         if session.clusters.accepts_modal_input() {
             let naming_output = session

@@ -404,6 +404,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         wayland,
         seat_state,
         seat,
+        popup_grab: None,
         idle_notifier_state,
         presentation_state,
         drm_syncobj_state,
