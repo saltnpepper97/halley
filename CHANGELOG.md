@@ -58,6 +58,9 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Track visibility for layer-shell popup trees as well as their parent panels,
+  so visible tray menus receive normal frame callbacks instead of the hidden
+  surface throttle that made hover highlights update slowly.
 - Keep client-dragged XWayland popups in their grabbed surface's coordinate
   system as they move across windows and output cameras, preventing stale
   mouse-down origins from turning popup movement into extra pointer movement.

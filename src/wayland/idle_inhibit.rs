@@ -74,7 +74,10 @@ impl<D: SessionDriver> Session<D> {
             }
         }
         for layer in layer_map_for_output(output).layers() {
-            with_surfaces_surface_tree(layer.wl_surface(), |surface, states| {
+            // Layer popups are separate surface trees. Match LayerSurface's
+            // frame-callback traversal so visible menus receive output-rate
+            // callbacks instead of the hidden-surface fallback throttle.
+            layer.with_surfaces(|surface, states| {
                 update_surface_primary_scanout_output(
                     surface,
                     output,
