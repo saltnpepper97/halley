@@ -61,6 +61,8 @@ All notable changes to this project will be documented in this file.
   baseline without changing compositor behavior.
 
 ### Fixed
+- Connect clipboard and primary-selection transfers between native Wayland and
+  XWayland apps, including offer updates, clearing, and reading X11-owned data.
 - Dismiss grabbed native popup menus on presses outside their popup tree,
   including elsewhere on the same panel, before dispatching the outside click
   normally. Menu button events take priority over desktop bindings.

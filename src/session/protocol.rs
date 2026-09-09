@@ -1244,6 +1244,29 @@ impl<D: SessionDriver> KeyboardShortcutsInhibitHandler for Session<D> {
 
 impl<D: SessionDriver> SelectionHandler for Session<D> {
     type SelectionUserData = ();
+
+    #[cfg(feature = "xwayland")]
+    fn new_selection(
+        &mut self,
+        target: smithay::wayland::selection::SelectionTarget,
+        source: Option<smithay::wayland::selection::SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+        self.xwayland
+            .update_selection(target, source.map(|source| source.mime_types()));
+    }
+
+    #[cfg(feature = "xwayland")]
+    fn send_selection(
+        &mut self,
+        target: smithay::wayland::selection::SelectionTarget,
+        mime_type: String,
+        fd: std::os::fd::OwnedFd,
+        _seat: Seat<Self>,
+        _user_data: &(),
+    ) {
+        self.xwayland.request_selection(target, mime_type, fd);
+    }
 }
 
 impl<D: SessionDriver> DataDeviceHandler for Session<D> {
