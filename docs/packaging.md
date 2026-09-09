@@ -69,6 +69,15 @@ and systems without a supported user manager use the direct
 direct path because the packaged manager services intentionally target
 `/usr/bin`.
 
+The systemd service uses `Type=exec`: it reports failure to execute Halley but
+does not wait for a readiness notification. Its stdout and stderr append to
+`$XDG_RUNTIME_DIR/halley-session.log` (normally under `/run/user/<uid>`).
+The log survives service stops and failed starts, so users
+can collect the log after returning to the TTY. Runtime files are temporary
+and may be removed after logout or reboot. Errors from the launcher or systemd
+before Halley starts may instead appear on the terminal or in
+`journalctl --user -u halley.service`.
+
 The runit and s6 files under `packaging/` are examples for personal user
 supervision trees; those managers do not have a single standard distribution
 path for graphical user services. The OpenRC README documents the direct

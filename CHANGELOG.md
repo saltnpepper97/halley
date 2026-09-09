@@ -35,6 +35,9 @@ All notable changes to this project will be documented in this file.
   type draws instead. See `docs/window-shaders.md`.
 
 ### Changed
+- Start the systemd session without waiting for a compositor readiness signal,
+  while still reporting executable startup failures. Keep session output and
+  errors in `$XDG_RUNTIME_DIR/halley-session.log` after the service stops.
 - Keep directional `Mod+Arrow` Field focus from panning the camera while a
   `Mod+A` arrangement is active on that output.
 - Pause automatic decay for windows in an active Field arrangement; undoing the
