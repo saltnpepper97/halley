@@ -48,6 +48,16 @@ All notable changes to this project will be documented in this file.
   window rectangle. The shader replaces scale and fade. Node collapse stays on
   the CPU path. A missing or invalid shader is logged once and the configured
   type draws instead. See `docs/window-shaders.md`.
+- Show a one-time **Halley basics** card on a freshly generated configuration's
+  first native session: the Field-first mental model plus only the five
+  essential operations (`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange,
+  `Mod+N` collapse/restore, `Mod+O` Apogee). It reuses the compositor-owned
+  overlay styling, is non-modal (only `Enter`, `Escape`, and the first pointer
+  press or touch are captured), and records its dismissal in
+  `$XDG_STATE_HOME/halley/state.rune`. Existing configurations, explicitly
+  selected paths, and nested `--winit` sessions never show it automatically.
+  Reopen it any time from Halley Lift's new **Show Halley basics** action or with
+  `halleyctl basics`. See `docs/overlays.md`.
 
 ### Changed
 - Apply window-rule `opacity` to client content and popups only. Titlebars,

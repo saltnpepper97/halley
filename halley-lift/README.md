@@ -85,6 +85,18 @@ At that point Lift opens Halley's existing Cluster Finalize popup with a name hi
 
 Lift does not directly persist clusters. The finalize popup owns naming, confirmation, and final creation.
 
+## Compositor Actions
+
+The `action` provider exposes compositor-owned actions:
+
+- **Reload Halley config** — reload the selected configuration immediately.
+- **Show Halley basics** — reopen Halley's one-time basics card, which names the
+  Field-first mental model and the five essential chords. The card is offered
+  automatically once to a freshly generated configuration's first native
+  session; this action always works, whether or not that card was already
+  dismissed, so it doubles as the development path for inspecting the card in a
+  nested `halley --winit` session.
+
 ## Pins
 
 Lift does not keep its own favorites database. Field/Bearings-pinned nodes come from Halley and rank above normal matching nodes.

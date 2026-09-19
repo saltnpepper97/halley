@@ -94,6 +94,34 @@ declaring startup clusters in `autostart` or by creating them at runtime.
 
 ---
 
+## First Run
+
+A newly generated configuration's first native session shows one compositor-owned
+**Halley basics** card: the mental model above, plus only the five operations it
+depends on.
+
+- `Super+D` — launch or search with Lift.
+- `Super+Left-drag` — move a window.
+- `Super+A` — arrange visible windows, or restore their saved geometry.
+- `Super+N` — collapse or restore a window.
+- `Super+O` — see everything in Apogee.
+
+The card names your configured `mod` key, so a nested `halley --winit` session
+shows `Alt+D` where a native session shows `Super+D`. It is a primer rather than
+a tutorial: it lists no zoom, Bearings, Trail, pinning, or cluster layouts, it
+never dims or blocks the desktop, and only its own dismissal keys are captured.
+`Enter`, `Escape`, or a click closes it for good.
+
+It appears only for a configuration Halley generated itself. Existing
+configurations, nested `halley --winit` sessions, and explicitly selected
+`-c PATH` files never show it automatically. Dismissal is remembered in
+`$XDG_STATE_HOME/halley/state.rune`, falling back to
+`~/.local/state/halley/state.rune`; that file is user state, not configuration,
+is never migrated, and is safe to delete. Reopen the card whenever you like from
+Halley Lift's **Show Halley basics** action or with `halleyctl basics`.
+
+---
+
 ## Clusters
 
 Clusters are deliberate workspaces assembled from ordinary windows.

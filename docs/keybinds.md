@@ -316,6 +316,15 @@ with the current default config.
 The interactive screenshot menu and its area, screen, and window selectors
 force the compositor cursor visible even if a client or inactivity policy had
 hidden it.
+A freshly generated configuration's first native session also shows the one-time
+basics card: the Field-first mental model and only the five essential chords
+(`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange, `Mod+N` collapse/restore,
+`Mod+O` Apogee). It appears on that first native session only, captures just
+`Enter`, `Escape`, and the first pointer press or touch, and records the
+dismissal so it never reappears automatically. Reopen it by hand from Lift's
+**Show Halley basics** action or `halleyctl basics`. See
+[Compositor overlays](overlays.md) for the card itself and the user-state file
+that remembers the dismissal.
 `quit` opens Halley's modal exit confirmation instead of stopping the
 compositor immediately. Enter confirms and Escape cancels while preserving
 the focused client beneath it. Its appearance is configured in
