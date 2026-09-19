@@ -156,6 +156,9 @@ impl TtyBackend {
         let (mut session, session_notifier) = LibSeatSession::new()?;
 
         let candidates = udev::all_gpus(session.seat())?;
+
+        eventline::debug!("GPU candidates: {:?}", candidates);
+
         let (
             drm_fd,
             renderer,
@@ -167,210 +170,235 @@ impl TtyBackend {
             render_node,
             drm_notifier,
         ) = gpu_selection::first_usable(candidates, |gpu_path| {
-            let primary_node = DrmNode::from_path(&gpu_path)?;
+            let primary_node = DrmNode::from_path(gpu_path)?;
             let render_node = primary_node
                 .node_with_type(NodeType::Render)
                 .and_then(Result::ok)
                 .unwrap_or(primary_node);
 
             let flags = OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK;
-            let fd = session.open(&gpu_path, flags)?;
-            let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
-
-            let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
-
-            // Every connected connector is collected here because the device's
-            // atomic output state must cover all active CRTCs.
-            // Mode selection happens later, per-connector, once config is
-            // loaded (see `select_mode`) - not here, so it can take a
-            // configured `output:` block into account.
-            let mut scanner: DrmScanner = DrmScanner::new();
-            let scan = scanner.scan_connectors(&drm)?;
-            let mut connected: Vec<(connector::Info, Option<crtc::Handle>)> = Vec::new();
-            for event in scan {
-                if let DrmScanEvent::Connected { connector, crtc } = event {
-                    connected.push((connector, crtc));
+            let fd = session.open(gpu_path, flags)?;
+            let dup_fd = match fd.try_clone() {
+                Ok(dup) => dup,
+                Err(err) => {
+                    let _ = session.close(fd);
+                    return Err(err.into());
                 }
-            }
-            if connected.is_empty() {
-                return Err("no connected connector found".into());
-            }
+            };
 
-            let gbm = GbmDevice::new(drm_fd.clone())?;
-            let allocator = GbmAllocator::new(
-                gbm.clone(),
-                GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-            );
+            let probe_result = (|| -> Result<_, Box<dyn Error>> {
+                let drm_fd = DrmDeviceFd::new(DeviceFd::from(dup_fd));
+                let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
 
-            let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
-            let egl_context = EGLContext::new(&egl_display)?;
-            let mut renderer = unsafe { GlesRenderer::new(egl_context)? };
-            let renderer_formats: Vec<Format> = renderer
-                .egl_context()
-                .dmabuf_render_formats()
-                .iter()
-                .copied()
-                .collect();
-
-            let exporter = GbmFramebufferExporter::new(gbm.clone(), NodeFilter::All);
-            let mut drm_output_manager: TtyDrmOutputManager = DrmOutputManager::new(
-                drm,
-                allocator,
-                exporter,
-                Some(gbm),
-                SUPPORTED_COLOR_FORMATS,
-                renderer_formats,
-            );
-
-            // Initialize every connected connector, not just one - a connector
-            // whose output fails to initialize is logged and skipped rather than
-            // failing the whole backend, so a working primary still comes up
-            // even if a secondary monitor can't be driven for some reason.
-            let mut drm_outputs = Vec::new();
-            let mut primary_output: Option<Output> = None;
-            let mut outputs = Vec::new();
-            let mut ipc_output_info = Vec::new();
-            for (connector, crtc) in connected {
-                let name = connector_name(&connector);
-                let configured = outputs_config.iter().find(|cfg| cfg.name == name);
-                let target = output_target(&connector, configured);
-                let offset = target.offset;
-                let vrr = target.vrr;
-
-                if connector.modes().is_empty() {
-                    eventline::warn!("output {name:?}: connected connector advertises no modes");
-                    ipc_output_info.push(connector_output_info(
-                        name, &connector, None, offset, vrr, false, false,
-                    ));
-                    continue;
-                }
-                let Some(crtc) = crtc else {
-                    eventline::warn!("output {name:?}: connected connector has no available CRTC");
-                    ipc_output_info.push(connector_output_info(
-                        name, &connector, None, offset, vrr, false, false,
-                    ));
-                    continue;
-                };
-
-                let mode = target.mode;
-                // Use the live Smithay Output as the mode source so later
-                // mode/transform changes resize and transform the compositor's
-                // buffers without rebuilding the DRM output.
-                let output = Output::new(
-                    name.clone(),
-                    PhysicalProperties {
-                        size: (0, 0).into(),
-                        subpixel: Subpixel::Unknown,
-                        make: "halley-next".into(),
-                        model: "tty".into(),
-                        serial_number: "unknown".into(),
-                    },
-                );
-                let output_mode = drm_output_mode(&mode);
-                output.change_current_state(
-                    Some(output_mode),
-                    Some(target.transform),
-                    None,
-                    Some(offset.into()),
-                );
-                output.set_preferred(drm_output_mode(&default_mode(&connector)));
-
-                let result = drm_output_manager
-                    .lock()
-                    .initialize_output::<GlesRenderer, SolidColorRenderElement>(
-                        crtc,
-                        mode,
-                        &[connector.handle()],
-                        &output,
-                        None,
-                        &mut renderer,
-                        &DrmOutputRenderElements::default(),
-                    );
-
-                match result {
-                    Ok(drm_output) => {
-                        let dmabuf_feedback = match dmabuf::surface_feedback(
-                            &drm_output,
-                            renderer.dmabuf_formats(),
-                            render_node,
-                            primary_node,
-                        ) {
-                            Ok(feedback) => Some(feedback),
-                            Err(err) => {
-                                eventline::warn!(
-                                    "output {name:?}: failed to build DMA-BUF scan-out feedback: {err}"
-                                );
-                                None
-                            }
-                        };
-                        let vrr_support = query_vrr_support(&drm_output, connector.handle(), &name);
-                        let vrr_supported = vrr_is_supported(vrr_support);
-                        let requested_vrr = configured_vrr_target(vrr, false, vrr_support);
-                        if let Err(err) = drm_output
-                            .with_compositor(|compositor| compositor.use_vrr(requested_vrr))
-                        {
-                            eventline::warn!(
-                                "output {name:?}: failed to set initial VRR state to {requested_vrr}: {err}"
-                            );
-                        }
-                        let vrr_active =
-                            drm_output.with_compositor(|compositor| compositor.vrr_enabled());
-                        warn_vrr_configuration(&name, vrr, vrr_support);
-
-                        primary_output.get_or_insert_with(|| output.clone());
-                        outputs.push(output.clone());
-                        ipc_output_info.push(connector_output_info(
-                            name,
-                            &connector,
-                            Some(mode),
-                            offset,
-                            vrr,
-                            vrr_supported,
-                            vrr_active,
-                        ));
-                        let gamma = gamma::GammaState::new(drm_output_manager.device(), crtc);
-                        drm_outputs.push(DrmOutputEntry {
-                            crtc,
-                            connector,
-                            current_mode: mode,
-                            configured_vrr: vrr,
-                            vrr_support,
-                            vrr_active,
-                            vrr_failure_warned_for: None,
-                            direct_scanout_active: None,
-                            output,
-                            drm_output,
-                            dmabuf_feedback,
-                            pending: false,
-                            dpms_enabled: true,
-                            enabled: true,
-                            gamma,
-                        });
+                // Every connected connector is collected here because the device's
+                // atomic output state must cover all active CRTCs.
+                // Mode selection happens later, per-connector, once config is
+                // loaded (see `select_mode`) - not here, so it can take a
+                // configured `output:` block into account.
+                let mut scanner: DrmScanner = DrmScanner::new();
+                let scan = scanner.scan_connectors(&drm)?;
+                let mut connected: Vec<(connector::Info, Option<crtc::Handle>)> = Vec::new();
+                for event in scan {
+                    if let DrmScanEvent::Connected { connector, crtc } = event {
+                        connected.push((connector, crtc));
                     }
-                    Err(err) => {
-                        eventline::error!("failed to initialize output {name:?}: {err}");
+                }
+                if connected.is_empty() {
+                    return Err("no connected connector found".into());
+                }
+
+                let gbm = GbmDevice::new(drm_fd.clone())?;
+                let allocator = GbmAllocator::new(
+                    gbm.clone(),
+                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+                );
+
+                let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
+                let egl_context = EGLContext::new(&egl_display)?;
+                let mut renderer = unsafe { GlesRenderer::new(egl_context)? };
+                let renderer_formats: Vec<Format> = renderer
+                    .egl_context()
+                    .dmabuf_render_formats()
+                    .iter()
+                    .copied()
+                    .collect();
+
+                let exporter = GbmFramebufferExporter::new(gbm.clone(), NodeFilter::All);
+                let mut drm_output_manager: TtyDrmOutputManager = DrmOutputManager::new(
+                    drm,
+                    allocator,
+                    exporter,
+                    Some(gbm),
+                    SUPPORTED_COLOR_FORMATS,
+                    renderer_formats,
+                );
+
+                // Initialize every connected connector, not just one - a connector
+                // whose output fails to initialize is logged and skipped rather than
+                // failing the whole backend, so a working primary still comes up
+                // even if a secondary monitor can't be driven for some reason.
+                let mut drm_outputs = Vec::new();
+                let mut primary_output: Option<Output> = None;
+                let mut outputs = Vec::new();
+                let mut ipc_output_info = Vec::new();
+                for (connector, crtc) in connected {
+                    let name = connector_name(&connector);
+                    let configured = outputs_config.iter().find(|cfg| cfg.name == name);
+                    let target = output_target(&connector, configured);
+                    let offset = target.offset;
+                    let vrr = target.vrr;
+
+                    if connector.modes().is_empty() {
+                        eventline::warn!(
+                            "output {name:?}: connected connector advertises no modes"
+                        );
                         ipc_output_info.push(connector_output_info(
                             name, &connector, None, offset, vrr, false, false,
                         ));
+                        continue;
+                    }
+                    let Some(crtc) = crtc else {
+                        eventline::warn!(
+                            "output {name:?}: connected connector has no available CRTC"
+                        );
+                        ipc_output_info.push(connector_output_info(
+                            name, &connector, None, offset, vrr, false, false,
+                        ));
+                        continue;
+                    };
+
+                    let mode = target.mode;
+                    // Use the live Smithay Output as the mode source so later
+                    // mode/transform changes resize and transform the compositor's
+                    // buffers without rebuilding the DRM output.
+                    let output = Output::new(
+                        name.clone(),
+                        PhysicalProperties {
+                            size: (0, 0).into(),
+                            subpixel: Subpixel::Unknown,
+                            make: "halley-next".into(),
+                            model: "tty".into(),
+                            serial_number: "unknown".into(),
+                        },
+                    );
+                    let output_mode = drm_output_mode(&mode);
+                    output.change_current_state(
+                        Some(output_mode),
+                        Some(target.transform),
+                        None,
+                        Some(offset.into()),
+                    );
+                    output.set_preferred(drm_output_mode(&default_mode(&connector)));
+
+                    let result = drm_output_manager
+                        .lock()
+                        .initialize_output::<GlesRenderer, SolidColorRenderElement>(
+                            crtc,
+                            mode,
+                            &[connector.handle()],
+                            &output,
+                            None,
+                            &mut renderer,
+                            &DrmOutputRenderElements::default(),
+                        );
+
+                    match result {
+                        Ok(drm_output) => {
+                            let dmabuf_feedback = match dmabuf::surface_feedback(
+                                &drm_output,
+                                renderer.dmabuf_formats(),
+                                render_node,
+                                primary_node,
+                            ) {
+                                Ok(feedback) => Some(feedback),
+                                Err(err) => {
+                                    eventline::warn!(
+                                        "output {name:?}: failed to build DMA-BUF scan-out feedback: {err}"
+                                    );
+                                    None
+                                }
+                            };
+                            let vrr_support =
+                                query_vrr_support(&drm_output, connector.handle(), &name);
+                            let vrr_supported = vrr_is_supported(vrr_support);
+                            let requested_vrr = configured_vrr_target(vrr, false, vrr_support);
+                            if let Err(err) = drm_output
+                                .with_compositor(|compositor| compositor.use_vrr(requested_vrr))
+                            {
+                                eventline::warn!(
+                                    "output {name:?}: failed to set initial VRR state to {requested_vrr}: {err}"
+                                );
+                            }
+                            let vrr_active =
+                                drm_output.with_compositor(|compositor| compositor.vrr_enabled());
+                            warn_vrr_configuration(&name, vrr, vrr_support);
+
+                            primary_output.get_or_insert_with(|| output.clone());
+                            outputs.push(output.clone());
+                            ipc_output_info.push(connector_output_info(
+                                name,
+                                &connector,
+                                Some(mode),
+                                offset,
+                                vrr,
+                                vrr_supported,
+                                vrr_active,
+                            ));
+                            let gamma = gamma::GammaState::new(drm_output_manager.device(), crtc);
+                            drm_outputs.push(DrmOutputEntry {
+                                crtc,
+                                connector,
+                                current_mode: mode,
+                                configured_vrr: vrr,
+                                vrr_support,
+                                vrr_active,
+                                vrr_failure_warned_for: None,
+                                direct_scanout_active: None,
+                                output,
+                                drm_output,
+                                dmabuf_feedback,
+                                pending: false,
+                                dpms_enabled: true,
+                                enabled: true,
+                                gamma,
+                            });
+                        }
+                        Err(err) => {
+                            eventline::error!("failed to initialize output {name:?}: {err}");
+                            ipc_output_info.push(connector_output_info(
+                                name, &connector, None, offset, vrr, false, false,
+                            ));
+                        }
                     }
                 }
+
+                let Some(primary_output) = primary_output else {
+                    return Err("no output could be initialized".into());
+                };
+
+                Ok((
+                    drm_fd,
+                    renderer,
+                    drm_output_manager,
+                    drm_outputs,
+                    primary_output,
+                    outputs,
+                    ipc_output_info,
+                    render_node,
+                    drm_notifier,
+                ))
+            })();
+
+            match probe_result {
+                Ok(success) => {
+                    std::mem::forget(fd);
+                    Ok(success)
+                }
+                Err(err) => {
+                    let _ = session.close(fd);
+                    Err(err)
+                }
             }
-
-            let Some(primary_output) = primary_output else {
-                return Err("no output could be initialized".into());
-            };
-
-            Ok((
-                drm_fd,
-                renderer,
-                drm_output_manager,
-                drm_outputs,
-                primary_output,
-                outputs,
-                ipc_output_info,
-                render_node,
-                drm_notifier,
-            ))
         })?;
 
         let backend = TtyBackend {

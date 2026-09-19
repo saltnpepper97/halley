@@ -14,7 +14,7 @@ pub(super) fn first_usable<T>(
     }
     let mut failures = Vec::new();
     for path in candidates {
-        eventline::info!("tty: probing GPU {}", path.display());
+        eventline::debug!("tty: probing GPU {}", path.display());
         match probe(&path) {
             Ok(backend) => {
                 eventline::info!("tty: selected GPU {}", path.display());
