@@ -298,6 +298,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     let initial = crate::config::load_initial(explicit_config_path);
     let config_path = initial.path;
     let runtime_config = initial.config;
+    let fresh_config = initial.fresh;
     let (backend, session_notifier, drm_notifier) = match TtyBackend::new(&runtime_config.outputs) {
         Ok(parts) => parts,
         Err(err) => {
@@ -420,6 +421,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         launch_environment,
         autostart: super::autostart::Autostart::enabled(),
         startup_clusters: super::startup_clusters::StartupClusters::default(),
+        user_state: super::basics::UserState::load(),
         pointer: Pointer::new((100.0, 100.0)),
         cursor: CursorManager::new(&runtime_config.cursor),
         cursor_policy: super::cursor::Policy::new(&runtime_config.cursor, loop_handle.clone()),
@@ -503,6 +505,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         true,
     );
     app.initialize_config_notification();
+    // The one-time basics card is offered only by a native session, and only
+    // when Halley itself generated this configuration.
+    app.record_fresh_config(fresh_config);
+    app.initialize_basics_card();
 
     let socket_name = super::protocol::init_wayland_listener(display, &mut event_loop);
     app.wayland_display = Some(socket_name.clone());

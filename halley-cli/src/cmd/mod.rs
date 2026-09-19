@@ -82,6 +82,8 @@ pub enum Action {
     },
     ConfigVerify(Option<PathBuf>),
     ConfigHelp,
+    Basics,
+    BasicsHelp,
     Quit,
     Version,
     Help,
@@ -130,6 +132,19 @@ pub fn parse(args: &[String]) -> Result<Action, String> {
         Some("tile") => return control::parse_tile(&args[1..]),
         Some("portal") => return portal::parse(&args[1..]),
         Some("config") => return parse_config(&args[1..]),
+        Some("basics") => {
+            if args
+                .iter()
+                .skip(1)
+                .any(|arg| arg == "-h" || arg == "--help")
+            {
+                return Ok(Action::BasicsHelp);
+            }
+            if let Some(unexpected) = args.get(1) {
+                return Err(format!("unexpected argument {unexpected:?}"));
+            }
+            Action::Basics
+        }
         Some("quit") => Action::Quit,
         Some(other) => return Err(format!("unknown command {other:?}")),
     };

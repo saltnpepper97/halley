@@ -4,6 +4,7 @@ Usage: halleyctl <command>
 Commands:
   outputs        List connected monitors and their current mode/position
   reload         Reload the selected configuration immediately
+  basics         Show Halley's one-time basics card again
   capture        Enter Halley's native screenshot capture modes
   dpms           Control tty output power state
   node           List, inspect, focus, move, collapse, restore, toggle, or close nodes
@@ -31,6 +32,15 @@ Usage:
   halleyctl cluster slot 1..10 [-o OUTPUT]
 
 Without -o, current and control commands use the selected monitor.
+";
+
+pub const BASICS_HELP: &str = "\
+Usage:
+  halleyctl basics
+
+Shows Halley's basics card again on the selected monitor. The card is offered
+automatically once to a freshly generated configuration's first native session;
+the card is dismissed with Enter, Escape, or a click.
 ";
 
 pub const CAPTURE_HELP: &str = "\

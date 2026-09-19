@@ -118,6 +118,8 @@ pub struct Session<D: SessionDriver> {
     pub(super) launch_environment: super::environment::LaunchEnvironment,
     pub(super) autostart: super::autostart::Autostart,
     pub(super) startup_clusters: super::startup_clusters::StartupClusters,
+    /// One-time onboarding state, persisted outside the configuration.
+    pub(super) user_state: super::basics::UserState,
     pub pointer: Pointer,
     pub cursor: CursorManager,
     pub(crate) cursor_policy: super::cursor::Policy<D>,
@@ -371,6 +373,69 @@ impl<D: SessionDriver> Session<D> {
         super::gesture::cancel_all(self);
         super::touch::cancel_all(self);
         self.request_redraw();
+    }
+
+    /// Records that this startup wrote the configuration file, so the first
+    /// native session can offer the one-time basics card. Existing configs and
+    /// explicitly selected paths never reach this path.
+    pub fn record_fresh_config(&mut self, fresh: bool) {
+        let Some(config_path) = self.config_path.clone() else {
+            return;
+        };
+        if fresh {
+            self.user_state.record_fresh_config(&config_path);
+        }
+    }
+
+    /// Shows the one-time basics card automatically when Halley generated this
+    /// configuration and this is its first successful native session. Nested
+    /// sessions never call this, and `first_run_eligible` refuses a nested
+    /// backend even if one did.
+    pub fn initialize_basics_card(&mut self) {
+        let Some(config_path) = self.config_path.clone() else {
+            return;
+        };
+        let eligible = super::basics::first_run_eligible(
+            D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty,
+            self.user_state.basics_card_pending_for(&config_path),
+            self.user_state.basics_card_dismissed(),
+        );
+        if eligible {
+            self.show_basics_card();
+        }
+    }
+
+    /// Shows (or reopens) the basics card without touching the one-time
+    /// automatic state. Used by the manual Lift action, `halleyctl basics`, and
+    /// the first-run path.
+    pub fn show_basics_card(&mut self) -> bool {
+        let output = self.notification_output_name();
+        let modifier = super::basics::modifier_label(self.keyboard.effective_mod).to_string();
+        if !self.shell.overlays.show_basics_card(
+            output.clone(),
+            modifier,
+            crate::frame_clock::monotonic_now(),
+        ) {
+            return false;
+        }
+        eventline::info!("basics: showing the Halley basics card on {output}");
+        self.request_redraw();
+        true
+    }
+
+    /// Dismisses the basics card and remembers that it was dismissed, so it is
+    /// never offered automatically again.
+    pub fn dismiss_basics_card(&mut self) -> bool {
+        if !self
+            .shell
+            .overlays
+            .dismiss_basics_card(crate::frame_clock::monotonic_now())
+        {
+            return false;
+        }
+        self.user_state.dismiss_basics_card();
+        self.request_redraw();
+        true
     }
 
     pub fn cancel_exit_confirmation(&mut self) {

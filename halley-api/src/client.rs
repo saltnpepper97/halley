@@ -375,6 +375,14 @@ impl Client {
         self.ack(halley_ipc::Request::Quit)
     }
 
+    /// Show the one-time Halley basics card again. Manual reopening always
+    /// works and does not depend on the first-run dismissal state.
+    pub fn show_basics(&self) -> Result<()> {
+        self.ack(halley_ipc::Request::Control(
+            halley_ipc::ControlRequest::ShowBasics,
+        ))
+    }
+
     pub fn subscribe(&self, topics: impl IntoIterator<Item = EventTopic>) -> Result<Subscription> {
         let mut connection = halley_ipc::Connection::connect_to(&self.socket_path)?;
         let topics = topics.into_iter().map(topic_wire).collect();

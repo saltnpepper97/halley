@@ -107,6 +107,28 @@ impl ClusterIndicator {
 }
 
 #[derive(Clone, Debug)]
+struct BasicsCard {
+    output: String,
+    modifier: String,
+    shown_at: Duration,
+    dismissed: Option<(Duration, f32)>,
+}
+
+impl BasicsCard {
+    fn mix(&self, now: Duration) -> f32 {
+        if let Some((dismissed_at, from)) = self.dismissed {
+            return from * (1.0 - transition_progress(now.saturating_sub(dismissed_at)));
+        }
+        transition_progress(now.saturating_sub(self.shown_at))
+    }
+
+    fn finished(&self, now: Duration) -> bool {
+        self.dismissed
+            .is_some_and(|(at, _)| now >= at + TRANSITION_DURATION)
+    }
+}
+
+#[derive(Clone, Debug)]
 struct ClusterDeleteConfirmation {
     cluster_id: halley_core::cluster::ClusterId,
     output: String,
@@ -117,6 +139,7 @@ struct ClusterDeleteConfirmation {
 pub struct OverlayManager {
     exit: bool,
     cluster_delete: Option<ClusterDeleteConfirmation>,
+    basics: Option<BasicsCard>,
     notification: Option<Notification>,
     zoom_indicators: HashMap<String, ZoomIndicator>,
     cluster_indicators: HashMap<String, ClusterIndicator>,
@@ -148,10 +171,19 @@ pub struct ConfirmationSnapshot {
     pub confirm_label: &'static str,
 }
 
+#[derive(Clone, Debug)]
+pub struct BasicsCardSnapshot {
+    /// The configured base modifier, already remapped for this backend, so the
+    /// card names the chords the session actually listens for.
+    pub modifier: String,
+    pub mix: f32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OverlaySnapshot {
     pub exit_mix: Option<f32>,
     pub confirmation: Option<ConfirmationSnapshot>,
+    pub basics: Option<BasicsCardSnapshot>,
     pub notification: Option<NotificationSnapshot>,
     pub zoom_indicator: Option<ZoomIndicatorSnapshot>,
     pub cluster_indicator: Option<ClusterIndicatorSnapshot>,
@@ -207,6 +239,46 @@ impl OverlayManager {
         self.cluster_delete
             .take()
             .map(|confirmation| (confirmation.cluster_id, confirmation.output))
+    }
+
+    /// Shows the one-time basics card on `output`. Returns whether it was newly
+    /// shown; re-showing while it is already visible is a no-op.
+    pub fn show_basics_card(&mut self, output: String, modifier: String, now: Duration) -> bool {
+        if self.basics_card_visible() {
+            return false;
+        }
+        self.basics = Some(BasicsCard {
+            output,
+            modifier,
+            shown_at: now,
+            dismissed: None,
+        });
+        true
+    }
+
+    /// Whether a basics card is on screen, including while it fades out.
+    pub fn basics_card_visible(&self) -> bool {
+        self.basics.is_some()
+    }
+
+    /// Whether the card should still swallow its dismissal keys and the first
+    /// pointer press. Once dismissed it stops intercepting input immediately,
+    /// even though it keeps fading out for one transition.
+    pub fn basics_card_accepts_input(&self) -> bool {
+        self.basics
+            .as_ref()
+            .is_some_and(|card| card.dismissed.is_none())
+    }
+
+    pub fn dismiss_basics_card(&mut self, now: Duration) -> bool {
+        let Some(card) = self.basics.as_mut() else {
+            return false;
+        };
+        if card.dismissed.is_some() {
+            return false;
+        }
+        card.dismissed = Some((now, card.mix(now)));
+        true
     }
 
     pub fn show_config_success(
@@ -373,6 +445,13 @@ impl OverlayManager {
     }
 
     pub fn remove_output(&mut self, output: &str) {
+        if self
+            .basics
+            .as_ref()
+            .is_some_and(|card| card.output == output)
+        {
+            self.basics = None;
+        }
         self.zoom_indicators.remove(output);
         self.cluster_indicators.remove(output);
     }
@@ -386,6 +465,12 @@ impl OverlayManager {
                     message: "Its windows will return to the Field. Applications will remain open."
                         .to_string(),
                     confirm_label: "delete",
+                })
+            }),
+            basics: self.basics.as_ref().and_then(|card| {
+                (card.output == output && !card.finished(now)).then(|| BasicsCardSnapshot {
+                    modifier: card.modifier.clone(),
+                    mix: card.mix(now),
                 })
             }),
             notification: self.notification.as_ref().and_then(|notification| {
@@ -413,9 +498,13 @@ impl OverlayManager {
     }
 
     pub fn animating(&self, now: Duration) -> bool {
-        self.notification
+        self.basics
             .as_ref()
-            .is_some_and(|notification| notification.animating(now))
+            .is_some_and(|card| !card.finished(now) && card.mix(now) < 1.0)
+            || self
+                .notification
+                .as_ref()
+                .is_some_and(|notification| notification.animating(now))
             || self
                 .zoom_indicators
                 .values()
@@ -430,6 +519,10 @@ impl OverlayManager {
     /// to begin an expiry fade or erase a completed overlay.
     pub fn wakeup(&mut self, now: Duration) -> bool {
         let mut redraw = false;
+        if self.basics.as_ref().is_some_and(|card| card.finished(now)) {
+            self.basics = None;
+            redraw = true;
+        }
         if let Some(notification) = self.notification.as_mut()
             && notification.dismissed.is_none()
             && now >= notification.expires_at
@@ -746,5 +839,101 @@ mod tests {
                 .zoom_indicator
                 .is_none()
         );
+    }
+
+    #[test]
+    fn basics_card_is_visible_only_on_its_output_and_fades_when_dismissed() {
+        let mut overlays = OverlayManager::default();
+        assert!(overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO));
+        assert!(overlays.basics_card_visible());
+        assert!(overlays.basics_card_accepts_input());
+        assert!(
+            !overlays.show_basics_card("DP-2".into(), "Super".into(), Duration::ZERO),
+            "showing an already visible card is a no-op"
+        );
+
+        let card = overlays.snapshot("DP-1", Duration::ZERO).basics.unwrap();
+        assert_eq!(card.modifier, "Super");
+        assert_eq!(
+            card.mix, 0.0,
+            "the card fades in instead of appearing abruptly"
+        );
+        assert!(overlays.animating(Duration::ZERO));
+        assert_eq!(
+            overlays
+                .snapshot("DP-1", Duration::from_millis(180))
+                .basics
+                .unwrap()
+                .mix,
+            1.0
+        );
+        assert!(
+            overlays.snapshot("DP-2", Duration::ZERO).basics.is_none(),
+            "the card only renders on the output that owns it"
+        );
+
+        assert!(overlays.dismiss_basics_card(Duration::from_millis(500)));
+        assert!(
+            !overlays.basics_card_accepts_input(),
+            "a dismissed card stops intercepting input immediately"
+        );
+        let fading = overlays
+            .snapshot("DP-1", Duration::from_millis(590))
+            .basics
+            .unwrap();
+        assert!(fading.mix < 1.0);
+        assert!(
+            overlays
+                .snapshot("DP-1", Duration::from_millis(680))
+                .basics
+                .is_none()
+        );
+        assert!(overlays.wakeup(Duration::from_millis(680)));
+        assert!(!overlays.basics_card_visible());
+        assert!(!overlays.dismiss_basics_card(Duration::from_millis(700)));
+    }
+
+    /// Opening the card again stays independent of the one-time dismissal
+    /// state: the overlay itself remembers nothing about first-run eligibility.
+    #[test]
+    fn basics_card_can_be_reopened_after_being_dismissed() {
+        let mut overlays = OverlayManager::default();
+        overlays.show_basics_card("DP-1".into(), "Alt".into(), Duration::ZERO);
+        overlays.dismiss_basics_card(Duration::from_millis(10));
+        assert!(overlays.wakeup(Duration::from_millis(200)));
+
+        assert!(overlays.show_basics_card("DP-1".into(), "Alt".into(), Duration::from_millis(300)));
+        assert!(overlays.basics_card_accepts_input());
+        assert_eq!(
+            overlays
+                .snapshot("DP-1", Duration::from_millis(480))
+                .basics
+                .unwrap()
+                .modifier,
+            "Alt"
+        );
+    }
+
+    #[test]
+    fn removing_the_owning_output_drops_the_basics_card() {
+        let mut overlays = OverlayManager::default();
+        overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO);
+        overlays.remove_output("DP-2");
+        assert!(overlays.basics_card_visible());
+
+        overlays.remove_output("DP-1");
+        assert!(!overlays.basics_card_visible());
+        assert!(!overlays.basics_card_accepts_input());
+    }
+
+    #[test]
+    fn a_confirmation_modal_does_not_hide_the_basics_card_by_itself() {
+        let mut overlays = OverlayManager::default();
+        overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO);
+        assert!(overlays.show_exit(Duration::ZERO));
+        // The card is a non-blocking overlay: it keeps its slot while a
+        // confirmation modal owns the input, so the two never interleave.
+        assert!(overlays.snapshot("DP-1", Duration::ZERO).basics.is_some());
+        assert!(overlays.snapshot("DP-1", Duration::ZERO).exit_mix.is_some());
     }
 }

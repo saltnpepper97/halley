@@ -31,6 +31,8 @@ enum KeyboardOutcome {
     ClusterComposerMove(crate::shell::cluster_composer::Direction),
     ClusterCharacter(char),
     ClusterIntercept,
+    BasicsDismiss,
+    BasicsIntercept,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,6 +138,23 @@ pub(super) fn handle<D, B>(
                         FilterResult::Intercept(KeyboardOutcome::ClusterDeleteCancel)
                     }
                     _ => FilterResult::Intercept(KeyboardOutcome::ClusterDeleteIntercept),
+                };
+            }
+            if data.shell.overlays.basics_card_accepts_input() {
+                if state == KeyState::Released {
+                    return if release_is_suppressed {
+                        FilterResult::Intercept(KeyboardOutcome::BasicsIntercept)
+                    } else {
+                        FilterResult::Forward
+                    };
+                }
+                // The card is a one-time primer, not a modal: only its own
+                // dismissal keys are swallowed, everything else keeps working.
+                return match handle.raw_latin_sym_or_raw_current_sym() {
+                    Some(Keysym::Return | Keysym::KP_Enter | Keysym::Escape) => {
+                        FilterResult::Intercept(KeyboardOutcome::BasicsDismiss)
+                    }
+                    _ => FilterResult::Forward,
                 };
             }
             if data.clusters.accepts_modal_input() {
@@ -365,6 +384,11 @@ pub(super) fn handle<D, B>(
                 session.interactions.suppressed_keys.suppress(keycode);
             }
         }
+        Some(KeyboardOutcome::BasicsDismiss) => {
+            session.interactions.suppressed_keys.suppress(keycode);
+            session.dismiss_basics_card();
+        }
+        Some(KeyboardOutcome::BasicsIntercept) => {}
         Some(KeyboardOutcome::Action(bind)) => {
             session.interactions.suppressed_keys.suppress(keycode);
             close_blooms_for_keybind(session, pointer_output.as_deref());

@@ -13,6 +13,7 @@ use crate::wayland;
 
 mod arrange;
 mod autostart;
+mod basics;
 pub(crate) mod closing;
 mod cursor;
 mod focus;

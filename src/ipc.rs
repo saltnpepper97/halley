@@ -910,6 +910,12 @@ fn handle_control_request<D: crate::session::SessionDriver>(
                 Some(output),
             )
         }
+        halley_ipc::ControlRequest::ShowBasics => {
+            // Manual reopening is deliberate: it neither depends on nor changes
+            // the one-time first-run state.
+            session.show_basics_card();
+            return halley_ipc::Response::Ack;
+        }
     };
     let Some(socket_name) = session.wayland_display.clone() else {
         return api_error(

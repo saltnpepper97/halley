@@ -133,6 +133,10 @@ pub struct InitialConfig {
     pub path: Option<PathBuf>,
     pub config: halley_config::RuntimeConfig,
     pub diagnostic: Option<halley_config::ConfigDiagnostic>,
+    /// True only when this startup created the configuration file from the
+    /// built-in template. The one-time basics card is owed to exactly those
+    /// configurations; an existing or explicitly selected file never sets it.
+    pub fresh: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -192,6 +196,7 @@ pub fn load_initial(explicit_path: Option<PathBuf>) -> InitialConfig {
                 path: None,
                 config: halley_config::RuntimeConfig::default(),
                 diagnostic: Some(diagnostic),
+                fresh: false,
             };
         }
     };
@@ -206,11 +211,23 @@ pub fn load_initial(explicit_path: Option<PathBuf>) -> InitialConfig {
             path: None,
             config: halley_config::RuntimeConfig::default(),
             diagnostic: Some(diagnostic),
+            fresh: false,
         };
     };
 
-    if !explicit && let Err(error) = bootstrap_implicit_config(&path) {
-        eventline::warn!("config: failed to bootstrap default config: {error}");
+    load_resolved(path, !explicit)
+}
+
+/// Loads an already-resolved path, optionally bootstrapping the default config
+/// first. Split out from [`load_initial`] so the fresh-config signal can be
+/// tested without mutating process environment variables.
+fn load_resolved(path: PathBuf, bootstrap: bool) -> InitialConfig {
+    let mut fresh = false;
+    if bootstrap {
+        match bootstrap_implicit_config(&path) {
+            Ok(wrote) => fresh = wrote,
+            Err(error) => eventline::warn!("config: failed to bootstrap default config: {error}"),
+        }
     }
 
     match halley_config::load_runtime_config_diagnostic_at(&path) {
@@ -218,6 +235,7 @@ pub fn load_initial(explicit_path: Option<PathBuf>) -> InitialConfig {
             path: Some(path),
             config,
             diagnostic: None,
+            fresh,
         },
         Err(diagnostic) => {
             eventline::warn!(
@@ -229,6 +247,7 @@ pub fn load_initial(explicit_path: Option<PathBuf>) -> InitialConfig {
                 path: Some(path),
                 config: halley_config::RuntimeConfig::default(),
                 diagnostic: Some(diagnostic),
+                fresh,
             }
         }
     }
@@ -410,7 +429,32 @@ mod tests {
 
         assert_eq!(initial.path.as_deref(), Some(scratch.path.as_path()));
         assert!(initial.diagnostic.is_some());
+        assert!(
+            !initial.fresh,
+            "an explicitly selected path never owes a first-run card"
+        );
         assert!(!scratch.path.exists());
+    }
+
+    /// The one-time basics card is owed to configurations Halley generated
+    /// itself, so only a real bootstrap may report `fresh`.
+    #[test]
+    fn only_a_written_default_config_reports_fresh() {
+        let scratch = ScratchFile::new("fresh-signal");
+
+        let first = load_resolved(scratch.path.clone(), true);
+        assert!(first.fresh);
+        assert_eq!(first.config.keybinds, halley_config::Keybinds::default());
+        assert!(scratch.path.exists());
+
+        let second = load_resolved(scratch.path.clone(), true);
+        assert!(
+            !second.fresh,
+            "an existing config is never reported as freshly generated"
+        );
+
+        let existing = load_resolved(scratch.path.clone(), false);
+        assert!(!existing.fresh);
     }
 
     #[test]

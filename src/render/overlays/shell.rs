@@ -224,6 +224,17 @@ pub fn elements(
     let visuals = resolve_visuals(config);
     let screen = Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1));
     let mut elements = Vec::new();
+    if let Some(basics) = snapshot.basics {
+        super::basics::elements(
+            renderer,
+            screen,
+            basics,
+            visuals,
+            node_renderer,
+            ui_text,
+            &mut elements,
+        )?;
+    }
     if let Some(mix) = snapshot.exit_mix {
         confirmation_elements(
             renderer,

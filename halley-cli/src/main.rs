@@ -16,6 +16,11 @@ fn main() -> ExitCode {
             client.reload_config()?;
             Ok(ExitCode::SUCCESS)
         }),
+        Ok(Action::Basics) => with_client(|client| {
+            client.show_basics()?;
+            Ok(ExitCode::SUCCESS)
+        }),
+        Ok(Action::BasicsHelp) => show(help::BASICS_HELP),
         Ok(Action::Capture { mode, output }) => with_client(|client| {
             match client.capture(mode, output.as_deref())? {
                 CaptureOutcome::Saved(path) => println!("saved: {}", path.display()),
@@ -223,6 +228,7 @@ mod tests {
         assert!(commands.contains("portal"));
         assert!(!commands.contains("gamescope"));
         assert!(commands.contains("config"));
+        assert!(commands.contains("basics"));
         assert!(commands.contains("quit"));
         assert!(!commands.contains("--help"));
         assert!(!commands.contains("--version"));

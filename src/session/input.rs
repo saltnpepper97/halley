@@ -1573,6 +1573,36 @@ where
         }
         return;
     }
+    // The one-time basics card is not a modal: while it is on screen it claims
+    // pointer buttons and touches so the press that dismisses it cannot also
+    // activate a window, while motions, axes, and the keyboard keep working.
+    if session.shell.overlays.basics_card_visible() {
+        match event {
+            InputEvent::PointerButton { event } => {
+                match event.state() {
+                    ButtonState::Pressed => {
+                        session
+                            .interactions
+                            .suppressed_buttons
+                            .suppress(event.button_code());
+                        session.dismiss_basics_card();
+                    }
+                    ButtonState::Released => {
+                        session
+                            .interactions
+                            .suppressed_buttons
+                            .release_is_suppressed(event.button_code());
+                    }
+                }
+                return;
+            }
+            InputEvent::TouchDown { .. } => {
+                session.dismiss_basics_card();
+                return;
+            }
+            _ => {}
+        }
+    }
     if super::touch::handle(session, event) || super::gesture::handle(session, event) {
         return;
     }

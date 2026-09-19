@@ -445,12 +445,20 @@ fn create_cluster_result(_query: &str) -> LiftResult {
 }
 
 fn search_actions(ctx: &SearchContext) -> Vec<LiftResult> {
-    let actions = [(
-        "reload-config",
-        "Reload Halley config",
-        "Compositor action",
-        LiftAction::ReloadConfig,
-    )];
+    let actions = [
+        (
+            "reload-config",
+            "Reload Halley config",
+            "Compositor action",
+            LiftAction::ReloadConfig,
+        ),
+        (
+            "show-halley-basics",
+            "Show Halley basics",
+            "Compositor action",
+            LiftAction::ShowBasics,
+        ),
+    ];
     actions
         .into_iter()
         .filter_map(|(_id, title, subtitle, action)| {
@@ -519,6 +527,10 @@ pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(),
         LiftAction::ReloadConfig => index
             .client()?
             .reload_config()
+            .map_err(|error| error.to_string()),
+        LiftAction::ShowBasics => index
+            .client()?
+            .show_basics()
             .map_err(|error| error.to_string()),
         LiftAction::OpenConfig { path } => launch_editor(path, index.terminal.as_str()),
         LiftAction::CreateCluster => Ok(()),
@@ -1149,6 +1161,43 @@ exec '\''/bin/zsh'\'' -i'"#
                 "{mode:?} must not leak unrelated providers"
             );
         }
+    }
+
+    /// Milestone 3: the one-time basics card can always be reopened by hand
+    /// from Lift, with a self-describing action title.
+    #[test]
+    fn actions_provider_offers_the_manual_basics_card_reopen() {
+        let index = provider_index_with_every_provider();
+        let results = index.search(&SearchContext {
+            mode: LiftMode::Actions,
+            query: "halley basics".into(),
+            query_lower: "halley basics".into(),
+            max_results: 40,
+            draft_count: 0,
+        });
+
+        let basics = results
+            .iter()
+            .find(|result| matches!(result.action, LiftAction::ShowBasics))
+            .expect("the actions provider offers Show Halley basics");
+        assert_eq!(basics.title, "Show Halley basics");
+        assert_eq!(basics.kind, LiftResultKind::Action);
+        assert_eq!(basics.section, "Actions");
+        assert_eq!(basics.shortcut_hint.as_deref(), Some("Enter"));
+
+        // The existing compositor actions stay offered.
+        let reload = index.search(&SearchContext {
+            mode: LiftMode::Actions,
+            query: "reload".into(),
+            query_lower: "reload".into(),
+            max_results: 40,
+            draft_count: 0,
+        });
+        assert!(
+            reload
+                .iter()
+                .any(|result| matches!(result.action, LiftAction::ReloadConfig))
+        );
     }
 
     fn app(id: &str, name: &str, exec: &str, icon: &str) -> DesktopApp {

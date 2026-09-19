@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// the end of `Request`/`Response` silently breaks wire-compatibility with
 /// a differently-versioned build - worth remembering as this grows, not
 /// solved here (this first pass has nothing to negotiate against yet).
-pub const HALLEY_IPC_VERSION: u32 = 21;
+pub const HALLEY_IPC_VERSION: u32 = 22;
 pub const HALLEY_API_VERSION: u32 = 1;
 
 /// A request from `halleyctl`, the portal backend, or another local client.
@@ -559,6 +559,10 @@ pub enum ControlRequest {
     },
     WindowTransfer(ControlDirection),
     PanField(ControlDirection),
+    /// Show the one-time Halley basics card again. Manual reopening is always
+    /// allowed, independent of whether the first-run card was already
+    /// dismissed.
+    ShowBasics,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
