@@ -14,7 +14,7 @@ pub(super) fn first_usable<T>(
     }
     let mut failures = Vec::new();
     for path in candidates {
-        eventline::info!("tty: probing GPU {}", path.display());
+        eventline::debug!("tty: probing GPU {}", path.display());
         match probe(&path) {
             Ok(backend) => {
                 eventline::info!("tty: selected GPU {}", path.display());
@@ -76,6 +76,57 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "no GPU found on seat"
+        );
+    }
+
+    #[test]
+    fn drops_failed_candidate_resources_before_probing_next() {
+        use std::{cell::RefCell, rc::Rc};
+
+        let events = Rc::new(RefCell::new(Vec::new()));
+
+        struct ProbeGuard {
+            name: &'static str,
+            events: Rc<RefCell<Vec<String>>>,
+        }
+
+        impl Drop for ProbeGuard {
+            fn drop(&mut self) {
+                self.events.borrow_mut().push(format!("drop {}", self.name));
+            }
+        }
+
+        let events_clone = events.clone();
+        let result = first_usable(vec!["failed_gpu".into(), "usable_gpu".into()], |path| {
+            let name = if path == Path::new("failed_gpu") {
+                "failed_gpu"
+            } else {
+                "usable_gpu"
+            };
+
+            events_clone.borrow_mut().push(format!("open {name}"));
+            let _guard = ProbeGuard {
+                name,
+                events: events_clone.clone(),
+            };
+
+            if path == Path::new("failed_gpu") {
+                Err("connector probe failed".into())
+            } else {
+                Ok(100)
+            }
+        })
+        .unwrap();
+
+        assert_eq!(result, 100);
+        assert_eq!(
+            *events.borrow(),
+            vec![
+                "open failed_gpu",
+                "drop failed_gpu",
+                "open usable_gpu",
+                "drop usable_gpu",
+            ]
         );
     }
 }
