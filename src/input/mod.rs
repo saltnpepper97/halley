@@ -298,6 +298,10 @@ impl<T: Eq + Hash> SuppressedReleases<T> {
         self.inputs.remove(&input)
     }
 
+    pub fn contains(&self, input: T) -> bool {
+        self.inputs.contains(&input)
+    }
+
     pub fn clear(&mut self) {
         self.inputs.clear();
     }

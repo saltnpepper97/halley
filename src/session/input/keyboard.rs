@@ -32,7 +32,30 @@ enum KeyboardOutcome {
     ClusterCharacter(char),
     ClusterIntercept,
     BasicsDismiss,
-    BasicsIntercept,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BasicsKeyRouting {
+    Dismiss,
+    EvaluateNormally,
+}
+
+pub(super) fn basics_key_routing(
+    accepts_input: bool,
+    state: KeyState,
+    sym: Option<Keysym>,
+) -> BasicsKeyRouting {
+    if accepts_input
+        && state == KeyState::Pressed
+        && matches!(
+            sym,
+            Some(Keysym::Return | Keysym::KP_Enter | Keysym::Escape)
+        )
+    {
+        BasicsKeyRouting::Dismiss
+    } else {
+        BasicsKeyRouting::EvaluateNormally
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,22 +163,16 @@ pub(super) fn handle<D, B>(
                     _ => FilterResult::Intercept(KeyboardOutcome::ClusterDeleteIntercept),
                 };
             }
-            if data.shell.overlays.basics_card_accepts_input() {
-                if state == KeyState::Released {
-                    return if release_is_suppressed {
-                        FilterResult::Intercept(KeyboardOutcome::BasicsIntercept)
-                    } else {
-                        FilterResult::Forward
-                    };
-                }
-                // The card is a one-time primer, not a modal: only its own
-                // dismissal keys are swallowed, everything else keeps working.
-                return match handle.raw_latin_sym_or_raw_current_sym() {
-                    Some(Keysym::Return | Keysym::KP_Enter | Keysym::Escape) => {
-                        FilterResult::Intercept(KeyboardOutcome::BasicsDismiss)
-                    }
-                    _ => FilterResult::Forward,
-                };
+            // The card is a one-time primer, not a modal. Intercept only its
+            // dismissal keys; all other keys continue through modal checks and
+            // the compositor keybind matcher below.
+            if basics_key_routing(
+                data.shell.overlays.basics_card_accepts_input(),
+                state,
+                handle.raw_latin_sym_or_raw_current_sym(),
+            ) == BasicsKeyRouting::Dismiss
+            {
+                return FilterResult::Intercept(KeyboardOutcome::BasicsDismiss);
             }
             if data.clusters.accepts_modal_input() {
                 if state == KeyState::Released {
@@ -388,7 +405,6 @@ pub(super) fn handle<D, B>(
             session.interactions.suppressed_keys.suppress(keycode);
             session.dismiss_basics_card();
         }
-        Some(KeyboardOutcome::BasicsIntercept) => {}
         Some(KeyboardOutcome::Action(bind)) => {
             session.interactions.suppressed_keys.suppress(keycode);
             close_blooms_for_keybind(session, pointer_output.as_deref());

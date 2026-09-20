@@ -1,6 +1,6 @@
 use crate::input::grab::{Grab, ResizeAnchor};
 use crate::input::pointer::WheelAccumulator;
-use crate::input::{SuppressedButtons, SuppressedKeys};
+use crate::input::{SuppressedButtons, SuppressedKeys, SuppressedReleases};
 
 /// Mutable state shared by compositor-owned input interactions.
 ///
@@ -13,6 +13,11 @@ pub struct InteractionState {
     pub(crate) resize_anchor: Option<ResizeAnchor>,
     pub(crate) suppressed_buttons: SuppressedButtons,
     pub(crate) suppressed_keys: SuppressedKeys,
+    /// Presses owned by the basics-card dismissal path. Keeping this separate
+    /// from card visibility lets the matching release remain suppressed after
+    /// the fade finishes without swallowing a new press during the fade.
+    pub(crate) basics_buttons: SuppressedButtons,
+    pub(crate) basics_touches: SuppressedReleases<smithay::backend::input::TouchSlot>,
     pub(crate) wheel_accumulator: WheelAccumulator,
     pub(crate) field_arrange: super::arrange::ArrangeTransactions,
     pub(crate) pointer_constraints: super::pointer::PointerConstraintLifecycle,
@@ -30,6 +35,8 @@ impl Default for InteractionState {
             resize_anchor: None,
             suppressed_buttons: SuppressedButtons::default(),
             suppressed_keys: SuppressedKeys::default(),
+            basics_buttons: SuppressedButtons::default(),
+            basics_touches: SuppressedReleases::default(),
             wheel_accumulator: WheelAccumulator::default(),
             field_arrange: super::arrange::ArrangeTransactions::default(),
             pointer_constraints: super::pointer::PointerConstraintLifecycle::default(),
