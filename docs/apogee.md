@@ -1,5 +1,11 @@
 # Apogee and Alt+Tab
 
+Apogee is the inventory layer of Halley's retrieval: `Mod+Arrow` moves one step
+in the Field, `Alt+Tab` recalls recent work, Bearings retrieves offscreen spatial
+work within a monitor, Apogee shows what is open across every monitor, and
+Halley Lift searches by application, node, cluster, or action. Every layer stays
+available, and they are meant to be used together.
+
 `Mod+O` opens Apogee across every configured output. Each monitor lays out its
 own attached windows and collapsed nodes, preserves their aspect ratios, and
 animates them directly from their desktop presentation into the mosaic. The

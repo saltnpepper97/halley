@@ -1,5 +1,12 @@
 # Bearings
 
+Bearings is the offscreen layer of Halley's retrieval. Directional `Mod+Arrow`
+focus moves one step at a time, `Alt+Tab` recalls recent work, Bearings retrieves
+the spatial work that left this monitor's viewport, `Mod+O` Apogee is the visual
+inventory across monitors, and Halley Lift searches directly by application,
+node, cluster, or action. All five stay available; only the question they answer
+differs.
+
 Bearings makes every offscreen node reachable without turning navigation into
 a center-then-activate sequence. It is computed independently for each output
 from that output's live camera viewport.

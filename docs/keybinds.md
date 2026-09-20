@@ -278,6 +278,13 @@ focus or pointer position. `Mod+O` opens or closes
 the multi-monitor Apogee overview. Apogee stops trapping keys as soon as its
 close transition begins.
 
+The five retrieval layers are meant to be used together, and they are described
+in the same order everywhere: `Mod+Arrow` walks to the nearest window or node
+for nearby spatial navigation, `Alt+Tab` navigates recent work, Bearings
+retrieves offscreen spatial work, `Mod+O` Apogee is the visual inventory across
+monitors, and `Mod+D` Lift searches directly by application, node, cluster, or
+action. None of them replaces another.
+
 The default `Mod+A` `arrange-visible` action reorganizes ordinary Field
 windows whose centers are inside the active output's current visible work area.
 It excludes collapsed or detached windows, cluster members, pinned windows,
@@ -287,10 +294,11 @@ and two smaller regions; four use a 2×2 grid; larger sets use balanced,
 near-square rows. Halley assigns windows to regions by minimum total travel, so
 their approximate spatial order is preserved.
 
-Arrangement is one-shot placement, not a layout mode: it creates no tiling tree
-or relationship, and every resulting window remains independently movable and
-resizable. While its restore transaction is active, its windows are protected
-from automatic decay. Pressing `Mod+A` again restores the exact geometry/output
+Arrangement is reversible cleanup rather than a layout mode: it creates no
+tiling tree, no relationship, and no persistent layout state, and every
+resulting window remains independently movable and resizable. While its restore
+transaction is active, its windows are protected from automatic decay. Pressing
+`Mod+A` again restores the exact geometry/output
 snapshot captured by that output's arrangement. The restore transaction is
 recorded before clients are configured, so an immediate or mid-animation second
 press reverses reliably without waiting for clients to commit. `undo-arrange` remains

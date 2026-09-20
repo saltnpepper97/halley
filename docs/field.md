@@ -1,5 +1,15 @@
 # Field behavior and maximize
 
+The Field is where the normal Halley workflow happens: launch freely, position
+windows so they overlap naturally, arrange the visible Field with `Mod+A` when
+it gets messy, collapse finished work intentionally with `Mod+N` into clickable
+nodes, and retrieve it spatially — one step with directional focus, recently with
+`Alt+Tab`, offscreen with Bearings, across monitors with Apogee, and by name
+with Halley Lift. Clusters are the optional later step rather than the starting
+point. [Keybind triggers and actions](keybinds.md) owns the action reference and
+the README opens with the same loop; this document owns the shared spatial
+policy.
+
 The `field:` section owns the shared spatial policy for window clearance,
 camera zoom, close succession, and Halley's field-maximized state:
 

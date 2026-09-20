@@ -824,6 +824,11 @@ keybinds:
   # "left-super", "right-alt", or "left-ctrl".
   mod "super"
 
+  # The normal Field loop: launch freely, position and overlap naturally, tidy
+  # the visible Field with Mod+A when it gets messy, collapse finished work with
+  # Mod+N, retrieve it spatially, and add clusters later only when deliberately
+  # configured.
+  #
   # Built-in compositor actions.
   # `quit` opens the compositor-owned confirmation; Enter leaves and Escape
   # returns to the running session.
@@ -831,6 +836,9 @@ keybinds:
   "$var.mod+q" "close-focused"
   "$var.mod+f" "toggle-fullscreen"
   "$var.mod+m" "maximize-focused"
+  # Collapse the focused window into its clickable node, or restore it. A single
+  # click on the node does the same. Automatic decay is a separate, conservative
+  # timer for genuinely abandoned work.
   "$var.mod+n" "toggle-state"
   "$var.mod+p" "toggle-focused-pin"
   "$var.mod+o" "apogee"
@@ -851,8 +859,9 @@ keybinds:
   # Example exact connector target: "monitor-focus DP-1".
 
   # Create a cluster, switch the active cluster's layout, or open a numbered
-  # cluster slot on the currently selected monitor. Press an open slot again
-  # to return to the Field. Slot 10 uses 0, like a ten-key workspace row.
+  # cluster slot on the currently selected monitor. Clusters are opt-in: these
+  # slots do nothing until you declare or create a cluster. Press an open slot
+  # again to return to the Field. Slot 10 uses 0.
   "$var.mod+shift+c" "cluster-mode"
   "$var.mod+l" "cluster-layout-cycle"
   # Float the focused member inside the active cluster. Its layout slot and
@@ -906,8 +915,9 @@ keybinds:
   "$var.mod+ctrl+up" "resize-window-up" with scope "field"
   "$var.mod+ctrl+down" "resize-window-down" with scope "field"
 
-  # Toggle ordinary windows visible on this Field output between their saved
-  # geometry and a balanced, non-persistent mosaic.
+  # Reversible cleanup, not a layout mode: gather ordinary windows visible on
+  # this Field output into a balanced mosaic. Press it again to restore their
+  # exact saved geometry.
   "$var.mod+a" "arrange-visible"
 
   # Re-read this file immediately. Valid saves are still watched automatically.

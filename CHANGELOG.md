@@ -107,6 +107,21 @@ All notable changes to this project will be documented in this file.
   instead of holding near zero.
 - Refresh the codebase for current Rust Clippy guidance and clear the warning
   baseline without changing compositor behavior.
+- Refine the user-facing documentation around the normal Field loop. The README
+  now opens with launch → position and overlap → arrange → collapse → retrieve →
+  clusters only when deliberately configured, and the generated-config comments,
+  quick-start material, and subsystem docs follow the same order: `Mod+A` is
+  reversible cleanup rather than a persistent tiling mode, `Mod+N` and clickable
+  nodes are introduced before automatic decay, clusters stay out of first-run
+  training for 0.8.0, and numbered workspaces are no longer presented as
+  Halley's default organization model.
+- Document Halley's five retrieval mechanisms consistently across `halleyctl`
+  help text, the README, and the subsystem docs: `Mod+Arrow` is nearby spatial
+  navigation, `Alt+Tab` is recent-work navigation, Bearings retrieves offscreen
+  spatial work, Apogee is the visual inventory across monitors, and Lift is
+  direct search by application, node, cluster, or action. All five remain
+  available; the documentation now states their hierarchy instead of implying
+  they compete.
 
 ### Fixed
 - Reverse the landmark displacement that camera zoom-out causes. The first

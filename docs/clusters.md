@@ -1,9 +1,13 @@
 # Clusters
 
-A cluster is a persistent named workspace represented by one core in the Field.
-Opening the core presents its members in either tiling or stacking layout. A
-cluster remains valid when it has no members: closing the final member leaves
-its name, slot, layout, and core available for later use.
+A cluster is an optional, persistent named workspace represented by one core in
+the Field, and it is the last step of the Field loop: you create one deliberately
+from windows that are already on the Field when a group of work is worth naming.
+A session without any cluster is a complete Halley session, and a freshly
+generated configuration declares none. Opening the core presents its members in
+either tiling or stacking layout. A cluster remains valid when it has no
+members: closing the final member leaves its name, slot, layout, and core
+available for later use.
 
 Opening or selecting an empty cluster briefly shows a centered `name · layout`
 label so the otherwise blank workspace remains identifiable. A populated
@@ -75,7 +79,9 @@ centered row near the top of each output, in declaration order.
 
 A freshly bootstrapped config declares no startup clusters, and neither shipped
 config example declares any either. A new session therefore begins on an empty
-Field, which is the initial workspace: windows you launch open directly into it.
+Field: windows you launch open directly into it. Numbered cluster slots are an
+opt-in way to revisit named workspaces later, not Halley's default way to
+organize windows.
 Startup clusters are opt-in — add `autostart.cluster` declarations like the ones
 above only when you want an output to begin with a named core. Existing user
 configs are never rewritten by bootstrap, so a config that already declares

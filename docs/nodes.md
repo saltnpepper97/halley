@@ -12,6 +12,11 @@ drops behind every window that was above it, a middle window stays between its
 neighbors, and a front window drops in front. The emerging marker shares that
 depth instead of jumping to a global node overlay.
 
+Collapse and restore are the deliberate half of the Field loop: `Mod+N`
+collapses the focused window on purpose, and one click on the collapsed marker
+brings it back. [Automatic decay](#automatic-decay) is the separate conservative
+half, and it only reaches work you genuinely left behind.
+
 Click a collapsed marker once to restore and focus its window. This is one
 atomic action: Halley does not first center the camera, leave the marker
 collapsed, and require a second click. `$var.mod+n` runs the same state toggle

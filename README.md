@@ -30,6 +30,65 @@ presentation, native embedded XWayland, and a typed public API.
 
 ---
 
+## Start here: the normal Field loop
+
+Halley is Field-first. Applications open onto the Field, you position them as
+you work, and you clean up when the visible Field becomes cluttered. The whole
+daily workflow is one loop:
+
+> Launch freely → position and overlap naturally → arrange when the visible
+> Field becomes messy → collapse work intentionally → retrieve it spatially →
+> use clusters later only when deliberately configured.
+
+1. **Launch freely.** `Super+D` opens Halley Lift, so whatever you start lands
+   directly on the Field.
+2. **Position and overlap naturally.** `Super+Left-drag` moves a window, and
+   ordinary windows are free to overlap instead of being solved into slots.
+3. **Arrange when the visible Field becomes messy.** `Super+A` gathers the
+   visible windows into a balanced mosaic and remembers the geometry each one
+   came from.
+4. **Collapse work intentionally.** `Super+N` collapses the focused window into
+   its clickable node — the marker that keeps the window's place on the Field —
+   and restores it again.
+5. **Retrieve it spatially.** `Super+Arrow` walks to the nearest window or node;
+   the retrieval layers below cover recent work, offscreen work, and everything
+   open across your monitors.
+6. **Use clusters later, only when deliberately configured.** A cluster is an
+   optional named context, not the way Halley expects you to organize windows.
+
+`Super+A` and `Super+N` are ordinary reversible actions, not modes. `Super+A` is
+reversible cleanup: it creates no tiling tree, no relationship, and no
+persistent layout mode, every window stays independently movable, and pressing
+it again restores the exact saved geometry. `Super+N` is a manual collapse you
+can see happen, and a collapsed node is restored by clicking it or by pressing
+`Super+N` on it again; automatic decay is a separate, conservative safety net
+for genuinely abandoned work, described in
+[nodes and decay](docs/nodes.md).
+
+Halley does not start you on numbered workspaces. Each monitor owns its own
+Field and applications live on it. Clusters and their numbered slots exist for
+people who deliberately declare or create them, and the 0.8.0 first-run card
+teaches no cluster controls at all.
+
+### Retrieval
+
+Halley keeps five retrieval mechanisms because they answer five different
+questions. They are layers, not replacements for each other.
+
+| Mechanism | Binding | Question it answers |
+|---|---|---|
+| Directional focus | `Super+Arrow` | Nearby spatial navigation — which window or node is next in this direction? |
+| Focus carousel | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation — what did I just come from? |
+| Bearings | `Super+Z` hold / `Super+Shift+Z` toggle | Offscreen spatial retrieval — where did work go beyond this monitor's view? |
+| Apogee | `Super+O` | Visual inventory across monitors — what is open on every display? |
+| Halley Lift | `Super+D` | Direct search by application, node, cluster, or compositor action — what is this called? |
+
+The escalation is deliberate: the arrows move one step, `Alt+Tab` recalls recent
+work, Bearings and Apogee show where things are, and Lift finds something by
+name.
+
+---
+
 ## Support Halley
 
 Halley will continue receiving updates, fixes, protocol work, and polish. The
@@ -105,8 +164,8 @@ declaring startup clusters in `autostart` or by creating them at runtime.
 ## First Run
 
 A newly generated configuration's first native session shows one compositor-owned
-**Halley basics** card: the mental model above, plus only the five operations it
-depends on.
+**Halley basics** card: the Field-first mental model, plus only the five
+operations it depends on.
 
 - `Super+D` — launch or search with Lift.
 - `Super+Left-drag` — move a window.
@@ -118,7 +177,9 @@ The card names your configured `mod` key, so a nested `halley --winit` session
 shows `Alt+D` where a native session shows `Super+D`. It is a primer rather than
 a tutorial: it lists no zoom, Bearings, Trail, pinning, or cluster layouts, it
 never dims or blocks the desktop, and only its own dismissal keys are captured.
-`Enter`, `Escape`, or a click closes it for good.
+`Enter`, `Escape`, or a click closes it for good. Clusters stay out of first-run
+training for 0.8.0 — the card names no cluster action, core, or layout — so you
+only meet clusters when you deliberately configure them.
 
 It appears only for a configuration Halley generated itself. Existing
 configurations, nested `halley --winit` sessions, and explicitly selected
@@ -132,7 +193,10 @@ Halley Lift's **Show Halley basics** action or with `halleyctl basics`.
 
 ## Clusters
 
-Clusters are deliberate workspaces assembled from ordinary windows.
+Clusters come last in the Field loop, and only when you deliberately configure
+them. A cluster is a named context assembled from windows that are already on
+the Field; nothing creates one for you, and a session without clusters is a
+complete Halley session.
 
 Enter cluster mode to open the Cluster Composer on the selected monitor.
 Eligible windows and collapsed nodes animate into a stable, non-overlapping
@@ -265,30 +329,39 @@ swipe, and hold actions.
 | Basic | `Super+Q` | Close the focused window |
 | Basic | `Super+F` | Toggle fullscreen |
 | Basic | `Super+M` | Toggle Field maximize |
-| Basic | `Super+N` | Toggle live/collapsed state |
+| Basic | `Super+N` | Collapse the focused window into its node, or restore it (a collapsed node also restores on click) |
 | Basic | `Super+P` | Pin or unpin the focused window |
-| Overview | `Super+O` | Toggle Apogee |
-| Focus | `Alt+Tab` / `Alt+Shift+Tab` | Cycle focus forward/backward |
-| Focus | `Super+Arrow` | Directional focus in the active context |
+| Overview | `Super+O` | Toggle Apogee, the visual inventory across monitors |
+| Focus | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation: cycle the focus carousel forward/backward |
+| Focus | `Super+Arrow` | Nearby spatial navigation: directional focus in the active context |
 | Focus | `Super+H` | Center the last-focused Field window |
 | Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
 | Move | `Super+Alt+Arrow` | Move the focused Field node |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
-| Arrange | `Super+A` | Toggle visible Field windows between a mosaic and their saved geometry |
+| Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
 | Clusters | `Super+Shift+C` | Enter cluster creation mode |
 | Clusters | `Super+L` | Cycle cluster layout |
 | Clusters | `Super+V` | Toggle the focused cluster member floating |
 | Clusters | `Super+0..9` | Open a per-monitor cluster slot |
-| Bearings | `Super+Z` / `Super+Shift+Z` | Hold or toggle Bearings |
+| Bearings | `Super+Z` / `Super+Shift+Z` | Offscreen retrieval: hold or toggle Bearings |
 | Launch | `Super+T` | Open the first supported terminal |
-| Launch | `Super+D` | Open Halley Lift, the bundled launcher (Fuzzel is a commented alternative) |
+| Launch | `Super+D` | Open Halley Lift to search applications, nodes, clusters, and compositor actions (Fuzzel is a commented alternative) |
 | Reload | `Super+Shift+R` | Reload the selected configuration |
 | Zoom | `Super+-` / `Super+=` / `Super+Shift+0` | Zoom out, in, or reset |
 | Pointer | `Super+Left Mouse` | Move a window |
 | Pointer | `Super+Right Mouse` | Smoothly resize a window |
 | Pointer | `Left Mouse` on empty Field | Pan the Field |
 | Screenshot | `Print` | Open native capture |
+
+A few rows carry the framing from the loop above. `Super+A` is reversible
+cleanup rather than a tiling mode: it writes no layout, no relationship, and no
+persistent mode, and a second press restores each window's saved geometry.
+`Super+N` collapses the focused window into its clickable node and restores it
+again, while automatic decay is a separate conservative timer for genuinely
+abandoned work. `Alt+Tab`, `Super+Arrow`, Bearings, Apogee, and Lift are the
+five retrieval layers described in [Retrieval](#retrieval). The cluster rows act
+only on clusters you declared or created yourself.
 
 The same chord may be assigned distinct actions in `field`, `cluster`, `tile`,
 and `stack` scopes. Left/right Super, Alt, Ctrl, and Shift can be matched

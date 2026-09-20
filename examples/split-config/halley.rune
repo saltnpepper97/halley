@@ -37,8 +37,9 @@ keybinds:
   "$var.mod+o" "apogee"
   "$var.mod+space" "center-last-focused"
 
-  # Contextual navigation uses the Field, tiling, or stacking behavior that
-  # matches the active workspace.
+  # Contextual navigation follows the active context: the Field arrows move
+  # among Field windows and nodes, a tiling cluster uses the nearest tile, and
+  # a stacking cluster cycles cards.
   "$var.mod+left" "focus-left"
   "$var.mod+right" "focus-right"
   "$var.mod+up" "focus-up"

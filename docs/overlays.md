@@ -102,7 +102,9 @@ remain configured but have no visible effect while `background false`.
 A freshly generated configuration's first native session shows one **Halley
 basics** card: the Field-first mental model plus the five essential operations
 (`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange, `Mod+N`
-collapse/restore, `Mod+O` Apogee). The card spells `Mod` as the configured key
+collapse/restore, `Mod+O` Apogee). Clusters stay out of first-run training in
+0.8.0: the card names no cluster action, core, or layout, so a cluster is only
+ever introduced deliberately. The card spells `Mod` as the configured key
 — `Super` on a native session, `Alt` while nested under `--winit`. It reuses the
 shared overlay surface,
 typography, and transition timing described above, is centered on the focused
