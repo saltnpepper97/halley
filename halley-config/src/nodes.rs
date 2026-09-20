@@ -54,6 +54,11 @@ pub struct Decay {
 }
 
 impl Default for Decay {
+    /// The built-in delays used when a configuration omits the `decay:`
+    /// section. They deliberately stay at 0.8.0's original 3 and 30 minutes:
+    /// a config that predates the release must keep behaving exactly as it did.
+    /// Only a configuration Halley generates itself carries the longer
+    /// conservative defaults (see `halley.default.rune`).
     fn default() -> Self {
         Self {
             enabled: true,
@@ -511,6 +516,20 @@ end
         );
         assert!(parse_debug(&config).show_focus_ring);
         assert!(parse_debug(&config).overlay_fps);
+    }
+
+    /// Milestone 4 boundary: the longer conservative delays reach users only
+    /// through a newly generated config. An older config that omits the
+    /// `decay:` section keeps Halley's built-in 180 s / 1800 s behavior.
+    #[test]
+    fn a_config_without_a_decay_section_keeps_the_built_in_delays() {
+        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").unwrap();
+        let decay = parse_decay(&config);
+
+        assert!(decay.enabled);
+        assert_eq!(decay.outside_delay_seconds, 180);
+        assert_eq!(decay.inside_delay_seconds, 1_800);
+        assert_eq!(decay, Decay::default());
     }
 
     #[test]

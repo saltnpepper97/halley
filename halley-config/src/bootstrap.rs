@@ -389,4 +389,68 @@ mod tests {
             "existing users keep their own launcher binding"
         );
     }
+
+    /// Milestone 4: a fresh installation gets conservative decay defaults —
+    /// 10 minutes outside the focus ring and 90 minutes inside it — instead of
+    /// Halley's shorter built-in 3/30 minutes. The values are checked through
+    /// the generated file's own runtime loading path, not just the template.
+    #[test]
+    fn generated_config_uses_conservative_decay_delays() {
+        let scratch = ScratchDir::new("generated_config_uses_conservative_decay_delays");
+        let config_file = scratch.path().join("halley").join("halley.rune");
+        assert!(
+            bootstrap_default_config_at(&config_file).unwrap(),
+            "a fresh install writes the generated config"
+        );
+
+        let runtime = crate::load_runtime_config_at(&config_file).expect("generated config loads");
+        assert!(runtime.decay.enabled);
+        assert_eq!(
+            runtime.decay.outside_delay_seconds, 600,
+            "outside the focus ring a fresh config decays after 10 minutes"
+        );
+        assert_eq!(
+            runtime.decay.inside_delay_seconds, 5_400,
+            "inside the focus ring a fresh config decays after 90 minutes"
+        );
+
+        let config = RuneConfig::from_str(DEFAULT_CONFIG).expect("bootstrap template parses");
+        assert_eq!(crate::parse_decay(&config), runtime.decay);
+    }
+
+    /// Milestone 4 boundary: the longer delays are not a migration. An existing
+    /// config that states its own decay values is never rewritten, and a config
+    /// that omits the section keeps Halley's built-in delays.
+    #[test]
+    fn existing_configs_keep_their_own_decay_values() {
+        const EXISTING: &str = concat!(
+            "decay:\n",
+            "  enabled true\n",
+            "  outside-delay-seconds 45\n",
+            "  inside-delay-seconds 90\n",
+            "end\n",
+            "\n",
+            "keybinds:\n",
+            "  mod \"super\"\n",
+            "end\n",
+        );
+
+        let scratch = ScratchDir::new("existing_configs_keep_their_own_decay_values");
+        let config_file = scratch.path().join("halley").join("halley.rune");
+        fs::create_dir_all(config_file.parent().unwrap()).unwrap();
+        fs::write(&config_file, EXISTING).unwrap();
+
+        let wrote = bootstrap_default_config_at(&config_file).unwrap();
+
+        assert!(!wrote, "bootstrap must not write when a config exists");
+        assert_eq!(
+            fs::read_to_string(&config_file).unwrap(),
+            EXISTING,
+            "an existing decay section must stay byte-for-byte unchanged"
+        );
+
+        let runtime = crate::load_runtime_config_at(&config_file).expect("existing config loads");
+        assert_eq!(runtime.decay.outside_delay_seconds, 45);
+        assert_eq!(runtime.decay.inside_delay_seconds, 90);
+    }
 }
