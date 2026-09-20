@@ -491,14 +491,15 @@ bearings:
   blur true
 end
 
-# Automatic decay turns an unfocused active window into a node. The outside
-# delay applies to windows beyond this output's focus ring; the inside delay
-# applies to windows inside it. These conservative generated defaults are 10
-# and 90 minutes. They apply only to a config Halley generates: an existing
-# config keeps its own values, and one that omits this section keeps Halley's
-# shorter built-in delays (180 and 1800 seconds). The first automatic collapse
-# explains itself once, as a non-modal notice. Manual Mod+N collapse is
-# immediate and never waits for these timers.
+# Collapse focused work manually with Mod+N; its node remains clickable, and
+# either the node or Mod+N restores the window immediately. Automatic decay is
+# only a later fallback for unfocused work: the outside delay applies beyond
+# this output's focus ring, and the inside delay applies within it. These
+# conservative generated defaults are 10 and 90 minutes. They apply only to a
+# config Halley generates: an existing config keeps its own values, and one
+# that omits this section keeps Halley's shorter built-in delays (180 and 1800
+# seconds). The first automatic collapse explains itself once in a non-modal
+# notice.
 decay:
   enabled true
   outside-delay-seconds 600

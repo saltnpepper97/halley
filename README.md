@@ -194,9 +194,10 @@ Halley Lift's **Show Halley basics** action or with `halleyctl basics`.
 ## Clusters
 
 Clusters come last in the Field loop, and only when you deliberately configure
-them. A cluster is a named context assembled from windows that are already on
-the Field; nothing creates one for you, and a session without clusters is a
-complete Halley session.
+them. A runtime-created cluster is a named context assembled from windows that
+are already on the Field; nothing creates a cluster implicitly, and a session
+without clusters is a complete Halley session. You can instead declare a
+startup cluster explicitly under `autostart`.
 
 Enter cluster mode to open the Cluster Composer on the selected monitor.
 Eligible windows and collapsed nodes animate into a stable, non-overlapping
