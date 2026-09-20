@@ -16,6 +16,7 @@ mod autostart;
 mod basics;
 pub(crate) mod closing;
 mod cursor;
+mod decay_notice;
 mod focus;
 pub(crate) mod gesture;
 pub(crate) mod input;

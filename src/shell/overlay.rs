@@ -324,6 +324,21 @@ impl OverlayManager {
         );
     }
 
+    /// Shows the one-time explanation for the first automatic decay collapse.
+    ///
+    /// It uses the ordinary non-modal notification surface: it appears on the
+    /// output it names, fades out on its own, never captures keyboard or
+    /// pointer input, and never changes the focused window or output.
+    pub fn show_decay_notice(
+        &mut self,
+        output: String,
+        message: String,
+        duration_ms: u64,
+        now: Duration,
+    ) {
+        self.show_notification(output, message, NotificationKind::Success, duration_ms, now);
+    }
+
     pub fn show_error(
         &mut self,
         output: String,
@@ -628,6 +643,44 @@ mod tests {
             "Screenshot saved to /home/test/Pictures/Screenshots"
         );
         assert_eq!(notification.kind, NotificationKind::Success);
+    }
+
+    /// Milestone 4: the one-time decay explanation is an ordinary success
+    /// notification, so it can never capture input or hold a modal state.
+    #[test]
+    fn the_decay_notice_is_non_modal_and_never_captures_input() {
+        let mut overlays = OverlayManager::default();
+        overlays.show_decay_notice(
+            "DP-1".into(),
+            "Firefox was collapsed into a node. Click the node or press Mod+N to restore it."
+                .to_string(),
+            4_000,
+            Duration::ZERO,
+        );
+
+        let snapshot = overlays.snapshot("DP-1", Duration::from_millis(180));
+        let notification = snapshot.notification.expect("the explanation is visible");
+        assert_eq!(
+            notification.message,
+            "Firefox was collapsed into a node. Click the node or press Mod+N to restore it."
+        );
+        assert_eq!(notification.kind, NotificationKind::Success);
+        assert!(
+            snapshot.confirmation.is_none() && snapshot.basics.is_none(),
+            "the explanation must not open a modal or the basics card"
+        );
+        assert!(!overlays.confirmation_modal_active());
+        assert!(
+            !overlays.basics_card_accepts_input(),
+            "the explanation must not swallow any key or pointer press"
+        );
+        assert!(
+            overlays
+                .snapshot("DP-1", Duration::from_millis(4_400))
+                .notification
+                .is_none(),
+            "the explanation fades out on its own without any acknowledgement"
+        );
     }
 
     #[test]

@@ -438,6 +438,33 @@ impl<D: SessionDriver> Session<D> {
         true
     }
 
+    /// Shows the one-time explanation for an automatic decay collapse.
+    ///
+    /// Both the automatic and the manual collapse paths share one seam, so this
+    /// is called for every collapse and the trigger decides: a manual `Mod+N`
+    /// collapse is silent, because the user performed it deliberately and saw
+    /// it happen. An automatic collapse explains itself once per user state,
+    /// not once per application or session, and only as an ordinary non-modal
+    /// notification that takes no input.
+    pub fn note_collapse(&mut self, decay: bool, title: &str, app_id: Option<&str>) -> bool {
+        let trigger = super::decay_notice::CollapseTrigger::for_decay(decay);
+        if !super::decay_notice::explanation_due(trigger, self.user_state.decay_notice_shown()) {
+            return false;
+        }
+        let output = self.notification_output_name();
+        let message = super::decay_notice::collapsed_into_node_message(title, app_id);
+        self.shell.overlays.show_decay_notice(
+            output.clone(),
+            message,
+            self.settings.overlays.notifications.success_duration_ms,
+            crate::frame_clock::monotonic_now(),
+        );
+        self.user_state.record_decay_notice_shown();
+        eventline::info!("decay: explaining the first automatic collapse on {output}");
+        self.request_redraw();
+        true
+    }
+
     pub fn cancel_exit_confirmation(&mut self) {
         if self
             .shell
