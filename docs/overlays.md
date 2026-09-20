@@ -2,8 +2,8 @@
 
 The `overlays:` section is the shared style contract for compositor-owned UI:
 Apogee title bands, the Alt+Tab rail, Bearings chips, the screenshot picker,
-configuration notices, the zoom indicator, the exit confirmation, and the
-one-time basics card. It
+configuration notices, the zoom indicator, the exit confirmation, the one-time
+automatic-decay explanation, and the one-time basics card. It
 deliberately does not restyle client window decorations or node labels; those
 retain their existing sections.
 
@@ -70,7 +70,8 @@ Notification positions are `top-left`, `top-center`, `top-right`,
 milliseconds. The renderer builds every card at its final pixel dimensions,
 so changing its radius or output scale does not stretch a small blurred texture.
 After a native screenshot is saved, a success notification shows its destination
-directory for `success-duration-ms`.
+directory for `success-duration-ms`. The one-time automatic-decay explanation
+(see below) uses the same surface and the same `success-duration-ms`.
 
 ## Zoom indicator
 
@@ -121,6 +122,30 @@ live in `$XDG_STATE_HOME/halley/state.rune` (falling back to
 configuration: it is never migrated, never rewritten by config loading, and safe
 to delete. Manual reopening is independent of that state and always works, from
 Halley Lift's **Show Halley basics** action or `halleyctl basics`.
+
+## Automatic-decay explanation
+
+The first time automatic decay collapses a window into a node, Halley shows one
+ordinary success notification:
+
+```text
+Firefox was collapsed into a node. Click the node or press Mod+N to restore it.
+```
+
+The notice names the collapsed window's title — the same text its node is
+labelled with — falling back to the application id, and finally to a generic
+`A window was collapsed into a node. Click the node or press Mod+N to restore
+it.` when a client reports neither. The `Untitled` placeholder used for an
+unnamed window is not shown as if it were an application name.
+
+It reuses the non-modal notification surface above: it never captures keyboard
+or pointer input, opens no confirmation or card, changes no focused window or
+output, and fades out by itself after `success-duration-ms`. The explanation is
+one-shot per user state rather than per application or session, recorded as
+`decay-notice-shown` in the same user state file as the basics card; that file
+is never migrated and safe to delete. Manual `Mod+N` collapse, a titlebar
+minimize, and `halleyctl`-driven collapse are deliberate actions and never show
+the explanation.
 
 ## Configuration lifecycle
 

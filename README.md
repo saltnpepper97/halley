@@ -87,6 +87,14 @@ camera. Its dimensions and offset are configurable per output. Windows outside
 that ring become candidates for timer-driven decay rather than disappearing
 because an arbitrary global window count was exceeded.
 
+Decay is conservative and optional. A newly generated config waits 10 minutes
+outside the focus ring and 90 minutes inside it before an unfocused window
+becomes a node; existing configs keep their own values, and a config without a
+`decay:` section keeps Halley's shorter built-in delays. The first automatic
+collapse explains itself once — `<Application> was collapsed into a node. Click
+the node or press Mod+N to restore it.` — in a non-modal notice that never takes
+input, and `Mod+N` collapses and restores windows by hand at any time.
+
 A fresh Halley session begins on this empty Field. A newly generated config
 declares no startup clusters, so applications you launch open directly into the
 Field. Clusters are optional named contexts you add deliberately, either by

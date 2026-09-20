@@ -58,6 +58,15 @@ All notable changes to this project will be documented in this file.
   selected paths, and nested `--winit` sessions never show it automatically.
   Reopen it any time from Halley Lift's new **Show Halley basics** action or with
   `halleyctl basics`. See `docs/overlays.md`.
+- Explain the first automatic decay collapse once, in a non-modal notice:
+  `<Application> was collapsed into a node. Click the node or press Mod+N to
+  restore it.` The name is the collapsed window's title, falling back to its
+  application id and then to a generic `A window` sentence. The notice takes no
+  keyboard or pointer input, opens no modal, and changes no focus; it is
+  recorded in `$XDG_STATE_HOME/halley/state.rune`, so it appears at most once
+  per installation rather than once per application or session. Manual `Mod+N`
+  collapse, titlebar minimize, and IPC collapse never trigger it. See
+  `docs/overlays.md` and `docs/nodes.md`.
 
 ### Changed
 - Apply window-rule `opacity` to client content and popups only. Titlebars,
@@ -83,6 +92,11 @@ All notable changes to this project will be documented in this file.
   configuration, and keep Fuzzel documented as the commented alternative.
   Existing configurations are never rewritten, so users who already bind
   Fuzzel or any other launcher keep their binding.
+- Make automatic decay conservative in a freshly generated configuration: 600
+  seconds (10 minutes) outside the focus ring and 5,400 seconds (90 minutes)
+  inside it, instead of 180 and 1,800. The longer delays are not a migration —
+  an existing configuration keeps the values it states, and one that omits the
+  `decay:` section keeps Halley's built-in 180/1,800-second behavior.
 - Keep clusters and their core identity after the final member closes so named
   empty workspaces remain available for later windows.
 - Add `decorations.titlebars.text-size` so window-title text can use a size
