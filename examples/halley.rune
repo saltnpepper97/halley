@@ -534,7 +534,7 @@ field:
   # The selected successor may already be a collapsed node. False keeps it
   # collapsed while making it Halley's logical node focus, so node-aware
   # commands still target it without unexpectedly turning it back into a
-  # window. True restores ("un-nodes") and focuses it as part of the close.
+  # window. True restores the node and focuses it as part of the close.
   close-restore-nodes false
 
   # Camera behavior after focusing an active successor or restoring a node:
