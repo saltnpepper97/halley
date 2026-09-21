@@ -1,6 +1,7 @@
 use std::io;
 
 use smithay::backend::allocator::format::FormatSet;
+use smithay::backend::allocator::Modifier;
 use smithay::backend::drm::compositor::FrameFlags;
 use smithay::backend::drm::DrmNode;
 use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
@@ -38,7 +39,13 @@ pub fn surface_feedback(
 ) -> Result<SurfaceDmabufFeedback, io::Error> {
     let primary_plane_formats =
         output.with_compositor(|compositor| compositor.surface().plane_info().formats.clone());
-    let primary_scanout_formats = scanout_formats(&renderer_formats, &primary_plane_formats);
+    let mut primary_scanout_formats = scanout_formats(&renderer_formats, &primary_plane_formats);
+    if render_node != scanout_node {
+        // Cross-device DMA-BUF import is not guaranteed for vendor-specific
+        // modifiers. Advertise linear scanout for hybrid systems and leave
+        // the render GPU's full format set in the main tranche.
+        primary_scanout_formats.retain(|format| format.modifier == Modifier::Linear);
+    }
     let builder = DmabufFeedbackBuilder::new(render_node.dev_id(), renderer_formats);
     let scanout = builder
         .clone()

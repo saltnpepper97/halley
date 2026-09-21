@@ -103,7 +103,7 @@ impl super::RenderDriver for TtyDriver {
         &mut self,
         f: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> T,
     ) -> T {
-        f(self.backend.renderer())
+        self.backend.with_renderer(f)
     }
 
     fn register_dmabuf_source(
@@ -299,7 +299,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     let config_path = initial.path;
     let runtime_config = initial.config;
     let fresh_config = initial.fresh;
-    let (backend, session_notifier, drm_notifier) = match TtyBackend::new(&runtime_config.outputs) {
+    let (backend, session_notifier, drm_notifiers) = match TtyBackend::new(&runtime_config.outputs)
+    {
         Ok(parts) => parts,
         Err(err) => {
             eventline::error!("TtyBackend::new() failed: {err}");
@@ -696,13 +697,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         })
         .expect("failed to insert session notifier");
 
-    event_loop
-        .handle()
-        .insert_source(drm_notifier, |event, metadata, app| match event {
-            DrmEvent::VBlank(crtc) => on_vblank(app, crtc, metadata.as_ref()),
-            DrmEvent::Error(err) => eventline::error!("drm event: error {err:?}"),
-        })
-        .expect("failed to insert drm notifier");
+    for (gpu_index, drm_notifier) in drm_notifiers.into_iter().enumerate() {
+        event_loop
+            .handle()
+            .insert_source(drm_notifier, move |event, metadata, app| match event {
+                DrmEvent::VBlank(crtc) => on_vblank(app, gpu_index, crtc, metadata.as_ref()),
+                DrmEvent::Error(err) => eventline::error!("drm event: error {err:?}"),
+            })
+            .expect("failed to insert drm notifier");
+    }
 
     eventline::info!("session ready: outputs active; use the configured Quit chord to exit");
     event_loop
@@ -727,8 +730,13 @@ fn presentation_time(metadata: Option<&DrmEventMetadata>) -> Option<Duration> {
     }
 }
 
-fn on_vblank(app: &mut TtyApp, crtc: crtc::Handle, metadata: Option<&DrmEventMetadata>) {
-    let Some(output) = app.driver.backend.output_for_crtc(crtc).cloned() else {
+fn on_vblank(
+    app: &mut TtyApp,
+    gpu_index: usize,
+    crtc: crtc::Handle,
+    metadata: Option<&DrmEventMetadata>,
+) {
+    let Some(output) = app.driver.backend.output_for_crtc(gpu_index, crtc).cloned() else {
         eventline::warn!("vblank received for unknown CRTC {crtc:?}");
         return;
     };
@@ -760,7 +768,7 @@ fn on_vblank(app: &mut TtyApp, crtc: crtc::Handle, metadata: Option<&DrmEventMet
                 if let Some(state) = app.driver.output_frames.get_mut(&delayed_output) {
                     state.vblank_throttle_timer_fired();
                 }
-                complete_vblank(app, crtc, &delayed_output, presented, sequence);
+                complete_vblank(app, gpu_index, crtc, &delayed_output, presented, sequence);
                 TimeoutAction::Drop
             }) {
             Ok(token) => {
@@ -776,17 +784,19 @@ fn on_vblank(app: &mut TtyApp, crtc: crtc::Handle, metadata: Option<&DrmEventMet
         }
     }
 
-    complete_vblank(app, crtc, &output, presented, sequence);
+    complete_vblank(app, gpu_index, crtc, &output, presented, sequence);
 }
 
 fn complete_vblank(
     app: &mut TtyApp,
+    gpu_index: usize,
     crtc: crtc::Handle,
     output: &Output,
     presented: Option<Duration>,
     sequence: u64,
 ) {
-    let (submission, acknowledge_failed) = match app.driver.backend.frame_submitted(crtc) {
+    let (submission, acknowledge_failed) = match app.driver.backend.frame_submitted(gpu_index, crtc)
+    {
         Ok(submission) => (submission, false),
         Err(err) => {
             eventline::warn!(
