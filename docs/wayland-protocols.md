@@ -113,8 +113,16 @@ and commits a DMA-BUF with acquire and release points. The acquire point
 blocks only that surface transaction without stalling the compositor event
 loop; Smithay signals the release point when the compositor drops its final
 reference to the buffer. The nested winit backend never advertises this
-hardware protocol, and ordinary implicit-sync clients retain the existing
-commit and render path.
+hardware protocol, and a surface that opts into explicit sync never also waits
+on implicit fences.
+
+Implicit-sync clients are covered separately. A newly committed DMA-BUF whose
+planes are not yet readable is withheld from composited state until every
+plane's readiness fence has signalled, so an unfinished buffer is never
+imported or sampled and the compositor's event loop keeps running while it is
+pending. If the readiness source cannot be registered, the buffer is committed
+normally with a logged warning instead of installing a blocker that could never
+be cleared, which would freeze the surface permanently.
 
 Halley advertises `zwlr_output_manager_v1` version 4 as a writable output
 management interface. Every request is validated as one complete, one-head-

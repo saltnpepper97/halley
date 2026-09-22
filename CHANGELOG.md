@@ -105,6 +105,13 @@ All notable changes to this project will be documented in this file.
 - Drive close custom shaders with linear wall-clock progress instead of the
   CPU shrink/fade ease-in-out cubic, so the effect starts on the first frame
   instead of holding near zero.
+- Use a high-priority GL context for the TTY renderer so compositor frames are
+  not queued behind busy client GPU work, as Niri and Hyprland do. Earlier
+  releases kept normal EGL priority as the default and exposed the aggressive
+  path only through `HALLEY_TTY_HIGH_PRIORITY_EGL=1`, which Halley no longer
+  reads; that opt-in existed because high-priority EGL previously caused AMD
+  game flicker and stutter, so this default needs re-validation on the target
+  AMD system before release.
 - Refresh the codebase for current Rust Clippy guidance and clear the warning
   baseline without changing compositor behavior.
 - Refine the user-facing documentation around the normal Field loop. The README
@@ -266,6 +273,16 @@ All notable changes to this project will be documented in this file.
   changing keyboard focus or their internal stacking order, so nearby Field
   windows outside the arrangement remain underneath instead of covering or
   intercepting the mosaic.
+- Accept a state-only client commit as a valid fullscreen exit endpoint when a
+  restored session leaves fullscreen at the same window size, instead of waiting
+  for a repaint the client is not going to send. A state-only commit still never
+  approves a resize with the previous buffer.
+- Withhold a newly committed DMA-BUF from composited state until every plane's
+  readiness fence has signalled, so an unfinished implicit-sync buffer is never
+  imported or sampled. The compositor event loop keeps servicing other clients
+  while the buffer is pending, and a buffer whose readiness source cannot be
+  registered is committed normally with a logged warning rather than leaving the
+  surface blocked forever.
 
 ## [v0.7.0] - 2026-08-31
 
