@@ -1091,6 +1091,7 @@ impl FullscreenManager {
                 wayland.space.relocate_element(&window, location);
             } else {
                 wayland.space.map_element(window.clone(), location, true);
+                crate::window::enforce_dialog_stacking(wayland);
             }
         } else {
             let location = match restore.as_ref() {
@@ -1109,6 +1110,7 @@ impl FullscreenManager {
                 wayland.space.relocate_element(&window, location);
             } else {
                 wayland.space.map_element(window.clone(), location, true);
+                crate::window::enforce_dialog_stacking(wayland);
             }
         }
 

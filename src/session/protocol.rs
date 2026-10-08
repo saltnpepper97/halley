@@ -753,6 +753,14 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
         });
     }
 
+    fn parent_changed(&mut self, _surface: ToplevelSurface) {
+        if crate::window::enforce_dialog_stacking(&mut self.wayland) {
+            self.xwayland.sync_stacking_order(&self.wayland.space);
+            super::pointer::reconcile_state(self);
+            self.request_redraw();
+        }
+    }
+
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         super::closing::capture_surface(self, surface.wl_surface());
         self.window_rules.forget(surface.wl_surface());

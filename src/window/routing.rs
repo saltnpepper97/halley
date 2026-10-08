@@ -1,11 +1,8 @@
 use halley_config::WindowSpawnPlacement;
 use smithay::desktop::Window;
 use smithay::output::Output;
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
-use smithay::wayland::compositor::with_states;
 use smithay::wayland::seat::WaylandFocus;
-use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 use crate::presentation::camera::OutputCameras;
 use crate::wayland::WaylandState;
@@ -32,7 +29,7 @@ pub(crate) fn initial_window_placement(
 ) -> InitialWindowPlacement {
     let parent = request
         .window
-        .and_then(|window| parent_window(request.wayland, window));
+        .and_then(|window| super::stacking::parent_window(&request.wayland.space, window));
     let focused = focused_window(request.wayland);
     let adjacent_anchor = parent.as_ref().or(focused.as_ref());
     let preferred_anchor = parent.as_ref();
@@ -158,31 +155,6 @@ fn focused_window(wayland: &WaylandState) -> Option<Window> {
             window
                 .wl_surface()
                 .is_some_and(|surface| surface.as_ref() == focused)
-        })
-        .cloned()
-}
-
-fn parent_window(wayland: &WaylandState, window: &Window) -> Option<Window> {
-    if let Some(toplevel) = window.toplevel() {
-        let parent = with_states(toplevel.wl_surface(), |states| {
-            states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .and_then(|data| data.lock().ok()?.parent.clone())
-        })?;
-        return window_for_surface(wayland, &parent);
-    }
-    crate::xwayland::parent_window(&wayland.space, window)
-}
-
-fn window_for_surface(wayland: &WaylandState, surface: &WlSurface) -> Option<Window> {
-    wayland
-        .space
-        .elements()
-        .find(|window| {
-            window
-                .wl_surface()
-                .is_some_and(|candidate| candidate.as_ref() == surface)
         })
         .cloned()
 }

@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep native Wayland and XWayland dialogs above their parents when windows
+  are raised, arranged, or presented in clusters. Preserve nested dialog order,
+  repair late parent changes, and keep rendering and pointer routing consistent.
 - Let the cursor and dragged windows cross gaps between configured monitors,
   including gaps created by increasing display scale while keeping existing
   monitor offsets.

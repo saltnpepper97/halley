@@ -522,6 +522,16 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
         ) {
             refresh_override_redirect_owners(self);
         }
+        if property == WmWindowProperty::TransientFor
+            && crate::window::enforce_dialog_stacking(&mut self.wayland)
+        {
+            self.xwayland.sync_stacking_order(&self.wayland.space);
+            crate::session::pointer::refresh_desktop_client_focus(
+                self,
+                self.start_time.elapsed().as_millis() as u32,
+            );
+            self.request_redraw();
+        }
         if property == WmWindowProperty::Hints {
             sync_urgency(&surface);
         }

@@ -216,6 +216,7 @@ pub(super) fn node_elements(
         elements.extend(icons);
         elements.extend(markers);
         groups.push(StackGroup {
+            window: None,
             stack_index: record.collapsed_stack_index.unwrap_or(usize::MAX),
             // Live windows use u64::MAX. At an equal shifted stack index this
             // lower order keeps the node and its shrinking snapshot behind

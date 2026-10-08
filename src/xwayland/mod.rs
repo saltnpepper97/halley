@@ -161,6 +161,9 @@ impl<D: SessionDriver> State<D> {
         let Some(xwm) = self.xwm.as_mut() else {
             return;
         };
+        // This changes the real X stack even when parent constraints leave
+        // the final Space order unchanged. Republish that order afterwards.
+        self.published_stacking.clear();
         if let Err(err) = xwm.raise_window(surface) {
             eventline::warn!("xwayland: failed to raise window: {err}");
         }

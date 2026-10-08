@@ -770,6 +770,7 @@ fn build_logical(
                 elements.push(SceneElement::Shadow(shadow));
             }
             Ok(StackGroup {
+                window: None,
                 stack_index: closing.stack_index,
                 order: closing.order,
                 elements,
@@ -949,6 +950,7 @@ fn build_logical(
     for (stack_index, window_scene) in &mut live_windows {
         if !window_scene.popup_elements.is_empty() {
             popup_stack.push(StackGroup {
+                window: Some(window_scene.window.clone()),
                 stack_index: window_scene
                     .cluster_depth
                     .and(cluster_anchor)
@@ -962,6 +964,7 @@ fn build_logical(
     }
     for (stack_index, window_scene) in live_windows {
         stack.push(StackGroup {
+            window: Some(window_scene.window),
             stack_index: window_scene
                 .cluster_depth
                 .and(cluster_anchor)
@@ -973,6 +976,9 @@ fn build_logical(
         });
     }
     sort_stack_groups(&mut stack);
+    crate::window::stacking::sort_above_parents(request.desktop.space, &mut stack, |group| {
+        group.window.as_ref()
+    });
     elements.extend(stack.into_iter().rev().flat_map(|group| group.elements));
 
     if let Some(exclusive) = cluster_exclusive {
@@ -984,6 +990,7 @@ fn build_logical(
         {
             if !scene.popup_elements.is_empty() {
                 popup_stack.push(StackGroup {
+                    window: Some(scene.window.clone()),
                     stack_index: *stack_index,
                     order: scene.cluster_depth.map_or(u64::MAX, |depth| depth as u64),
                     elements: std::mem::take(&mut scene.popup_elements),
@@ -1023,6 +1030,9 @@ fn build_logical(
     }
 
     sort_stack_groups(&mut popup_stack);
+    crate::window::stacking::sort_above_parents(request.desktop.space, &mut popup_stack, |group| {
+        group.window.as_ref()
+    });
     elements.splice(
         popup_foreground_index..popup_foreground_index,
         popup_stack
@@ -1513,17 +1523,20 @@ mod tests {
                 .iter()
                 .copied()
                 .map(|(stack_index, order)| StackGroup {
+                    window: None,
                     stack_index,
                     order,
                     elements: Vec::new(),
                 })
                 .chain([
                     StackGroup {
+                        window: None,
                         stack_index: collapsed_index,
                         order: 1,
                         elements: Vec::new(),
                     },
                     StackGroup {
+                        window: None,
                         stack_index: collapsed_index,
                         order: 0,
                         elements: Vec::new(),

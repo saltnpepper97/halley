@@ -6,6 +6,22 @@ mod surface_scale;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
 
+// Exercise the production stacking constraints with real xdg_toplevel parents.
+#[allow(dead_code)]
+#[path = "../src/window/stacking.rs"]
+mod dialog_stacking;
+mod xwayland {
+    pub fn is_override_redirect(_: &smithay::desktop::Window) -> bool {
+        false
+    }
+    pub fn parent_window(
+        _: &smithay::desktop::Space<smithay::desktop::Window>,
+        _: &smithay::desktop::Window,
+    ) -> Option<smithay::desktop::Window> {
+        None
+    }
+}
+
 use std::collections::HashMap;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,6 +60,7 @@ struct Observations {
     content_type: u32,
     icon_name: Option<String>,
     toplevels: Vec<WlSurface>,
+    windows: Vec<smithay::desktop::Window>,
     scale_request: Option<(WlSurface, f64)>,
 }
 
@@ -98,6 +115,9 @@ impl XdgShellHandler for Server {
         &mut self.shell
     }
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        self.observations.lock().unwrap().windows.push(
+            smithay::desktop::Window::new_wayland_window(surface.clone()),
+        );
         self.observations
             .lock()
             .unwrap()
@@ -502,4 +522,77 @@ fn display_scale_preferences_update_after_fractional_and_integer_changes() {
         assert_eq!(f.state.integer_scales.last(), Some(&integer));
         assert_eq!(f.state.fractional_scales.last(), Some(&fractional));
     }
+}
+
+#[test]
+fn native_dialogs_remain_above_raised_parents_without_changing_activation_or_location() {
+    let mut fixture = Fixture::new();
+    let (parent, _) = fixture.toplevel("parent");
+    let (child, _) = fixture.toplevel("dialog");
+    let (grandchild, _) = fixture.toplevel("nested-dialog");
+    let (_, _) = fixture.toplevel("unrelated");
+    child.set_parent(Some(&parent));
+    grandchild.set_parent(Some(&child));
+    fixture.sync();
+    let windows = fixture.observations.lock().unwrap().windows.clone();
+    let mut space = smithay::desktop::Space::default();
+    for (i, window) in windows.iter().enumerate() {
+        space.map_element(window.clone(), (i as i32 * 10, i as i32 * 20), false);
+    }
+    // Equivalent to raising/focusing Firefox while its dialogs are still open.
+    space.raise_element(&windows[0], true);
+    let mut order = space.elements().cloned().collect::<Vec<_>>();
+    assert!(dialog_stacking::sort_above_parents(
+        &space,
+        &mut order,
+        |w| Some(w)
+    ));
+    assert_eq!(
+        order,
+        [
+            windows[3].clone(),
+            windows[0].clone(),
+            windows[1].clone(),
+            windows[2].clone()
+        ]
+    );
+    for window in &order {
+        space.raise_element(window, false);
+    }
+    assert!(windows[0].toplevel().unwrap().with_pending_state(|state| state.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)));
+    for (i, window) in windows.iter().enumerate() {
+        assert_eq!(
+            space.element_location(window),
+            Some((i as i32 * 10, i as i32 * 20).into())
+        );
+    }
+    assert!(!dialog_stacking::sort_above_parents(
+        &space,
+        &mut order,
+        |w| Some(w)
+    ));
+    // Another application can cover the complete family.
+    space.raise_element(&windows[3], false);
+    order = space.elements().cloned().collect();
+    assert!(!dialog_stacking::sort_above_parents(
+        &space,
+        &mut order,
+        |w| Some(w)
+    ));
+    assert_eq!(order.last(), Some(&windows[3]));
+    // A late parent change repairs the relationship after presentation sorting.
+    grandchild.set_parent(None);
+    child.set_parent(Some(&grandchild));
+    fixture.sync();
+    assert!(dialog_stacking::sort_above_parents(
+        &space,
+        &mut order,
+        |w| Some(w)
+    ));
+    let child_pos = order.iter().position(|w| w == &windows[1]).unwrap();
+    let grandchild_pos = order.iter().position(|w| w == &windows[2]).unwrap();
+    assert!(grandchild_pos < child_pos);
+    parent.destroy();
+    child.destroy();
+    grandchild.destroy();
 }

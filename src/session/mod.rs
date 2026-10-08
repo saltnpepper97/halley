@@ -1742,6 +1742,7 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
     pointer::prepare_keyboard_focus_change(session, next_constraint_root.as_ref());
     // Map, unmap, destroy and raise all funnel through here, so this is the one
     // place the X server's stack can drift from the compositor's.
+    crate::window::enforce_dialog_stacking(&mut session.wayland);
     session.xwayland.sync_stacking_order(&session.wayland.space);
     // Activation is the point a client is most likely to act on its own idea of
     // where it is: menu placement, XQueryPointer, root-coordinate hit tests.

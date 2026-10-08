@@ -532,3 +532,113 @@ fn display_scale_reload_updates_live_clients_and_native_resolution_capture() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn parent_dialog_stacking_survives_focus_and_late_x11_parent_changes() {
+    use x11rb::protocol::xproto::PropMode;
+    let mut fixture = Fixture::new("tiling");
+    let (x11, _) = RustConnection::connect(Some(&fixture.display)).unwrap();
+    let parent = x11_window(&x11, "stacking parent");
+    let parent_id = fixture.node("stacking parent").id;
+    let child = x11_window(&x11, "stacking child");
+    fixture.node("stacking child");
+    let grandchild = x11_window(&x11, "stacking grandchild");
+    fixture.node("stacking grandchild");
+    let unrelated = x11_window(&x11, "stacking unrelated");
+    let unrelated_id = fixture.node("stacking unrelated").id;
+    for (window, owner) in [(child, parent), (grandchild, child)] {
+        x11.change_property32(
+            PropMode::REPLACE,
+            window,
+            AtomEnum::WM_TRANSIENT_FOR,
+            AtomEnum::WINDOW,
+            &[owner],
+        )
+        .unwrap()
+        .check()
+        .unwrap();
+    }
+    x11.flush().unwrap();
+    let root = x11.setup().roots[0].root;
+    let assert_stack = |expected: &[u32]| {
+        let mut last = None;
+        wait_for("real X server parent/dialog stack", || {
+            let tree = x11.query_tree(root).ok()?.reply().ok()?;
+            let frames = expected
+                .iter()
+                .map(|window| {
+                    let parent = x11.query_tree(*window).ok()?.reply().ok()?.parent;
+                    Some((if parent == root { *window } else { parent }, *window))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let order = tree
+                .children
+                .into_iter()
+                .filter_map(|frame| {
+                    frames
+                        .iter()
+                        .find(|(id, _)| *id == frame)
+                        .map(|(_, window)| *window)
+                })
+                .collect::<Vec<_>>();
+            if last.as_ref() != Some(&order) {
+                eprintln!("expected X stack {expected:?}, observed {order:?}");
+                last = Some(order.clone());
+            }
+            (order == expected).then_some(())
+        });
+    };
+    assert_stack(&[parent, child, grandchild, unrelated]);
+    // Repeat: deduplicated X stack publishing must still repair each actual
+    // XWM raise, even though the compositor's final order is unchanged.
+    for _ in 0..3 {
+        fixture.ack(Request::Node(NodeRequest::Focus {
+            selector: Some(NodeSelector::Id(parent_id)),
+            output: None,
+        }));
+        assert_stack(&[unrelated, parent, child, grandchild]);
+        assert!(
+            fixture
+                .nodes()
+                .iter()
+                .any(|node| node.id == parent_id && node.focused)
+        );
+    }
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(unrelated_id)),
+        output: None,
+    }));
+    assert_stack(&[parent, child, grandchild, unrelated]);
+    // Detach, then attach to a different parent after the windows are mapped.
+    x11.delete_property(grandchild, AtomEnum::WM_TRANSIENT_FOR.into())
+        .unwrap()
+        .check()
+        .unwrap();
+    x11.change_property32(
+        PropMode::REPLACE,
+        child,
+        AtomEnum::WM_TRANSIENT_FOR,
+        AtomEnum::WINDOW,
+        &[grandchild],
+    )
+    .unwrap()
+    .check()
+    .unwrap();
+    x11.flush().unwrap();
+    assert_stack(&[parent, grandchild, child, unrelated]);
+    x11.destroy_window(grandchild).unwrap().check().unwrap();
+    x11.flush().unwrap();
+    wait_for("destroyed dialog parent removed", || {
+        (!fixture
+            .nodes()
+            .iter()
+            .any(|node| node.title == "stacking grandchild"))
+        .then_some(())
+    });
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(parent_id)),
+        output: None,
+    }));
+    assert!(fixture.process.try_wait().unwrap().is_none());
+}
