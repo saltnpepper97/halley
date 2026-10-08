@@ -240,3 +240,20 @@ multiple bindings and clients, output and parent updates, and request dispatch
 through real sockets. Its optional nested-session test additionally exercises
 native window actions against a running Halley; provide
 `HALLEY_TEST_WAYLAND_DISPLAY` as the absolute path to that test session's socket.
+
+## D-Bus idle inhibition
+
+Native sessions also own `org.freedesktop.ScreenSaver`, at
+`/org/freedesktop/ScreenSaver` and the legacy `/ScreenSaver` path. This supplies
+the `Inhibit`/`UnInhibit` endpoint used by GTK's portal fallback and combines
+those inhibitors with visible Wayland inhibitors when updating idle notifications.
+Cookies belong to their calling connection; disconnecting removes all its
+cookies. Nested sessions do not claim the host service, and an existing owner
+is never replaced or queued behind. Explicit lock or suspend actions remain
+available while idle is inhibited.
+
+This API inhibits idleness only. GTK's rejection of logout, user-switching, or
+non-idle suspend flags is expected, rather than a compositor protocol failure.
+Missing RealtimeKit, AppIndicator deprecation, duplicate registrations inside
+external tray clients, and AMD kernel display warnings are separate diagnostics;
+Halley does not suppress them.

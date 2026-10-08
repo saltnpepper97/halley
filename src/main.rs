@@ -10,6 +10,7 @@ mod clusters;
 mod config;
 mod cursor;
 mod frame_clock;
+mod idle_service;
 mod input;
 mod ipc;
 mod logging;

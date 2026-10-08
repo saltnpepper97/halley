@@ -72,6 +72,24 @@ pub fn watch<App: 'static>(
                         "SettingChanged",
                         &[(0, APPEARANCE_NAMESPACE), (1, COLOR_SCHEME_KEY)],
                     )?;
+                    // Read on this worker after the session environment is
+                    // published. GTK may need the compositor to dispatch
+                    // Wayland requests while the portal starts.
+                    match proxy.call::<_, _, zbus::zvariant::OwnedValue>(
+                        "Read",
+                        &(APPEARANCE_NAMESPACE, COLOR_SCHEME_KEY),
+                    ) {
+                        Ok(initial) => {
+                            if let Ok(value) = u32::try_from(initial)
+                                && sender.send(scheme_from_portal_value(value)).is_err()
+                            {
+                                return Ok(());
+                            }
+                        }
+                        Err(error) => eventline::debug!(
+                            "appearance: initial colour scheme unavailable: {error}"
+                        ),
+                    }
                     for message in signals {
                         let (_, _, value): (String, String, zbus::zvariant::OwnedValue) =
                             message.body().deserialize()?;

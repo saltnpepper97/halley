@@ -5,7 +5,7 @@ set:
 
 | Feature | Default | Behavior |
 | --- | --- | --- |
-| `dbus` | yes | In-process D-Bus services, currently the accessibility keyboard monitor |
+| `dbus` | yes | In-process D-Bus services, accessibility keyboard monitoring and native idle inhibition |
 | `systemd` | yes | systemd environment publishing and readiness notification |
 | `dinit` | no | dinit environment publishing and readiness notification |
 | `xwayland` | yes | Native XWayland server and window-manager integration |
@@ -13,7 +13,7 @@ set:
 
 D-Bus activation-environment updates are always available when the external
 `dbus-update-activation-environment` helper is installed. Disabling `dbus`
-removes Halley's in-process D-Bus service; it does not disable desktop portals.
+removes Halley's in-process D-Bus services; it does not disable desktop portals.
 The portal backend is already isolated in the `halley-portal` workspace
 package.
 
@@ -102,3 +102,18 @@ The runit and s6 files under `packaging/` are examples for personal user
 supervision trees; those managers do not have a single standard distribution
 path for graphical user services. The OpenRC README documents the direct
 display-manager/login-shell setup.
+
+The systemd portal drop-ins shipped under `packaging/systemd-user/` require an
+active `graphical-session.target`. Install their directories alongside the main
+units, then reload the user manager. They prevent D-Bus activation from starting
+GTK without a display between sessions. Keep the same prerequisite on the
+Halley backend when overriding its executable path. These drop-ins are for
+sessions using the systemd graphical target; omit them for standalone sessions
+with init integration disabled.
+
+Native startup publishes its display environment and announces session readiness
+before querying portal settings. The settings query runs on a worker so portal
+startup can make Wayland requests without blocking the compositor event loop.
+Direct logout stops configured startup groups and graphical-session services
+before releasing the display. The native session guard remains an idempotent
+cleanup fallback. Managed-session target cleanup remains owned by the launcher.

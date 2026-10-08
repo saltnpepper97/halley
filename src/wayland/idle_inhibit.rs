@@ -140,6 +140,11 @@ impl<D: SessionDriver> Session<D> {
                 surface_primary_scanout_output(surface, states).is_some()
             })
         });
-        self.idle_notifier_state.set_is_inhibited(visible);
+        let dbus_inhibited = self
+            .idle_service
+            .as_ref()
+            .is_some_and(|service| service.is_inhibited());
+        self.idle_notifier_state
+            .set_is_inhibited(visible || dbus_inhibited);
     }
 }

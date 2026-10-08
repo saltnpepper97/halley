@@ -3,7 +3,7 @@
 use std::ffi::OsStr;
 use std::io;
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use super::environment::LaunchEnvironment;
 
@@ -82,24 +82,38 @@ pub(super) fn spawn_autostart(
     x11_display: Option<&OsStr>,
     cursor_size: u8,
     environment: &LaunchEnvironment,
-) {
+) -> Option<Child> {
     let path = match crate::autostart_log::prepare(command_line) {
         Ok(path) => path,
         Err(err) => {
             eventline::warn!("autostart: output logging unavailable for {command_line:?}: {err}");
-            spawn_detached(
-                command_line,
+            let mut process = Command::new("sh");
+            process
+                .arg("-c")
+                .arg(command_line)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            configure_environment(
+                &mut process,
                 wayland_display,
                 x11_display,
                 cursor_size,
                 environment,
+                &[],
             );
-            return;
+            session_process_group(&mut process);
+            return process
+                .spawn()
+                .map_err(|error| {
+                    eventline::error!("autostart: failed to launch {command_line:?}: {error}");
+                })
+                .ok();
         }
     };
     // Execute this running binary even if an upgrade replaced its installed
     // pathname. current_exe() can return an unusable "(deleted)" path then.
-    let mut process = autostart_process(
+    let mut process = session_autostart_process(
         std::path::Path::new("/proc/self/exe"),
         &path,
         command_line,
@@ -109,11 +123,53 @@ pub(super) fn spawn_autostart(
         environment,
     );
     eventline::info!("autostart: {command_line:?} output log: {}", path.display());
-    launch(&mut process, command_line, wayland_display, x11_display);
+    match process.spawn() {
+        Ok(child) => Some(child),
+        Err(err) => {
+            eventline::error!("autostart: failed to launch {command_line:?}: {err}");
+            None
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn autostart_process(
+pub(super) fn session_autostart_process(
+    program: &std::path::Path,
+    path: &std::path::Path,
+    command_line: &str,
+    wayland_display: &OsStr,
+    x11_display: Option<&OsStr>,
+    cursor_size: u8,
+    environment: &LaunchEnvironment,
+) -> Command {
+    let mut process = logged_process(
+        program,
+        path,
+        command_line,
+        wayland_display,
+        x11_display,
+        cursor_size,
+        environment,
+    );
+    session_process_group(&mut process);
+    process
+}
+
+fn session_process_group(process: &mut Command) {
+    // Keep the logger as our child and process-group leader so clean logout
+    // can terminate only this session's startup command and its descendants.
+    unsafe {
+        process.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+}
+
+fn logged_process(
     program: &std::path::Path,
     path: &std::path::Path,
     command_line: &str,
@@ -135,18 +191,6 @@ pub(super) fn autostart_process(
         environment,
         &[],
     );
-    detach(&mut process);
-    // The logger and its service must not inherit a terminal hangup from the
-    // compositor's session. This callback runs in the detached grandchild.
-    unsafe {
-        process.pre_exec(|| {
-            if libc::setsid() == -1 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(())
-            }
-        });
-    }
     process
 }
 

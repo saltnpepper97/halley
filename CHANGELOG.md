@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Provide the native `org.freedesktop.ScreenSaver` D-Bus idle-inhibition service
+  used by GTK's portal fallback. Combine it with visible Wayland inhibitors,
+  enforce cookie ownership, and release inhibitors when clients disconnect.
 - Support `xdg-foreign-v2` surface export and import so portal dialogs, including
   Firefox's GTK Save As dialog, can declare their parent across application
   connections and stay above it under the parent-dialog stacking policy.
@@ -16,6 +19,13 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Stop native session autostarts with a bounded graceful shutdown before
+  releasing the display, drain their final logs, and reap completed loggers.
+  Preserve the lifecycle of unrelated applications and externally managed services.
+- Stop direct graphical-session services before backend teardown and prevent
+  portal activation between sessions through packaged systemd prerequisites.
+- Query initial portal appearance asynchronously after session readiness,
+  avoiding GTK activation before the display environment is available.
 - Restore optional window shader examples and keyboard Field panning examples;
   include arrangement, overview, cluster, and conservative decay settings in
   the split config. Keep the bootstrap template identical to the main example.

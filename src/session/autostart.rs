@@ -8,15 +8,17 @@ enum OnceState {
     Finished,
 }
 
-/// Launches configured startup commands independently of the compositor.
+/// Launches configured startup commands in separate process groups.
 ///
 /// `autostart` is a convenience launcher, not a service manager. Long-lived
 /// session services should use the user service manager when they need
-/// restart, ordering, or session-lifetime semantics.
+/// restart, ordering, or management of deliberately daemonized processes.
 pub(super) struct Autostart {
     enabled: bool,
     once: OnceState,
     wayland_display: Option<OsString>,
+    children: Vec<std::process::Child>,
+    next_reap: std::time::Instant,
 }
 
 impl Autostart {
@@ -25,6 +27,8 @@ impl Autostart {
             enabled: true,
             once: OnceState::Unarmed,
             wayland_display: None,
+            children: Vec::new(),
+            next_reap: std::time::Instant::now(),
         }
     }
 
@@ -34,6 +38,8 @@ impl Autostart {
             enabled: false,
             once: OnceState::Finished,
             wayland_display: None,
+            children: Vec::new(),
+            next_reap: std::time::Instant::now(),
         }
     }
 
@@ -88,14 +94,53 @@ impl Autostart {
             eventline::debug!(
                 "autostart: launching {command:?} (WAYLAND_DISPLAY={wayland_display:?}, DISPLAY={x11_display:?})"
             );
-            super::spawn::spawn_autostart(
+            if let Some(child) = super::spawn::spawn_autostart(
                 command,
                 wayland_display,
                 x11_display,
                 cursor_size,
                 environment,
-            );
+            ) {
+                self.children.push(child);
+            }
         }
+    }
+
+    /// Give startup services a chance to exit before their Wayland socket
+    /// disappears. Never signal unrelated processes by name or an old PID.
+    pub fn shutdown(&mut self) {
+        stop_children(&mut self.children);
+    }
+
+    pub fn reap_finished(&mut self) {
+        let now = std::time::Instant::now();
+        if now >= self.next_reap {
+            self.children
+                .retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+            self.next_reap = now + std::time::Duration::from_secs(1);
+        }
+    }
+}
+
+pub(super) fn stop_children(children: &mut Vec<std::process::Child>) {
+    children.retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+    for child in children.iter() {
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGTERM);
+        }
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while !children.is_empty() && std::time::Instant::now() < deadline {
+        children.retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+        if !children.is_empty() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    for mut child in children.drain(..) {
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+        let _ = child.wait();
     }
 }
 

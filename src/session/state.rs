@@ -132,6 +132,7 @@ pub struct Session<D: SessionDriver> {
     pub seat: Seat<Self>,
     pub(crate) popup_grab: Option<smithay::desktop::PopupGrab<Self>>,
     pub idle_notifier_state: IdleNotifierState<Self>,
+    pub(crate) idle_service: Option<crate::idle_service::Service>,
     pub presentation_state: PresentationState,
     pub drm_syncobj_state: Option<DrmSyncobjState>,
     pub session_lock: crate::wayland::session_lock::State,

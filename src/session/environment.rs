@@ -28,32 +28,38 @@ pub struct NativeSession;
 
 impl Drop for NativeSession {
     fn drop(&mut self) {
-        if !DIRECT_SESSION_ACTIVE.swap(false, Ordering::SeqCst) {
-            return;
-        }
-        let mut shutdown = Command::new("systemctl");
-        shutdown.args([
-            "--user",
-            "start",
-            "--job-mode=replace-irreversibly",
-            "halley-shutdown.target",
-        ]);
-        if !run("direct session shutdown", &mut shutdown) {
-            let mut stop = Command::new("systemctl");
-            stop.args([
-                "--user",
-                "stop",
-                "halley-direct-session.target",
-                "graphical-session.target",
-                "graphical-session-pre.target",
-            ]);
-            run("direct session target cleanup", &mut stop);
-        }
-        let mut clear = Command::new("systemctl");
-        clear.args(["--user", "unset-environment"]);
-        clear.args(SESSION_CLEANUP_VARIABLES);
-        run("direct session environment cleanup", &mut clear);
+        shutdown_session();
     }
+}
+
+/// Stop session services while the compositor still owns a working display.
+/// Drop remains a fallback for initialization failures and unwinding.
+pub fn shutdown_session() {
+    if !DIRECT_SESSION_ACTIVE.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let mut shutdown = Command::new("systemctl");
+    shutdown.args([
+        "--user",
+        "start",
+        "--job-mode=replace-irreversibly",
+        "halley-shutdown.target",
+    ]);
+    if !run("direct session shutdown", &mut shutdown) {
+        let mut stop = Command::new("systemctl");
+        stop.args([
+            "--user",
+            "stop",
+            "halley-direct-session.target",
+            "graphical-session.target",
+            "graphical-session-pre.target",
+        ]);
+        run("direct session target cleanup", &mut stop);
+    }
+    let mut clear = Command::new("systemctl");
+    clear.args(["--user", "unset-environment"]);
+    clear.args(SESSION_CLEANUP_VARIABLES);
+    run("direct session environment cleanup", &mut clear);
 }
 
 fn launcher_owns_session() -> bool {
@@ -139,8 +145,7 @@ pub fn prepare_session() {
     }
 }
 
-/// Publishes the compositor socket only after it exists, then refreshes the
-/// portal frontend so D-Bus activation sees the complete Halley environment.
+/// Publish a usable compositor socket before starting graphical services.
 pub fn activate_session(wayland_display: &OsStr, cursor_size: u8) {
     unsafe {
         std::env::set_var("WAYLAND_DISPLAY", wayland_display);
@@ -160,29 +165,35 @@ pub fn activate_session(wayland_display: &OsStr, cursor_size: u8) {
             .arg("import-environment")
             .args(SESSION_VARIABLES);
         run("systemd user environment", &mut import);
-
-        // A portal backend may have exhausted its start limit while the
-        // compositor socket was unavailable. Clear that stale failure after
-        // publishing the complete environment so the frontend can activate
-        // it immediately.
-        let mut reset_failed = Command::new("systemctl");
-        reset_failed
-            .arg("--user")
-            .arg("reset-failed")
-            .arg("xdg-desktop-portal-gtk.service");
-        run_optional("portal failure reset", &mut reset_failed);
-
-        let mut restart = Command::new("systemctl");
-        restart
-            .arg("--user")
-            .arg("restart")
-            .arg("--no-block")
-            .arg("xdg-desktop-portal.service");
-        run("portal refresh", &mut restart);
     } else {
         publish_dinit_variables(&SESSION_VARIABLES);
     }
     publish_cursor_size(cursor_size);
+}
+
+/// Refresh portal services only after announcing a usable graphical session.
+pub fn refresh_portals() {
+    if !systemd_is_enabled() || !init_integration_enabled() {
+        return;
+    }
+    // A portal backend may have exhausted its start limit while the
+    // compositor socket was unavailable. Clear that stale failure after
+    // publishing the complete environment so the frontend can activate
+    // it immediately.
+    let mut reset_failed = Command::new("systemctl");
+    reset_failed
+        .arg("--user")
+        .arg("reset-failed")
+        .arg("xdg-desktop-portal-gtk.service");
+    run_optional("portal failure reset", &mut reset_failed);
+
+    let mut restart = Command::new("systemctl");
+    restart
+        .arg("--user")
+        .arg("restart")
+        .arg("--no-block")
+        .arg("xdg-desktop-portal.service");
+    run("portal refresh", &mut restart);
 }
 
 /// Updates the cursor size for applications activated after a config reload.

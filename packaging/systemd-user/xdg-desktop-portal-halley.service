@@ -1,7 +1,8 @@
 [Unit]
 Description=Halley desktop portal backend
 PartOf=graphical-session.target xdg-desktop-portal.service
-After=pipewire.service
+Requisite=graphical-session.target
+After=graphical-session.target pipewire.service
 
 [Service]
 Type=dbus

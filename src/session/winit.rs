@@ -306,6 +306,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         seat,
         popup_grab: None,
         idle_notifier_state,
+        idle_service: None,
         presentation_state,
         drm_syncobj_state: None,
         session_lock,

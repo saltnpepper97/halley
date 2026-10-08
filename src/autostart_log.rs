@@ -10,6 +10,7 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -70,6 +71,11 @@ pub(crate) fn run_worker_if_requested() -> Option<i32> {
     // Keep process tools able to distinguish this small logger from the real
     // compositor. The worker never initializes Halley's graphics or logging.
     unsafe { libc::prctl(libc::PR_SET_NAME, c"halley-autolog".as_ptr(), 0, 0, 0) };
+    // Session shutdown signals the command's process group. Keep its logger
+    // alive to drain final output; capture resets this disposition for apps.
+    unsafe {
+        libc::signal(libc::SIGTERM, libc::SIG_IGN);
+    }
     let result = match (args.next(), args.next(), args.next()) {
         (Some(path), Some(command), None) => run_worker(Path::new(&path), command),
         _ => Err(io::Error::new(
@@ -93,13 +99,15 @@ fn run_worker(path: &Path, command: OsString) -> io::Result<i32> {
             // Storage may disappear after the compositor's initial check.
             // Still launch the command when logging cannot be established.
             eprintln!("halley autostart logger: output logging unavailable: {err}");
-            let status = Command::new("sh")
+            let mut process = Command::new("sh");
+            process
                 .arg("-c")
                 .arg(command)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()?;
+                .stderr(Stdio::null());
+            reset_child_termination(&mut process);
+            let status = process.status()?;
             return Ok(exit_code(status));
         }
     };
@@ -120,6 +128,7 @@ fn run_worker(path: &Path, command: OsString) -> io::Result<i32> {
 }
 
 fn capture(process: &mut Command, log: &mut RotatingLog) -> io::Result<i32> {
+    reset_child_termination(process);
     let (mut reader, writer) = UnixStream::pair()?;
     process.stdin(Stdio::null());
     process.stdout(Stdio::from(std::os::fd::OwnedFd::from(writer.try_clone()?)));
@@ -160,6 +169,15 @@ fn capture(process: &mut Command, log: &mut RotatingLog) -> io::Result<i32> {
         .as_bytes(),
     );
     Ok(exit_code(status))
+}
+
+fn reset_child_termination(process: &mut Command) {
+    unsafe {
+        process.pre_exec(|| {
+            libc::signal(libc::SIGTERM, libc::SIG_DFL);
+            Ok(())
+        });
+    }
 }
 
 fn exit_code(status: std::process::ExitStatus) -> i32 {

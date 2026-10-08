@@ -69,7 +69,7 @@ sd-notify = { version = "0.5", optional = true }
 
 [features]
 default = ["dbus", "systemd", "xwayland", "winit"]
-# In-process D-Bus services, currently Halley's accessibility keyboard monitor.
+# In-process accessibility monitoring and native idle-inhibition services.
 dbus = ["dep:futures-util", "dep:zbus"]
 # User-manager environment publishing and readiness notification.
 systemd = ["dep:sd-notify"]

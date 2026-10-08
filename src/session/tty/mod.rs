@@ -411,7 +411,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     let startup_cluster_default_layout = runtime_config.clusters.default_layout;
     let launch_environment = super::environment::LaunchEnvironment::new(&runtime_config.env);
     let launch_path = launch_environment.path();
-    let system_color_scheme = crate::appearance::current_color_scheme();
+    // Portal calls can activate GTK. Wait until the display environment and
+    // graphical session are ready before asking for the initial appearance.
+    let system_color_scheme = halley_config::SystemColorScheme::NoPreference;
     let mut app = TtyApp {
         driver,
         keyboard: Keyboard::from_config(
@@ -433,6 +435,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         seat,
         popup_grab: None,
         idle_notifier_state,
+        idle_service: None,
         presentation_state,
         drm_syncobj_state,
         session_lock,
@@ -546,7 +549,24 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     {
         eventline::error!("gamma: failed to start reader: {err}");
     }
+    #[cfg(feature = "dbus")]
+    {
+        let (sender, receiver) = calloop::channel::channel();
+        match crate::idle_service::Service::start(sender) {
+            Ok(service) => {
+                app.idle_service = Some(service);
+                event_loop
+                    .handle()
+                    .insert_source(receiver, |_, _, app: &mut TtyApp| {
+                        app.refresh_idle_inhibit();
+                    })
+                    .expect("failed to register idle inhibitor changes");
+            }
+            Err(err) => eventline::warn!("idle inhibition: D-Bus service unavailable: {err}"),
+        }
+    }
     super::environment::notify_ready();
+    super::environment::refresh_portals();
     if let Some(path) = config_path {
         match crate::config::watch(&event_loop.handle(), path, apply_runtime_config) {
             Ok(watcher) => app.config_watcher = Some(watcher),
@@ -713,6 +733,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     eventline::info!("session ready: outputs active; use the configured Quit chord to exit");
     event_loop
         .run(None, &mut app, |app| {
+            app.autostart.reap_finished();
             if !app.driver.pause_reasons.any() {
                 redraw_queued_outputs(app, &loop_handle);
             }
@@ -725,6 +746,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         })
         .expect("event loop run failed");
     eventline::info!("quit requested, exiting cleanly");
+    app.autostart.shutdown();
+    super::environment::shutdown_session();
+    app.idle_service.take();
     // Notifiers retain the DRM device. Release them before the backend drops
     // its outputs/devices, while the session notifier still owns the seat.
     for token in drm_tokens {

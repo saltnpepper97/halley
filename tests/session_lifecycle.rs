@@ -44,6 +44,10 @@ fn lifecycle_child() {
     if std::env::var_os("READY").is_some() {
         environment::notify_ready();
     }
+    if std::env::var_os("EARLY_SHUTDOWN").is_some() {
+        environment::shutdown_session();
+        environment::shutdown_session();
+    }
 }
 
 fn lifecycle_calls(ready: bool, managed: bool, fail_start: bool) -> String {
@@ -59,6 +63,7 @@ fn lifecycle_calls(ready: bool, managed: bool, fail_start: bool) -> String {
         .env("HALLEY_LIFECYCLE_CHILD", "1");
     if ready {
         process.env("READY", "1");
+        process.env("EARLY_SHUTDOWN", "1");
     }
     if managed {
         process.env("HALLEY_SESSION_LAUNCHER_ACTIVE", "1");
