@@ -699,6 +699,12 @@ impl<D: SessionDriver> ShmHandler for Session<D> {
     }
 }
 
+impl<D: SessionDriver> smithay::wayland::xdg_foreign::XdgForeignHandler for Session<D> {
+    fn xdg_foreign_state(&mut self) -> &mut smithay::wayland::xdg_foreign::XdgForeignState {
+        &mut self.wayland.xdg_foreign_state
+    }
+}
+
 impl<D: SessionDriver> XdgShellHandler for Session<D> {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.wayland.xdg_shell_state
@@ -756,9 +762,11 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
     fn parent_changed(&mut self, _surface: ToplevelSurface) {
         if crate::window::enforce_dialog_stacking(&mut self.wayland) {
             self.xwayland.sync_stacking_order(&self.wayland.space);
-            super::pointer::reconcile_state(self);
-            self.request_redraw();
         }
+        // A new parent also changes exclusive presentation and input policy,
+        // even when the dialog already occupies a slot above the parent.
+        super::pointer::reconcile_state(self);
+        self.request_redraw();
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {

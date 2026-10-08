@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support `xdg-foreign-v2` surface export and import so portal dialogs, including
+  Firefox's GTK Save As dialog, can declare their parent across application
+  connections and stay above it under the parent-dialog stacking policy.
 - Configure per-monitor display scaling with numeric `view.output.scale`
   multipliers, including fractional values and live reload. Scale applications,
   compositor UI, pointer coordinates, and native-resolution captures together;

@@ -213,6 +213,10 @@ fn x11_window(connection: &RustConnection, title: &str) -> u32 {
     window
 }
 
+use wayland_protocols::xdg::foreign::zv2::client::{
+    zxdg_exported_v2, zxdg_exporter_v2, zxdg_imported_v2, zxdg_importer_v2,
+};
+
 #[derive(Default)]
 struct NativeState {
     globals: HashMap<String, u32>,
@@ -220,6 +224,9 @@ struct NativeState {
     buffer: Option<wl_buffer::WlBuffer>,
     integer_scales: Vec<i32>,
     fractional_scales: Vec<u32>,
+    registry: Option<wl_registry::WlRegistry>,
+    toplevel: Option<xdg_toplevel::XdgToplevel>,
+    exported_handles: Vec<String>,
 }
 impl Dispatch<wl_registry::WlRegistry, ()> for NativeState {
     fn event(
@@ -308,7 +315,39 @@ delegate_noop!(NativeState: ignore wp_viewporter::WpViewporter);
 delegate_noop!(NativeState: ignore wp_viewport::WpViewport);
 delegate_noop!(NativeState: ignore xdg_toplevel::XdgToplevel);
 
+delegate_noop!(NativeState: ignore zxdg_exporter_v2::ZxdgExporterV2);
+delegate_noop!(NativeState: ignore zxdg_importer_v2::ZxdgImporterV2);
+delegate_noop!(NativeState: ignore zxdg_imported_v2::ZxdgImportedV2);
+impl Dispatch<zxdg_exported_v2::ZxdgExportedV2, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        _: &zxdg_exported_v2::ZxdgExportedV2,
+        event: zxdg_exported_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zxdg_exported_v2::Event::Handle { handle } = event {
+            state.exported_handles.push(handle);
+        }
+    }
+}
+
 fn native_window(fixture: &Fixture) -> (EventQueue<NativeState>, NativeState) {
+    native_window_named(
+        fixture,
+        "surviving native window",
+        "halley.disconnect.native",
+        [u32::MAX, 0, 0, u32::MAX],
+    )
+}
+
+fn native_window_named(
+    fixture: &Fixture,
+    title: &str,
+    app_id: &str,
+    rgba: [u32; 4],
+) -> (EventQueue<NativeState>, NativeState) {
     let socket = fs::read_dir(&fixture.path)
         .unwrap()
         .filter_map(Result::ok)
@@ -347,9 +386,12 @@ fn native_window(fixture: &Fixture) -> (EventQueue<NativeState>, NativeState) {
     viewport.set_destination(240, 160);
     let xdg_surface = shell.get_xdg_surface(&surface, &handle, ());
     let toplevel = xdg_surface.get_toplevel(&handle, ());
-    toplevel.set_title("surviving native window".into());
-    toplevel.set_app_id("halley.disconnect.native".into());
-    state.buffer = Some(pixels.create_u32_rgba_buffer(u32::MAX, 0, 0, u32::MAX, &handle, ()));
+    toplevel.set_title(title.into());
+    toplevel.set_app_id(app_id.into());
+    state.registry = Some(registry);
+    state.toplevel = Some(toplevel);
+    state.buffer =
+        Some(pixels.create_u32_rgba_buffer(rgba[0], rgba[1], rgba[2], rgba[3], &handle, ()));
     state.surface = Some(surface.clone());
     surface.commit();
     queue.roundtrip(&mut state).unwrap();
@@ -640,5 +682,130 @@ fn parent_dialog_stacking_survives_focus_and_late_x11_parent_changes() {
         selector: Some(NodeSelector::Id(parent_id)),
         output: None,
     }));
+    assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn imported_portal_dialog_stays_visible_above_a_raised_browser() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileExt;
+    let mut fixture = Fixture::new("tiling");
+    let (mut browser_queue, mut browser) = native_window_named(
+        &fixture,
+        "portal browser",
+        "firefox",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    let parent_id = fixture.node("portal browser").id;
+    let exporter: zxdg_exporter_v2::ZxdgExporterV2 = browser.registry.as_ref().unwrap().bind(
+        browser.globals["zxdg_exporter_v2"],
+        1,
+        &browser_queue.handle(),
+        (),
+    );
+    let _exported = exporter.export_toplevel(
+        browser.surface.as_ref().unwrap(),
+        &browser_queue.handle(),
+        (),
+    );
+    browser_queue.roundtrip(&mut browser).unwrap();
+    let (mut portal_queue, mut portal) = native_window_named(
+        &fixture,
+        "portal save dialog",
+        "xdg-desktop-portal-gtk",
+        [0, u32::MAX, 0, u32::MAX],
+    );
+    let dialog_id = fixture.node("portal save dialog").id;
+    let importer: zxdg_importer_v2::ZxdgImporterV2 = portal.registry.as_ref().unwrap().bind(
+        portal.globals["zxdg_importer_v2"],
+        1,
+        &portal_queue.handle(),
+        (),
+    );
+    let imported = importer.import_toplevel(
+        browser.exported_handles.last().unwrap().clone(),
+        &portal_queue.handle(),
+        (),
+    );
+    imported.set_parent_of(portal.surface.as_ref().unwrap());
+    portal_queue.roundtrip(&mut portal).unwrap();
+    wait_for("cross-client parent visible in IPC", || {
+        fixture.nodes().into_iter().find(|node| {
+            node.id == dialog_id
+                && node
+                    .parent
+                    .as_ref()
+                    .is_some_and(|parent| parent.node_id == Some(parent_id))
+        })
+    });
+    for _ in 0..3 {
+        fixture.ack(Request::Node(NodeRequest::Focus {
+            selector: Some(NodeSelector::Id(parent_id)),
+            output: None,
+        }));
+        browser_queue.roundtrip(&mut browser).unwrap();
+        portal_queue.roundtrip(&mut portal).unwrap();
+    }
+    let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+        panic!("missing outputs")
+    };
+    let output = &outputs.outputs[0];
+    let mode = output.modes[output.current_mode.unwrap()];
+    let size = mode.width as usize * mode.height as usize * 4;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(fixture.path.join("portal-stack-capture"))
+        .unwrap();
+    file.set_len(size as u64).unwrap();
+    let request = Request::CaptureFrame(halley_ipc::CaptureFrameRequest {
+        stream_handle: "portal-parent-stacking".into(),
+        source: halley_ipc::CaptureSource::Monitor {
+            name: output.name.clone(),
+            x: 0,
+            y: 0,
+            width: mode.width,
+            height: mode.height,
+        },
+        cursor_mode: halley_ipc::CursorMode::Hidden,
+        buffer: halley_ipc::CaptureBuffer::MemFd {
+            fd_index: 0,
+            offset: 0,
+            size: size as u64,
+            stride: mode.width as u32 * 4,
+        },
+    });
+    wait_for(
+        "portal dialog visible after repeatedly raising browser",
+        || {
+            let response = fixture
+                .ipc
+                .as_mut()
+                .unwrap()
+                .request(&request, &[file.as_raw_fd()])
+                .unwrap()
+                .response;
+            assert!(matches!(response, Response::Frame(_)), "{response:?}");
+            let mut pixels = vec![0; size];
+            file.read_exact_at(&mut pixels, 0).unwrap();
+            let green = pixels
+                .chunks_exact(4)
+                .filter(|p| p[1] > 245 && p[0] < 5 && p[2] < 5)
+                .count();
+            // Both client rectangles overlap at the viewport center. A buried
+            // dialog loses its green interior underneath the opaque red browser.
+            (green > 30_000).then_some(())
+        },
+    );
+    imported.destroy();
+    portal_queue.roundtrip(&mut portal).unwrap();
+    wait_for("import teardown removes parent", || {
+        fixture
+            .nodes()
+            .into_iter()
+            .find(|node| node.id == dialog_id && node.parent.is_none())
+    });
     assert!(fixture.process.try_wait().unwrap().is_none());
 }

@@ -53,6 +53,11 @@ use wayland_protocols::xdg::toplevel_icon::v1::client::{
     xdg_toplevel_icon_manager_v1 as icon_manager, xdg_toplevel_icon_v1 as icon,
 };
 
+use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
+use wayland_protocols::xdg::foreign::zv2::client::{
+    zxdg_exported_v2, zxdg_exporter_v2, zxdg_imported_v2, zxdg_importer_v2,
+};
+
 #[derive(Default)]
 struct Observations {
     rgba: Option<[u32; 4]>,
@@ -61,6 +66,7 @@ struct Observations {
     icon_name: Option<String>,
     toplevels: Vec<WlSurface>,
     windows: Vec<smithay::desktop::Window>,
+    parent_changes: usize,
     scale_request: Option<(WlSurface, f64)>,
 }
 
@@ -68,6 +74,7 @@ struct Server {
     compositor: CompositorState,
     observations: Arc<Mutex<Observations>>,
     shell: XdgShellState,
+    foreign: XdgForeignState,
 }
 
 #[derive(Default)]
@@ -110,6 +117,11 @@ impl CompositorHandler for Server {
     }
 }
 impl XdgToplevelIconHandler for Server {}
+impl XdgForeignHandler for Server {
+    fn xdg_foreign_state(&mut self) -> &mut XdgForeignState {
+        &mut self.foreign
+    }
+}
 impl XdgShellHandler for Server {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.shell
@@ -123,6 +135,9 @@ impl XdgShellHandler for Server {
             .unwrap()
             .toplevels
             .push(surface.wl_surface().clone());
+    }
+    fn parent_changed(&mut self, _: ToplevelSurface) {
+        self.observations.lock().unwrap().parent_changes += 1;
     }
     fn new_popup(&mut self, _: PopupSurface, _: PositionerState) {}
     fn grab(
@@ -149,6 +164,8 @@ struct Client {
     globals: HashMap<String, (u32, u32)>,
     integer_scales: Vec<i32>,
     fractional_scales: Vec<u32>,
+    foreign_handles: Vec<String>,
+    invalid_imports: usize,
 }
 impl Dispatch<wl_registry::WlRegistry, ()> for Client {
     fn event(
@@ -213,7 +230,39 @@ delegate_noop!(Client: ignore xdg_wm_base::XdgWmBase);
 delegate_noop!(Client: ignore xdg_surface::XdgSurface);
 delegate_noop!(Client: ignore xdg_toplevel::XdgToplevel);
 
+delegate_noop!(Client: ignore zxdg_exporter_v2::ZxdgExporterV2);
+delegate_noop!(Client: ignore zxdg_importer_v2::ZxdgImporterV2);
+impl Dispatch<zxdg_exported_v2::ZxdgExportedV2, ()> for Client {
+    fn event(
+        state: &mut Self,
+        _: &zxdg_exported_v2::ZxdgExportedV2,
+        event: zxdg_exported_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zxdg_exported_v2::Event::Handle { handle } = event {
+            state.foreign_handles.push(handle);
+        }
+    }
+}
+impl Dispatch<zxdg_imported_v2::ZxdgImportedV2, ()> for Client {
+    fn event(
+        state: &mut Self,
+        _: &zxdg_imported_v2::ZxdgImportedV2,
+        event: zxdg_imported_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zxdg_imported_v2::Event::Destroyed = event {
+            state.invalid_imports += 1;
+        }
+    }
+}
+
 struct Fixture {
+    display_handle: smithay::reexports::wayland_server::DisplayHandle,
     observations: Arc<Mutex<Observations>>,
     state: Client,
     queue: EventQueue<Client>,
@@ -233,6 +282,7 @@ impl Fixture {
         let _content = ContentTypeState::new::<Server>(&dh);
         let _icons = XdgToplevelIconManager::new::<Server>(&dh);
         let shell = XdgShellState::new::<Server>(&dh);
+        let foreign = XdgForeignState::new::<Server>(&dh);
         dh.insert_client(server_socket, Arc::new(ClientData::default()))
             .unwrap();
         let observations = Arc::new(Mutex::new(Observations::default()));
@@ -240,6 +290,7 @@ impl Fixture {
             compositor,
             observations: observations.clone(),
             shell,
+            foreign,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
@@ -276,6 +327,7 @@ impl Fixture {
         let mut state = Client::default();
         queue.roundtrip(&mut state).unwrap();
         Self {
+            display_handle: dh,
             observations,
             state,
             queue,
@@ -298,6 +350,14 @@ impl Fixture {
     }
 
     fn toplevel(&mut self, app_id: &str) -> (xdg_toplevel::XdgToplevel, WlSurface) {
+        let (toplevel, server_surface, _) = self.toplevel_with_surface(app_id);
+        (toplevel, server_surface)
+    }
+
+    fn toplevel_with_surface(
+        &mut self,
+        app_id: &str,
+    ) -> (xdg_toplevel::XdgToplevel, WlSurface, wl_surface::WlSurface) {
         let shell: xdg_wm_base::XdgWmBase = self.registry.bind(
             self.state.globals["xdg_wm_base"].0,
             1,
@@ -317,7 +377,7 @@ impl Fixture {
             .last()
             .unwrap()
             .clone();
-        (toplevel, server_surface)
+        (toplevel, server_surface, surface)
     }
 }
 
@@ -595,4 +655,99 @@ fn native_dialogs_remain_above_raised_parents_without_changing_activation_or_loc
     parent.destroy();
     child.destroy();
     grandchild.destroy();
+}
+
+#[test]
+fn portal_dialog_imports_a_parent_from_another_client_and_stacks_above_it() {
+    let mut fixture = Fixture::new();
+    let (_, _, parent_surface) = fixture.toplevel_with_surface("firefox");
+    let exporter: zxdg_exporter_v2::ZxdgExporterV2 = fixture.registry.bind(
+        fixture.state.globals["zxdg_exporter_v2"].0,
+        1,
+        &fixture.queue.handle(),
+        (),
+    );
+    let exported = exporter.export_toplevel(&parent_surface, &fixture.queue.handle(), ());
+    fixture.sync();
+    let handle = fixture.state.foreign_handles.last().unwrap().clone();
+
+    // The portal owns a different Wayland connection and cannot use
+    // xdg_toplevel.set_parent with Firefox's object ID.
+    let (client_socket, server_socket) = UnixStream::pair().unwrap();
+    fixture
+        .display_handle
+        .insert_client(server_socket, Arc::new(ClientData::default()))
+        .unwrap();
+    let connection = Connection::from_socket(client_socket).unwrap();
+    let mut queue = connection.new_event_queue();
+    let registry = connection.display().get_registry(&queue.handle(), ());
+    let mut portal = Client::default();
+    queue.roundtrip(&mut portal).unwrap();
+    let compositor: wl_compositor::WlCompositor =
+        registry.bind(portal.globals["wl_compositor"].0, 6, &queue.handle(), ());
+    let shell: xdg_wm_base::XdgWmBase =
+        registry.bind(portal.globals["xdg_wm_base"].0, 1, &queue.handle(), ());
+    let importer: zxdg_importer_v2::ZxdgImporterV2 =
+        registry.bind(portal.globals["zxdg_importer_v2"].0, 1, &queue.handle(), ());
+    let dialog_surface = compositor.create_surface(&queue.handle(), ());
+    let xdg_surface = shell.get_xdg_surface(&dialog_surface, &queue.handle(), ());
+    let dialog = xdg_surface.get_toplevel(&queue.handle(), ());
+    dialog.set_app_id("xdg-desktop-portal-gtk".into());
+    queue.roundtrip(&mut portal).unwrap();
+    let imported = importer.import_toplevel(handle, &queue.handle(), ());
+    imported.set_parent_of(&dialog_surface);
+    queue.roundtrip(&mut portal).unwrap();
+    let windows = fixture.observations.lock().unwrap().windows.clone();
+    assert_eq!(windows.len(), 2);
+    assert_eq!(
+        windows[1].toplevel().unwrap().parent(),
+        Some(parent_surface_id(&windows[0]))
+    );
+    assert_eq!(fixture.observations.lock().unwrap().parent_changes, 1);
+    let mut space = smithay::desktop::Space::default();
+    space.map_element(windows[1].clone(), (0, 0), false);
+    space.map_element(windows[0].clone(), (0, 0), false);
+    let mut order = space.elements().cloned().collect::<Vec<_>>();
+    assert!(dialog_stacking::sort_above_parents(
+        &space,
+        &mut order,
+        |window| Some(window)
+    ));
+    assert_eq!(order, windows);
+
+    // Invalid handles cannot create a relationship. Releasing the owning
+    // import clears the relationship and notifies the compositor.
+    let invalid = importer.import_toplevel("unknown-handle".into(), &queue.handle(), ());
+    invalid.set_parent_of(&dialog_surface);
+    queue.roundtrip(&mut portal).unwrap();
+    assert_eq!(portal.invalid_imports, 1);
+    imported.destroy();
+    queue.roundtrip(&mut portal).unwrap();
+    assert!(windows[1].toplevel().unwrap().parent().is_none());
+    assert_eq!(fixture.observations.lock().unwrap().parent_changes, 2);
+    let imported = importer.import_toplevel(
+        fixture.state.foreign_handles.last().unwrap().clone(),
+        &queue.handle(),
+        (),
+    );
+    imported.set_parent_of(&dialog_surface);
+    queue.roundtrip(&mut portal).unwrap();
+    assert!(windows[1].toplevel().unwrap().parent().is_some());
+    exported.destroy();
+    fixture.sync();
+    queue.roundtrip(&mut portal).unwrap();
+    assert!(windows[1].toplevel().unwrap().parent().is_none());
+    let revoked = importer.import_toplevel(
+        fixture.state.foreign_handles.last().unwrap().clone(),
+        &queue.handle(),
+        (),
+    );
+    revoked.set_parent_of(&dialog_surface);
+    queue.roundtrip(&mut portal).unwrap();
+    assert_eq!(portal.invalid_imports, 2);
+    assert!(windows[1].toplevel().unwrap().parent().is_none());
+}
+
+fn parent_surface_id(window: &smithay::desktop::Window) -> WlSurface {
+    window.toplevel().unwrap().wl_surface().clone()
 }
