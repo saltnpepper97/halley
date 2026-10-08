@@ -718,9 +718,18 @@ pub fn pointer_constraint_proxy_authority(
         .map(|surface| crate::wayland::compositor::root_surface(surface.as_ref()))
 }
 
-pub fn parent_window(space: &Space<Window>, window: &Window) -> Option<Window> {
+pub(crate) fn parent_window_from<'a>(
+    mut windows: impl Iterator<Item = &'a Window>,
+    window: &Window,
+) -> Option<Window> {
     let parent = window.x11_surface()?.is_transient_for()?;
-    window_for_xid(space, parent)
+    windows
+        .find(|candidate| {
+            candidate
+                .x11_surface()
+                .is_some_and(|surface| surface.window_id() == parent)
+        })
+        .cloned()
 }
 
 pub fn metadata(window: &Window) -> Option<(String, String)> {

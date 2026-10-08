@@ -173,7 +173,10 @@ pub fn pointer_constraint_proxy_authority(
     None
 }
 
-pub fn parent_window(_space: &Space<Window>, _window: &Window) -> Option<Window> {
+pub(crate) fn parent_window_from<'a>(
+    _windows: impl Iterator<Item = &'a Window>,
+    _window: &Window,
+) -> Option<Window> {
     None
 }
 

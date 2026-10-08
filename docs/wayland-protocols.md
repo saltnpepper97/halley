@@ -149,12 +149,23 @@ be cleared, which would freeze the surface permanently.
 Halley advertises `zwlr_output_manager_v1` version 4 as a writable output
 management interface. Every request is validated as one complete, one-head-
 per-output configuration before test or apply. The TTY backend supports mode,
-position, transform, enable/disable, and adaptive-sync changes while retaining
-at least one enabled output. Scale remains fixed at 1 and custom modes are
-rejected. The nested backend is host-controlled and accepts only configurations
+position, transform, fractional scale, enable/disable, and adaptive-sync changes
+while retaining at least one enabled output. Custom modes are rejected.
+Display apply requests are rejected while the native session is paused;
+config-file output changes are deferred until both VT and system-sleep pauses
+have ended. The nested backend is host-controlled and accepts only configurations
 that leave its output unchanged. Successful TTY changes update `wl_output`
 globals, layer layout, camera/fullscreen geometry, gamma ownership, and pending
 capture ownership as one compositor transaction.
+
+Native display recovery resets pending compositor frame waits and estimated
+frame timers before scheduling a fresh frame. Outputs disabled through output
+management or powered off through DPMS remain suspended until explicitly
+enabled or woken. Late page-flip events received while suspended do not seed
+frame timing or start throttle timers. DPMS power requests are rejected while
+the native session is paused. The ordinary DPMS wake path resumes through the
+next rendered frame. Re-enabling a display through config reload restores its
+`wl_output` advertisement as well as rendering.
 
 The TTY backend advertises `zwlr_gamma_control_manager_v1` version 1. Each
 output with DRM gamma-ramp support has at most one active controller; requests

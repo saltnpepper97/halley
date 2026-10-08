@@ -3,8 +3,9 @@
 use std::ffi::OsStr;
 use std::io;
 use std::os::unix::process::CommandExt;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
+use super::autostart::AutostartChild;
 use super::environment::LaunchEnvironment;
 
 /// Spawns a user-provided command line detached from the compositor, with
@@ -82,7 +83,7 @@ pub(super) fn spawn_autostart(
     x11_display: Option<&OsStr>,
     cursor_size: u8,
     environment: &LaunchEnvironment,
-) -> Option<Child> {
+) -> Option<AutostartChild> {
     let path = match crate::autostart_log::prepare(command_line) {
         Ok(path) => path,
         Err(err) => {
@@ -105,6 +106,7 @@ pub(super) fn spawn_autostart(
             session_process_group(&mut process);
             return process
                 .spawn()
+                .map(|child| AutostartChild::new(command_line, child, None))
                 .map_err(|error| {
                     eventline::error!("autostart: failed to launch {command_line:?}: {error}");
                 })
@@ -124,7 +126,7 @@ pub(super) fn spawn_autostart(
     );
     eventline::info!("autostart: {command_line:?} output log: {}", path.display());
     match process.spawn() {
-        Ok(child) => Some(child),
+        Ok(child) => Some(AutostartChild::new(command_line, child, Some(path))),
         Err(err) => {
             eventline::error!("autostart: failed to launch {command_line:?}: {err}");
             None

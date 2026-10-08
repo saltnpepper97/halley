@@ -1,15 +1,19 @@
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{IsAlive, SERIAL_COUNTER};
 use smithay::wayland::seat::WaylandFocus;
 
 use super::{Session, SessionDriver};
 use crate::wayland::WaylandState;
 
+#[derive(Default)]
+struct UnmapParents(std::sync::Mutex<Option<Vec<WlSurface>>>);
+
 struct FocusSuccession {
     output: Option<String>,
     cluster: Option<halley_core::cluster::ClusterId>,
     preferred: Option<WlSurface>,
+    parents: Vec<WlSurface>,
     pan: halley_config::CloseRestorePan,
     clipboard_return: Option<crate::wayland::clipboard_helper::SavedFocus>,
 }
@@ -140,6 +144,98 @@ fn select_focus_successor(
     )
 }
 
+/// Capture the declared family before teardown removes the child or clears
+/// its protocol parent. Bound traversal because X11 clients can form cycles.
+fn closing_parent_chain<D: SessionDriver>(
+    session: &Session<D>,
+    surface: &WlSurface,
+) -> Vec<WlSurface> {
+    let Some(mut window) = mapped_managed_window(&session.wayland, surface) else {
+        return Vec::new();
+    };
+    let mut parents = Vec::new();
+    // Collapsed parents leave Space but retain their declared relationships.
+    // Follow them through the registry without restoring or focusing them.
+    let windows = || {
+        session
+            .wayland
+            .space
+            .elements()
+            .chain(session.nodes.records().map(|record| &record.window))
+    };
+    for _ in 0..windows().count() {
+        let Some(parent) = crate::window::stacking::parent_window_from(windows(), &window) else {
+            break;
+        };
+        let Some(parent_surface) = parent.wl_surface().map(std::borrow::Cow::into_owned) else {
+            break;
+        };
+        if &parent_surface == surface || parents.contains(&parent_surface) {
+            break;
+        }
+        parents.push(parent_surface);
+        window = parent;
+    }
+    parents
+}
+
+/// The wl_surface hook installed before the XDG role runs before Smithay
+/// resets that role on a null-buffer commit. Keep this one-commit snapshot
+/// separate from the protocol parent, which must still clear on unmap.
+pub(crate) fn capture_unmap_parents<D: SessionDriver>(session: &Session<D>, surface: &WlSurface) {
+    if !mapped_managed_window(&session.wayland, surface)
+        .is_some_and(|window| window.toplevel().is_some())
+    {
+        return;
+    }
+    let parents = closing_parent_chain(session, surface);
+    smithay::wayland::compositor::with_states(surface, |states| {
+        states
+            .data_map
+            .insert_if_missing_threadsafe(UnmapParents::default);
+        *states
+            .data_map
+            .get::<UnmapParents>()
+            .unwrap()
+            .0
+            .lock()
+            .unwrap() = Some(parents);
+    });
+}
+
+/// Dialog dismissal returns to its nearest surviving, focusable parent rather
+/// than an unrelated MRU window. Revalidate after unmap; a parent may close,
+/// collapse, or leave the active workspace in the same dispatch batch.
+fn parent_focus_successor<D: SessionDriver>(
+    session: &Session<D>,
+    parents: &[WlSurface],
+) -> Option<WlSurface> {
+    parents.iter().find_map(|surface| {
+        let record = session
+            .nodes
+            .id_for_surface(surface)
+            .and_then(|id| session.nodes.record(id))?;
+        (surface.alive()
+            && record.attached
+            && !record.collapsed
+            && session.wayland.managed_windows.contains(surface)
+            && session
+                .wayland
+                .space
+                .elements()
+                .any(|window| window == &record.window)
+            && crate::window::accepts_wm_focus(&record.window)
+            && crate::presentation::surface_workspace_is_active(
+                &session.clusters,
+                &session.nodes,
+                surface,
+                &record.output,
+                crate::frame_clock::monotonic_now(),
+            ))
+        .then(|| surface.clone())
+    })
+}
+
 fn active_cluster_for_closing<D: SessionDriver>(
     session: &Session<D>,
     surface: &WlSurface,
@@ -250,6 +346,12 @@ pub(crate) fn prepare_window_unmap<D: SessionDriver>(
     session: &mut Session<D>,
     surface: &WlSurface,
 ) -> WindowUnmapPreparation {
+    let captured_parents = smithay::wayland::compositor::with_states(surface, |states| {
+        states
+            .data_map
+            .get::<UnmapParents>()
+            .and_then(|parents| parents.0.lock().unwrap().take())
+    });
     if let Some(id) = session.nodes.id_for_surface(surface) {
         session.wayland.foreign_toplevel_state.unmap(id.as_u64());
     }
@@ -261,6 +363,7 @@ pub(crate) fn prepare_window_unmap<D: SessionDriver>(
         let output = mapped_managed_window(&session.wayland, surface)
             .and_then(|window| crate::wayland::window_output_name(&window));
         let cluster = active_cluster_for_closing(session, surface);
+        let parents = captured_parents.unwrap_or_else(|| closing_parent_chain(session, surface));
         let preferred = session
             .settings
             .field
@@ -269,12 +372,14 @@ pub(crate) fn prepare_window_unmap<D: SessionDriver>(
                 if cluster.is_some() {
                     cluster_focus_successor(session, surface)
                 } else {
-                    select_focus_successor(
-                        &session.wayland,
-                        &session.nodes,
-                        surface,
-                        output.as_deref(),
-                    )
+                    parent_focus_successor(session, &parents).or_else(|| {
+                        select_focus_successor(
+                            &session.wayland,
+                            &session.nodes,
+                            surface,
+                            output.as_deref(),
+                        )
+                    })
                 }
             })
             .flatten();
@@ -282,6 +387,7 @@ pub(crate) fn prepare_window_unmap<D: SessionDriver>(
             output,
             cluster,
             preferred,
+            parents,
             pan: session.settings.field.close_restore_pan,
             clipboard_return: crate::wayland::clipboard_helper::saved_focus(surface),
         }
@@ -405,12 +511,14 @@ pub(crate) fn finish_window_unmap<D: SessionDriver>(
     let revalidated = if active_cluster.is_some() {
         cluster_focus_successor(session, &surface)
     } else {
-        select_focus_successor(
-            &session.wayland,
-            &session.nodes,
-            &surface,
-            focus.output.as_deref(),
-        )
+        parent_focus_successor(session, &focus.parents).or_else(|| {
+            select_focus_successor(
+                &session.wayland,
+                &session.nodes,
+                &surface,
+                focus.output.as_deref(),
+            )
+        })
     };
     if revalidated != focus.preferred {
         eventline::debug!("focus: successor changed while window teardown completed");

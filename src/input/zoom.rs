@@ -30,8 +30,9 @@ pub fn tick(
     // `exp(velocity * dt)` integration overshoots the zoom bound in a single
     // step instead of easing into it, which is what an inconsistent
     // "sometimes smooth, sometimes jumps straight there" feel actually was.
-    // Same clamp old halley's own camera tick uses.
-    let dt = dt.clamp(1.0 / 240.0, 1.0 / 20.0);
+    // Honor short/zero presentation intervals too: a 240 Hz floor advances
+    // high-refresh cameras faster than real time and moves duplicate samples.
+    let dt = dt.clamp(0.0, 1.0 / 20.0);
     let tuning = CameraTickTuning {
         physics_enabled: true,
         zoom_enabled: zoom.enabled,
@@ -97,6 +98,28 @@ mod tests {
             step: 1.1,
             smooth_rate: 20.0,
         }
+    }
+
+    #[test]
+    fn pan_honors_zero_and_high_refresh_presentation_intervals() {
+        let zoom = default_zoom();
+        let mut camera = Camera::new(Vec2 { x: 400.0, y: 300.0 }, Vec2 { x: 800.0, y: 600.0 });
+        camera.pan_target(Vec2 {
+            x: 200.0,
+            y: -100.0,
+        });
+        let before = camera;
+        tick(&mut camera, &zoom, 6.0, 0.0);
+        assert_eq!(camera.center, before.center);
+        let mut reference = before;
+        for _ in 0..60 {
+            tick(&mut reference, &zoom, 6.0, 1.0 / 60.0);
+        }
+        for _ in 0..360 {
+            tick(&mut camera, &zoom, 6.0, 1.0 / 360.0);
+        }
+        assert_eq!(camera.center, reference.center);
+        assert_eq!(camera.center, camera.target_center);
     }
 
     #[test]

@@ -12,7 +12,9 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use halley_ipc::{ClusterRequest, ClusterTarget, NodeRequest, NodeSelector, Request, Response};
-use wayland_client::protocol::{wl_buffer, wl_compositor, wl_registry, wl_surface};
+use wayland_client::protocol::{
+    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat, wl_surface,
+};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
@@ -43,6 +45,10 @@ fn wait_for<T>(description: &str, mut probe: impl FnMut() -> Option<T>) -> T {
 
 impl Fixture {
     fn new(layout: &str) -> Self {
+        Self::with_config(layout, "")
+    }
+
+    fn with_config(layout: &str, extra: &str) -> Self {
         let host_runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         let host_display = PathBuf::from(std::env::var_os("WAYLAND_DISPLAY").unwrap());
         let host_display = if host_display.is_absolute() {
@@ -62,7 +68,7 @@ impl Fixture {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
         fs::write(&config, format!(
-            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\nend\n"
+            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\nend\n{extra}"
         )).unwrap();
         let log = File::create(path.join("console.log")).unwrap();
         let binary = std::env::var_os("HALLEY_TEST_BINARY")
@@ -227,6 +233,26 @@ struct NativeState {
     registry: Option<wl_registry::WlRegistry>,
     toplevel: Option<xdg_toplevel::XdgToplevel>,
     exported_handles: Vec<String>,
+    keyboard_focused: bool,
+}
+delegate_noop!(NativeState: ignore wl_seat::WlSeat);
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        _: &wl_keyboard::WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_keyboard::Event::Enter { surface, .. } => {
+                state.keyboard_focused = state.surface.as_ref() == Some(&surface)
+            }
+            wl_keyboard::Event::Leave { .. } => state.keyboard_focused = false,
+            _ => {}
+        }
+    }
 }
 impl Dispatch<wl_registry::WlRegistry, ()> for NativeState {
     fn event(
@@ -397,6 +423,277 @@ fn native_window_named(
     queue.roundtrip(&mut state).unwrap();
     queue.roundtrip(&mut state).unwrap();
     (queue, state)
+}
+
+fn observe_keyboard(
+    queue: &mut EventQueue<NativeState>,
+    state: &mut NativeState,
+) -> wl_keyboard::WlKeyboard {
+    let seat: wl_seat::WlSeat =
+        state
+            .registry
+            .as_ref()
+            .unwrap()
+            .bind(state.globals["wl_seat"], 1, &queue.handle(), ());
+    let keyboard = seat.get_keyboard(&queue.handle(), ());
+    queue.roundtrip(state).unwrap();
+    keyboard
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn closing_portal_dialog_returns_keyboard_focus_to_parent_before_mru_window() {
+    let mut fixture = Fixture::new("tiling");
+    let (mut parent_queue, mut parent) = native_window_named(
+        &fixture,
+        "focus parent",
+        "firefox",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    let parent_id = fixture.node("focus parent").id;
+    let _keyboard = observe_keyboard(&mut parent_queue, &mut parent);
+    let exporter: zxdg_exporter_v2::ZxdgExporterV2 = parent.registry.as_ref().unwrap().bind(
+        parent.globals["zxdg_exporter_v2"],
+        1,
+        &parent_queue.handle(),
+        (),
+    );
+    let _exported =
+        exporter.export_toplevel(parent.surface.as_ref().unwrap(), &parent_queue.handle(), ());
+    parent_queue.roundtrip(&mut parent).unwrap();
+    thread::sleep(Duration::from_millis(5));
+    let (_other_queue, _other) = native_window_named(
+        &fixture,
+        "focus unrelated",
+        "unrelated",
+        [0, 0, u32::MAX, u32::MAX],
+    );
+    fixture.node("focus unrelated");
+    let (mut dialog_queue, mut dialog) = native_window_named(
+        &fixture,
+        "focus portal dialog",
+        "xdg-desktop-portal-gtk",
+        [0, u32::MAX, 0, u32::MAX],
+    );
+    let dialog_id = fixture.node("focus portal dialog").id;
+    let importer: zxdg_importer_v2::ZxdgImporterV2 = dialog.registry.as_ref().unwrap().bind(
+        dialog.globals["zxdg_importer_v2"],
+        1,
+        &dialog_queue.handle(),
+        (),
+    );
+    let _imported = importer.import_toplevel(
+        parent.exported_handles.last().unwrap().clone(),
+        &dialog_queue.handle(),
+        (),
+    );
+    _imported.set_parent_of(dialog.surface.as_ref().unwrap());
+    dialog_queue.roundtrip(&mut dialog).unwrap();
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(dialog_id)),
+        output: None,
+    }));
+    parent_queue.roundtrip(&mut parent).unwrap();
+    assert!(!parent.keyboard_focused);
+    // An authoritative unmap, not just a close request or a logical IPC flag.
+    dialog.surface.as_ref().unwrap().attach(None, 0, 0);
+    dialog.surface.as_ref().unwrap().commit();
+    // Do not dispatch the dialog's queued configures, which would remap it.
+    dialog_queue.flush().unwrap();
+    wait_for(
+        "portal close returns real keyboard focus to its parent",
+        || {
+            parent_queue.roundtrip(&mut parent).unwrap();
+            (parent.keyboard_focused
+                && fixture
+                    .nodes()
+                    .iter()
+                    .any(|node| node.id == parent_id && node.focused))
+            .then_some(())
+        },
+    );
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn closing_x11_dialog_returns_real_x_focus_to_parent_before_mru_window() {
+    use x11rb::protocol::xproto::PropMode;
+    let mut fixture = Fixture::new("tiling");
+    let (x11, _) = RustConnection::connect(Some(&fixture.display)).unwrap();
+    let parent = x11_window(&x11, "X focus parent");
+    let parent_id = fixture.node("X focus parent").id;
+    thread::sleep(Duration::from_millis(5));
+    let _other = x11_window(&x11, "X focus unrelated");
+    let other_id = fixture.node("X focus unrelated").id;
+    let dialog = x11_window(&x11, "X focus dialog");
+    let dialog_id = fixture.node("X focus dialog").id;
+    x11.change_property32(
+        PropMode::REPLACE,
+        dialog,
+        AtomEnum::WM_TRANSIENT_FOR,
+        AtomEnum::WINDOW,
+        &[parent],
+    )
+    .unwrap()
+    .check()
+    .unwrap();
+    x11.flush().unwrap();
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(parent_id)),
+        output: None,
+    }));
+    let root = x11.setup().roots[0].root;
+    wait_for("X dialog stays above its declared parent", || {
+        let frames = x11.query_tree(root).ok()?.reply().ok()?.children;
+        let parent_frame = x11.query_tree(parent).ok()?.reply().ok()?.parent;
+        let dialog_frame = x11.query_tree(dialog).ok()?.reply().ok()?.parent;
+        (frames.iter().position(|frame| *frame == parent_frame)?
+            < frames.iter().position(|frame| *frame == dialog_frame)?)
+        .then_some(())
+    });
+    thread::sleep(Duration::from_millis(5));
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(other_id)),
+        output: None,
+    }));
+    thread::sleep(Duration::from_millis(5));
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(dialog_id)),
+        output: None,
+    }));
+    x11.unmap_window(dialog).unwrap().check().unwrap();
+    x11.flush().unwrap();
+    wait_for("X dialog close restores parent input focus", || {
+        let actual = x11.get_input_focus().ok()?.reply().ok()?.focus;
+        (actual == parent
+            && fixture
+                .nodes()
+                .iter()
+                .any(|node| node.id == parent_id && node.focused))
+        .then_some(())
+    });
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn dialog_close_respects_focus_policy_and_parent_availability() {
+    use x11rb::protocol::xproto::PropMode;
+    for case in ["background", "disabled", "collapsed", "destroyed", "nested"] {
+        let extra = if case == "disabled" {
+            "field:\n  close-restore-focus false\nend\n"
+        } else {
+            ""
+        };
+        let mut fixture = Fixture::with_config("tiling", extra);
+        let (x11, _) = RustConnection::connect(Some(&fixture.display)).unwrap();
+        let ancestor = x11_window(&x11, "guard ancestor");
+        let ancestor_id = fixture.node("guard ancestor").id;
+        let parent = x11_window(&x11, "guard parent");
+        let parent_id = fixture.node("guard parent").id;
+        let other = x11_window(&x11, "guard unrelated");
+        let other_id = fixture.node("guard unrelated").id;
+        let dialog = x11_window(&x11, "guard dialog");
+        let dialog_id = fixture.node("guard dialog").id;
+        for (child, owner) in [(parent, ancestor), (dialog, parent)] {
+            x11.change_property32(
+                PropMode::REPLACE,
+                child,
+                AtomEnum::WM_TRANSIENT_FOR,
+                AtomEnum::WINDOW,
+                &[owner],
+            )
+            .unwrap()
+            .check()
+            .unwrap();
+        }
+        // Round trips on both connections ensure the late parent notification
+        // is handled before testing close succession.
+        x11.flush().unwrap();
+        fixture.ack(Request::Node(NodeRequest::Focus {
+            selector: Some(NodeSelector::Id(parent_id)),
+            output: None,
+        }));
+        let root = x11.setup().roots[0].root;
+        wait_for("guard dialog parent relationship processed", || {
+            let frames = x11.query_tree(root).ok()?.reply().ok()?.children;
+            let parent_frame = x11.query_tree(parent).ok()?.reply().ok()?.parent;
+            let dialog_frame = x11.query_tree(dialog).ok()?.reply().ok()?.parent;
+            (frames.iter().position(|frame| *frame == parent_frame)?
+                < frames.iter().position(|frame| *frame == dialog_frame)?)
+            .then_some(())
+        });
+        if case == "collapsed" || case == "nested" {
+            fixture.ack(Request::Node(NodeRequest::Collapse {
+                selector: Some(NodeSelector::Id(parent_id)),
+                output: None,
+            }));
+        }
+        if case == "collapsed" {
+            fixture.ack(Request::Node(NodeRequest::Collapse {
+                selector: Some(NodeSelector::Id(ancestor_id)),
+                output: None,
+            }));
+        }
+        if case == "destroyed" {
+            x11.destroy_window(parent).unwrap().check().unwrap();
+            x11.destroy_window(ancestor).unwrap().check().unwrap();
+            wait_for("parents removed", || {
+                (!fixture
+                    .nodes()
+                    .iter()
+                    .any(|node| node.id == parent_id || node.id == ancestor_id))
+                .then_some(())
+            });
+        }
+        thread::sleep(Duration::from_millis(5));
+        fixture.ack(Request::Node(NodeRequest::Focus {
+            selector: Some(NodeSelector::Id(other_id)),
+            output: None,
+        }));
+        if case != "background" {
+            thread::sleep(Duration::from_millis(5));
+            fixture.ack(Request::Node(NodeRequest::Focus {
+                selector: Some(NodeSelector::Id(dialog_id)),
+                output: None,
+            }));
+        }
+        x11.unmap_window(dialog).unwrap().check().unwrap();
+        x11.flush().unwrap();
+        wait_for(case, || {
+            let nodes = fixture.nodes();
+            if nodes.iter().any(|node| node.id == dialog_id) {
+                return None;
+            }
+            let actual = x11.get_input_focus().ok()?.reply().ok()?.focus;
+            if case == "disabled" {
+                (!nodes.iter().any(|node| node.focused)
+                    && actual != parent
+                    && actual != ancestor
+                    && actual != other)
+                    .then_some(())
+            } else {
+                let (expected, expected_id) = if case == "nested" {
+                    (ancestor, ancestor_id)
+                } else {
+                    (other, other_id)
+                };
+                (actual == expected
+                    && nodes
+                        .iter()
+                        .any(|node| node.id == expected_id && node.focused)
+                    && nodes
+                        .iter()
+                        .filter(|node| {
+                            node.id == parent_id || (case == "collapsed" && node.id == ancestor_id)
+                        })
+                        .all(|node| {
+                            case != "collapsed" && case != "nested"
+                                || node.state == halley_ipc::NodeState::Node
+                        }))
+                .then_some(())
+            }
+        });
+    }
 }
 
 #[test]

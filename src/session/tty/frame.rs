@@ -105,6 +105,13 @@ impl OutputFrameState {
         refresh_interval: Duration,
     ) -> VblankThrottleResult {
         let cancel_timer = self.vblank_throttle_timer.take();
+        if matches!(self.redraw, RedrawState::Suspended) {
+            return VblankThrottleResult {
+                delay: None,
+                cancel_timer,
+                warn: false,
+            };
+        }
         let Some(timestamp) = timestamp else {
             return VblankThrottleResult {
                 delay: None,
@@ -184,6 +191,9 @@ impl OutputFrameState {
     }
 
     pub fn on_vblank(&mut self, presented: Option<Duration>) -> (VblankAction, Option<String>) {
+        if matches!(self.redraw, RedrawState::Suspended) {
+            return (VblankAction::Ignore, None);
+        }
         self.clock.presented(presented);
         let (redraw_needed, unexpected_state) = match std::mem::take(&mut self.redraw) {
             RedrawState::Suspended => {
@@ -303,6 +313,7 @@ impl OutputFrameState {
         }
         self.clock.reset();
         self.last_vblank_timestamp = None;
+        self.vblank_throttle_warned = false;
         self.last_camera_sample = now;
         self.keep_redrawing = false;
         self.skipped_scene_ready = false;
@@ -318,6 +329,16 @@ impl OutputFrameState {
         self.keep_redrawing = false;
         self.skipped_scene_ready = false;
         self.redraw = RedrawState::Queued;
+    }
+
+    /// A lost display epoch invalidates both real and estimated completion
+    /// events, even if the notification preceding the loss was missed.
+    pub fn recover(&mut self, now: Duration, renderable: bool) -> Vec<RegistrationToken> {
+        let timers = self.suspend(now);
+        if renderable {
+            self.resume(now);
+        }
+        timers
     }
 }
 
@@ -572,5 +593,126 @@ mod tests {
 
         state.resume(Duration::from_secs(2));
         assert!(state.is_redraw_queued());
+    }
+
+    #[test]
+    fn recovery_without_prepare_notification_releases_a_lost_page_flip() {
+        let mut state = state();
+        state.queue_redraw();
+        state.on_vblank(Some(Duration::from_millis(100)));
+        state.next_frame_sample(Duration::from_millis(104));
+        state.advance_frame_callback_sequence();
+        state.frame_submitted(true);
+        // The backend invalidated this submitted frame during sleep. An
+        // ordinary redraw request cannot release its completion gate.
+        state.queue_redraw();
+        assert!(!state.is_redraw_queued());
+
+        let now = Duration::from_secs(20);
+        assert!(state.recover(now, true).is_empty());
+        assert!(state.is_redraw_queued());
+        assert_eq!(state.next_frame_sample(now), (now, Duration::ZERO));
+        assert_eq!(state.frame_callback_sequence(), 1);
+        state.frame_submitted(false);
+        assert_eq!(
+            state.on_vblank(Some(now + Duration::from_millis(10))),
+            (VblankAction::SendCallbacks, None)
+        );
+        assert!(!state.is_redraw_queued());
+    }
+
+    #[test]
+    fn recovery_cancels_estimated_and_throttle_timers_before_a_fresh_frame() {
+        let mut event_loop = calloop::EventLoop::<usize>::try_new().unwrap();
+        let timer = || {
+            event_loop
+                .handle()
+                .insert_source(calloop::timer::Timer::immediate(), |_, _, fired| {
+                    *fired += 1;
+                    calloop::timer::TimeoutAction::Drop
+                })
+                .unwrap()
+        };
+        let mut state = state();
+        state.queue_redraw();
+        state.frame_skipped(true, true, Duration::from_secs(1));
+        let estimated = timer();
+        let throttle = timer();
+        let _unrelated = timer();
+        assert_ne!(estimated, throttle);
+        state.timer_armed(estimated);
+        state.queue_redraw();
+        state.vblank_throttle_timer_armed(throttle);
+
+        let now = Duration::from_secs(30);
+        let cancelled = state.recover(now, true);
+        assert_eq!(cancelled, vec![throttle, estimated]);
+        for token in cancelled {
+            event_loop.handle().remove(token);
+        }
+        let mut fired = 0;
+        event_loop
+            .dispatch(Duration::from_millis(5), &mut fired)
+            .unwrap();
+        assert_eq!(fired, 1, "only the unrelated event source may run");
+        assert_eq!(state.frame_submitted(false), None);
+        assert_eq!(
+            state.on_vblank(Some(now)),
+            (VblankAction::SendCallbacks, None)
+        );
+        assert!(!state.is_redraw_queued());
+    }
+
+    #[test]
+    fn powered_off_output_remains_suspended_across_recovery_until_wake() {
+        let mut state = state();
+        state.queue_redraw();
+        state.frame_submitted(true);
+        assert!(state.recover(Duration::from_secs(1), false).is_empty());
+        state.queue_redraw();
+        assert!(!state.is_redraw_queued());
+        assert_eq!(state.estimated_vblank_fired(), Ok(false));
+        assert_eq!(
+            state.on_vblank(Some(Duration::from_secs(1))),
+            (VblankAction::Ignore, None)
+        );
+        assert!(state.recover(Duration::from_secs(2), false).is_empty());
+        assert!(!state.is_redraw_queued());
+        let now = Duration::from_secs(10);
+        assert!(state.recover(now, true).is_empty());
+        assert!(state.is_redraw_queued());
+        assert_eq!(state.next_frame_sample(now), (now, Duration::ZERO));
+    }
+
+    #[test]
+    fn suspended_late_vblanks_do_not_seed_timing_or_arm_throttle_timers() {
+        let mut state = state();
+        state.recover(Duration::from_millis(100), false);
+        for timestamp in [101, 102] {
+            let time = Duration::from_millis(timestamp);
+            let throttle = state.throttle_vblank(Some(time), Duration::from_millis(10));
+            assert_eq!(throttle.delay, None);
+            assert!(!throttle.warn);
+            assert_eq!(state.on_vblank(Some(time)), (VblankAction::Ignore, None));
+            assert_eq!(state.clock.next_presentation_time(time), time);
+        }
+    }
+
+    #[test]
+    fn recovering_one_output_preserves_the_other_outputs_page_flip() {
+        let mut first = state();
+        let mut second = OutputFrameState::new(Duration::from_millis(20));
+        for state in [&mut first, &mut second] {
+            state.queue_redraw();
+            state.on_vblank(Some(Duration::from_millis(100)));
+            state.frame_submitted(false);
+        }
+        assert!(first.recover(Duration::from_secs(10), true).is_empty());
+        assert!(first.is_redraw_queued());
+        assert!(!second.is_redraw_queued());
+        assert_eq!(
+            second.on_vblank(Some(Duration::from_millis(120))),
+            (VblankAction::SendCallbacks, None)
+        );
     }
 }

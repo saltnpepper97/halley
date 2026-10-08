@@ -72,6 +72,13 @@ unsupported and produce a configuration verification error.
 The transient live-scale display is configured separately under
 [`overlays.zoom-indicator`](overlays.md#zoom-indicator).
 
+Field panning uses elapsed-time easing, so its settling speed and gesture-fling
+distance stay consistent across output refresh rates. `field.zoom.smooth-rate`
+also controls pan follow speed; `input.gestures.pan-decay-rate` controls gesture
+momentum friction. Window contents and compositor decorations share a rounded
+camera translation, keeping their placement stable as motion slows while
+preserving sharp pixels at rest. Existing configurations need no new settings.
+
 ## Field maximize
 
 The default `$var.mod+m` binding runs `maximize-focused`. The aliases
@@ -130,14 +137,19 @@ When `close-restore-focus` is true, closing a window in an active cluster first
 selects a successor in that cluster's layout order. In a tiling cluster, the
 member that fills the closed tile is preferred, so closing the master focuses
 the newly promoted master. In a stacking cluster, the first surviving card is
-preferred. Outside an active cluster, or when no cluster member survives,
+preferred. If the cluster becomes empty, it retains workspace focus instead
+of handing input to a hidden Field window. Outside an active cluster, closing
+a dialog first returns keyboard focus to its nearest surviving, focusable
+parent in an active workspace. This includes native, portal, and X11 dialogs;
+collapsed or unavailable parents are skipped. If no eligible parent survives,
 Halley selects the most recently focused surviving window on the same output,
-then falls back to the global MRU window. An active successor is focused
-normally. A collapsed successor remains collapsed and becomes Halley's logical
+then falls back to the global MRU window. Closing a background window leaves
+the current focus alone. An active successor is focused normally. A collapsed
+successor remains collapsed and becomes Halley's logical
 node focus by default.
 Set `close-restore-nodes` to true to restore and focus that node in the same
-close action. When `close-restore-focus` is false, Halley clears focus instead
-of selecting a successor, regardless of `close-restore-nodes`.
+close action. When `close-restore-focus` is false, closing the focused window
+clears focus instead of selecting a successor, regardless of `close-restore-nodes`.
 
 `close-restore-pan` controls the camera when an active successor is focused or
 a collapsed successor is restored:

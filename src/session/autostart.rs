@@ -1,4 +1,5 @@
 use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 
 use super::environment::LaunchEnvironment;
 
@@ -6,6 +7,54 @@ enum OnceState {
     Unarmed,
     Pending(Vec<String>),
     Finished,
+}
+
+pub(super) struct AutostartChild {
+    command: String,
+    child: std::process::Child,
+    log_path: Option<PathBuf>,
+    wait_error_reported: bool,
+}
+
+impl AutostartChild {
+    pub fn new(command: &str, child: std::process::Child, log_path: Option<PathBuf>) -> Self {
+        Self {
+            command: command.to_owned(),
+            child,
+            log_path,
+            wait_error_reported: false,
+        }
+    }
+
+    fn reap_finished(&mut self) -> bool {
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    eventline::debug!("autostart: {:?} completed with {status}", self.command);
+                } else if let Some(path) = &self.log_path {
+                    eventline::warn!(
+                        "autostart: {:?} exited with {status}; output log: {}",
+                        self.command,
+                        path.display()
+                    );
+                } else {
+                    eventline::warn!(
+                        "autostart: {:?} exited with {status}; output logging was unavailable",
+                        self.command
+                    );
+                }
+                true
+            }
+            Ok(None) => false,
+            Err(err) => {
+                if !self.wait_error_reported {
+                    eventline::warn!("autostart: could not reap {:?}: {err}", self.command);
+                    self.wait_error_reported = true;
+                }
+                false
+            }
+        }
+    }
 }
 
 /// Launches configured startup commands in separate process groups.
@@ -17,7 +66,7 @@ pub(super) struct Autostart {
     enabled: bool,
     once: OnceState,
     wayland_display: Option<OsString>,
-    children: Vec<std::process::Child>,
+    children: Vec<AutostartChild>,
     next_reap: std::time::Instant,
 }
 
@@ -43,10 +92,22 @@ impl Autostart {
         }
     }
 
-    pub fn arm_once(&mut self, wayland_display: &OsStr, commands: Vec<String>) {
+    pub fn arm_once(&mut self, wayland_display: &OsStr, mut commands: Vec<String>) {
         if !self.enabled || !matches!(self.once, OnceState::Unarmed) {
             return;
         }
+        let mut seen = std::collections::HashSet::new();
+        commands.retain(|command| {
+            let command = command.trim();
+            if command.is_empty() {
+                return false;
+            }
+            if !seen.insert(command.to_owned()) {
+                eventline::debug!("autostart: skipping duplicate once command {command:?}");
+                return false;
+            }
+            true
+        });
         self.wayland_display = Some(wayland_display.to_os_string());
         self.once = OnceState::Pending(commands);
     }
@@ -109,14 +170,14 @@ impl Autostart {
     /// Give startup services a chance to exit before their Wayland socket
     /// disappears. Never signal unrelated processes by name or an old PID.
     pub fn shutdown(&mut self) {
-        stop_children(&mut self.children);
+        let mut children = self.children.drain(..).map(|child| child.child).collect();
+        stop_children(&mut children);
     }
 
     pub fn reap_finished(&mut self) {
         let now = std::time::Instant::now();
         if now >= self.next_reap {
-            self.children
-                .retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+            self.children.retain_mut(|child| !child.reap_finished());
             self.next_reap = now + std::time::Duration::from_secs(1);
         }
     }
@@ -163,6 +224,127 @@ mod tests {
         autostart.run_once(None, 24, &environment);
 
         assert!(matches!(autostart.once, OnceState::Finished));
+    }
+
+    #[test]
+    fn once_skips_duplicate_commands_but_preserves_arguments_and_order() {
+        let (environment, display) = context();
+        let mut autostart = Autostart::enabled();
+        autostart.arm_once(
+            &display,
+            vec![
+                "waybar".into(),
+                " mako ".into(),
+                "  waybar  ".into(),
+                "waybar --config other".into(),
+                "mako".into(),
+                "  ".into(),
+            ],
+        );
+        let OnceState::Pending(commands) = &autostart.once else {
+            panic!("startup not pending");
+        };
+        assert_eq!(commands, &["waybar", " mako ", "waybar --config other"]);
+        // Nested startup remains suppressed and the ordinary once policy is
+        // unchanged; these commands are not launched by the test.
+        let mut nested = Autostart::disabled();
+        nested.arm_once(&display, commands.clone());
+        nested.run_once(None, 24, &environment);
+        assert!(nested.children.is_empty());
+    }
+
+    fn unique_label(prefix: &str) -> String {
+        format!(
+            "{prefix}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+
+    fn events_for(label: &str) -> Vec<(eventline::EventKind, String)> {
+        eventline::records()
+            .into_iter()
+            .filter_map(|record| match record.kind {
+                eventline::core::RecordKind::Event { kind, name, .. } if name.contains(label) => {
+                    Some((kind, name))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn failed_autostart_is_reaped_and_reported_once_with_its_log_path() {
+        let label = unique_label("failed-service");
+        let path = std::env::temp_dir().join(format!("{label}.log"));
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 23"])
+            .spawn()
+            .unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(23));
+        let mut autostart = Autostart::enabled();
+        autostart
+            .children
+            .push(AutostartChild::new(&label, child, Some(path.clone())));
+        autostart.reap_finished();
+        assert!(autostart.children.is_empty());
+        autostart.next_reap = std::time::Instant::now();
+        autostart.reap_finished();
+        let events = events_for(&label);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].0, eventline::EventKind::Warning);
+        assert!(events[0].1.contains("exit status: 23"));
+        assert!(events[0].1.contains(path.to_str().unwrap()));
+    }
+
+    #[test]
+    fn successful_one_shot_is_reaped_without_a_failure_warning() {
+        let label = unique_label("one-shot");
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        assert!(child.wait().unwrap().success());
+        let mut autostart = Autostart::enabled();
+        autostart
+            .children
+            .push(AutostartChild::new(&label, child, None));
+        autostart.reap_finished();
+        assert!(autostart.children.is_empty());
+        let events = events_for(&label);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].0, eventline::EventKind::Debug);
+    }
+
+    #[test]
+    fn live_autostarts_keep_their_group_until_owned_shutdown_without_failure_warnings() {
+        use std::os::unix::process::CommandExt;
+        let label = unique_label("owned-service");
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let mut unrelated = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let mut autostart = Autostart::enabled();
+        autostart
+            .children
+            .push(AutostartChild::new(&label, child, None));
+        autostart.reap_finished();
+        let retained = autostart.children.len() == 1;
+        autostart.shutdown();
+        let unrelated_running = unrelated.try_wait().unwrap().is_none();
+        unrelated.kill().unwrap();
+        unrelated.wait().unwrap();
+        assert!(retained);
+        assert!(autostart.children.is_empty());
+        assert!(unrelated_running);
+        assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+        assert!(events_for(&label).is_empty());
     }
 
     #[test]

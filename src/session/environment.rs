@@ -327,18 +327,65 @@ fn notify_dinit_ready() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run(label: &str, command: &mut Command) -> bool {
+const MAX_HELPER_DETAIL_BYTES: usize = 4096;
+
+fn helper_output(command: &mut Command) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    match command.status() {
-        Ok(status) if status.success() => {
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let mut stderr = child.stderr.take().expect("helper stderr was piped");
+    // Drain concurrently so a verbose failure cannot fill the pipe and stall
+    // the helper. Retain only the diagnostic prefix plus a truncation marker.
+    let reader = match std::thread::Builder::new()
+        .name("halley helper stderr".into())
+        .spawn(move || -> std::io::Result<Vec<u8>> {
+            let mut detail = Vec::with_capacity(MAX_HELPER_DETAIL_BYTES + 1);
+            let mut buffer = [0u8; 4096];
+            loop {
+                match stderr.read(&mut buffer) {
+                    Ok(0) => return Ok(detail),
+                    Ok(length) => {
+                        let retained = length.min(MAX_HELPER_DETAIL_BYTES + 1 - detail.len());
+                        detail.extend_from_slice(&buffer[..retained]);
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(err) => return Err(err),
+                }
+            }
+        }) {
+        Ok(reader) => reader,
+        Err(err) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err);
+        }
+    };
+    let status = child.wait();
+    let stderr = reader
+        .join()
+        .map_err(|_| std::io::Error::other("helper stderr reader panicked"))??;
+    Ok(std::process::Output {
+        status: status?,
+        stdout: Vec::new(),
+        stderr,
+    })
+}
+
+fn run(label: &str, command: &mut Command) -> bool {
+    match helper_output(command) {
+        Ok(output) if output.status.success() => {
             eventline::debug!("{label}: complete");
             true
         }
-        Ok(status) => {
-            eventline::warn!("{label}: exited with {status}");
+        Ok(output) => {
+            eventline::warn!(
+                "{label}: exited with {}{}",
+                output.status,
+                helper_error_detail(&output.stderr)
+            );
             false
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -355,18 +402,37 @@ fn run(label: &str, command: &mut Command) -> bool {
 /// Runs best-effort integration cleanup where a missing/inactive optional
 /// desktop component is an expected state, not a compositor warning.
 fn run_optional(label: &str, command: &mut Command) {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    match command.status() {
-        Ok(status) if status.success() => eventline::debug!("{label}: complete"),
-        Ok(status) => eventline::debug!("{label}: optional helper exited with {status}"),
+    match helper_output(command) {
+        Ok(output) if output.status.success() => eventline::debug!("{label}: complete"),
+        Ok(output) => eventline::debug!(
+            "{label}: optional helper exited with {}{}",
+            output.status,
+            helper_error_detail(&output.stderr)
+        ),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             eventline::debug!("{label}: helper unavailable")
         }
         Err(err) => eventline::warn!("{label}: {err}"),
     }
+}
+
+fn helper_error_detail(stderr: &[u8]) -> String {
+    let end = stderr.len().min(MAX_HELPER_DETAIL_BYTES);
+    let detail = String::from_utf8_lossy(&stderr[..end])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        return String::new();
+    }
+    format!(
+        ": {detail}{}",
+        if stderr.len() > end {
+            " [truncated]"
+        } else {
+            ""
+        }
+    )
 }
 
 fn cursor_assignments(cursor_size: u8) -> [OsString; 1] {
@@ -430,5 +496,54 @@ mod tests {
             environment.path().as_deref(),
             Some(OsStr::new("/configured/bin"))
         );
+    }
+
+    #[test]
+    fn failed_helpers_report_bounded_stderr_with_optional_failures_kept_at_debug() {
+        let unique = format!(
+            "helper-diagnostic-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        for optional in [false, true] {
+            let label = format!("{unique}-{optional}");
+            let mut command = Command::new("sh");
+            command.args(["-c", "printf 'failed-marker\nline two\n' >&2; head -c 131072 /dev/zero | tr '\\000' x >&2; exit 9"]);
+            if optional {
+                super::run_optional(&label, &mut command);
+            } else {
+                assert!(!super::run(&label, &mut command));
+            }
+            let records: Vec<_> = eventline::records()
+                .into_iter()
+                .filter_map(|record| match record.kind {
+                    eventline::core::RecordKind::Event { kind, name, .. }
+                        if name.contains(&label) =>
+                    {
+                        Some((kind, name))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(records.len(), 1, "{records:?}");
+            assert_eq!(
+                records[0].0,
+                if optional {
+                    eventline::EventKind::Debug
+                } else {
+                    eventline::EventKind::Warning
+                }
+            );
+            assert!(
+                records[0]
+                    .1
+                    .contains("exit status: 9: failed-marker line two")
+            );
+            assert!(records[0].1.ends_with("[truncated]"));
+            assert!(records[0].1.len() < 5000);
+        }
     }
 }

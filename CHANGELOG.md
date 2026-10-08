@@ -19,6 +19,22 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Skip duplicate `autostart.once` command entries without changing explicit
+  reload commands. Report failed autostarts once with their command, exit status,
+  and persistent log path; include bounded stderr context for failed session
+  integration helpers while keeping successful one-shots and optional failures quiet.
+- Reset output frame waits, fallback timers, and camera sampling on display
+  recovery even when the pre-suspend notification was missed. Keep powered-off
+  or disabled outputs suspended, defer output config reload until the seat is active,
+  and resume rendering and output advertisement when config reload re-enables
+  a display.
+- Return keyboard focus to the nearest eligible parent when a Field dialog
+  closes, including portal and X11 dialogs, before considering unrelated recent
+  windows. Respect disabled focus restoration and preserve focus when a
+  background dialog closes; skip unavailable or collapsed parents.
+- Keep window contents and decorations moving together during slow Field
+  pans by sharing one rounded camera translation. Make pan easing and fling
+  distance consistent across refresh rates, and present the final settled frame.
 - Stop native session autostarts with a bounded graceful shutdown before
   releasing the display, drain their final logs, and reap completed loggers.
   Preserve the lifecycle of unrelated applications and externally managed services.

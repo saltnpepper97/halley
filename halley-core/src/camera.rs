@@ -199,43 +199,7 @@ impl Camera {
             1.0
         };
 
-        let mut changed = false;
-
-        // Inertial pan: coast the target center by velocity with friction so
-        // a flick glides to a smooth stop. (Reaching this point already
-        // implies physics_enabled, per the early return above, so unlike
-        // the old code this doesn't re-check it.)
-        if self.pan_vel.x.abs() > Self::PAN_VEL_EPS || self.pan_vel.y.abs() > Self::PAN_VEL_EPS {
-            let friction = pan_decay_rate(tuning.pan_decay_rate);
-            self.target_center.x += self.pan_vel.x * dt;
-            self.target_center.y += self.pan_vel.y * dt;
-            let decay = (-friction * dt).exp();
-            self.pan_vel.x *= decay;
-            self.pan_vel.y *= decay;
-            if self.pan_vel.x.hypot(self.pan_vel.y) <= Self::PAN_VEL_EPS {
-                self.pan_vel = Vec2 { x: 0.0, y: 0.0 };
-            }
-            changed = true;
-        } else {
-            self.pan_vel = Vec2 { x: 0.0, y: 0.0 };
-        }
-
-        let next_center = Vec2 {
-            x: self.center.x + (self.target_center.x - self.center.x) * alpha,
-            y: self.center.y + (self.target_center.y - self.center.y) * alpha,
-        };
-        if (self.target_center.x - next_center.x).abs() < 0.15 {
-            self.center.x = self.target_center.x;
-        } else {
-            self.center.x = next_center.x;
-            changed = true;
-        }
-        if (self.target_center.y - next_center.y).abs() < 0.15 {
-            self.center.y = self.target_center.y;
-        } else {
-            self.center.y = next_center.y;
-            changed = true;
-        }
+        let mut changed = self.tick_pan(dt, smooth_rate, tuning.zoom_smooth, tuning.pan_decay_rate);
 
         if tuning.zoom_smooth && self.zoom_log_vel.abs() > Self::ZOOM_VEL_EPS {
             // Inertial zoom: integrate log-space velocity with friction so a
@@ -280,6 +244,83 @@ impl Camera {
         }
 
         changed
+    }
+
+    /// Integrate the moving pan target and its eased follower together.
+    /// Exponential gains depend on elapsed time, not the number of frames.
+    /// In particular, sampling an Euler-stepped target first makes both fling
+    /// distance and the camera's lag depend on output refresh rate.
+    fn tick_pan(&mut self, dt: f32, rate: f32, smooth: bool, friction: f32) -> bool {
+        let before = self.center;
+        let dt = f64::from(dt.max(0.0));
+        if dt == 0.0 {
+            return self.center != self.target_center
+                || self.pan_vel.x != 0.0
+                || self.pan_vel.y != 0.0;
+        }
+        let rate = f64::from(rate);
+        let friction = f64::from(pan_decay_rate(friction));
+        let speed = f64::from(self.pan_vel.x).hypot(f64::from(self.pan_vel.y));
+        // Stop at the same instant at every refresh rate, including a frame
+        // spanning the velocity cutoff. Ease toward the stopped target for
+        // the remainder of that frame.
+        let coast_time = if speed > f64::from(Self::PAN_VEL_EPS) {
+            (speed / f64::from(Self::PAN_VEL_EPS)).ln() / friction
+        } else {
+            0.0
+        };
+        let coast_dt = dt.min(coast_time);
+        let decay = (-friction * coast_dt).exp();
+        let target_gain = -(-friction * coast_dt).exp_m1() / friction;
+        let ease_decay = (-rate * coast_dt).exp();
+        let follower_gain = if rate == friction {
+            coast_dt * ease_decay
+        } else {
+            (decay - ease_decay) / (rate - friction)
+        };
+        let rest_decay = (-rate * (dt - coast_dt)).exp();
+        let stopped = coast_time <= dt;
+        let advance = |center: f32, target: f32, velocity: f32| {
+            let center = f64::from(center);
+            let target = f64::from(target);
+            let velocity = f64::from(velocity);
+            let next_target = target + velocity * target_gain;
+            let next_center = if smooth {
+                let coast_center = center
+                    + (target - center) * (1.0 - ease_decay)
+                    + velocity * (target_gain - follower_gain);
+                next_target + (coast_center - next_target) * rest_decay
+            } else {
+                next_target
+            };
+            let next_target = next_target as f32;
+            let next_center = next_center as f32;
+            // The final snap is subpixel. Also terminate an easing tail whose
+            // step is smaller than f32 precision far out in the Field.
+            let next_center = if stopped
+                && ((next_target - next_center).abs() < 0.15 || next_center == center as f32)
+            {
+                next_target
+            } else {
+                next_center
+            };
+            (next_center, next_target)
+        };
+        (self.center.x, self.target_center.x) =
+            advance(self.center.x, self.target_center.x, self.pan_vel.x);
+        (self.center.y, self.target_center.y) =
+            advance(self.center.y, self.target_center.y, self.pan_vel.y);
+        self.pan_vel = if stopped {
+            Vec2 { x: 0.0, y: 0.0 }
+        } else {
+            Vec2 {
+                x: (f64::from(self.pan_vel.x) * decay) as f32,
+                y: (f64::from(self.pan_vel.y) * decay) as f32,
+            }
+        };
+        // Report the final changed frame as well as unfinished motion, so
+        // damage-driven rendering presents the endpoint before returning idle.
+        self.center != before || self.center != self.target_center || !stopped
     }
 }
 
@@ -521,6 +562,142 @@ mod tests {
         assert_eq!(cam.pan_vel, Vec2 { x: 0.0, y: 0.0 });
         // The fling should have actually moved the camera before settling.
         assert!(cam.center.x > 0.0);
+    }
+
+    fn pan_after_ticks(hz: u32, seconds: u32, velocity: Vec2, rate: f32) -> Camera {
+        let mut cam = Camera::new(Vec2 { x: 400.0, y: 300.0 }, Vec2 { x: 800.0, y: 600.0 });
+        cam.pan_target(Vec2 {
+            x: 300.0,
+            y: -120.0,
+        });
+        cam.fling_pan(velocity);
+        let tuning = CameraTickTuning {
+            smooth_rate: rate,
+            pan_decay_rate: 6.0,
+            ..default_tick_tuning()
+        };
+        for _ in 0..hz * seconds {
+            cam.tick(1.0 / hz as f32, tuning);
+        }
+        cam
+    }
+
+    #[test]
+    fn pan_trajectory_and_fling_distance_are_refresh_independent() {
+        for velocity in [
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1500.0,
+                y: -750.0,
+            },
+        ] {
+            // Include equal easing/friction rates, where the analytic solution
+            // needs its limiting form rather than division by their difference.
+            for rate in [1.0, 6.0, 12.5, 120.0] {
+                let reference = pan_after_ticks(60, 1, velocity, rate);
+                for hz in [75, 120, 180, 240, 360] {
+                    let actual = pan_after_ticks(hz, 1, velocity, rate);
+                    assert!(
+                        (actual.center.x - reference.center.x).abs() < 0.03,
+                        "hz={hz} rate={rate} center={:?} reference={:?}",
+                        actual.center,
+                        reference.center
+                    );
+                    assert!((actual.center.y - reference.center.y).abs() < 0.03);
+                    assert!((actual.target_center.x - reference.target_center.x).abs() < 0.03);
+                    assert!((actual.target_center.y - reference.target_center.y).abs() < 0.03);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn final_pan_snap_requests_a_frame_before_becoming_idle() {
+        let mut cam = Camera::new(Vec2 { x: 10.49, y: 20.49 }, Vec2 { x: 800.0, y: 600.0 });
+        cam.target_center = Vec2 { x: 10.51, y: 20.51 };
+        assert!(cam.tick(1.0 / 180.0, default_tick_tuning()));
+        assert_eq!(cam.center, cam.target_center);
+        assert!(!cam.tick(1.0 / 180.0, default_tick_tuning()));
+    }
+
+    #[test]
+    fn pan_easing_survives_large_field_coordinates() {
+        let mut cam = Camera::new(
+            Vec2 {
+                x: 4_000_000.0,
+                y: -4_000_000.0,
+            },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        cam.pan_target(Vec2 { x: 0.25, y: -0.25 });
+        for _ in 0..1000 {
+            cam.tick(1.0 / 360.0, default_tick_tuning());
+        }
+        assert_eq!(cam.center, cam.target_center);
+        assert!(!cam.tick(1.0 / 360.0, default_tick_tuning()));
+    }
+
+    #[test]
+    fn irregular_pan_frames_and_cutoff_preserve_fling_endpoint() {
+        let velocity = Vec2 {
+            x: 1500.0,
+            y: -750.0,
+        };
+        let reference = pan_after_ticks(60, 3, velocity, 12.5);
+        let mut cam = Camera::new(Vec2 { x: 400.0, y: 300.0 }, Vec2 { x: 800.0, y: 600.0 });
+        cam.pan_target(Vec2 {
+            x: 300.0,
+            y: -120.0,
+        });
+        cam.fling_pan(velocity);
+        let tuning = CameraTickTuning {
+            smooth_rate: 12.5,
+            pan_decay_rate: 6.0,
+            ..default_tick_tuning()
+        };
+        let mut remaining: f32 = 3.0;
+        for dt in [0.004_f32, 0.011, 0.05, 0.006, 0.017].into_iter().cycle() {
+            let dt = dt.min(remaining);
+            cam.tick(dt, tuning);
+            remaining -= dt;
+            if remaining <= 0.0 {
+                break;
+            }
+        }
+        assert_eq!(cam.pan_vel, Vec2 { x: 0.0, y: 0.0 });
+        assert_eq!(cam.center, cam.target_center);
+        assert!((cam.center.x - reference.center.x).abs() < 0.03);
+        assert!((cam.center.y - reference.center.y).abs() < 0.03);
+        for hz in [75, 180, 360] {
+            let actual = pan_after_ticks(hz, 3, velocity, 12.5);
+            assert!((actual.center.x - reference.center.x).abs() < 0.03);
+            assert!((actual.center.y - reference.center.y).abs() < 0.03);
+        }
+    }
+
+    #[test]
+    fn interrupted_pan_discards_previous_fling_and_settles_monotonically() {
+        let mut cam = pan_after_ticks(
+            180,
+            1,
+            Vec2 {
+                x: 1500.0,
+                y: -750.0,
+            },
+            1.0,
+        );
+        cam.snap_targets_to_live();
+        cam.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+        cam.pan_target(Vec2 { x: -60.0, y: 30.0 });
+        for _ in 0..2000 {
+            let previous = cam.center;
+            if !cam.tick(1.0 / 180.0, default_tick_tuning()) {
+                break;
+            }
+            assert!(cam.center.x <= previous.x && cam.center.x >= cam.target_center.x);
+            assert!(cam.center.y >= previous.y && cam.center.y <= cam.target_center.y);
+        }
+        assert_eq!(cam.center, cam.target_center);
     }
 
     #[test]

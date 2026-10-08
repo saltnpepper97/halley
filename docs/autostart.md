@@ -3,6 +3,11 @@
 `autostart.once` commands run once when a full TTY session starts, after
 Halley's display sockets are ready. `autostart.on-reload` commands run after a
 valid configuration reload. Nested Winit sessions do not run either group.
+Repeated `once` entries with identical command lines are launched only once,
+ignoring surrounding whitespace and preserving first-entry order. Different
+arguments remain separate commands. `on-reload` remains an explicit instruction
+to rerun a command on every accepted reload, including duplicate entries;
+avoid putting a long-running service there unless it manages its own restart.
 
 ```rune
 autostart:
@@ -27,6 +32,13 @@ Logs contain the launch time, command, selected display sockets, merged standard
 output and error, and the shell's exit status. Logging is always enabled for
 autostart commands; add a command's own debug flag when more detail is needed.
 Normal keybind launches retain their existing output behavior.
+
+When an autostart exits unsuccessfully, Halley reports its command, exit status,
+and output-log path once in the session log. Successful one-shot commands remain
+debug messages; normal owned shutdown does not produce failure warnings. This
+reports exits without restarting commands automatically. Failed session
+integration helpers also include their stderr context, limited to 4 KiB of
+reported detail; optional helper failures retain their debug severity.
 
 Each command retains its current log and two older generations (`.log.1` and
 `.log.2`), at most 1 MiB each. Reloads and repeated logins append to the same
