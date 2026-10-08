@@ -229,7 +229,13 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
         window_node,
         exclusive_presentation,
         cluster_override.is_some(),
-    );
+    ) || exclusive_presentation.is_some_and(|exclusive| {
+        nodes
+            .and_then(|nodes| nodes.record(exclusive.member))
+            .is_some_and(|parent| {
+                crate::window::stacking::is_descendant_of(space, window, &parent.window)
+            })
+    });
     let cluster_presentation = cluster_override.unwrap_or_else(|| {
         clusters
             .zip(nodes)

@@ -5,6 +5,16 @@ version 1. Preferred integer and fractional buffer scales follow each window's
 assigned output, including popups and subsurfaces, and update on transfer or
 display-scale reload. See [display scaling](display-scale.md).
 
+Halley advertises `zxdg_exporter_v2` and `zxdg_importer_v2` interface version 1
+(`xdg-foreign-v2`). Applications can export a toplevel handle and pass it to a
+desktop portal; the portal imports the handle to attach its dialog to the
+original window across separate Wayland connections. Imported parent
+relationships use the same placement, stacking, rendering and pointer policy
+as ordinary XDG parents. Destroying the owning import or export clears the
+relationship. A missing or invalid handle leaves the dialog independent.
+The browser and portal must connect to a compositor exposing these globals;
+installing a new binary does not change an already-running compositor.
+
 Halley advertises `zwp_text_input_manager_v3` version 1 and
 `zwp_input_method_manager_v2` version 1 (`input-method-unstable-v2`). Native Wayland clients bind
 text-input to send surrounding text and receive preedit and committed

@@ -3,6 +3,7 @@ use super::*;
 const JOIN_READY_TINT_ALPHA: f32 = 0.10;
 
 pub(super) struct StackGroup {
+    pub(super) window: Option<smithay::desktop::Window>,
     pub(super) stack_index: usize,
     pub(super) order: u64,
     pub(super) elements: Vec<SceneElement>,
@@ -13,6 +14,7 @@ pub(super) fn sort_stack_groups(groups: &mut [StackGroup]) {
 }
 
 pub(super) struct LiveWindowScene {
+    pub(super) window: smithay::desktop::Window,
     /// XDG popup trees are composed in the desktop popup plane, above the
     /// top layer-shell plane but below overlays. Keeping them separate from
     /// the root preserves that plane while the root remains in its stack.
@@ -139,6 +141,7 @@ pub(super) fn live_window_elements(
     } = renderers;
     let Some(location) = context.space.element_location(window) else {
         return Ok(LiveWindowScene {
+            window: window.clone(),
             popup_elements: Vec::new(),
             elements: Vec::new(),
             cluster_depth: None,
@@ -148,6 +151,7 @@ pub(super) fn live_window_elements(
     };
     let Some(window_surface) = window.wl_surface() else {
         return Ok(LiveWindowScene {
+            window: window.clone(),
             popup_elements: Vec::new(),
             elements: Vec::new(),
             cluster_depth: None,
@@ -179,6 +183,7 @@ pub(super) fn live_window_elements(
         context.cluster_presentation_override,
     ) else {
         return Ok(LiveWindowScene {
+            window: window.clone(),
             popup_elements: Vec::new(),
             elements: Vec::new(),
             cluster_depth: None,
@@ -188,6 +193,7 @@ pub(super) fn live_window_elements(
     };
     if visual.animated_rect.size.w == 0 || visual.animated_rect.size.h == 0 {
         return Ok(LiveWindowScene {
+            window: window.clone(),
             popup_elements: Vec::new(),
             elements: Vec::new(),
             cluster_depth: visual.cluster_depth,
@@ -781,6 +787,7 @@ pub(super) fn live_window_elements(
         popup_elements.append(&mut elements);
     }
     Ok(LiveWindowScene {
+        window: window.clone(),
         popup_elements,
         elements,
         cluster_depth: visual.cluster_depth,

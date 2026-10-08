@@ -1,6 +1,7 @@
 pub(crate) mod recovery;
 pub(crate) mod routing;
 pub(crate) mod rules;
+pub(crate) mod stacking;
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -84,6 +85,7 @@ pub fn raise_managed(wayland: &mut WaylandState, window: &Window) {
     if let Some(location) = wayland.space.element_location(window) {
         wayland.space.map_element(window.clone(), location, true);
     }
+    enforce_dialog_stacking(wayland);
 }
 
 /// Raises a presentation group as one block without changing keyboard focus or
@@ -99,6 +101,41 @@ pub fn raise_managed_group(wayland: &mut WaylandState, windows: &[Window]) {
         }
         wayland.space.raise_element(window, false);
     }
+    enforce_dialog_stacking(wayland);
+}
+
+pub(crate) fn enforce_dialog_stacking(wayland: &mut crate::wayland::WaylandState) -> bool {
+    let mut windows = wayland.space.elements().cloned().collect::<Vec<_>>();
+    let changed = stacking::sort_above_parents(&wayland.space, &mut windows, |window| Some(window));
+    if changed {
+        // Raising in bottom-to-top order preserves locations and activation.
+        for window in &windows {
+            wayland.space.raise_element(window, false);
+        }
+    }
+    let mut managed = wayland.managed_windows.order.clone();
+    let parents = managed
+        .iter()
+        .map(|surface| {
+            use smithay::wayland::seat::WaylandFocus;
+            let window = windows
+                .iter()
+                .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == surface))?;
+            let parent = stacking::parent_window(&wayland.space, window)?;
+            let surface = parent.wl_surface()?;
+            managed.iter().position(|s| s == surface.as_ref())
+        })
+        .collect::<Vec<_>>();
+    if parents
+        .iter()
+        .enumerate()
+        .any(|(i, parent)| parent.is_some_and(|p| p >= i))
+    {
+        let order = stacking::parent_order(&parents);
+        managed = order.into_iter().map(|i| managed[i].clone()).collect();
+        wayland.managed_windows.order = managed;
+    }
+    changed
 }
 
 pub fn focus_and_raise(wayland: &mut WaylandState, window: &Window) {

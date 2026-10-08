@@ -340,6 +340,7 @@ pub(super) fn cluster_elements(
             elements.push(SceneElement::Shadow(shadow));
         }
         groups.push(StackGroup {
+            window: None,
             // Cluster cores are desktop objects. They remain below live
             // windows while sharing the same stack as nodes and closing
             // snapshots, instead of leaking into Halley's overlay plane.

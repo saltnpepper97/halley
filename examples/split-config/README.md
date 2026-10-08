@@ -6,7 +6,8 @@ file that contains them, so keep these files together when copying the example.
 
 The example is intentionally smaller than `../halley.rune`: omitted settings
 keep Halley's built-in defaults. It separates visual styling, Field behavior,
-and input policy while leaving inline sections such as `keybinds`, `autostart`,
+and input policy, including display scaling, overview dimming, cluster layout,
+and optional window shaders, while leaving inline sections such as `keybinds`, `autostart`,
 and `rules` in the root file.
 
 An unaliased `gather` deep-merges its sections with gathered values taking
@@ -24,5 +25,8 @@ halleyctl config verify --config examples/split-config/halley.rune
 ```
 
 Halley never backs up, migrates, or replaces an existing single-file or split
-configuration. Edit settings in the file that owns the affected section, then
+configuration. There is no automatic backfill: omitted settings use built-in
+defaults. Fresh examples explicitly use the conservative 10/90 minute decay
+delays; older configs that omit decay keep their 3/30 minute defaults.
+Edit settings in the file that owns the affected section, then
 verify the root with `halleyctl config verify --config PATH`.

@@ -63,6 +63,7 @@ use smithay::wayland::text_input::TextInputManagerState;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::wayland::xdg_activation::XdgActivationState;
+use smithay::wayland::xdg_foreign::XdgForeignState;
 use smithay::wayland::xdg_toplevel_icon::XdgToplevelIconManager;
 
 /// The one output responsible for painting a window. Smithay's `Space`
@@ -218,6 +219,7 @@ pub struct WaylandState {
     pub dmabuf_state: DmabufState,
     pub dmabuf_global: Option<DmabufGlobal>,
     pub xdg_shell_state: XdgShellState,
+    pub xdg_foreign_state: XdgForeignState,
     pub xdg_activation_state: XdgActivationState,
     pub layer_shell_state: WlrLayerShellState,
     // Retained for the lifetime of the advertised ext-background-effect
@@ -318,6 +320,7 @@ impl WaylandState {
         dmabuf_state: DmabufState,
         dmabuf_global: Option<DmabufGlobal>,
         xdg_shell_state: XdgShellState,
+        xdg_foreign_state: XdgForeignState,
         xdg_activation_state: XdgActivationState,
         layer_shell_state: WlrLayerShellState,
         background_effect_state: BackgroundEffectState,
@@ -354,6 +357,7 @@ impl WaylandState {
             dmabuf_state,
             dmabuf_global,
             xdg_shell_state,
+            xdg_foreign_state,
             xdg_activation_state,
             layer_shell_state,
             _background_effect_state: background_effect_state,

@@ -460,6 +460,10 @@ fn window_under(
         presentation_stack_key(*stack_index, presentation.cluster_depth(), cluster_anchor)
     });
 
+    crate::window::stacking::sort_above_parents(context.space, &mut windows, |(_, window, _)| {
+        Some(*window)
+    });
+
     for (stack_index, window, presentation) in windows.into_iter().rev() {
         if !crate::wayland::window_is_on_output(window, output, context.primary) {
             continue;
@@ -468,13 +472,26 @@ fn window_under(
             let member = exclusive_member_for_window(context.space, context.nodes, window);
             let member_floating =
                 member.is_some_and(|member| context.clusters.is_member_floating(member));
-            if !exclusive_pointer_member_is_allowed(
-                member,
-                exclusive.member,
-                member_floating,
-                stack_index,
-                exclusive_anchor,
-            ) {
+            let parent_is_exclusive =
+                context
+                    .nodes
+                    .record(exclusive.member)
+                    .is_some_and(|parent| {
+                        crate::window::stacking::is_descendant_of(
+                            context.space,
+                            window,
+                            &parent.window,
+                        )
+                    });
+            if !parent_is_exclusive
+                && !exclusive_pointer_member_is_allowed(
+                    member,
+                    exclusive.member,
+                    member_floating,
+                    stack_index,
+                    exclusive_anchor,
+                )
+            {
                 continue;
             }
         }

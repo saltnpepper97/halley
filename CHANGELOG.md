@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support `xdg-foreign-v2` surface export and import so portal dialogs, including
+  Firefox's GTK Save As dialog, can declare their parent across application
+  connections and stay above it under the parent-dialog stacking policy.
 - Configure per-monitor display scaling with numeric `view.output.scale`
   multipliers, including fractional values and live reload. Scale applications,
   compositor UI, pointer coordinates, and native-resolution captures together;
@@ -13,6 +16,15 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Restore optional window shader examples and keyboard Field panning examples;
+  include arrangement, overview, cluster, and conservative decay settings in
+  the split config. Keep the bootstrap template identical to the main example.
+- Create the initial config atomically without overwriting concurrent user
+  files or following existing dangling symlinks. Existing configs remain
+  unchanged, with omitted settings supplied by built-in defaults.
+- Keep native Wayland and XWayland dialogs above their parents when windows
+  are raised, arranged, or presented in clusters. Preserve nested dialog order,
+  repair late parent changes, and keep rendering and pointer routing consistent.
 - Let the cursor and dragged windows cross gaps between configured monitors,
   including gaps created by increasing display scale while keeping existing
   monitor offsets.

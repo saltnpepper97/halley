@@ -445,6 +445,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 let output_name = output.name();
                 let edge_pan_animating = edge_pan_output.as_deref() == Some(output_name.as_str());
                 super::reconcile_cluster_surfaces(app, &output_name);
+                crate::window::enforce_dialog_stacking(&mut app.wayland);
                 let view_before = app.cameras.view(&output_name);
                 let cluster_camera_changed =
                     super::sync_cluster_camera(app, &output_name, target_presentation_time);

@@ -1,5 +1,5 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// The default config file contents are identical to the shipped top-level
@@ -34,13 +34,21 @@ pub fn bootstrap_default_config() -> io::Result<bool> {
 /// actual logic, factored out so it's testable against a temp directory
 /// instead of the real `$HOME`.
 pub fn bootstrap_default_config_at(path: &Path) -> io::Result<bool> {
-    if path.exists() {
-        return Ok(false);
-    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, DEFAULT_CONFIG)?;
+    // Atomic create avoids truncating a config created concurrently, and
+    // treats existing symlinks (including dangling ones) as user-owned paths.
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    file.write_all(DEFAULT_CONFIG.as_bytes())?;
     Ok(true)
 }
 
@@ -131,6 +139,30 @@ mod tests {
 
         assert!(wrote);
         assert!(config_file.exists());
+    }
+
+    #[test]
+    fn concurrent_bootstrap_has_only_one_writer() {
+        let scratch = ScratchDir::new("concurrent_bootstrap_has_only_one_writer");
+        let config_file = scratch.path().join("halley.rune");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let workers = (0..8)
+            .map(|_| {
+                let path = config_file.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    bootstrap_default_config_at(&path).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let writes = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .filter(|wrote| *wrote)
+            .count();
+        assert_eq!(writes, 1);
+        assert_eq!(fs::read_to_string(config_file).unwrap(), DEFAULT_CONFIG);
     }
 
     #[test]
@@ -460,5 +492,29 @@ mod tests {
         let runtime = crate::load_runtime_config_at(&config_file).expect("existing config loads");
         assert_eq!(runtime.decay.outside_delay_seconds, 45);
         assert_eq!(runtime.decay.inside_delay_seconds, 90);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod symlink_tests {
+    use super::*;
+    #[test]
+    fn bootstrap_preserves_a_dangling_user_symlink() {
+        let root = std::env::temp_dir().join(format!(
+            "halley-bootstrap-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let target = root.join("owned.rune");
+        let config = root.join("halley.rune");
+        std::os::unix::fs::symlink(&target, &config).unwrap();
+        assert!(!bootstrap_default_config_at(&config).unwrap());
+        assert_eq!(fs::read_link(&config).unwrap(), target);
+        assert!(!target.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }
