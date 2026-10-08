@@ -6,6 +6,16 @@ use smithay::reexports::wayland_server::Resource;
 
 pub(crate) trait UpstreamProtocol: Resource {}
 
+/// A dialog outlives its toplevel, but becomes inert when that role is gone.
+/// The pinned dispatcher otherwise writes hints into the surviving wl_surface,
+/// potentially affecting a replacement toplevel created on that same surface.
+pub(crate) fn dialog_request_is_live<I: Resource>(resource: &I) -> bool {
+    I::interface().name != "xdg_dialog_v1"
+        || resource
+            .data::<smithay::wayland::shell::xdg::ToplevelSurface>()
+            .is_some_and(|toplevel| toplevel.alive())
+}
+
 macro_rules! upstream_protocols {
     ($($protocol:path),* $(,)?) => {
         $(impl UpstreamProtocol for $protocol {})*
@@ -13,6 +23,8 @@ macro_rules! upstream_protocols {
 }
 
 upstream_protocols! {
+    smithay::reexports::wayland_protocols::xdg::dialog::v1::server::xdg_wm_dialog_v1::XdgWmDialogV1,
+    smithay::reexports::wayland_protocols::xdg::dialog::v1::server::xdg_dialog_v1::XdgDialogV1,
     smithay::reexports::wayland_protocols::xdg::foreign::zv2::server::zxdg_exporter_v2::ZxdgExporterV2,
     smithay::reexports::wayland_protocols::xdg::foreign::zv2::server::zxdg_exported_v2::ZxdgExportedV2,
     smithay::reexports::wayland_protocols::xdg::foreign::zv2::server::zxdg_importer_v2::ZxdgImporterV2,
@@ -124,6 +136,9 @@ macro_rules! delegate_upstream_protocols {
                 display: &smithay::reexports::wayland_server::DisplayHandle,
                 init: &mut smithay::reexports::wayland_server::DataInit<'_, Self>,
             ) {
+                if !crate::upstream_protocols::dialog_request_is_live(resource) {
+                    return;
+                }
                 $(if !$guard(state, client, resource, &request, display) {
                     return;
                 })?

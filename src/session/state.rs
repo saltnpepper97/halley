@@ -224,6 +224,7 @@ impl<D: SessionDriver> Session<D> {
             dmabuf_state,
             dmabuf_global,
             XdgShellState::new::<Self>(&display_handle),
+            smithay::wayland::shell::xdg::dialog::XdgDialogState::new::<Self>(&display_handle),
             smithay::wayland::xdg_foreign::XdgForeignState::new::<Self>(&display_handle),
             XdgActivationState::new::<Self>(&display_handle),
             WlrLayerShellState::new::<Self>(&display_handle),

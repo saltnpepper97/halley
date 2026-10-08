@@ -73,6 +73,17 @@ use crate::wayland::{self, ClientState};
 
 const XDG_ACTIVATION_TOKEN_TIMEOUT: Duration = Duration::from_secs(10);
 
+impl<D: SessionDriver> smithay::wayland::shell::xdg::dialog::XdgDialogHandler for Session<D> {
+    fn dialog_hint_changed(
+        &mut self,
+        _toplevel: ToplevelSurface,
+        _hint: smithay::wayland::shell::xdg::dialog::ToplevelDialogHint,
+    ) {
+        super::sync_keyboard_focus(self, SERIAL_COUNTER.next_serial());
+        self.request_redraw();
+    }
+}
+
 fn activation_token_is_fresh(created_at: Instant, now: Instant) -> bool {
     now.saturating_duration_since(created_at) < XDG_ACTIVATION_TOKEN_TIMEOUT
 }
@@ -769,6 +780,7 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
         // A new parent also changes exclusive presentation and input policy,
         // even when the dialog already occupies a slot above the parent.
         super::pointer::reconcile_state(self);
+        super::sync_keyboard_focus(self, SERIAL_COUNTER.next_serial());
         self.request_redraw();
     }
 

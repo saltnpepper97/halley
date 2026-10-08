@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support `xdg-dialog-v1` so applications can declare modal dialogs. Activating
+  a parent focuses its eligible modal descendant; late modal hints and parent
+  changes follow the same policy without stealing unrelated application focus.
+  Destroyed dialog objects and removed modal hints stop redirecting focus.
 - Provide the native `org.freedesktop.ScreenSaver` D-Bus idle-inhibition service
   used by GTK's portal fallback. Combine it with visible Wayland inhibitors,
   enforce cookie ownership, and release inhibitors when clients disconnect.

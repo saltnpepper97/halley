@@ -1673,6 +1673,7 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
         return;
     }
     wayland::focus::refresh_selected_layer(&mut session.wayland);
+    focus::reconcile_modal_focus(session);
     if let Some(surface) = session.wayland.focused_window.clone() {
         session
             .nodes
