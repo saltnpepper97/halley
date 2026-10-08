@@ -19,6 +19,11 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Reset output frame waits, fallback timers, and camera sampling on display
+  recovery even when the pre-suspend notification was missed. Keep powered-off
+  or disabled outputs suspended, defer output config reload until the seat is active,
+  and resume rendering and output advertisement when config reload re-enables
+  a display.
 - Return keyboard focus to the nearest eligible parent when a Field dialog
   closes, including portal and X11 dialogs, before considering unrelated recent
   windows. Respect disabled focus restoration and preserve focus when a

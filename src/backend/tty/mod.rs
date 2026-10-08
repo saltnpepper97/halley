@@ -281,7 +281,6 @@ struct DrmOutputEntry {
 #[derive(Debug)]
 pub struct AppliedDpmsChange {
     pub output: Output,
-    pub enabled: bool,
 }
 
 #[derive(Debug)]
@@ -292,6 +291,7 @@ pub struct AppliedDpms {
 
 pub struct AppliedOutputChange {
     pub output: Output,
+    pub enabled_changed: bool,
     pub mode_changed: bool,
     pub size_changed: bool,
     pub layout_changed: bool,
@@ -981,7 +981,6 @@ impl TtyBackend {
             entry.pending = false;
             changes.push(AppliedDpmsChange {
                 output: entry.output.clone(),
-                enabled: target_enabled,
             });
         }
 
@@ -1221,6 +1220,7 @@ impl TtyBackend {
 
             changes.push(AppliedOutputChange {
                 output,
+                enabled_changed: enable_changed,
                 mode_changed: diff.mode_changed,
                 size_changed: enable_changed || diff.size_changed || diff.scale_changed,
                 scale_changed: diff.scale_changed,

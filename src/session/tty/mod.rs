@@ -60,6 +60,10 @@ impl PauseReasons {
     fn any(self) -> bool {
         self.session || self.system_sleep
     }
+
+    fn can_render_output(self, powered: bool) -> bool {
+        !self.any() && powered
+    }
 }
 
 impl crate::ipc::OutputInfoSource for TtyDriver {
@@ -197,10 +201,19 @@ impl super::OutputDriver for TtyDriver {
         &mut self,
         configuration: &[super::output::OutputConfiguration],
     ) -> Result<Vec<super::output::OutputChange>, String> {
+        if self.pause_reasons.any() {
+            return Err("cannot apply display configuration while the session is paused".into());
+        }
         let changes = self
             .backend
             .apply_runtime_output_configuration(configuration)?;
         for change in &changes {
+            if change.before.enabled != change.after.enabled {
+                self.recover_output_frame(
+                    &change.after.output,
+                    crate::frame_clock::monotonic_now(),
+                );
+            }
             if change.before.mode != change.after.mode
                 && let Some(state) = self.output_frames.get_mut(&change.after.output)
             {
@@ -248,24 +261,29 @@ impl super::SessionDriver for TtyDriver {
 type TtyApp = super::Session<TtyDriver>;
 
 impl TtyDriver {
+    fn recover_output_frame(&mut self, output: &Output, now: Duration) {
+        let renderable = self
+            .pause_reasons
+            .can_render_output(self.backend.output_dpms_enabled(output));
+        if let Some(state) = self.output_frames.get_mut(output) {
+            for token in state.recover(now, renderable) {
+                self.loop_handle.remove(token);
+            }
+        }
+    }
+
     fn apply_dpms_command(
         &mut self,
         command: halley_ipc::DpmsCommand,
         output: Option<&str>,
     ) -> Result<(), String> {
+        if self.pause_reasons.any() {
+            return Err("cannot change display power while the session is paused".into());
+        }
         let applied = self.backend.apply_dpms(command, output)?;
         let now = crate::frame_clock::monotonic_now();
         for change in applied.changes {
-            let Some(state) = self.output_frames.get_mut(&change.output) else {
-                continue;
-            };
-            if change.enabled {
-                state.resume(now);
-            } else {
-                for token in state.suspend(now) {
-                    self.loop_handle.remove(token);
-                }
-            }
+            self.recover_output_frame(&change.output, now);
         }
         match applied.error {
             Some(error) => Err(error),
@@ -704,10 +722,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                         Ok(()) => {
                             app.driver.pause_reasons.session = false;
                             super::pointer::recover_after_session_resume(app);
-                            if let Some(outputs) = app.driver.pending_output_config.take() {
-                                apply_tty_output_config(app, &outputs);
-                            }
                             if !app.driver.pause_reasons.any() {
+                                if let Some(outputs) = app.driver.pending_output_config.take() {
+                                    apply_tty_output_config(app, &outputs);
+                                }
                                 resume_redraw_state(app);
                             }
                         }
@@ -1084,6 +1102,10 @@ fn apply_tty_output_config(app: &mut TtyApp, outputs_config: &[halley_config::Ou
 
     for change in changes {
         output_changed = true;
+        if change.enabled_changed {
+            app.driver
+                .recover_output_frame(&change.output, crate::frame_clock::monotonic_now());
+        }
         if change.mode_changed {
             let interval = app
                 .driver
@@ -1099,6 +1121,7 @@ fn apply_tty_output_config(app: &mut TtyApp, outputs_config: &[halley_config::Ou
         }
 
         if change.layout_changed {
+            app.wayland.ensure_output_global::<TtyApp>(&change.output);
             app.wayland
                 .space
                 .map_output(&change.output, change.output.current_location());
@@ -1616,37 +1639,37 @@ fn handle_system_sleep(app: &mut TtyApp, preparing: bool) {
         return;
     }
 
-    eventline::info!("system sleep: resumed; invalidating pre-suspend output buffers");
-    let was_system_sleep = app.driver.pause_reasons.system_sleep;
-    app.driver.backend.recover_after_system_sleep();
+    eventline::info!("system sleep: resumed");
     app.driver.pause_reasons.system_sleep = false;
-    super::pointer::recover_after_session_resume(app);
-
     if app.driver.pause_reasons.any() {
+        // VT activation will recover the backend after reacquiring the seat.
+        // Do not touch KMS while another session owns it.
+        eventline::debug!("system sleep: display recovery deferred until VT activation");
         return;
     }
+    app.driver.backend.recover_after_system_sleep();
+    super::pointer::recover_after_session_resume(app);
     if let Some(outputs) = app.driver.pending_output_config.take() {
         apply_tty_output_config(app, &outputs);
     }
-    if was_system_sleep {
-        resume_redraw_state(app);
-    } else {
-        // A delayed subscription can miss PrepareForSleep(true). Buffer
-        // invalidation still makes the next queued frame a complete redraw.
-        app.request_redraw();
-    }
+    // A delayed subscription can miss PrepareForSleep(true). In that case
+    // request_redraw alone still waits for a pre-sleep flip that may be lost.
+    resume_redraw_state(app);
 }
 
 fn resume_redraw_state(app: &mut TtyApp) {
     let now = crate::frame_clock::monotonic_now();
-    for state in app.driver.output_frames.values_mut() {
-        state.resume(now);
+    let outputs: Vec<_> = app.driver.output_frames.keys().cloned().collect();
+    for output in outputs {
+        app.driver.recover_output_frame(&output, now);
     }
 }
 
 #[cfg(test)]
 mod pause_tests {
     use super::PauseReasons;
+    use super::frame::OutputFrameState;
+    use std::time::Duration;
 
     #[test]
     fn overlapping_pause_reasons_require_both_resumes() {
@@ -1661,5 +1684,36 @@ mod pause_tests {
 
         reasons.session = false;
         assert!(!reasons.any());
+    }
+
+    #[test]
+    fn vt_and_sleep_resume_in_either_order_preserve_powered_off_outputs() {
+        for session_first in [false, true] {
+            let mut reasons = PauseReasons {
+                session: true,
+                system_sleep: true,
+            };
+            let mut on = OutputFrameState::new(Duration::from_millis(10));
+            let mut off = OutputFrameState::new(Duration::from_millis(20));
+            for phase in 0..3 {
+                if phase == 1 {
+                    if session_first {
+                        reasons.session = false;
+                    } else {
+                        reasons.system_sleep = false;
+                    }
+                } else if phase == 2 {
+                    reasons = PauseReasons::default();
+                }
+                let now = Duration::from_secs(phase);
+                assert!(on.recover(now, reasons.can_render_output(true)).is_empty());
+                assert!(
+                    off.recover(now, reasons.can_render_output(false))
+                        .is_empty()
+                );
+                assert_eq!(on.is_redraw_queued(), phase == 2);
+                assert!(!off.is_redraw_queued());
+            }
+        }
     }
 }
