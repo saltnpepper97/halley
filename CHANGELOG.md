@@ -19,6 +19,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep window contents and decorations moving together during slow Field
+  pans by sharing one rounded camera translation. Make pan easing and fling
+  distance consistent across refresh rates, and present the final settled frame.
 - Stop native session autostarts with a bounded graceful shutdown before
   releasing the display, drain their final logs, and reap completed loggers.
   Preserve the lifecycle of unrelated applications and externally managed services.

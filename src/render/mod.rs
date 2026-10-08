@@ -414,29 +414,23 @@ pub fn camera_rect(
     output_size: Size<i32, Physical>,
     scale: f32,
 ) -> Rectangle<i32, Physical> {
-    let output_center =
-        Point::<f32, Physical>::from((output_size.w as f32 / 2.0, output_size.h as f32 / 2.0));
-    let rect_center = Point::<f32, Physical>::from((
-        rect.loc.x as f32 + rect.size.w as f32 / 2.0,
-        rect.loc.y as f32 + rect.size.h as f32 / 2.0,
+    let scale = f64::from(scale);
+    // Round the camera translation once, independently of each surface's
+    // dimensions. Center rounding gave odd/even rectangles different phases,
+    // making client pixels and chrome take their last pixel step separately.
+    let translation = Point::<i32, Physical>::from((
+        (f64::from(output_size.w) / 2.0 - f64::from(camera_center.x) * scale).round() as i32,
+        (f64::from(output_size.h) / 2.0 - f64::from(camera_center.y) * scale).round() as i32,
     ));
-
-    let scaled_size = Size::<i32, Physical>::from((
-        (rect.size.w as f32 * scale).round() as i32,
-        (rect.size.h as f32 * scale).round() as i32,
-    ));
-    let scaled_center = Point::<i32, Physical>::from((
-        (output_center.x + (rect_center.x - camera_center.x) * scale).round() as i32,
-        (output_center.y + (rect_center.y - camera_center.y) * scale).round() as i32,
-    ));
-
+    // Shared world edges also stay shared under zoom. Panning changes only
+    // translation, preserving every part's size and relative placement.
+    let left = (f64::from(rect.loc.x) * scale).round() as i32;
+    let top = (f64::from(rect.loc.y) * scale).round() as i32;
+    let right = ((f64::from(rect.loc.x) + f64::from(rect.size.w)) * scale).round() as i32;
+    let bottom = ((f64::from(rect.loc.y) + f64::from(rect.size.h)) * scale).round() as i32;
     Rectangle::new(
-        (
-            scaled_center.x - scaled_size.w / 2,
-            scaled_center.y - scaled_size.h / 2,
-        )
-            .into(),
-        scaled_size,
+        Point::from((left, top)) + translation,
+        Size::from((right - left, bottom - top)),
     )
 }
 
@@ -488,5 +482,70 @@ mod tests {
         let result = camera_rect(rect, panned_center, output_size, 1.0);
         assert_eq!(result.loc, (220, 110).into());
         assert_eq!(result.size, rect.size);
+    }
+
+    #[test]
+    fn camera_projection_preserves_odd_sized_rectangles_at_rest() {
+        for output_size in [Size::from((1280, 800)), Size::from((1279, 799))] {
+            let rect = Rectangle::new((-21, 17).into(), (641, 479).into());
+            assert_eq!(
+                camera_rect(rect, output_center(output_size), output_size, 1.0),
+                rect
+            );
+        }
+    }
+
+    #[test]
+    fn slow_pan_moves_different_sized_surface_parts_together() {
+        let output = Size::from((1280, 800));
+        let parts = [
+            Rectangle::new((320, 160).into(), (640, 480).into()),
+            Rectangle::new((333, 177).into(), (101, 79).into()),
+            Rectangle::new((-21, -17).into(), (643, 481).into()),
+        ];
+        for scale in [1.0, 0.75, 0.35] {
+            let initial = parts.map(|part| camera_rect(part, output_center(output), output, scale));
+            for step in 0..200 {
+                let camera = output_center(output)
+                    + Point::from((step as f32 * 0.031, step as f32 * -0.047));
+                let moved = parts.map(|part| camera_rect(part, camera, output, scale));
+                let shift = moved[0].loc - initial[0].loc;
+                for index in 1..parts.len() {
+                    assert_eq!(
+                        moved[index].loc - initial[index].loc,
+                        shift,
+                        "scale={scale} step={step} part={index}"
+                    );
+                    assert_eq!(moved[index].size, initial[index].size);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zoomed_adjacent_surface_parts_keep_their_shared_edge() {
+        let output = Size::from((1280, 800));
+        for scale in [0.35, 0.5, 0.75, 1.0] {
+            for step in 0..30 {
+                let camera = output_center(output) + Point::from((step as f32 * 0.13, 0.0));
+                let left = camera_rect(
+                    Rectangle::new((-21, 17).into(), (103, 79).into()),
+                    camera,
+                    output,
+                    scale,
+                );
+                let right = camera_rect(
+                    Rectangle::new((82, 17).into(), (101, 79).into()),
+                    camera,
+                    output,
+                    scale,
+                );
+                assert_eq!(
+                    left.loc.x + left.size.w,
+                    right.loc.x,
+                    "scale={scale} step={step}"
+                );
+            }
+        }
     }
 }

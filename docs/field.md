@@ -72,6 +72,13 @@ unsupported and produce a configuration verification error.
 The transient live-scale display is configured separately under
 [`overlays.zoom-indicator`](overlays.md#zoom-indicator).
 
+Field panning uses elapsed-time easing, so its settling speed and gesture-fling
+distance stay consistent across output refresh rates. `field.zoom.smooth-rate`
+also controls pan follow speed; `input.gestures.pan-decay-rate` controls gesture
+momentum friction. Window contents and compositor decorations share a rounded
+camera translation, keeping their placement stable as motion slows while
+preserving sharp pixels at rest. Existing configurations need no new settings.
+
 ## Field maximize
 
 The default `$var.mod+m` binding runs `maximize-focused`. The aliases
