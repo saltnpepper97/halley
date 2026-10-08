@@ -19,6 +19,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Return keyboard focus to the nearest eligible parent when a Field dialog
+  closes, including portal and X11 dialogs, before considering unrelated recent
+  windows. Respect disabled focus restoration and preserve focus when a
+  background dialog closes; skip unavailable or collapsed parents.
 - Keep window contents and decorations moving together during slow Field
   pans by sharing one rounded camera translation. Make pan easing and fling
   distance consistent across refresh rates, and present the final settled frame.

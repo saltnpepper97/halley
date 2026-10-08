@@ -3,13 +3,19 @@
 use smithay::desktop::{Space, Window};
 
 pub(crate) fn parent_window(space: &Space<Window>, window: &Window) -> Option<Window> {
+    parent_window_from(space.elements(), window)
+}
+
+pub(crate) fn parent_window_from<'a>(
+    mut windows: impl Iterator<Item = &'a Window>,
+    window: &Window,
+) -> Option<Window> {
     if crate::xwayland::is_override_redirect(window) {
         return None;
     }
     if let Some(toplevel) = window.toplevel() {
         let parent = toplevel.parent()?;
-        return space
-            .elements()
+        return windows
             .find(|candidate| {
                 candidate
                     .toplevel()
@@ -17,7 +23,7 @@ pub(crate) fn parent_window(space: &Space<Window>, window: &Window) -> Option<Wi
             })
             .cloned();
     }
-    crate::xwayland::parent_window(space, window)
+    crate::xwayland::parent_window_from(windows, window)
 }
 
 pub(crate) fn is_descendant_of(space: &Space<Window>, child: &Window, parent: &Window) -> bool {

@@ -14,8 +14,8 @@ mod xwayland {
     pub fn is_override_redirect(_: &smithay::desktop::Window) -> bool {
         false
     }
-    pub fn parent_window(
-        _: &smithay::desktop::Space<smithay::desktop::Window>,
+    pub fn parent_window_from<'a>(
+        _: impl Iterator<Item = &'a smithay::desktop::Window>,
         _: &smithay::desktop::Window,
     ) -> Option<smithay::desktop::Window> {
         None
