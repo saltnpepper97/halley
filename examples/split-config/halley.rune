@@ -54,6 +54,16 @@ keybinds:
   "$var.mod+up" "focus-up"
   "$var.mod+down" "focus-down"
 
+  # Keyboard panning and movement in the Field.
+  "$var.mod+alt+left" "node-move left"
+  "$var.mod+alt+right" "node-move right"
+  "$var.mod+alt+up" "node-move up"
+  "$var.mod+alt+down" "node-move down"
+  # "$var.mod+shift+h" "pan-field left" with scope "field"
+  # "$var.mod+shift+j" "pan-field down" with scope "field"
+  # "$var.mod+shift+k" "pan-field up" with scope "field"
+  # "$var.mod+shift+l" "pan-field right" with scope "field"
+
   "$var.mod+comma" "trail-prev"
   "$var.mod+period" "trail-next"
 

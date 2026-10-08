@@ -68,7 +68,14 @@ effects:
       colour "#05030530"
     end
 
-    node:
+    arrange:
+    enabled true
+    motion "easing"
+    duration-ms 360
+    curve "ease-in-out-cubic"
+  end
+
+  node:
       enabled true
       blur-radius 14
       spread 0
@@ -148,6 +155,9 @@ animations:
   window-open:
     enabled true
     type "center-out"
+    # Copy this shader beside the root config before enabling it.
+    # See docs/window-shaders.md for the recommended wave timing.
+    # custom-shader "shaders/open-wave.frag"
     duration-ms 300
     curve "linear"
   end
@@ -155,6 +165,7 @@ animations:
   window-close:
     enabled true
     type "shrink"
+    # custom-shader "shaders/close-wave.frag"
     duration-ms 270
   end
 
@@ -169,6 +180,13 @@ animations:
     enabled true
     motion "easing"
     duration-ms 240
+    curve "ease-in-out-cubic"
+  end
+
+  arrange:
+    enabled true
+    motion "easing"
+    duration-ms 360
     curve "ease-in-out-cubic"
   end
 
@@ -192,4 +210,24 @@ animations:
       cycle-duration-ms 220
     end
   end
+end
+
+# Overview previews and backdrop dimming.
+apogee:
+  enabled true
+  live-previews true
+  preview-max-fps 30
+  transition-ms 320
+  gap 24.0
+  max-rows 3
+  background-dim 0.85
+end
+
+# Offscreen window markers.
+bearings:
+  show-distance true
+  show-icons true
+  show-pinned true
+  fade-distance 1200.0
+  blur true
 end

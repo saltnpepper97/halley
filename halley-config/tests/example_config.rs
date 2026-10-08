@@ -648,3 +648,109 @@ fn all_templates_ship_explicit_node_collapse_duration() {
         Some(280)
     );
 }
+
+#[test]
+fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
+    let canonical = RuneConfig::from_file(EXAMPLE_PATH).unwrap();
+    let split = RuneConfig::from_file(SPLIT_EXAMPLE_PATH).unwrap();
+    let bootstrap = RuneConfig::from_str(halley_config::DEFAULT_CONFIG).unwrap();
+    for config in [&canonical, &split, &bootstrap] {
+        let runtime = halley_config::parse_runtime_config(config).unwrap();
+        assert!(runtime.outputs.iter().all(|output| output.scale == 1.0));
+        assert!(
+            !config
+                .get::<bool>("cursor.disable-hardware-cursor")
+                .unwrap()
+        );
+        assert_eq!(
+            config
+                .get::<i32>("overlays.notifications.offset-x")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            config
+                .get::<i32>("overlays.notifications.offset-y")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            config
+                .get::<u64>("animations.node.collapse-duration-ms")
+                .unwrap(),
+            280
+        );
+        assert_eq!(
+            config.get::<u64>("animations.arrange.duration-ms").unwrap(),
+            360
+        );
+        assert_eq!(config.get::<f32>("apogee.background-dim").unwrap(), 0.85);
+        assert_eq!(runtime.decay.outside_delay_seconds, 600);
+        assert_eq!(runtime.decay.inside_delay_seconds, 5400);
+        assert!(runtime.animations.window_open.custom_shader.is_none());
+        assert!(runtime.animations.window_close.custom_shader.is_none());
+        assert!(
+            runtime
+                .keybinds
+                .binds
+                .iter()
+                .any(|bind| bind.action == Action::MoveNode(Direction::Left))
+        );
+        assert!(
+            runtime
+                .keybinds
+                .binds
+                .iter()
+                .any(|bind| bind.action == Action::TransferWindow(Direction::Left))
+        );
+    }
+    for path in [
+        EXAMPLE_PATH,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/split-config/theme.rune"
+        ),
+    ] {
+        let template = std::fs::read_to_string(path).unwrap();
+        let enabled = template.replace("# custom-shader", "custom-shader");
+        let config = RuneConfig::from_str(&enabled).unwrap();
+        let animations = halley_config::parse_animations(&config);
+        assert_eq!(
+            animations.window_open.custom_shader.as_deref(),
+            Some("shaders/open-wave.frag")
+        );
+        assert_eq!(
+            animations.window_close.custom_shader.as_deref(),
+            Some("shaders/close-wave.frag")
+        );
+    }
+}
+
+#[test]
+fn omitted_recent_options_use_defaults_without_backfilling_the_file() {
+    let root = std::env::temp_dir().join(format!(
+        "halley-example-backfill-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("halley.rune");
+    let existing = "keybinds:\n  mod \"alt\"\nend\nview:\n  output:\n    name \"legacy-output\"\n    width 1920\n    height 1080\n  end\nend\n";
+    std::fs::write(&path, existing).unwrap();
+    assert!(!halley_config::bootstrap_default_config_at(&path).unwrap());
+    let runtime = halley_config::load_runtime_config_at(&path).unwrap();
+    assert_eq!(runtime.outputs[0].scale, 1.0);
+    assert!(!runtime.cursor.disable_hardware_cursor);
+    assert_eq!(runtime.overlays.notifications.offset_x, 0);
+    assert_eq!(runtime.overlays.notifications.offset_y, 0);
+    assert!(runtime.animations.window_open.custom_shader.is_none());
+    assert!(runtime.animations.window_close.custom_shader.is_none());
+    assert_eq!(runtime.decay.outside_delay_seconds, 180);
+    assert_eq!(runtime.decay.inside_delay_seconds, 1800);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}

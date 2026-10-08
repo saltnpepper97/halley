@@ -37,11 +37,32 @@ end
 
 decay:
   enabled true
-  outside-delay-seconds 180
-  inside-delay-seconds 1800
+  # Match the conservative delays in the freshly generated config.
+  outside-delay-seconds 600
+  inside-delay-seconds 5400
 end
 
 trail:
   history-length 32
   wrap true
+end
+
+# Optional cluster workspaces; this does not create any startup clusters.
+clusters:
+  default-layout "stacking"
+  join-dwell-ms 2000
+  show-icons true
+  bloom-direction "clockwise"
+
+  tiling:
+    new-on-top false
+    gaps-inner 20.0
+    gaps-outer 20.0
+    max-stack 4
+    overflow-show-icons true
+  end
+
+  stacking:
+    max-visible 5
+  end
 end

@@ -713,6 +713,11 @@ animations:
     duration-ms 300
     curve "linear"
 
+    # Optional fragment shader; an empty/omitted path keeps the built-in type.
+    # Paths are relative to the root config directory. Copy the shader there
+    # before enabling it. See docs/window-shaders.md for the 900 ms wave setup.
+    # custom-shader "shaders/open-wave.frag"
+
     # Recommended launch motion:
     # type "launch"
     # duration-ms 220
@@ -735,6 +740,9 @@ animations:
     # Window-to-node transitions always fly and shrink into the node at the
     # window's original stack depth.
     type "shrink"
+
+    # Optional close shader, independent of the opening shader.
+    # custom-shader "shaders/close-wave.frag"
 
     # Close animations use the original ease-in-out cubic timing internally.
     duration-ms 270
@@ -902,6 +910,12 @@ keybinds:
   "$var.mod+comma" "trail-prev"
   "$var.mod+period" "trail-next"
 
+  # Optional keyboard camera panning. These actions repeat while held.
+  # "$var.mod+shift+h" "pan-field left" with scope "field"
+  # "$var.mod+shift+j" "pan-field down" with scope "field"
+  # "$var.mod+shift+k" "pan-field up" with scope "field"
+  # "$var.mod+shift+l" "pan-field right" with scope "field"
+
   # Move the focused or most-recent Field window/node by one placement step.
   # Alt keeps this distinct from directional focus and cluster tile swapping.
   "$var.mod+alt+left" "node-move left"
@@ -940,7 +954,7 @@ keybinds:
   # one command explicitly.
   "$var.mod+t" "default-terminal"
 
-  # Open Halley Lift, the bundled search and action launcher. Lift searches
+  # Open Halley Lift, the separately installed search and action launcher. Lift searches
   # applications, running nodes, clusters, actions, and config files, and it
   # can run terminal commands.
   "$var.mod+d" "halley-lift"

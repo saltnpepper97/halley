@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Restore optional window shader examples and keyboard Field panning examples;
+  include arrangement, overview, cluster, and conservative decay settings in
+  the split config. Keep the bootstrap template identical to the main example.
+- Create the initial config atomically without overwriting concurrent user
+  files or following existing dangling symlinks. Existing configs remain
+  unchanged, with omitted settings supplied by built-in defaults.
 - Keep native Wayland and XWayland dialogs above their parents when windows
   are raised, arranged, or presented in clusters. Preserve nested dialog order,
   repair late parent changes, and keep rendering and pointer routing consistent.
