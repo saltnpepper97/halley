@@ -231,7 +231,9 @@ any output whose camera fullscreen, Field maximize, or an open cluster workspace
 currently owns, over Top and Overlay layer-shell surfaces (panels, launchers,
 notifications, lock screens), over X11 override-redirect menus and tooltips, and
 while a client holds a pointer lock or confinement or is in the middle of its own
-drag. On the left button, Halley's own cluster controls, cluster cores, and
+drag. Neither pan action replaces an existing compositor move, resize, landmark
+drag, or pan; the original operation keeps its owning button and cleanup state.
+On the left button, Halley's own cluster controls, cluster cores, and
 Bearings markers still claim the press first, as they do for every other
 left-button bind. `pan-field-always` is a pointer action, like `move-window`:
 a touchpad gesture bound to it is rejected when the config loads, and a

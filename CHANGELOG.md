@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep an existing compositor move, resize, landmark drag, or camera pan intact
+  when another pan chord is pressed; reject the new pan before changing cursor
+  overrides or output and keyboard focus.
 - End a camera pan on the release of the button that started it, so `pan-field` and
   `pan-field-always` work on any pointer button instead of only `click-left`.
 - Anchor rule-enabled window blur to the same presented client rectangle as

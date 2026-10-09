@@ -471,9 +471,11 @@ fn begin_field_pan<D: SessionDriver>(
     {
         return false;
     }
+    if !start_field_pan_grab(session, route, button) {
+        return false;
+    }
     wayland::focus::select_output(&mut session.wayland, &route.output);
     super::focus::focus_layer(session, None, serial);
-    start_field_pan_grab(session, route, button);
     true
 }
 
@@ -547,6 +549,9 @@ fn begin_field_pan_always<D: SessionDriver>(
     {
         return false;
     }
+    if !start_field_pan_grab(session, route, button) {
+        return false;
+    }
     wayland::focus::select_output(&mut session.wayland, &route.output);
     // Dragging empty background drops layer keyboard focus, exactly as
     // `pan-field` does. Over a window the drag is navigation, not interaction,
@@ -557,7 +562,6 @@ fn begin_field_pan_always<D: SessionDriver>(
     ) {
         super::focus::focus_layer(session, None, serial);
     }
-    start_field_pan_grab(session, route, button);
     true
 }
 
@@ -565,15 +569,19 @@ fn start_field_pan_grab<D: SessionDriver>(
     session: &mut Session<D>,
     route: &crate::input::pointer::PointerRoute,
     button: u32,
-) {
-    session.interactions.grab = crate::input::grab::Grab::Pan {
-        output: route.output.name(),
-        button,
-    };
+) -> bool {
+    if !session
+        .interactions
+        .grab
+        .try_begin_pan(route.output.name(), button)
+    {
+        return false;
+    }
     session.cursor.set_override(
         crate::cursor::OverrideSource::Grab,
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
+    true
 }
 
 pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(

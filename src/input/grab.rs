@@ -292,6 +292,17 @@ pub(crate) fn world_location_from_screen_grip(
 }
 
 impl Grab {
+    /// Start a camera pan only when no compositor drag owns the pointer.
+    /// A second chord must not replace a pending move, resize, or pan and lose
+    /// the original operation's release and cleanup state.
+    pub fn try_begin_pan(&mut self, output: String, button: u32) -> bool {
+        if !matches!(self, Self::None) {
+            return false;
+        }
+        *self = Self::Pan { output, button };
+        true
+    }
+
     /// Whether a collapsed landmark is being pressed or moved. Both nodes and
     /// cluster cores suppress hover presentation while the pointer owns them.
     pub fn landmark_active(&self) -> bool {
@@ -845,6 +856,132 @@ pub fn screen_offset_to_world(offset: Vec2, camera: &Camera) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn second_pan_chord_preserves_the_original_button_and_output() {
+        let mut grab = Grab::None;
+        assert!(grab.try_begin_pan("DP-1".into(), 0x112));
+        assert!(!grab.try_begin_pan("DP-2".into(), 0x110));
+        assert!(matches!(grab, Grab::Pan { ref output, button: 0x112 } if output == "DP-1"));
+        // Once the original owner finishes, a new chord may capture another
+        // output and button instead of inheriting the rejected chord's state.
+        grab = Grab::None;
+        assert!(grab.try_begin_pan("DP-2".into(), 0x110));
+        assert!(matches!(grab, Grab::Pan { ref output, button: 0x110 } if output == "DP-2"));
+    }
+
+    #[test]
+    fn pan_chord_does_not_replace_a_compositor_landmark_drag() {
+        let mut grab = Grab::MoveClusterCore {
+            id: halley_core::cluster::ClusterId::new(7),
+            screen_offset: Vec2 { x: 12.0, y: 34.0 },
+        };
+        assert!(!grab.try_begin_pan("DP-2".into(), 0x112));
+        assert!(matches!(grab, Grab::MoveClusterCore { id, screen_offset }
+            if id == halley_core::cluster::ClusterId::new(7)
+                && screen_offset == Vec2 { x: 12.0, y: 34.0 }));
+    }
+
+    #[cfg(feature = "xwayland")]
+    #[test]
+    #[ignore = "requires an X server in DISPLAY to resolve Smithay's atoms"]
+    fn pan_chord_preserves_pending_move_window_move_and_resize_cleanup_state() {
+        use smithay::xwayland::{X11Surface, xwm::Atoms};
+        use std::sync::{Arc, Weak, atomic::AtomicBool};
+
+        // A real Smithay Window with no live X window or compositor session.
+        let (connection, _) = x11rb::connect(None).expect("connect to DISPLAY");
+        let atoms = Atoms::new(&connection).unwrap().reply().unwrap();
+        let rect = Rectangle::new((10, 20).into(), (640, 480).into());
+        let window = Window::new_x11_window(X11Surface::new(
+            None,
+            0,
+            false,
+            Weak::new(),
+            atoms,
+            None,
+            rect,
+            Arc::new(AtomicBool::new(false)),
+        ));
+        let button = 0x110;
+        let serial = Serial::from(42);
+        let offset = Vec2 { x: 12.0, y: 34.0 };
+        let now = Duration::from_millis(100);
+        let mut grabs = [
+            Grab::PendingWindowMove(PendingWindowMove {
+                window: window.clone(),
+                serial,
+                button,
+                press_screen: (15.0, 25.0).into(),
+                output: "DP-1".into(),
+                visual_geometry: rect,
+                maximized: false,
+                client_owned: true,
+            }),
+            Grab::MoveWindow {
+                id: Some(halley_core::field::NodeId::new(5)),
+                window: window.clone(),
+                cluster_drag: None,
+                drag_size: None,
+                button,
+                client_owned: true,
+                anchor: WindowGrabAnchor::Source(offset),
+                edge_pan: None,
+                last_world: offset,
+                last_update: now,
+                velocity: offset,
+            },
+            Grab::ResizeWindow(ResizeState {
+                window: window.clone(),
+                handle: ResizeHandle::BottomRight,
+                button,
+                start_rect: rect,
+                start_cursor: offset,
+                start_screen: (15.0, 25.0),
+                screen_to_source_scale: Vec2 { x: 1.0, y: 1.0 },
+                target_size: (700, 500).into(),
+                preview_size: offset,
+                last_smooth_tick: now,
+            }),
+        ];
+        for grab in &mut grabs {
+            assert!(!grab.try_begin_pan("DP-2".into(), 0x112));
+            match grab {
+                Grab::PendingWindowMove(pending) => {
+                    assert_eq!(pending.window, window);
+                    assert_eq!(pending.button, button);
+                    assert_eq!(pending.serial, serial);
+                    assert_eq!(pending.output, "DP-1");
+                    assert!(pending.client_owned);
+                }
+                Grab::MoveWindow {
+                    window: owner,
+                    button: owner_button,
+                    client_owned,
+                    anchor,
+                    last_update,
+                    ..
+                } => {
+                    assert_eq!(*owner, window);
+                    assert_eq!(*owner_button, button);
+                    assert!(*client_owned);
+                    assert_eq!(*anchor, WindowGrabAnchor::Source(offset));
+                    assert_eq!(*last_update, now);
+                }
+                Grab::ResizeWindow(resize) => {
+                    assert_eq!(resize.window, window);
+                    assert_eq!(resize.button, button);
+                    assert_eq!(resize.handle, ResizeHandle::BottomRight);
+                    assert_eq!(resize.start_rect, rect);
+                    assert_eq!(resize.target_size, Size::from((700, 500)));
+                }
+                _ => panic!("the pan chord replaced the original operation"),
+            }
+            // Finishing the original operation allows the next pan chord.
+            *grab = Grab::None;
+            assert!(grab.try_begin_pan("DP-2".into(), 0x112));
+        }
+    }
 
     #[test]
     fn resize_handles_map_to_directional_cursor_icons() {
