@@ -99,6 +99,8 @@ keybinds:
   "$var.mod+click-right" "resize-window"
   "$var.mod+shift+click-left" "drag-pan"
   "click-left" "pan-field"
+  # Pan the camera from anywhere, even over applications (modified chords only):
+  # "$var.mod+click-middle" "pan-field-always"
 
   "alt+tab" "cycle-focus"
   "alt+shift+tab" "cycle-focus-backward"

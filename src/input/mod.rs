@@ -723,6 +723,99 @@ mod tests {
     }
 
     #[test]
+    fn configured_pan_field_always_chord_resolves_through_real_bind_matching() {
+        use crate::input::keybinds::resolve_binds;
+        use halley_config::{Keybind, Keybinds};
+
+        const BTN_LEFT: u32 = 0x110;
+        const BTN_MIDDLE: u32 = 0x112;
+        let super_mod = Modifiers {
+            super_key: true,
+            ..Modifiers::default()
+        };
+        let chord = |key: &str, action: Action| Keybind {
+            scope: action.default_scope(),
+            modifiers: super_mod,
+            key: key.to_string(),
+            action,
+            repeat: false,
+        };
+        // The text form (`"$var.mod+click-middle" "pan-field-always"`) is covered
+        // by halley-config's parser tests; this exercises everything after it.
+        let keybinds = Keybinds {
+            modifier: ModifierKey::Super,
+            binds: vec![
+                chord("click-middle", Action::PointerPanFieldAlways),
+                chord("click-left", Action::PointerMoveWindow),
+            ],
+        };
+        let binds = resolve_binds(&keybinds, BackendKind::Tty);
+        let with_mod = ModifiersState {
+            logo: true,
+            ..ModifiersState::default()
+        };
+        let sides = SideModifiers::default();
+        let field = BindingContext::field();
+
+        assert_eq!(
+            match_pointer_bind(&binds, &with_mod, sides, field, BTN_MIDDLE),
+            Some(Action::PointerPanFieldAlways)
+        );
+        assert_eq!(
+            match_pointer_bind(&binds, &with_mod, sides, field, BTN_LEFT),
+            Some(Action::PointerMoveWindow),
+            "adding the new action must not disturb neighboring chords"
+        );
+        assert_eq!(
+            match_pointer_bind(&binds, &ModifiersState::default(), sides, field, BTN_MIDDLE),
+            None,
+            "an unmodified middle click stays the application's"
+        );
+        assert_eq!(
+            match_pointer_bind(
+                &binds,
+                &with_mod,
+                sides,
+                BindingContext::cluster(true),
+                BTN_MIDDLE
+            ),
+            None,
+            "the Field-scoped pan is inert while a cluster workspace owns the output"
+        );
+
+        // The session clears release suppression for pointer-grab actions so the
+        // release reaches the pan instead of being swallowed as a consumed click.
+        let mut suppressed = SuppressedButtons::default();
+        assert_eq!(
+            process_pointer_binding(
+                &binds,
+                &with_mod,
+                sides,
+                field,
+                BTN_MIDDLE,
+                ButtonState::Pressed,
+                true,
+                &mut suppressed,
+            ),
+            PointerBindingResult::Action(Action::PointerPanFieldAlways)
+        );
+        suppressed.release_is_suppressed(BTN_MIDDLE);
+        assert_eq!(
+            process_pointer_binding(
+                &binds,
+                &with_mod,
+                sides,
+                field,
+                BTN_MIDDLE,
+                ButtonState::Released,
+                true,
+                &mut suppressed,
+            ),
+            PointerBindingResult::Unhandled
+        );
+    }
+
+    #[test]
     fn pointer_binding_policy_pairs_intercepted_press_and_release() {
         let binds = [bind(
             ResolvedTrigger::PointerButton(PointerButtonTrigger::Left),

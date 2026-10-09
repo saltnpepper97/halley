@@ -117,6 +117,13 @@ pub enum Action {
     PointerResizeWindow,
     /// Pan the Field from an empty-background pointer drag.
     PointerPanField,
+    /// Pan the Field from a pointer drag that may begin anywhere on an output:
+    /// over windows, titlebars, and collapsed nodes as well as empty
+    /// background. It declines (and the press reaches the client) only while
+    /// fullscreen, Field maximize, or an open cluster workspace owns the
+    /// camera, over shell layers such as panels and overlays, and while a
+    /// client holds a pointer lock or confinement.
+    PointerPanFieldAlways,
     /// Keep a grabbed window on its output and pan that Field after dwelling
     /// against an edge.
     PointerDragPan,
@@ -169,7 +176,9 @@ impl Action {
             | Self::ToggleFocusedPin
             | Self::ArrangeVisible
             | Self::UndoArrange => BindingScope::Field,
-            Self::PointerPanField | Self::PointerDragPan => BindingScope::Field,
+            Self::PointerPanField | Self::PointerPanFieldAlways | Self::PointerDragPan => {
+                BindingScope::Field
+            }
             Self::ClusterLayoutCycle | Self::ClusterToggleFloat => BindingScope::Cluster,
             Self::ClusterTileFocus(_) | Self::ClusterTileSwap(_) => BindingScope::Tile,
             _ => BindingScope::Global,

@@ -122,13 +122,27 @@ impl OutputCameras {
     }
 
     pub fn get_mut(&mut self, output_name: &str) -> Option<&mut Camera> {
-        if self.fullscreen.contains_key(output_name)
-            || self.field_maximize.contains_key(output_name)
-            || self.cluster_locked.contains(output_name)
-        {
+        if self.is_locked(output_name) {
             return None;
         }
         self.cameras.get_mut(output_name)
+    }
+
+    /// Whether fullscreen, Field maximize, or an open cluster workspace
+    /// currently owns this output's camera and therefore rejects mutation.
+    fn is_locked(&self, output_name: &str) -> bool {
+        self.fullscreen.contains_key(output_name)
+            || self.field_maximize.contains_key(output_name)
+            || self.cluster_locked.contains(output_name)
+    }
+
+    /// Whether a pointer drag could move this output's camera right now.
+    ///
+    /// This is exactly the condition under which [`Self::get_mut`] yields a
+    /// camera, so a compositor pan grab can refuse to begin (and leave the
+    /// press to the client) instead of swallowing a click it cannot honor.
+    pub fn is_pannable(&self, output_name: &str) -> bool {
+        self.cameras.contains_key(output_name) && !self.is_locked(output_name)
     }
 
     /// Queue an exact Field center without disturbing fullscreen or maximize
@@ -720,6 +734,64 @@ mod tests {
         let camera = cameras.get("DP-1").unwrap();
         assert_eq!(camera.center, restore.center);
         assert_eq!(camera.view_size, restore.view_size);
+    }
+
+    #[test]
+    fn pointer_pan_is_possible_only_while_the_camera_is_unlocked() {
+        let mut cameras = OutputCameras::default();
+        cameras.insert("DP-1".into(), Size::from((1920, 1080)));
+        cameras.insert("DP-2".into(), Size::from((1920, 1080)));
+
+        assert!(cameras.is_pannable("DP-1"));
+        assert!(
+            !cameras.is_pannable("HDMI-9"),
+            "an output without a camera has nothing to pan"
+        );
+
+        // Fullscreen owns only its own output's camera.
+        cameras.apply_fullscreen(
+            "DP-1",
+            Some(FullscreenCameraFrame {
+                center: Point::from((1100.0, 620.0)),
+                progress: 1.0,
+                desired: true,
+                transition_active: false,
+            }),
+        );
+        assert!(!cameras.is_pannable("DP-1"));
+        assert!(
+            cameras.is_pannable("DP-2"),
+            "a fullscreen window on one monitor must not lock its neighbor"
+        );
+        cameras.apply_fullscreen("DP-1", None);
+        assert!(cameras.is_pannable("DP-1"));
+
+        // An open cluster workspace parks the Field camera.
+        cameras.set_cluster_active("DP-1", true);
+        assert!(!cameras.is_pannable("DP-1"));
+        cameras.set_cluster_active("DP-1", false);
+        assert!(cameras.is_pannable("DP-1"));
+
+        // Field maximize keeps ownership of the camera while it is active.
+        cameras.apply_field_maximize("DP-1", Some(1.0));
+        assert!(!cameras.is_pannable("DP-1"));
+        cameras.apply_field_maximize("DP-1", None);
+        assert!(cameras.is_pannable("DP-1"));
+    }
+
+    #[test]
+    fn pointer_pan_availability_always_matches_camera_mutability() {
+        let mut cameras = OutputCameras::default();
+        cameras.insert("DP-1".into(), Size::from((1920, 1080)));
+
+        for locked in [false, true] {
+            cameras.set_cluster_active("DP-1", locked);
+            assert_eq!(
+                cameras.is_pannable("DP-1"),
+                cameras.get_mut("DP-1").is_some(),
+                "a grab that starts must be able to move the camera it captured"
+            );
+        }
     }
 
     #[test]

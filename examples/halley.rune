@@ -986,6 +986,14 @@ keybinds:
   "$var.mod+shift+click-left" "drag-pan"
   "click-left" "pan-field"
 
+  # `pan-field` starts only on empty Field. To pan the camera from anywhere,
+  # including over applications, bind `pan-field-always` to a chord with a
+  # modifier (on a bare button it would take that button's click everywhere).
+  # It is skipped over fullscreen windows and while fullscreen, maximize, or a
+  # cluster workspace owns the camera.
+  #
+  # "$var.mod+click-middle" "pan-field-always"
+
   # Keyboard, pointer-button, and physical-wheel triggers all use the same
   # chord syntax. Pointer and wheel bindings may also include `$var.mod`.
   # These are examples only; uncomment only the bindings you want.

@@ -209,6 +209,36 @@ the pointer back from the edge stops the pan. Fullscreen, maximized, oversized,
 and active-cluster windows do not enter this mode. The legacy action names
 `field-jump` and `field_jump` are accepted as aliases for `drag-pan`.
 
+`pan-field-always` is the pan-anywhere form of the pointer drag. Plain
+`pan-field` begins only on empty Field, so its chord does nothing over an
+application. `pan-field-always` also begins over windows (including their
+titlebars and borders), collapsed nodes, and Background or Bottom layer-shell
+surfaces such as wallpapers, then behaves exactly like an empty-Field drag: the
+Field follows the pointer one-to-one at the current zoom, the cursor shows the
+grab shape, and the drag ends when the button that began it is released. Over a
+window it does not change keyboard focus. It has no default binding. Give it a
+chord that includes a modifier, because bound to a bare button it would take
+that button's ordinary click everywhere:
+
+```rune
+"$var.mod+click-middle" "pan-field-always"
+```
+
+Any pointer button works, and the action is available in the Field scope only.
+It declines, and the press reaches the client exactly as if the chord were
+unbound, over fullscreen windows (including a pending fullscreen request), on
+any output whose camera fullscreen, Field maximize, or an open cluster workspace
+currently owns, over Top and Overlay layer-shell surfaces (panels, launchers,
+notifications, lock screens), over X11 override-redirect menus and tooltips, and
+while a client holds a pointer lock or confinement or is in the middle of its own
+drag. Neither pan action replaces an existing compositor move, resize, landmark
+drag, or pan; the original operation keeps its owning button and cleanup state.
+On the left button, Halley's own cluster controls, cluster cores, and
+Bearings markers still claim the press first, as they do for every other
+left-button bind. `pan-field-always` is a pointer action, like `move-window`:
+a touchpad gesture bound to it is rejected when the config loads, and a
+keyboard key bound to it is logged and does nothing.
+
 An unbound click keeps its ordinary client, focus, decoration, and
 collapsed-node behavior. In an active tiling cluster,
 dragging a tile temporarily lifts it, reorders it live as the pointer crosses
@@ -431,7 +461,8 @@ Window geometry and keyboard focus do not change. Fullscreen, maximize, and
 active cluster views block Field panning.
 
 Panning actions intentionally have no default bindings. Assign them to your
-preferred chords. Bare `pan-field` remains the pointer-drag action.
+preferred chords. Bare `pan-field` remains the pointer-drag action, and
+`pan-field-always` is its variant that also starts over applications.
 
 Scripting uses the same operations and returns an error when unavailable:
 
