@@ -87,10 +87,10 @@ motion, then gradually fades it into place from 65% to 90% of the existing
 animation timeline. Chrome is fully visible before the final settling tail,
 and the fade scales with the configured motion duration. The titlebar, body
 borders, shadow, and pin badge remain attached to the animated client rectangle
-and share one fade. Client and titlebar corner radii grow from square to their
-configured rounding with the return motion, before the late frame fade. Their
-pointer hitboxes follow the same geometry. Fully invisible chrome has no
-pointer hitboxes.
+and share one fade. Their pointer hitboxes follow the same geometry. Fully
+invisible chrome has no pointer hitboxes.
+The restored client buffer retains its rounded edge throughout the texture
+blend, even while that edge lies inside the moving window rectangle.
 After the client commits its windowed state, eligible Field pans can run during
 the remaining return animation. Panning moves its windowed destination and
 keeps the usual easing and momentum, without cancelling the animation or

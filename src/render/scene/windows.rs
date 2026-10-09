@@ -251,16 +251,11 @@ pub(super) fn live_window_elements(
     let titlebar_height = titlebar_metrics.height;
     let border_width =
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
-    let rounding_progress = context
-        .fullscreen
-        .rounding_progress(window_surface.as_ref(), context.target_presentation_time);
-    let titlebar_radius = titlebar_metrics.radius as f32 * rounding_progress;
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
             context.decorations.border_radius_px,
             decoration_scale,
         ) as f32
-            * rounding_progress
     } else {
         0.0
     };
@@ -346,7 +341,7 @@ pub(super) fn live_window_elements(
             decoration_scale,
             context.maximize.contains(window_surface.as_ref()),
             border_width,
-            titlebar_radius,
+            titlebar_metrics.radius as f32,
             Some(window_surface.as_ref()) == context.focused,
             chrome_alpha,
             context.decorations,
@@ -711,7 +706,7 @@ pub(super) fn live_window_elements(
         };
         let caster_radii = if rounded_available && server_titlebar {
             crate::render::window_decoration::CornerRadii {
-                top: titlebar_radius,
+                top: titlebar_metrics.radius as f32,
                 bottom: content_radius + border_outset as f32,
             }
         } else if rounded_available {

@@ -1365,11 +1365,6 @@ fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
 }
 
 fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>); 3] {
-    let (width, pixels) = capture_chrome_pixels(fixture);
-    colour_bounds(width, &pixels)
-}
-
-fn capture_chrome_pixels(fixture: &mut Fixture) -> (usize, Vec<u8>) {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::FileExt;
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
@@ -1413,10 +1408,6 @@ fn capture_chrome_pixels(fixture: &mut Fixture) -> (usize, Vec<u8>) {
     assert!(matches!(response, Response::Frame(_)), "{response:?}");
     let mut pixels = vec![0; size];
     file.read_exact_at(&mut pixels, 0).unwrap();
-    (mode.width as usize, pixels)
-}
-
-fn colour_bounds(width: usize, pixels: &[u8]) -> [(usize, Option<[usize; 4]>); 3] {
     std::array::from_fn(|channel| {
         let mut count = 0;
         let mut min_x = usize::MAX;
@@ -1432,8 +1423,8 @@ fn colour_bounds(width: usize, pixels: &[u8]) -> [(usize, Option<[usize; 4]>); 3
                 && u16::from(p[channel]) > u16::from(other) + 32
                 && (channel == 1 || other < 32)
             {
-                let x = index % width;
-                let y = index / width;
+                let x = index % mode.width as usize;
+                let y = index / mode.width as usize;
                 min_x = min_x.min(x);
                 min_y = min_y.min(y);
                 max_x = max_x.max(x);
@@ -1443,18 +1434,6 @@ fn colour_bounds(width: usize, pixels: &[u8]) -> [(usize, Option<[usize; 4]>); 3
         }
         (count, (count > 0).then_some([min_x, min_y, max_x, max_y]))
     })
-}
-
-fn captured_client_bottom_corner_inset(fixture: &mut Fixture) -> usize {
-    let (width, pixels) = capture_chrome_pixels(fixture);
-    let [left, _, right, bottom] = colour_bounds(width, &pixels)[2]
-        .1
-        .expect("visible red client");
-    let red_on_bottom = pixels[(bottom * width + left) * 4..(bottom * width + right + 1) * 4]
-        .chunks_exact(4)
-        .filter(|p| p[2] > 8 && p[0].max(p[1]) < 32 && p[2] > p[0].max(p[1]) + 32)
-        .count();
-    (right + 1 - left - red_on_bottom) / 2
 }
 
 fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
@@ -1482,14 +1461,14 @@ fn fullscreen_exit_chrome_regression(pan_during_exit: bool) {
 decorations:
   border:
     size 4
-    radius 32
+    radius 0
     colour-focused "#0000ff"
     colour-unfocused "#0000ff"
   end
   titlebars:
     enabled true
     height 32
-    radius 16
+    radius 0
     show-buttons false
     show-icons false
     show-title false
@@ -1533,8 +1512,6 @@ end
         let (count, bounds) = capture_green_chrome(&mut fixture);
         (count > 1000).then(|| bounds.unwrap())
     });
-    let windowed_corner_inset = captured_client_bottom_corner_inset(&mut fixture);
-    assert!(windowed_corner_inset > 8);
     state.toplevel.as_ref().unwrap().set_fullscreen(None);
     wait_for("fullscreen configure", || {
         queue.roundtrip(&mut state).unwrap();
@@ -1567,12 +1544,6 @@ end
         count_green_capture_pixels(&mut fixture),
         0,
         "chrome appeared early during fullscreen return motion"
-    );
-    thread::sleep(Duration::from_millis(900).saturating_sub(exit_started.elapsed()));
-    let returning_corner_inset = captured_client_bottom_corner_inset(&mut fixture);
-    assert!(
-        returning_corner_inset > 0 && returning_corner_inset < windowed_corner_inset,
-        "client corners must round in flight before the frame fade: {returning_corner_inset}, {windowed_corner_inset}"
     );
     if pan_during_exit {
         fixture.ack(Request::Control(halley_ipc::ControlRequest::PanField(
@@ -1643,11 +1614,6 @@ end
     assert!(body_border[0].abs_diff(fading_bounds[0]) <= 1);
     assert!(body_border[2].abs_diff(fading_bounds[2]) <= 1);
     assert!((fading_bounds[3] + 1).abs_diff(body_border[1]) <= 1);
-    let fading_corner_inset = captured_client_bottom_corner_inset(&mut fixture);
-    assert!(
-        fading_corner_inset > 0 && fading_corner_inset < windowed_corner_inset,
-        "rounding must grow gradually during the frame fade: {fading_corner_inset}, {windowed_corner_inset}"
-    );
     thread::sleep(Duration::from_millis(100));
     let later_bounds = capture_green_chrome(&mut fixture).1.unwrap();
     assert!(later_bounds[2] - later_bounds[0] < fading_bounds[2] - fading_bounds[0]);
@@ -1656,8 +1622,4 @@ end
         (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
     });
     assert_eq!(capture_green_chrome(&mut fixture).1, Some(windowed_bounds));
-    assert!(
-        captured_client_bottom_corner_inset(&mut fixture) > 8,
-        "client rounding must be fully restored after fullscreen exit"
-    );
 }

@@ -1369,13 +1369,6 @@ impl FullscreenManager {
         })
     }
 
-    /// Corners follow the return geometry, rather than the late chrome fade.
-    pub(crate) fn rounding_progress(&self, surface: &WlSurface, now: Duration) -> f32 {
-        self.windows
-            .get(surface)
-            .map_or(1.0, |entry| fullscreen_entry_rounding_progress(entry, now))
-    }
-
     pub(crate) fn occupants_on_output(
         &self,
         output: &str,
@@ -1716,16 +1709,6 @@ fn fullscreen_origin_allows_global_blur(origin: FullscreenOrigin) -> bool {
 
 fn fullscreen_entry_suppresses_chrome(entry: &FullscreenWindow) -> bool {
     entry.desired && entry.origin != FullscreenOrigin::Maximize
-}
-
-fn fullscreen_entry_rounding_progress(entry: &FullscreenWindow, now: Duration) -> f32 {
-    if fullscreen_entry_suppresses_chrome(entry) {
-        0.0
-    } else if entry.origin == FullscreenOrigin::Maximize {
-        1.0
-    } else {
-        (1.0 - visual_motion_state(entry, now).0.clamp(0.0, 1.0)) as f32
-    }
 }
 
 fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: Duration) -> f32 {
@@ -2914,58 +2897,6 @@ mod tests {
         entry.active = true;
         entry.presented = true;
         assert!(!fullscreen_entry_suppresses_chrome(&entry));
-    }
-
-    #[test]
-    fn spring_exit_rounding_follows_geometry_before_the_late_chrome_fade() {
-        let mut entry = test_entry(false);
-        entry.transition = Some(MotionTimeline::between(
-            AnimationMotion::Spring(halley_config::SpringMotion {
-                damping_ratio: 1.0,
-                stiffness: 800.0,
-            }),
-            Duration::ZERO,
-            1.0,
-            0.0,
-            0.0,
-        ));
-        let now = Duration::from_millis(100);
-        let rounding = fullscreen_entry_rounding_progress(&entry, now);
-        let geometry = fullscreen_presentation(&entry, now).unwrap();
-        assert_eq!(rounding, (1.0 - geometry.progress) as f32);
-        // A ten-pixel radius is already returning while this spring
-        // is moving, well before chrome starts fading in near the tail.
-        assert!((7.0..8.5).contains(&(10.0 * rounding)));
-        assert_eq!(fullscreen_entry_chrome_alpha(&entry, true, now), 0.0);
-        let settled = entry.transition.unwrap().duration();
-        assert_eq!(fullscreen_entry_rounding_progress(&entry, settled), 1.0);
-    }
-
-    #[test]
-    fn rounding_keeps_fullscreen_square_and_maximize_decorated() {
-        let mut entry = test_entry(true);
-        assert_eq!(
-            fullscreen_entry_rounding_progress(&entry, Duration::ZERO),
-            0.0
-        );
-        entry.desired = false;
-        // A pending windowed commit still holds the fullscreen geometry.
-        assert_eq!(
-            fullscreen_entry_rounding_progress(&entry, Duration::ZERO),
-            0.0
-        );
-        entry.origin = FullscreenOrigin::Maximize;
-        assert_eq!(
-            fullscreen_entry_rounding_progress(&entry, Duration::ZERO),
-            1.0
-        );
-        entry.origin = FullscreenOrigin::Client;
-        entry.active = false;
-        entry.presented = false;
-        assert_eq!(
-            fullscreen_entry_rounding_progress(&entry, Duration::ZERO),
-            1.0
-        );
     }
 
     #[test]

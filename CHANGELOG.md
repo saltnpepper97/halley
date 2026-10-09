@@ -29,8 +29,8 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
-- Restore client and titlebar corner rounding with the fullscreen return motion,
-  instead of applying the full radius immediately or waiting for the late frame fade.
+- Clip the restored client buffer's own rounded edge during fullscreen texture
+  blending, so it does not stay square inside the moving window until cleanup.
 - Allow eligible Field pans during a committed fullscreen exit while its return
   animation continues. Preserve pan easing, momentum, and the destination at
   animation cleanup; keep active fullscreen and pending client commits locked.

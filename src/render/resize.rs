@@ -43,6 +43,7 @@ uniform float halley_previous_opaque;
 uniform float halley_next_opaque;
 uniform float halley_native_reveal;
 uniform vec2 halley_rect_size;
+uniform vec2 halley_next_rect_size;
 uniform vec2 halley_corner_radii;
 
 #if defined(DEBUG_FLAGS)
@@ -96,6 +97,13 @@ void main() {
 
     vec2 size = max(halley_rect_size, vec2(1.0));
     float mask = rounded_alpha(current_coords * size, size, halley_corner_radii);
+    float next_mask = mask;
+    // A shrinking endpoint has an edge inside the animated rectangle. Clip
+    // that edge before blending, so its visible corners round during motion.
+    if (halley_native_reveal < 0.5 && max(halley_corner_radii.x, halley_corner_radii.y) > 0.0)
+        next_mask = min(mask, rounded_alpha(current_coords * size, halley_next_rect_size, halley_corner_radii));
+    previous *= mask;
+    next *= next_mask;
     vec4 color;
     if (halley_native_reveal > 0.5) {
         // Native-scale arrangement never fades a covered pixel into empty
@@ -111,7 +119,7 @@ void main() {
     } else {
         color = mix(previous, next, halley_progress);
     }
-    color *= alpha * mask;
+    color *= alpha;
 
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
@@ -139,6 +147,7 @@ pub struct ResizeRenderElement {
     next_opaque: f32,
     native_reveal: f32,
     size: (f32, f32),
+    next_rect_size: (f32, f32),
     radii: super::window_decoration::CornerRadii,
     commit: CommitCounter,
 }
@@ -248,6 +257,7 @@ impl ResizeRenderer {
                         UniformName::new("halley_next_opaque", UniformType::_1f),
                         UniformName::new("halley_native_reveal", UniformType::_1f),
                         UniformName::new("halley_rect_size", UniformType::_2f),
+                        UniformName::new("halley_next_rect_size", UniformType::_2f),
                         UniformName::new("halley_corner_radii", UniformType::_2f),
                     ],
                 )?;
@@ -262,6 +272,11 @@ impl ResizeRenderer {
             top: fit_radius(radii.top, destination),
             bottom: fit_radius(radii.bottom, destination),
         };
+        let content = interpolated_window_size(previous.window_size, next.window_size, progress);
+        let next_rect_size = (
+            destination.size.w as f32 * next.window_size.w as f32 / content.w as f32,
+            destination.size.h as f32 * next.window_size.h as f32 / content.h as f32,
+        );
         let commit = resize_commit(
             base.current_commit(),
             generation,
@@ -281,6 +296,7 @@ impl ResizeRenderer {
             next_opaque: if next.client_opaque { 1.0 } else { 0.0 },
             native_reveal: if native_reveal { 1.0 } else { 0.0 },
             size: (destination.size.w as f32, destination.size.h as f32),
+            next_rect_size,
             radii,
             commit,
         })
@@ -604,6 +620,7 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
                 Uniform::new("halley_next_opaque", self.next_opaque),
                 Uniform::new("halley_native_reveal", self.native_reveal),
                 Uniform::new("halley_rect_size", self.size),
+                Uniform::new("halley_next_rect_size", self.next_rect_size),
                 Uniform::new("halley_corner_radii", (self.radii.top, self.radii.bottom)),
             ],
         );
@@ -629,6 +646,119 @@ mod tests {
     };
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Physical, Rectangle};
+
+    #[test]
+    #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1"]
+    fn shrinking_blend_rounds_the_incoming_edge_and_matches_the_settled_mask() {
+        use super::*;
+        use smithay::backend::allocator::Fourcc;
+        use smithay::backend::egl::{EGLContext, EGLDisplay, native::EGLSurfacelessDisplay};
+        use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, ImportMem, Offscreen};
+        let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+        let context = EGLContext::new(&display).unwrap();
+        let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+        let snapshot = |renderer: &mut GlesRenderer, size: (i32, i32), color: [u8; 4]| {
+            let pixels = color.repeat((size.0 * size.1) as usize);
+            ResizeWindowTexture {
+                texture: renderer
+                    .import_memory(&pixels, Fourcc::Abgr8888, size.into(), false)
+                    .unwrap(),
+                context: renderer.context_id(),
+                surface_geometry: Rectangle::from_size(size.into()),
+                window_size: size.into(),
+                client_opaque: true,
+                opaque_area: i64::from(size.0 * size.1),
+                surface_layers: Vec::new(),
+            }
+        };
+        let previous = snapshot(&mut renderer, (160, 120), [255, 0, 0, 255]);
+        let next = snapshot(&mut renderer, (80, 60), [0, 255, 0, 255]);
+        let mut resize = ResizeRenderer::default();
+        let radii = crate::render::window_decoration::CornerRadii::all(10.0);
+        let render = |renderer: &mut GlesRenderer, element: ResizeRenderElement| {
+            let rect = element.geometry(Scale::from(1.0));
+            let size = rect.size.to_logical(1).to_buffer(1, Transform::Normal);
+            let mut target: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, size).unwrap();
+            let mut fbo = renderer.bind(&mut target).unwrap();
+            {
+                let mut frame = renderer
+                    .render(&mut fbo, rect.size, Transform::Normal)
+                    .unwrap();
+                frame.clear(Color32F::BLACK, &[rect]).unwrap();
+                element
+                    .draw(&mut frame, element.src(), rect, &[rect], &[], None)
+                    .unwrap();
+                frame.finish().unwrap().wait().unwrap();
+            }
+            let mapping = renderer
+                .copy_framebuffer(&fbo, Rectangle::from_size(size), Fourcc::Abgr8888)
+                .unwrap();
+            renderer.map_texture(&mapping).unwrap().to_vec()
+        };
+        let middle = resize
+            .element(
+                &mut renderer,
+                Id::new(),
+                &previous,
+                next.clone(),
+                Rectangle::from_size((120, 90).into()),
+                0.5,
+                0.9,
+                radii,
+                CommitCounter::default(),
+            )
+            .unwrap();
+        let pixels = render(&mut renderer, middle);
+        let corner = &pixels[(59 * 120 + 1) * 4..][..4];
+        let edge = &pixels[(59 * 120 + 20) * 4..][..4];
+        assert!(
+            corner[1] < 8,
+            "incoming corner must be clipped before the outer edge reaches it: {corner:?}"
+        );
+        assert!(
+            corner[0] > 90,
+            "outgoing texture must still cover that pixel: {corner:?}"
+        );
+        assert!(
+            edge[1] > 90,
+            "straight incoming edge must remain visible: {edge:?}"
+        );
+
+        let settled = Rectangle::from_size((80, 60).into());
+        let blend = resize
+            .element(
+                &mut renderer,
+                Id::new(),
+                &previous,
+                next.clone(),
+                settled,
+                1.0,
+                0.9,
+                radii,
+                CommitCounter::default(),
+            )
+            .unwrap();
+        let blend_pixels = render(&mut renderer, blend);
+        let reference = resize
+            .native_element(
+                &mut renderer,
+                Id::new(),
+                &next,
+                next.clone(),
+                settled,
+                1.0,
+                1.0,
+                0.9,
+                radii,
+                CommitCounter::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            blend_pixels,
+            render(&mut renderer, reference),
+            "the endpoint must apply one antialias mask, without a cleanup jump"
+        );
+    }
 
     #[test]
     fn native_arrangement_centers_both_endpoints_without_scaling_them() {
