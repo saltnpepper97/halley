@@ -18,6 +18,7 @@ use wayland_client::protocol::{
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
+use wayland_protocols::xdg::dialog::v1::client::{xdg_dialog_v1, xdg_wm_dialog_v1};
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, WindowClass};
@@ -340,6 +341,8 @@ delegate_noop!(NativeState: ignore pixel::WpSinglePixelBufferManagerV1);
 delegate_noop!(NativeState: ignore wp_viewporter::WpViewporter);
 delegate_noop!(NativeState: ignore wp_viewport::WpViewport);
 delegate_noop!(NativeState: ignore xdg_toplevel::XdgToplevel);
+delegate_noop!(NativeState: ignore xdg_wm_dialog_v1::XdgWmDialogV1);
+delegate_noop!(NativeState: ignore xdg_dialog_v1::XdgDialogV1);
 
 delegate_noop!(NativeState: ignore zxdg_exporter_v2::ZxdgExporterV2);
 delegate_noop!(NativeState: ignore zxdg_importer_v2::ZxdgImporterV2);
@@ -1105,4 +1108,214 @@ fn imported_portal_dialog_stays_visible_above_a_raised_browser() {
             .find(|node| node.id == dialog_id && node.parent.is_none())
     });
     assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+fn import_native_parent(
+    parent_queue: &mut EventQueue<NativeState>,
+    parent: &mut NativeState,
+    child_queue: &mut EventQueue<NativeState>,
+    child: &mut NativeState,
+) -> zxdg_imported_v2::ZxdgImportedV2 {
+    let exporter: zxdg_exporter_v2::ZxdgExporterV2 = parent.registry.as_ref().unwrap().bind(
+        parent.globals["zxdg_exporter_v2"],
+        1,
+        &parent_queue.handle(),
+        (),
+    );
+    let _exported =
+        exporter.export_toplevel(parent.surface.as_ref().unwrap(), &parent_queue.handle(), ());
+    parent_queue.roundtrip(parent).unwrap();
+    let importer: zxdg_importer_v2::ZxdgImporterV2 = child.registry.as_ref().unwrap().bind(
+        child.globals["zxdg_importer_v2"],
+        1,
+        &child_queue.handle(),
+        (),
+    );
+    let imported = importer.import_toplevel(
+        parent.exported_handles.last().unwrap().clone(),
+        &child_queue.handle(),
+        (),
+    );
+    imported.set_parent_of(child.surface.as_ref().unwrap());
+    child_queue.roundtrip(child).unwrap();
+    imported
+}
+
+fn native_dialog_hint(
+    queue: &mut EventQueue<NativeState>,
+    state: &mut NativeState,
+) -> (xdg_wm_dialog_v1::XdgWmDialogV1, xdg_dialog_v1::XdgDialogV1) {
+    let manager: xdg_wm_dialog_v1::XdgWmDialogV1 = state.registry.as_ref().unwrap().bind(
+        state.globals["xdg_wm_dialog_v1"],
+        1,
+        &queue.handle(),
+        (),
+    );
+    let dialog = manager.get_xdg_dialog(state.toplevel.as_ref().unwrap(), &queue.handle(), ());
+    queue.roundtrip(state).unwrap();
+    (manager, dialog)
+}
+
+fn assert_native_focus(
+    fixture: &mut Fixture,
+    id: u64,
+    queue: &mut EventQueue<NativeState>,
+    state: &mut NativeState,
+) {
+    wait_for("matching real keyboard and compositor focus", || {
+        queue.roundtrip(state).unwrap();
+        (state.keyboard_focused
+            && fixture
+                .nodes()
+                .iter()
+                .any(|node| node.id == id && node.focused))
+        .then_some(())
+    });
+}
+
+fn request_native_focus(fixture: &mut Fixture, id: u64) {
+    fixture.ack(Request::Node(NodeRequest::Focus {
+        selector: Some(NodeSelector::Id(id)),
+        output: None,
+    }));
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn xdg_dialog_modal_focus_tracks_hints_and_cross_client_parent_lifetime() {
+    let mut fixture = Fixture::new("tiling");
+    let (mut parent_queue, mut parent) = native_window_named(
+        &fixture,
+        "modal parent",
+        "firefox",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    let parent_id = fixture.node("modal parent").id;
+    let _parent_keyboard = observe_keyboard(&mut parent_queue, &mut parent);
+    let (mut other_queue, mut other) = native_window_named(
+        &fixture,
+        "modal unrelated",
+        "unrelated",
+        [0, 0, u32::MAX, u32::MAX],
+    );
+    let other_id = fixture.node("modal unrelated").id;
+    let _other_keyboard = observe_keyboard(&mut other_queue, &mut other);
+    let (mut child_queue, mut child) = native_window_named(
+        &fixture,
+        "modal portal dialog",
+        "xdg-desktop-portal-gtk",
+        [0, u32::MAX, 0, u32::MAX],
+    );
+    let child_id = fixture.node("modal portal dialog").id;
+    let _child_keyboard = observe_keyboard(&mut child_queue, &mut child);
+    let imported =
+        import_native_parent(&mut parent_queue, &mut parent, &mut child_queue, &mut child);
+    let (manager, dialog) = native_dialog_hint(&mut child_queue, &mut child);
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+    // A late modal hint applies to the focused family immediately.
+    dialog.set_modal();
+    child_queue.roundtrip(&mut child).unwrap();
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    assert!(fixture.node("modal portal dialog").modal);
+    parent_queue.roundtrip(&mut parent).unwrap();
+    assert!(!parent.keyboard_focused);
+    request_native_focus(&mut fixture, other_id);
+    assert_native_focus(&mut fixture, other_id, &mut other_queue, &mut other);
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    dialog.unset_modal();
+    child_queue.roundtrip(&mut child).unwrap();
+    assert!(!fixture.node("modal portal dialog").modal);
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+    request_native_focus(&mut fixture, other_id);
+    dialog.set_modal();
+    manager.destroy();
+    child_queue.roundtrip(&mut child).unwrap();
+    assert_native_focus(&mut fixture, other_id, &mut other_queue, &mut other);
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    dialog.destroy();
+    child_queue.roundtrip(&mut child).unwrap();
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+    let (_manager, dialog) = native_dialog_hint(&mut child_queue, &mut child);
+    dialog.set_modal();
+    child_queue.roundtrip(&mut child).unwrap();
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    // Removing an imported parent makes the remaining modal hint ineffective.
+    imported.destroy();
+    child_queue.roundtrip(&mut child).unwrap();
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+    // Restoring the relationship to an already-modal child redirects the
+    // focused parent immediately, without another focus request.
+    let _reimported =
+        import_native_parent(&mut parent_queue, &mut parent, &mut child_queue, &mut child);
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    parent.toplevel.as_ref().unwrap().set_fullscreen(None);
+    parent_queue.roundtrip(&mut parent).unwrap();
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    // A real null-buffer unmap clears the restriction and restores parent
+    // keyboard focus. Do not dispatch configures that would remap the child.
+    child.surface.as_ref().unwrap().attach(None, 0, 0);
+    child.surface.as_ref().unwrap().commit();
+    child_queue.flush().unwrap();
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn xdg_dialog_nested_and_collapsed_children_do_not_strand_keyboard_focus() {
+    let mut fixture = Fixture::new("stacking");
+    let (mut parent_queue, mut parent) = native_window_named(
+        &fixture,
+        "nested modal parent",
+        "firefox",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    let parent_id = fixture.node("nested modal parent").id;
+    let _parent_keyboard = observe_keyboard(&mut parent_queue, &mut parent);
+    let (mut child_queue, mut child) = native_window_named(
+        &fixture,
+        "nested modal child",
+        "portal",
+        [0, u32::MAX, 0, u32::MAX],
+    );
+    let child_id = fixture.node("nested modal child").id;
+    let _child_keyboard = observe_keyboard(&mut child_queue, &mut child);
+    let _parent_import =
+        import_native_parent(&mut parent_queue, &mut parent, &mut child_queue, &mut child);
+    let (_manager, dialog) = native_dialog_hint(&mut child_queue, &mut child);
+    dialog.set_modal();
+    child_queue.roundtrip(&mut child).unwrap();
+    let (mut nested_queue, mut nested) = native_window_named(
+        &fixture,
+        "nested modal grandchild",
+        "portal",
+        [0, 0, u32::MAX, u32::MAX],
+    );
+    let nested_id = fixture.node("nested modal grandchild").id;
+    let _nested_keyboard = observe_keyboard(&mut nested_queue, &mut nested);
+    let _nested_import =
+        import_native_parent(&mut child_queue, &mut child, &mut nested_queue, &mut nested);
+    let (_nested_manager, nested_dialog) = native_dialog_hint(&mut nested_queue, &mut nested);
+    nested_dialog.set_modal();
+    nested_queue.roundtrip(&mut nested).unwrap();
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, nested_id, &mut nested_queue, &mut nested);
+    fixture.ack(Request::Node(NodeRequest::Collapse {
+        selector: Some(NodeSelector::Id(nested_id)),
+        output: None,
+    }));
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, child_id, &mut child_queue, &mut child);
+    fixture.ack(Request::Node(NodeRequest::Collapse {
+        selector: Some(NodeSelector::Id(child_id)),
+        output: None,
+    }));
+    request_native_focus(&mut fixture, parent_id);
+    assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
 }

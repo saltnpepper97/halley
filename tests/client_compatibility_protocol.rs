@@ -10,6 +10,9 @@ mod upstream_protocols;
 #[allow(dead_code)]
 #[path = "../src/window/stacking.rs"]
 mod dialog_stacking;
+use dialog_stacking as stacking;
+#[path = "../src/window/dialog.rs"]
+mod modal_dialog;
 mod xwayland {
     pub fn is_override_redirect(_: &smithay::desktop::Window) -> bool {
         false
@@ -35,6 +38,7 @@ use smithay::wayland::compositor::{
     with_states,
 };
 use smithay::wayland::content_type::{ContentTypeState, ContentTypeSurfaceCachedState};
+use smithay::wayland::shell::xdg::dialog::{ToplevelDialogHint, XdgDialogHandler, XdgDialogState};
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
 };
@@ -48,6 +52,7 @@ use wayland_protocols::wp::content_type::v1::client::{
     wp_content_type_manager_v1 as content_manager, wp_content_type_v1 as content,
 };
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
+use wayland_protocols::xdg::dialog::v1::client::{xdg_dialog_v1, xdg_wm_dialog_v1};
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 use wayland_protocols::xdg::toplevel_icon::v1::client::{
     xdg_toplevel_icon_manager_v1 as icon_manager, xdg_toplevel_icon_v1 as icon,
@@ -68,6 +73,7 @@ struct Observations {
     windows: Vec<smithay::desktop::Window>,
     parent_changes: usize,
     scale_request: Option<(WlSurface, f64)>,
+    dialog_changes: Vec<(WlSurface, ToplevelDialogHint)>,
 }
 
 struct Server {
@@ -117,6 +123,15 @@ impl CompositorHandler for Server {
     }
 }
 impl XdgToplevelIconHandler for Server {}
+impl XdgDialogHandler for Server {
+    fn dialog_hint_changed(&mut self, toplevel: ToplevelSurface, hint: ToplevelDialogHint) {
+        self.observations
+            .lock()
+            .unwrap()
+            .dialog_changes
+            .push((toplevel.wl_surface().clone(), hint));
+    }
+}
 impl XdgForeignHandler for Server {
     fn xdg_foreign_state(&mut self) -> &mut XdgForeignState {
         &mut self.foreign
@@ -229,6 +244,8 @@ delegate_noop!(Client: ignore icon::XdgToplevelIconV1);
 delegate_noop!(Client: ignore xdg_wm_base::XdgWmBase);
 delegate_noop!(Client: ignore xdg_surface::XdgSurface);
 delegate_noop!(Client: ignore xdg_toplevel::XdgToplevel);
+delegate_noop!(Client: ignore xdg_wm_dialog_v1::XdgWmDialogV1);
+delegate_noop!(Client: ignore xdg_dialog_v1::XdgDialogV1);
 
 delegate_noop!(Client: ignore zxdg_exporter_v2::ZxdgExporterV2);
 delegate_noop!(Client: ignore zxdg_importer_v2::ZxdgImporterV2);
@@ -282,6 +299,7 @@ impl Fixture {
         let _content = ContentTypeState::new::<Server>(&dh);
         let _icons = XdgToplevelIconManager::new::<Server>(&dh);
         let shell = XdgShellState::new::<Server>(&dh);
+        let _dialogs = XdgDialogState::new::<Server>(&dh);
         let foreign = XdgForeignState::new::<Server>(&dh);
         dh.insert_client(server_socket, Arc::new(ClientData::default()))
             .unwrap();
@@ -750,4 +768,189 @@ fn portal_dialog_imports_a_parent_from_another_client_and_stacks_above_it() {
 
 fn parent_surface_id(window: &smithay::desktop::Window) -> WlSurface {
     window.toplevel().unwrap().wl_surface().clone()
+}
+
+fn dialog_manager(f: &Fixture) -> xdg_wm_dialog_v1::XdgWmDialogV1 {
+    let (name, version) = f.state.globals["xdg_wm_dialog_v1"];
+    assert_eq!(version, 1);
+    f.registry.bind(name, 1, &f.queue.handle(), ())
+}
+
+#[test]
+fn xdg_dialog_hints_toggle_immediately_and_destroy_removes_them() {
+    let mut f = Fixture::new();
+    let (parent, _) = f.toplevel("parent");
+    let (child, surface) = f.toplevel("child");
+    child.set_parent(Some(&parent));
+    let manager = dialog_manager(&f);
+    let dialog = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    dialog.set_modal();
+    dialog.set_modal(); // Repeating the same hint is not another transition.
+    dialog.unset_modal();
+    dialog.set_modal();
+    dialog.destroy();
+    f.sync();
+    assert_eq!(
+        f.observations.lock().unwrap().dialog_changes,
+        vec![
+            (surface.clone(), ToplevelDialogHint::Dialog),
+            (surface.clone(), ToplevelDialogHint::Modal),
+            (surface.clone(), ToplevelDialogHint::Dialog),
+            (surface.clone(), ToplevelDialogHint::Modal),
+            (surface.clone(), ToplevelDialogHint::Unknown),
+        ]
+    );
+    // Destruction releases the one-object-per-toplevel restriction.
+    let replacement = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    replacement.destroy();
+    f.sync();
+}
+
+#[test]
+fn destroying_xdg_dialog_manager_keeps_existing_dialog_usable() {
+    let mut f = Fixture::new();
+    let (child, surface) = f.toplevel("child");
+    let manager = dialog_manager(&f);
+    let dialog = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    manager.destroy();
+    dialog.set_modal();
+    f.sync();
+    assert_eq!(
+        f.observations.lock().unwrap().dialog_changes.last(),
+        Some(&(surface, ToplevelDialogHint::Modal))
+    );
+}
+
+#[test]
+fn duplicate_xdg_dialog_objects_disconnect_only_the_offending_client() {
+    let mut f = Fixture::new();
+    let (child, _) = f.toplevel("child");
+    let manager = dialog_manager(&f);
+    let _first = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    let _duplicate = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    let error = match f.queue.roundtrip(&mut f.state).unwrap_err() {
+        wayland_client::DispatchError::Backend(
+            wayland_client::backend::WaylandError::Protocol(error),
+        ) => error,
+        error => panic!("expected protocol error, got {error:?}"),
+    };
+    assert_eq!(error.object_interface, "xdg_wm_dialog_v1");
+    assert_eq!(error.code, 0);
+    // The server remains usable by another connection.
+    let (client, server) = UnixStream::pair().unwrap();
+    f.display_handle
+        .clone()
+        .insert_client(server, Arc::new(ClientData::default()))
+        .unwrap();
+    let connection = Connection::from_socket(client).unwrap();
+    let mut queue = connection.new_event_queue();
+    let _registry = connection.display().get_registry(&queue.handle(), ());
+    let mut state = Client::default();
+    queue.roundtrip(&mut state).unwrap();
+    assert_eq!(state.globals["xdg_wm_dialog_v1"].1, 1);
+}
+
+#[test]
+fn xdg_dialog_is_inert_after_its_toplevel_is_destroyed() {
+    let mut f = Fixture::new();
+    let (child, surface) = f.toplevel("child");
+    let manager = dialog_manager(&f);
+    let dialog = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    f.sync();
+    child.destroy();
+    dialog.set_modal();
+    dialog.unset_modal();
+    dialog.destroy();
+    f.sync();
+    assert_eq!(
+        f.observations.lock().unwrap().dialog_changes,
+        vec![(surface, ToplevelDialogHint::Dialog)]
+    );
+}
+
+#[test]
+fn modal_focus_is_scoped_to_mapped_eligible_descendants_and_tracks_hint_lifetime() {
+    let mut f = Fixture::new();
+    let (parent, _) = f.toplevel("parent");
+    let (child, child_surface) = f.toplevel("child");
+    let (_, _) = f.toplevel("unrelated");
+    child.set_parent(Some(&parent));
+    let dialog = dialog_manager(&f).get_xdg_dialog(&child, &f.queue.handle(), ());
+    f.sync();
+    let windows = f.observations.lock().unwrap().windows.clone();
+    let mut space = smithay::desktop::Space::default();
+    for window in &windows {
+        space.map_element(window.clone(), (0, 0), false);
+    }
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
+    dialog.set_modal();
+    f.sync();
+    assert_eq!(
+        modal_dialog::focus_target(&space, &windows[0], |_| true),
+        Some(windows[1].clone())
+    );
+    assert!(modal_dialog::focus_target(&space, &windows[2], |_| true).is_none());
+    assert!(modal_dialog::focus_target(&space, &windows[1], |_| true).is_none());
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| false).is_none());
+    space.unmap_elem(&windows[1]);
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
+    space.map_element(windows[1].clone(), (0, 0), false);
+    child.set_parent(None);
+    f.sync();
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
+    child.set_parent(Some(&parent));
+    dialog.unset_modal();
+    f.sync();
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
+    dialog.set_modal();
+    dialog.destroy();
+    f.sync();
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
+    assert_eq!(
+        f.observations.lock().unwrap().dialog_changes.last(),
+        Some(&(child_surface, ToplevelDialogHint::Unknown))
+    );
+}
+
+#[test]
+fn modal_focus_prefers_the_frontmost_nested_dialog_and_skips_ineligible_children() {
+    let mut f = Fixture::new();
+    let (parent, _) = f.toplevel("parent");
+    let (child, _) = f.toplevel("child");
+    let (nested, _) = f.toplevel("nested");
+    child.set_parent(Some(&parent));
+    nested.set_parent(Some(&child));
+    let manager = dialog_manager(&f);
+    let dialog = manager.get_xdg_dialog(&child, &f.queue.handle(), ());
+    let nested_dialog = manager.get_xdg_dialog(&nested, &f.queue.handle(), ());
+    dialog.set_modal();
+    nested_dialog.set_modal();
+    f.sync();
+    let windows = f.observations.lock().unwrap().windows.clone();
+    let mut space = smithay::desktop::Space::default();
+    for window in &windows {
+        space.map_element(window.clone(), (0, 0), false);
+    }
+    assert_eq!(
+        modal_dialog::focus_target(&space, &windows[0], |_| true),
+        Some(windows[2].clone())
+    );
+    assert_eq!(
+        modal_dialog::focus_target(&space, &windows[1], |_| true),
+        Some(windows[2].clone())
+    );
+    assert_eq!(
+        modal_dialog::focus_target(&space, &windows[0], |w| w != &windows[2]),
+        Some(windows[1].clone())
+    );
+    nested_dialog.destroy();
+    f.sync();
+    assert_eq!(
+        modal_dialog::focus_target(&space, &windows[0], |_| true),
+        Some(windows[1].clone())
+    );
+    child.destroy();
+    f.sync();
+    // A dead role must not redirect focus while its wl_surface still exists.
+    assert!(modal_dialog::focus_target(&space, &windows[0], |_| true).is_none());
 }

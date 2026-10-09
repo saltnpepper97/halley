@@ -117,6 +117,9 @@ fn focus_window_with_raise<D: SessionDriver>(
     raise: bool,
 ) {
     let window = stacking_front_window(session, window).unwrap_or_else(|| window.clone());
+    let modal = modal_focus_target(session, &window);
+    let raise = raise || modal.is_some();
+    let window = modal.unwrap_or(window);
     if !crate::window::accepts_wm_focus(&window) {
         return;
     }
@@ -134,6 +137,59 @@ fn focus_window_with_raise<D: SessionDriver>(
         session.xwayland.raise_window(&window);
     }
     super::sync_keyboard_focus(session, serial);
+}
+
+fn modal_focus_target<D: SessionDriver>(
+    session: &Session<D>,
+    requested: &Window,
+) -> Option<Window> {
+    let now = crate::frame_clock::monotonic_now();
+    crate::window::dialog::focus_target(&session.wayland.space, requested, |candidate| {
+        let Some(surface) = candidate.wl_surface() else {
+            return false;
+        };
+        let Some(record) = session
+            .nodes
+            .id_for_surface(surface.as_ref())
+            .and_then(|id| session.nodes.record(id))
+        else {
+            return false;
+        };
+        record.attached
+            && !record.collapsed
+            && crate::window::accepts_wm_focus(candidate)
+            && crate::presentation::surface_workspace_is_active(
+                &session.clusters,
+                &session.nodes,
+                surface.as_ref(),
+                &record.output,
+                now,
+            )
+    })
+}
+
+/// Reconcile late modal hints and parent changes as well as focus paths which
+/// write the persistent window directly. Preserve temporary layer focus.
+pub(super) fn reconcile_modal_focus<D: SessionDriver>(session: &mut Session<D>) {
+    let requested = session.wayland.focused_window.as_ref().and_then(|surface| {
+        session
+            .wayland
+            .space
+            .elements()
+            .find(|window| {
+                window
+                    .wl_surface()
+                    .is_some_and(|candidate| candidate.as_ref() == surface)
+            })
+            .cloned()
+    });
+    let Some(target) = requested.and_then(|window| modal_focus_target(session, &window)) else {
+        return;
+    };
+    let layer = session.wayland.focused_layer.take();
+    crate::window::focus(&mut session.wayland, &target, true);
+    session.wayland.focused_layer = layer;
+    session.request_redraw();
 }
 
 /// A stacking workspace has one keyboard-active card: its front member.

@@ -15,6 +15,23 @@ relationship. A missing or invalid handle leaves the dialog independent.
 The browser and portal must connect to a compositor exposing these globals;
 installing a new binary does not change an already-running compositor.
 
+Halley advertises `xdg_wm_dialog_v1` version 1 (`xdg-dialog-v1`). Applications
+can mark a parented native toplevel as a dialog and set or remove its modal
+hint. Activating a parent with a mapped, eligible modal descendant focuses
+and raises that dialog; nested dialogs use the frontmost eligible descendant.
+Late modal hints and parent changes also reconcile the currently focused
+family. Unrelated windows and layer-shell interfaces retain their focus.
+Collapsed, unmapped, destroyed, and inactive-workspace dialogs do not redirect
+focus. Non-modal dialogs retain the ordinary parent stacking and focus policy.
+
+Destroying a dialog object or removing its modal hint removes the focus
+restriction without automatically switching away from the dialog. A dialog
+without a live parent has no modal effect. The existing `xdg-foreign-v2`
+relationship supplies the parent for cross-application portal dialogs; it is
+independent of the modal hint. Clients remain responsible for filtering input
+in their own parent windows. Halley does not globally block other applications
+or infer modality from window titles or app IDs. No config option is required.
+
 Halley advertises `zwp_text_input_manager_v3` version 1 and
 `zwp_input_method_manager_v2` version 1 (`input-method-unstable-v2`). Native Wayland clients bind
 text-input to send surrounding text and receive preedit and committed

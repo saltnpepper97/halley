@@ -57,6 +57,7 @@ use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::wlr_layer::WlrLayerShellState;
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
+use smithay::wayland::shell::xdg::dialog::XdgDialogState;
 use smithay::wayland::shm::ShmState;
 use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
 use smithay::wayland::text_input::TextInputManagerState;
@@ -219,6 +220,7 @@ pub struct WaylandState {
     pub dmabuf_state: DmabufState,
     pub dmabuf_global: Option<DmabufGlobal>,
     pub xdg_shell_state: XdgShellState,
+    _xdg_dialog_state: XdgDialogState,
     pub xdg_foreign_state: XdgForeignState,
     pub xdg_activation_state: XdgActivationState,
     pub layer_shell_state: WlrLayerShellState,
@@ -320,6 +322,7 @@ impl WaylandState {
         dmabuf_state: DmabufState,
         dmabuf_global: Option<DmabufGlobal>,
         xdg_shell_state: XdgShellState,
+        xdg_dialog_state: XdgDialogState,
         xdg_foreign_state: XdgForeignState,
         xdg_activation_state: XdgActivationState,
         layer_shell_state: WlrLayerShellState,
@@ -357,6 +360,7 @@ impl WaylandState {
             dmabuf_state,
             dmabuf_global,
             xdg_shell_state,
+            _xdg_dialog_state: xdg_dialog_state,
             xdg_foreign_state,
             xdg_activation_state,
             layer_shell_state,
