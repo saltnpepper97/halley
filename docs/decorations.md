@@ -82,9 +82,10 @@ removes compositor chrome immediately, while the client content and geometry
 continue animating. The fullscreen surface is square and eligible for direct
 scanout from its first presented frame.
 
-Leaving fullscreen keeps compositor chrome hidden until the final 100 ms of
-the existing return animation, then fades it into place with the window.
-Shorter transitions use their full duration for the fade. The titlebar, border,
+Leaving fullscreen keeps compositor chrome hidden during the early return
+motion, then gradually fades it into place from 35% to 85% of the existing
+animation timeline. Chrome is fully visible before the final settling tail,
+and the fade scales with the configured motion duration. The titlebar, border,
 shadow, and pin badge share this opacity; their geometry follows the window
 without a separate slide. Fully invisible chrome has no pointer hitboxes.
 Disabling fullscreen animations restores chrome immediately. Client-drawn

@@ -1406,13 +1406,14 @@ fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
     file.read_exact_at(&mut pixels, 0).unwrap();
     pixels
         .chunks_exact(4)
-        .filter(|p| p[1] > 245 && p[0] < 5 && p[2] < 5)
+        // Detect partially faded green chrome too, not just its opaque endpoint.
+        .filter(|p| p[1] > 64 && u16::from(p[1]) > u16::from(p[0].max(p[2])) + 32)
         .count()
 }
 
 #[test]
 #[ignore = "requires a Wayland desktop and XWayland; captures an isolated compositor's chrome"]
-fn fullscreen_exit_keeps_titlebar_pixels_hidden_until_return_motion_finishes() {
+fn fullscreen_exit_hides_early_chrome_and_restores_it_before_the_settling_tail() {
     let mut fixture = Fixture::with_config(
         "tiling",
         r##"
@@ -1481,7 +1482,12 @@ end
         0,
         "chrome appeared early during fullscreen return motion"
     );
-    thread::sleep(Duration::from_millis(1150));
+    thread::sleep(Duration::from_millis(700));
+    assert!(
+        count_green_capture_pixels(&mut fixture) > 1000,
+        "chrome stayed hidden until a separate late fade instead of returning with the window"
+    );
+    thread::sleep(Duration::from_millis(450));
     wait_for("fully restored titlebar after animation cleanup", || {
         (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
     });

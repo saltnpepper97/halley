@@ -1725,15 +1725,14 @@ fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: 
     let Some(transition) = entry.transition else {
         return 1.0;
     };
-    let duration = transition.duration().as_secs_f64();
-    if duration == 0.0 {
+    if transition.duration().is_zero() {
         return 1.0;
     }
     // Use elapsed time, not spring displacement: overshoot must not make the
-    // titlebar flash or fade back out. Short motions use their whole timeline.
-    let fade_fraction = (0.100 / duration).min(1.0);
-    let progress = ((transition.linear_progress_at(now) - (1.0 - fade_fraction)) / fade_fraction)
-        .clamp(0.0, 1.0);
+    // titlebar flash or fade back out. Begin while the window is settling and
+    // finish before the spring's almost stationary tail, rather than making
+    // chrome arrive as a separate, late event. Scale with the motion duration.
+    let progress = ((transition.linear_progress_at(now) - 0.35) / 0.50).clamp(0.0, 1.0);
     (progress * progress * (3.0 - 2.0 * progress)) as f32
 }
 
@@ -2901,7 +2900,7 @@ mod tests {
     }
 
     #[test]
-    fn exit_chrome_fades_only_in_the_final_hundred_milliseconds() {
+    fn exit_chrome_fades_during_settling_and_finishes_before_motion_cleanup() {
         let mut entry = test_entry(false);
         let start = Duration::from_secs(1);
         entry.transition = Some(MotionTimeline::between(
@@ -2916,9 +2915,10 @@ mod tests {
         ));
         for (millis, expected) in [
             (0, 0.0),
-            (250, 0.0),
-            (300, 0.0),
-            (350, 0.5),
+            (100, 0.0),
+            (140, 0.0),
+            (240, 0.5),
+            (340, 1.0),
             (400, 1.0),
             (500, 1.0),
         ] {
@@ -2938,7 +2938,7 @@ mod tests {
         ));
         assert_eq!(fullscreen_entry_chrome_alpha(&entry, true, start), 0.0);
         assert_eq!(
-            fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(25)),
+            fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(30)),
             0.5
         );
         assert_eq!(
