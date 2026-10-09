@@ -82,6 +82,15 @@ removes compositor chrome immediately, while the client content and geometry
 continue animating. The fullscreen surface is square and eligible for direct
 scanout from its first presented frame.
 
+Leaving fullscreen keeps compositor chrome hidden during the early return
+motion, then gradually fades it into place from 35% to 85% of the existing
+animation timeline. Chrome is fully visible before the final settling tail,
+and the fade scales with the configured motion duration. The titlebar, border,
+shadow, and pin badge share this opacity; their geometry follows the window
+without a separate slide. Fully invisible chrome has no pointer hitboxes.
+Disabling fullscreen animations restores chrome immediately. Client-drawn
+titlebars remain part of the application's own content.
+
 Window screenshots, window screencasts, Alt+Tab previews, and Apogee previews
 include the server titlebar and border. Popups, override-redirect X11
 surfaces, and layer-shell surfaces are not decorated.

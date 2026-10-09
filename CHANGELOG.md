@@ -31,6 +31,19 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - End a camera pan on the release of the button that started it, so `pan-field` and
   `pan-field-always` work on any pointer button instead of only `click-left`.
+- Anchor rule-enabled window blur to the same presented client rectangle as
+  fullscreen and maximize texture transitions, rather than remapping the live
+  root allocation while the client resizes. Keep client-requested partial blur
+  regions in their own surface coordinates.
+- Keep the selected monitor with a focused window or node when it moves across
+  outputs, including pointer drags. Fullscreen and other keyboard actions no
+  longer fall back to the previous monitor's last focused window while hover
+  focus is suspended by the grab.
+- Fade compositor titlebars, borders, shadows, and pin badges back in smoothly
+  as fullscreen exit settles, starting at 35% of the return timeline and
+  finishing at 85% to avoid a separate late pop-in. Keep invisible decorations
+  out of pointer hit-testing and show chrome immediately when fullscreen
+  animations are disabled.
 - Skip duplicate `autostart.once` command entries without changing explicit
   reload commands. Report failed autostarts once with their command, exit status,
   and persistent log path; include bounded stderr context for failed session

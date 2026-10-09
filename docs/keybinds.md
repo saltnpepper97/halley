@@ -474,7 +474,10 @@ Transfer bindings are included in new configs; add them yourself to existing
 configs using unoccupied chords.
 
 Keyboard actions and binding scopes follow the selected monitor even in hover
-focus mode. Successful window transfers move the pointer to the transferred
+focus mode. Moving the focused window or node to another monitor also selects
+that monitor during the drag, so a fullscreen or close binding continues to
+target the moved window even before the pointer moves again after release.
+Successful window transfers move the pointer to the transferred
 window at the destination view center. Warps do not synthesize hover focus;
 physical mouse movement resumes normal hover selection. Transfers are blocked
 while a pointer grab, lock, or confinement is active. Failed transfers do not

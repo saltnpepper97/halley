@@ -606,6 +606,16 @@ pub(crate) fn set_collapsed_output<D: crate::session::SessionDriver>(
     }
     if let Some(window) = window {
         crate::wayland::set_window_output(&window, output);
+        // Pointer hover is suspended during a drag. Keep keyboard actions on
+        // the moved focus owner instead of the previous monitor's MRU window.
+        let owns_client_focus = window.wl_surface().is_some_and(|surface| {
+            session.wayland.focused_window.as_ref() == Some(surface.as_ref())
+        });
+        if owns_client_focus
+            || (session.wayland.focused_window.is_none() && session.nodes.focused() == Some(id))
+        {
+            crate::wayland::focus::select_output(&mut session.wayland, output);
+        }
     }
     session.nodes.clear_direct_motion(id);
 }

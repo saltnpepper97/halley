@@ -138,6 +138,10 @@ impl MotionTimeline {
         now.saturating_sub(self.started_at) >= self.duration
     }
 
+    pub fn duration(self) -> Duration {
+        self.duration
+    }
+
     pub fn target(self) -> f64 {
         self.target
     }
