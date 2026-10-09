@@ -370,3 +370,95 @@ fn upstream_blur_matches_full_processing_pixels_without_seams_or_stale_cache() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+fn moving_blur_samples_the_current_backdrop_without_trails() {
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+    let context = EGLContext::new(&display).unwrap();
+    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+    let size: Size<i32, Physical> = (320, 240).into();
+    let mut effects = BackdropBlurRenderer::default();
+    let mut target = create_texture(&mut renderer, size).unwrap();
+    let mut reference = create_texture(&mut renderer, size).unwrap();
+    let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+    let colors = [
+        Color32F::new(1.0, 0.0, 0.0, 1.0),
+        Color32F::new(0.0, 0.0, 1.0, 1.0),
+    ];
+    let ids = [Id::new(), Id::new(), Id::new()];
+    for (tick, y) in [30, 160, 30, 160].into_iter().enumerate() {
+        effects.begin_scene("motion");
+        let blur = effects
+            .blur_element(
+                &mut renderer,
+                "motion",
+                BlurIdentity::Window {
+                    surface: ids[0].clone(),
+                    instance: "moving".into(),
+                },
+                size.to_logical(1),
+                vec![BlurPatch {
+                    rect: Rectangle::new((100, y).into(), (100, 40).into()),
+                    radius: 0.0,
+                    alpha: 1.0,
+                    clip: None,
+                }],
+                halley_config::Blur {
+                    passes: 1,
+                    radius: 2.0,
+                    saturation: 1.0,
+                    noise: 0.0,
+                    ..Default::default()
+                },
+                tick as u64,
+                Transform::Normal,
+            )
+            .unwrap()
+            .unwrap();
+        let scene = vec![
+            PixelElement::Partial(blur),
+            PixelElement::Solid(SolidColorRenderElement::new(
+                ids[1].clone(),
+                Rectangle::new((0, 0).into(), (320, 120).into()),
+                0,
+                colors[0],
+                Kind::Unspecified,
+            )),
+            PixelElement::Solid(SolidColorRenderElement::new(
+                ids[2].clone(),
+                Rectangle::new((0, 120).into(), (320, 120).into()),
+                0,
+                colors[1],
+                Kind::Unspecified,
+            )),
+        ];
+        let (pixels, _) = read_pixels(
+            &mut renderer,
+            &mut target,
+            &mut tracker,
+            &scene,
+            if tick == 0 { 0 } else { 1 },
+        );
+        // The patch stays well inside a flat-colored backdrop band, so its
+        // correct blur equals the sharp scene everywhere. Compare the whole
+        // framebuffer to catch both stale sampling and a detached old patch.
+        let (expected, _) = read_pixels(
+            &mut renderer,
+            &mut reference,
+            &mut OutputDamageTracker::new(size, 1.0, Transform::Normal),
+            &scene[1..],
+            0,
+        );
+        let error = pixels
+            .iter()
+            .zip(expected)
+            .map(|(a, b)| a.abs_diff(b))
+            .max()
+            .unwrap();
+        assert!(
+            error <= 1,
+            "tick={tick}, moving blur sampled a different backdrop or left a trail: error={error}"
+        );
+    }
+}
