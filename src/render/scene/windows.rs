@@ -224,10 +224,10 @@ pub(super) fn live_window_elements(
     );
     let (content_alpha, chrome_alpha) =
         window_content_and_chrome_alpha(visual.opening_alpha, rule_opacity, chrome_visible);
-    let chrome_alpha = chrome_alpha
-        * context
-            .fullscreen
-            .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
+    let chrome_reveal = context
+        .fullscreen
+        .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
+    let chrome_alpha = chrome_alpha * chrome_reveal;
     let server_titlebar = chrome_visible && chrome.has_server_titlebar();
     let node_id = context.nodes.id_for_surface(window_surface.as_ref());
     let user_pinned = node_id.is_some_and(|id| {
@@ -251,11 +251,15 @@ pub(super) fn live_window_elements(
     let titlebar_height = titlebar_metrics.height;
     let border_width =
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
+    // Reveal the clipping shape with the frame; logical fullscreen state alone
+    // would restore the full radius before any chrome has faded back in.
+    let titlebar_radius = titlebar_metrics.radius as f32 * chrome_reveal;
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
             context.decorations.border_radius_px,
             decoration_scale,
         ) as f32
+            * chrome_reveal
     } else {
         0.0
     };
@@ -341,7 +345,7 @@ pub(super) fn live_window_elements(
             decoration_scale,
             context.maximize.contains(window_surface.as_ref()),
             border_width,
-            titlebar_metrics.radius as f32,
+            titlebar_radius,
             Some(window_surface.as_ref()) == context.focused,
             chrome_alpha,
             context.decorations,
@@ -706,7 +710,7 @@ pub(super) fn live_window_elements(
         };
         let caster_radii = if rounded_available && server_titlebar {
             crate::render::window_decoration::CornerRadii {
-                top: titlebar_metrics.radius as f32,
+                top: titlebar_radius,
                 bottom: content_radius + border_outset as f32,
             }
         } else if rounded_available {
