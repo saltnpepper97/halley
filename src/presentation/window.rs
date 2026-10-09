@@ -326,8 +326,12 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
             let windowed = presentation.windowed_geometry.map_or_else(
                 || presentation.fullscreen_rect(output_size),
                 |geometry| {
+                    let windowed_output_rect = presentation.windowed_output_rect.map(|mut rect| {
+                        rect.loc += cameras.fullscreen_pan_translation(&output.name());
+                        rect
+                    });
                     output_local_or_field_rect(
-                        presentation.windowed_output_rect.or(cluster_rect),
+                        windowed_output_rect.or(cluster_rect),
                         geometry,
                         camera_center,
                         output_size,
@@ -617,15 +621,11 @@ impl WindowPresentation {
     }
 
     pub fn source_from_screen(&self, screen: Point<f64, Logical>) -> Point<f64, Logical> {
-        self.source_from_visual_rect(screen, self.visual_geometry)
-    }
-
-    pub(crate) fn source_from_visual_rect(
-        &self,
-        screen: Point<f64, Logical>,
-        visual: Rectangle<i32, Logical>,
-    ) -> Point<f64, Logical> {
-        map_point(screen, visual.to_f64(), self.source_geometry.to_f64())
+        map_point(
+            screen,
+            self.visual_geometry.to_f64(),
+            self.source_geometry.to_f64(),
+        )
     }
 
     pub fn screen_from_source(&self, source: Point<f64, Logical>) -> Point<f64, Logical> {

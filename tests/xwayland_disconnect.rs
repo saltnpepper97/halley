@@ -1361,6 +1361,10 @@ fn xdg_dialog_nested_and_collapsed_children_do_not_strand_keyboard_focus() {
 }
 
 fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
+    capture_colour_bounds(fixture)[1]
+}
+
+fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>); 3] {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::FileExt;
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
@@ -1404,24 +1408,32 @@ fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
     assert!(matches!(response, Response::Frame(_)), "{response:?}");
     let mut pixels = vec![0; size];
     file.read_exact_at(&mut pixels, 0).unwrap();
-    let mut count = 0;
-    let mut min_x = usize::MAX;
-    let mut min_y = usize::MAX;
-    let mut max_x = 0;
-    let mut max_y = 0;
-    for (index, p) in pixels.chunks_exact(4).enumerate() {
-        // Detect partially faded green chrome too, not just its opaque endpoint.
-        if p[1] > 64 && u16::from(p[1]) > u16::from(p[0].max(p[2])) + 32 {
-            let x = index % mode.width as usize;
-            let y = index / mode.width as usize;
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            count += 1;
+    std::array::from_fn(|channel| {
+        let mut count = 0;
+        let mut min_x = usize::MAX;
+        let mut min_y = usize::MAX;
+        let mut max_x = 0;
+        let mut max_y = 0;
+        let (other_a, other_b) = [(1, 2), (0, 2), (0, 1)][channel];
+        let threshold = if channel == 1 { 64 } else { 8 };
+        for (index, p) in pixels.chunks_exact(4).enumerate() {
+            // Detect partially faded green chrome too, not just its opaque endpoint.
+            let other = p[other_a].max(p[other_b]);
+            if p[channel] > threshold
+                && u16::from(p[channel]) > u16::from(other) + 32
+                && (channel == 1 || other < 32)
+            {
+                let x = index % mode.width as usize;
+                let y = index / mode.width as usize;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+                count += 1;
+            }
         }
-    }
-    (count, (count > 0).then_some([min_x, min_y, max_x, max_y]))
+        (count, (count > 0).then_some([min_x, min_y, max_x, max_y]))
+    })
 }
 
 fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
@@ -1430,11 +1442,28 @@ fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
 
 #[test]
 #[ignore = "requires a Wayland desktop and XWayland; captures an isolated compositor's chrome"]
-fn fullscreen_exit_hides_early_chrome_and_restores_it_before_the_settling_tail() {
+fn fullscreen_exit_fades_the_attached_frame_near_the_end_of_the_return() {
+    fullscreen_exit_chrome_regression(false);
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; captures pan during fullscreen exit"]
+fn panning_during_fullscreen_exit_keeps_animating_without_snapping_back() {
+    fullscreen_exit_chrome_regression(true);
+}
+
+fn fullscreen_exit_chrome_regression(pan_during_exit: bool) {
+    let duration_ms = 4000;
     let mut fixture = Fixture::with_config(
         "tiling",
-        r##"
+        &r##"
 decorations:
+  border:
+    size 4
+    radius 0
+    colour-focused "#0000ff"
+    colour-unfocused "#0000ff"
+  end
   titlebars:
     enabled true
     height 32
@@ -1456,7 +1485,8 @@ animations:
     curve "linear"
   end
 end
-"##,
+"##
+        .replace("duration-ms 1200", &format!("duration-ms {duration_ms}")),
     );
     let (mut queue, mut state) = native_window_named(
         &fixture,
@@ -1488,14 +1518,26 @@ end
         state.configured_fullscreen.then_some(())
     });
     queue.roundtrip(&mut state).unwrap();
-    thread::sleep(Duration::from_millis(1300));
+    thread::sleep(Duration::from_millis(duration_ms + 100));
     assert_eq!(count_green_capture_pixels(&mut fixture), 0);
+    if pan_during_exit {
+        assert!(
+            matches!(
+                fixture.request(Request::Control(halley_ipc::ControlRequest::PanField(
+                    halley_ipc::ControlDirection::Right,
+                ))),
+                Response::ApiError(_)
+            ),
+            "active fullscreen must still reject panning"
+        );
+    }
     state.toplevel.as_ref().unwrap().unset_fullscreen();
     wait_for("windowed configure", || {
         queue.roundtrip(&mut state).unwrap();
         (!state.configured_fullscreen).then_some(())
     });
     queue.roundtrip(&mut state).unwrap();
+    let exit_started = Instant::now();
     thread::sleep(Duration::from_millis(150));
     // Test the actual composed frame, not just a helper's opacity value.
     assert_eq!(
@@ -1503,20 +1545,79 @@ end
         0,
         "chrome appeared early during fullscreen return motion"
     );
-    thread::sleep(Duration::from_millis(700));
-    let (count, fading_bounds) = capture_green_chrome(&mut fixture);
+    if pan_during_exit {
+        fixture.ack(Request::Control(halley_ipc::ControlRequest::PanField(
+            halley_ipc::ControlDirection::Right,
+        )));
+        thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            count_green_capture_pixels(&mut fixture),
+            0,
+            "panning must not finish the animation or expose early chrome"
+        );
+        let early_client = capture_colour_bounds(&mut fixture)[2].1.unwrap();
+        assert!(
+            early_client[2] - early_client[0] > windowed_bounds[2] - windowed_bounds[0],
+            "the client must still be returning from fullscreen"
+        );
+        let colours = wait_for("attached chrome fading during the return", || {
+            let colours = capture_colour_bounds(&mut fixture);
+            (colours[1].0 > 1000).then_some(colours)
+        });
+        let fading = colours[1].1.unwrap();
+        assert!(
+            fading[0] < windowed_bounds[0],
+            "pan must move the fading titlebar before exit cleanup"
+        );
+        let body_border = colours[0]
+            .1
+            .expect("the fading frame must include its body border");
+        assert!(
+            body_border[2] - body_border[0] < early_client[2] - early_client[0],
+            "the return animation must keep advancing during the pan"
+        );
+        assert!(body_border[2] - body_border[0] > windowed_bounds[2] - windowed_bounds[0]);
+        assert!(body_border[0].abs_diff(fading[0]) <= 1);
+        assert!(body_border[2].abs_diff(fading[2]) <= 1);
+        assert!(
+            (fading[3] + 1).abs_diff(body_border[1]) <= 1,
+            "the titlebar must meet the animated body border: {fading:?}, {body_border:?}"
+        );
+        thread::sleep(
+            Duration::from_millis(duration_ms + 500).saturating_sub(exit_started.elapsed()),
+        );
+        let settled = capture_green_chrome(&mut fixture).1.unwrap();
+        assert!(
+            settled[0] + 50 < windowed_bounds[0],
+            "cleanup must retain the pan instead of restoring the original camera"
+        );
+        assert_eq!(settled[1], windowed_bounds[1]);
+        assert!((settled[2] - settled[0]).abs_diff(windowed_bounds[2] - windowed_bounds[0]) <= 1);
+        thread::sleep(Duration::from_millis(300));
+        assert_eq!(capture_green_chrome(&mut fixture).1, Some(settled));
+        return;
+    }
+    let colours = wait_for("attached chrome fading during the return", || {
+        let colours = capture_colour_bounds(&mut fixture);
+        (colours[1].0 > 1000).then_some(colours)
+    });
+    let (count, fading_bounds) = colours[1];
     assert!(
         count > 1000,
         "chrome stayed hidden until a separate late fade instead of returning with the window"
     );
-    assert_eq!(
-        fading_bounds,
-        Some(windowed_bounds),
-        "the returning titlebar must fade at its windowed position and size, without sliding or scaling"
-    );
+    let fading_bounds = fading_bounds.unwrap();
+    let body_border = colours[0]
+        .1
+        .expect("the fading frame must include its body border");
+    assert!(fading_bounds[2] - fading_bounds[0] > windowed_bounds[2] - windowed_bounds[0]);
+    assert!(body_border[0].abs_diff(fading_bounds[0]) <= 1);
+    assert!(body_border[2].abs_diff(fading_bounds[2]) <= 1);
+    assert!((fading_bounds[3] + 1).abs_diff(body_border[1]) <= 1);
     thread::sleep(Duration::from_millis(100));
-    assert_eq!(capture_green_chrome(&mut fixture).1, Some(windowed_bounds));
-    thread::sleep(Duration::from_millis(450));
+    let later_bounds = capture_green_chrome(&mut fixture).1.unwrap();
+    assert!(later_bounds[2] - later_bounds[0] < fading_bounds[2] - fading_bounds[0]);
+    thread::sleep(Duration::from_millis(duration_ms + 500).saturating_sub(exit_started.elapsed()));
     wait_for("fully restored titlebar after animation cleanup", || {
         (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
     });

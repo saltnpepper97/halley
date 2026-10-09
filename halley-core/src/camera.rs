@@ -250,7 +250,9 @@ impl Camera {
     /// Exponential gains depend on elapsed time, not the number of frames.
     /// In particular, sampling an Euler-stepped target first makes both fling
     /// distance and the camera's lag depend on output refresh rate.
-    fn tick_pan(&mut self, dt: f32, rate: f32, smooth: bool, friction: f32) -> bool {
+    /// Advance panning without touching zoom, for an externally animated view.
+    /// Callers normalize the smoothing rate with [`zoom_smooth_rate`].
+    pub fn tick_pan(&mut self, dt: f32, rate: f32, smooth: bool, friction: f32) -> bool {
         let before = self.center;
         let dt = f64::from(dt.max(0.0));
         if dt == 0.0 {

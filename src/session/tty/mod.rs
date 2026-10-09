@@ -1217,7 +1217,19 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
     let cluster_camera_changed =
         super::sync_cluster_camera(app, &output.name(), target_presentation_time);
     let fullscreen_camera_changed = app.sync_fullscreen_camera(output, target_presentation_time);
-    let zoom_tick = app.cameras.get_mut(&output.name()).map(|camera| {
+    let fullscreen_returning = app.cameras.is_fullscreen_returning(&output.name());
+    let zoom_tick = app.cameras.get_mut_for_pan(&output.name()).map(|camera| {
+        if fullscreen_returning {
+            return (
+                crate::input::zoom::tick_pan(
+                    camera,
+                    &app.settings.zoom,
+                    app.settings.input.gestures.pan_decay_rate,
+                    dt.as_secs_f32(),
+                ),
+                None,
+            );
+        }
         let before = crate::input::zoom::scale(camera);
         let (after, animating) = crate::input::zoom::tick(
             camera,

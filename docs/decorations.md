@@ -83,13 +83,16 @@ continue animating. The fullscreen surface is square and eligible for direct
 scanout from its first presented frame.
 
 Leaving fullscreen keeps compositor chrome hidden during the early return
-motion, then gradually fades it into place from 35% to 85% of the existing
+motion, then gradually fades it into place from 65% to 90% of the existing
 animation timeline. Chrome is fully visible before the final settling tail,
-and the fade scales with the configured motion duration. The titlebar, border,
-shadow, and pin badge share this opacity and fade at the final windowed position
-and scale, independently of the client's moving fullscreen rectangle. Their
-pointer hitboxes use the same fixed return geometry. Fully invisible chrome
-has no pointer hitboxes.
+and the fade scales with the configured motion duration. The titlebar, body
+borders, shadow, and pin badge remain attached to the animated client rectangle
+and share one fade. Their pointer hitboxes follow the same geometry. Fully
+invisible chrome has no pointer hitboxes.
+After the client commits its windowed state, eligible Field pans can run during
+the remaining return animation. Panning moves its windowed destination and
+keeps the usual easing and momentum, without cancelling the animation or
+resetting the camera when it finishes.
 Disabling fullscreen animations restores chrome immediately. Client-drawn
 titlebars remain part of the application's own content.
 

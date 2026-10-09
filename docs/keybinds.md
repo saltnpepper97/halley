@@ -233,6 +233,9 @@ notifications, lock screens), over X11 override-redirect menus and tooltips, and
 while a client holds a pointer lock or confinement or is in the middle of its own
 drag. Neither pan action replaces an existing compositor move, resize, landmark
 drag, or pan; the original operation keeps its owning button and cleanup state.
+After a fullscreen exit receives the client's windowed commit, panning is
+allowed during the remaining return animation; the animation continues and
+retains the panned destination when it finishes.
 On the left button, Halley's own cluster controls, cluster cores, and
 Bearings markers still claim the press first, as they do for every other
 left-button bind. `pan-field-always` is a pointer action, like `move-window`:
@@ -459,6 +462,8 @@ right, and down reveals space below. Held keyboard bindings repeat using the
 configured keyboard repeat settings; camera easing follows the queued target.
 Window geometry and keyboard focus do not change. Fullscreen, maximize, and
 active cluster views block Field panning.
+Once a fullscreen exit has received the windowed commit, panning can run during
+the remaining return animation without cancelling it or losing the pan.
 
 Panning actions intentionally have no default bindings. Assign them to your
 preferred chords. Bare `pan-field` remains the pointer-drag action, and

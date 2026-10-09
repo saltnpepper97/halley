@@ -2692,7 +2692,7 @@ where
         crate::input::grab::Grab::Pan { output, .. } => {
             let dx = position_after.0 - position_before.0;
             let dy = position_after.1 - position_before.1;
-            if let Some(camera) = session.cameras.get_mut(output) {
+            if let Some(camera) = session.cameras.get_mut_for_pan(output) {
                 let delta = crate::input::grab::screen_delta_to_world(dx, dy, camera);
                 camera.pan_target(halley_core::field::Vec2 {
                     x: -delta.x,

@@ -27,10 +27,25 @@ pub struct FullscreenCameraFrame {
 struct FullscreenCameraRestore {
     center: Vec2,
     view_size: Vec2,
+    pan_start_center: Vec2,
+    /// Last camera center produced by the fullscreen track, before user pan.
+    /// Present only during a committed exit; input and camera easing can then
+    /// move relative to this track without the next frame erasing that motion.
+    pan_origin: Option<Vec2>,
     handoff_from_center: Option<Vec2>,
     handoff_from_view_size: Option<Vec2>,
     handoff_target_center: Option<Vec2>,
     handoff_target_view_size: Option<Vec2>,
+}
+
+impl FullscreenCameraRestore {
+    fn pan_offset(&self, center: Vec2) -> Vec2 {
+        self.pan_origin
+            .map_or(Vec2 { x: 0.0, y: 0.0 }, |origin| Vec2 {
+                x: center.x - origin.x,
+                y: center.y - origin.y,
+            })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -138,11 +153,44 @@ impl OutputCameras {
 
     /// Whether a pointer drag could move this output's camera right now.
     ///
-    /// This is exactly the condition under which [`Self::get_mut`] yields a
+    /// This is exactly the condition under which [`Self::get_mut_for_pan`] yields a
     /// camera, so a compositor pan grab can refuse to begin (and leave the
     /// press to the client) instead of swallowing a click it cannot honor.
     pub fn is_pannable(&self, output_name: &str) -> bool {
-        self.cameras.contains_key(output_name) && !self.is_locked(output_name)
+        self.cameras.contains_key(output_name)
+            && self
+                .fullscreen
+                .get(output_name)
+                .is_none_or(|restore| restore.pan_origin.is_some())
+            && !self.field_maximize.contains_key(output_name)
+            && !self.cluster_locked.contains(output_name)
+    }
+
+    /// Panning may accompany fullscreen exit; other camera mutations stay locked.
+    pub fn get_mut_for_pan(&mut self, output_name: &str) -> Option<&mut Camera> {
+        self.is_pannable(output_name)
+            .then(|| self.cameras.get_mut(output_name))
+            .flatten()
+    }
+
+    fn fullscreen_pan_offset(&self, output_name: &str) -> Vec2 {
+        let Some(restore) = self.fullscreen.get(output_name) else {
+            return Vec2 { x: 0.0, y: 0.0 };
+        };
+        restore.pan_offset(self.cameras[output_name].center)
+    }
+
+    pub(crate) fn fullscreen_pan_translation(&self, output_name: &str) -> Point<i32, Physical> {
+        let Some(restore) = self.fullscreen.get(output_name) else {
+            return (0, 0).into();
+        };
+        let offset = self.fullscreen_pan_offset(output_name);
+        let scale = self.cameras[output_name].base_size.x / restore.view_size.x.max(1.0);
+        (
+            (-(restore.center.x - restore.pan_start_center.x + offset.x) * scale).round() as i32,
+            (-(restore.center.y - restore.pan_start_center.y + offset.y) * scale).round() as i32,
+        )
+            .into()
     }
 
     /// Queue an exact Field center without disturbing fullscreen or maximize
@@ -150,7 +198,10 @@ impl OutputCameras {
     /// navigation may prepare its destination underneath that transition so
     /// it begins easing as soon as the Field becomes visible again.
     pub fn center_field_on(&mut self, output_name: &str, center: Vec2) -> bool {
-        if self.fullscreen.contains_key(output_name)
+        if self
+            .fullscreen
+            .get(output_name)
+            .is_some_and(|restore| restore.pan_origin.is_none())
             || self.field_maximize.contains_key(output_name)
         {
             return false;
@@ -165,7 +216,14 @@ impl OutputCameras {
         changed
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Camera> {
+    pub fn is_fullscreen_returning(&self, output_name: &str) -> bool {
+        self.fullscreen
+            .get(output_name)
+            .is_some_and(|restore| restore.pan_origin.is_some())
+    }
+
+    /// Cameras available for ticking, and whether fullscreen owns their zoom.
+    pub fn iter_for_tick(&mut self) -> impl Iterator<Item = (&mut Camera, bool)> {
         let Self {
             cameras,
             fullscreen,
@@ -173,10 +231,12 @@ impl OutputCameras {
             cluster_locked,
         } = self;
         cameras.iter_mut().filter_map(move |(name, camera)| {
-            (!fullscreen.contains_key(name)
+            (fullscreen
+                .get(name)
+                .is_none_or(|restore| restore.pan_origin.is_some())
                 && !field_maximize.contains_key(name)
                 && !cluster_locked.contains(name))
-            .then_some(camera)
+            .then_some((camera, fullscreen.contains_key(name)))
         })
     }
 
@@ -209,8 +269,8 @@ impl OutputCameras {
     /// Every subsequent frame derives both center and view size from that one
     /// snapshot and the fullscreen transition progress, preventing independent
     /// easing tracks from drifting apart. Releasing restores that snapshot and
-    /// leaves the camera settled there, matching old Halley's monitor-local
-    /// restore behavior.
+    /// preserves any user pan accumulated during the return, including its
+    /// pending target and momentum. Fullscreen continues to own the zoom track.
     pub fn apply_fullscreen(
         &mut self,
         output_name: &str,
@@ -227,13 +287,34 @@ impl OutputCameras {
                     FullscreenCameraRestore {
                         center: camera.center,
                         view_size: camera.view_size,
+                        pan_start_center: camera.center,
+                        pan_origin: None,
                         handoff_from_center: None,
                         handoff_from_view_size: None,
                         handoff_target_center: None,
                         handoff_target_view_size: None,
                     },
                 );
+                let pan_origin = restore.pan_origin;
+                let pan_offset = restore.pan_offset(camera.center);
+                let pan_target_offset = restore.pan_offset(camera.target_center);
                 let progress = frame.progress.clamp(0.0, 1.0);
+                if frame.desired && pan_origin.is_some() {
+                    // Reverse smoothly toward fullscreen and retain the pan as
+                    // the next exit's destination, rather than snapping it away.
+                    restore.center.x += pan_offset.x;
+                    restore.center.y += pan_offset.y;
+                    restore.handoff_from_center = rebase_target(
+                        Vec2 {
+                            x: frame.center.x,
+                            y: frame.center.y,
+                        },
+                        camera.center,
+                        1.0 - progress,
+                    );
+                    restore.handoff_from_view_size = Some(restore.view_size);
+                    restore.handoff_target_center = None;
+                }
                 if !frame.desired && restore.handoff_from_center.is_some() {
                     restore.handoff_from_center = None;
                     restore.handoff_from_view_size = None;
@@ -252,22 +333,42 @@ impl OutputCameras {
                     y: frame.center.y,
                 });
                 let target_view_size = restore.handoff_target_view_size.unwrap_or(camera.base_size);
-                camera.center = lerp_vec2(source_center, target_center, progress);
+                let motion_center = lerp_vec2(source_center, target_center, progress);
+                let pannable = !frame.desired && frame.transition_active;
+                restore.pan_origin = pannable.then_some(motion_center);
+                camera.center = motion_center;
                 camera.view_size = lerp_vec2(source_view_size, target_view_size, progress);
                 camera.target_center = camera.center;
                 camera.target_view_size = camera.view_size;
-                camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+                if pannable {
+                    camera.center.x += pan_offset.x;
+                    camera.center.y += pan_offset.y;
+                    camera.target_center.x += pan_target_offset.x;
+                    camera.target_center.y += pan_target_offset.y;
+                } else {
+                    camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+                }
                 camera.zoom_log_vel = 0.0;
             }
             None => {
                 let Some(restore) = self.fullscreen.remove(output_name) else {
                     return false;
                 };
-                camera.center = restore.center;
+                let pan_offset = restore.pan_offset(camera.center);
+                let pan_target_offset = restore.pan_offset(camera.target_center);
+                camera.center = Vec2 {
+                    x: restore.center.x + pan_offset.x,
+                    y: restore.center.y + pan_offset.y,
+                };
                 camera.view_size = restore.view_size;
-                camera.target_center = restore.center;
+                camera.target_center = Vec2 {
+                    x: restore.center.x + pan_target_offset.x,
+                    y: restore.center.y + pan_target_offset.y,
+                };
                 camera.target_view_size = restore.view_size;
-                camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+                if restore.pan_origin.is_none() {
+                    camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+                }
                 camera.zoom_log_vel = 0.0;
             }
         }
@@ -319,6 +420,8 @@ impl OutputCameras {
             FullscreenCameraRestore {
                 center: restore.center,
                 view_size: restore.view_size,
+                pan_start_center: restore.center,
+                pan_origin: None,
                 handoff_from_center: Some(camera.center),
                 handoff_from_view_size: Some(camera.view_size),
                 handoff_target_center: Some(camera.center),
@@ -734,6 +837,142 @@ mod tests {
         let camera = cameras.get("DP-1").unwrap();
         assert_eq!(camera.center, restore.center);
         assert_eq!(camera.view_size, restore.view_size);
+    }
+
+    #[test]
+    fn fullscreen_exit_pan_keeps_its_easing_zoom_track_and_cleanup_destination() {
+        let mut cameras = OutputCameras::default();
+        for name in ["DP-1", "DP-2"] {
+            cameras.insert(name.into(), (1920, 1080).into());
+            let camera = cameras.get_mut(name).unwrap();
+            camera.center = Vec2 { x: 700.0, y: 420.0 };
+            camera.target_center = camera.center;
+            camera.view_size = Vec2 {
+                x: 3840.0,
+                y: 2160.0,
+            };
+            camera.target_view_size = camera.view_size;
+        }
+        let frame = |progress, desired, transition_active| {
+            Some(FullscreenCameraFrame {
+                center: (1100.0, 620.0).into(),
+                progress,
+                desired,
+                transition_active,
+            })
+        };
+        for name in ["DP-1", "DP-2"] {
+            cameras.apply_fullscreen(name, frame(1.0, true, false));
+            cameras.apply_fullscreen(name, frame(1.0, false, false));
+            assert!(
+                !cameras.is_pannable(name),
+                "pending restore must stay locked"
+            );
+            cameras.apply_fullscreen(name, frame(0.8, false, true));
+        }
+        assert!(
+            cameras.get_mut("DP-1").is_none(),
+            "zoom is still owned by fullscreen"
+        );
+        let camera = cameras.get_mut_for_pan("DP-1").unwrap();
+        camera.pan_target(Vec2 {
+            x: 200.0,
+            y: -100.0,
+        });
+        camera.pan_vel = Vec2 {
+            x: 400.0,
+            y: -200.0,
+        };
+        let view_size = camera.view_size;
+        crate::input::zoom::tick_pan(
+            camera,
+            &halley_config::Zoom {
+                enabled: false,
+                ..Default::default()
+            },
+            8.0,
+            1.0 / 60.0,
+        );
+        assert_eq!(
+            camera.view_size, view_size,
+            "pan must not clamp the animated zoom"
+        );
+        let offset = cameras.fullscreen_pan_offset("DP-1");
+        let panned = *cameras.get("DP-1").unwrap();
+        let velocity = panned.pan_vel;
+        let baseline = *cameras.get("DP-2").unwrap();
+        let target_offset = Vec2 {
+            x: panned.target_center.x - baseline.center.x,
+            y: panned.target_center.y - baseline.center.y,
+        };
+        for progress in [0.6, 0.3, 0.0] {
+            cameras.apply_fullscreen("DP-1", frame(progress, false, true));
+            cameras.apply_fullscreen("DP-2", frame(progress, false, true));
+            let panned = cameras.get("DP-1").unwrap();
+            let baseline = cameras.get("DP-2").unwrap();
+            assert!((panned.center.x - baseline.center.x - offset.x).abs() < 0.001);
+            assert!((panned.center.y - baseline.center.y - offset.y).abs() < 0.001);
+            assert!((panned.target_center.x - baseline.center.x - target_offset.x).abs() < 0.001);
+            assert_eq!(panned.view_size, baseline.view_size);
+            assert_eq!(panned.pan_vel, velocity);
+            assert!(cameras.is_pannable("DP-1"));
+        }
+        let before_cleanup = *cameras.get("DP-1").unwrap();
+        cameras.apply_fullscreen("DP-1", None);
+        assert_eq!(
+            *cameras.get("DP-1").unwrap(),
+            before_cleanup,
+            "cleanup must preserve live pan, its target, and momentum"
+        );
+    }
+
+    #[test]
+    fn panned_fullscreen_exit_can_reverse_smoothly_and_retains_its_field_destination() {
+        let mut cameras = OutputCameras::default();
+        cameras.insert("DP-1".into(), (1920, 1080).into());
+        let restore = *cameras.get("DP-1").unwrap();
+        let frame = |progress, desired, transition_active| {
+            Some(FullscreenCameraFrame {
+                center: (1100.0, 620.0).into(),
+                progress,
+                desired,
+                transition_active,
+            })
+        };
+        cameras.apply_fullscreen("DP-1", frame(1.0, true, false));
+        assert!(!cameras.is_pannable("DP-1"));
+        cameras.apply_fullscreen("DP-1", frame(0.4, false, true));
+        let camera = cameras.get_mut_for_pan("DP-1").unwrap();
+        camera.center.x += 100.0;
+        camera.target_center = camera.center;
+        let before = *camera;
+        cameras.apply_fullscreen("DP-1", frame(0.4, true, false));
+        assert!((cameras.get("DP-1").unwrap().center.x - before.center.x).abs() < 0.001);
+        assert_eq!(cameras.get("DP-1").unwrap().view_size, before.view_size);
+        assert!(!cameras.is_pannable("DP-1"));
+        cameras.apply_fullscreen("DP-1", frame(1.0, true, false));
+        assert_eq!(
+            cameras.get("DP-1").unwrap().center,
+            Vec2 {
+                x: 1100.0,
+                y: 620.0
+            }
+        );
+        cameras.apply_fullscreen("DP-1", frame(0.6, false, true));
+        assert_eq!(cameras.fullscreen_pan_translation("DP-1"), (-100, 0).into());
+        cameras.set_cluster_active("DP-1", true);
+        assert!(!cameras.is_pannable("DP-1"));
+        cameras.set_cluster_active("DP-1", false);
+        assert!(cameras.is_pannable("DP-1"));
+        cameras.apply_fullscreen("DP-1", frame(0.0, false, true));
+        cameras.apply_fullscreen("DP-1", None);
+        assert_eq!(
+            cameras.get("DP-1").unwrap().center,
+            Vec2 {
+                x: restore.center.x + 100.0,
+                y: restore.center.y
+            }
+        );
     }
 
     #[test]

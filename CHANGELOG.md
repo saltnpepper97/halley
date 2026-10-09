@@ -29,9 +29,12 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
-- Fade titlebars, borders, shadows, and pin badges back in at their final
-  windowed position and scale when leaving fullscreen, independently of the
-  client's fullscreen motion. Keep decoration hitboxes aligned during the fade.
+- Allow eligible Field pans during a committed fullscreen exit while its return
+  animation continues. Preserve pan easing, momentum, and the destination at
+  animation cleanup; keep active fullscreen and pending client commits locked.
+- Unify fullscreen return geometry for the client, titlebar, borders, shadow,
+  pin badge, and decoration hitboxes. Fade the attached frame together from
+  65% to 90% of the existing return timeline, without a separate chrome motion.
 - Count all eligible windows and cluster cores in a crowded Bearings group
   before applying its nearest member's distance fade. Preserve the existing
   distance cutoff and pinned-target exemption, and omit fully faded groups
@@ -50,8 +53,8 @@ All notable changes to this project will be documented in this file.
   longer fall back to the previous monitor's last focused window while hover
   focus is suspended by the grab.
 - Fade compositor titlebars, borders, shadows, and pin badges back in smoothly
-  as fullscreen exit settles, starting at 35% of the return timeline and
-  finishing at 85% to avoid a separate late pop-in. Keep invisible decorations
+  as fullscreen exit settles, starting at 65% of the return timeline and
+  finishing at 90% to avoid a separate late pop-in. Keep invisible decorations
   out of pointer hit-testing and show chrome immediately when fullscreen
   animations are disabled.
 - Skip duplicate `autostart.once` command entries without changing explicit

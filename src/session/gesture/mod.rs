@@ -323,7 +323,7 @@ where
         }
         RouteChoice::Compositor => route.output.map_or(Sequence::Ignored, |output| {
             if pan {
-                let Some(camera) = session.cameras.get_mut(&output) else {
+                let Some(camera) = session.cameras.get_mut_for_pan(&output) else {
                     return Sequence::Ignored;
                 };
                 Sequence::Compositor(SwipeGesture::Pan(PanGesture::new(output, camera)))
@@ -368,7 +368,7 @@ where
         }
         Sequence::Client(_) => sequence = Sequence::Ignored,
         Sequence::Compositor(SwipeGesture::Pan(gesture)) => {
-            if let Some(camera) = session.cameras.get_mut(&gesture.output) {
+            if let Some(camera) = session.cameras.get_mut_for_pan(&gesture.output) {
                 let delta = event.delta();
                 gesture.update(camera, event.time().millis(), delta.x, delta.y);
                 session.request_redraw();
@@ -444,7 +444,7 @@ where
             );
         }
         Sequence::Compositor(SwipeGesture::Pan(gesture)) => {
-            if let Some(camera) = session.cameras.get_mut(&gesture.output) {
+            if let Some(camera) = session.cameras.get_mut_for_pan(&gesture.output) {
                 gesture.finish(
                     camera,
                     event.cancelled(),
@@ -742,7 +742,7 @@ where
             session.gestures.axis_pan = None;
             return true;
         }
-        if let Some(camera) = session.cameras.get_mut(&output) {
+        if let Some(camera) = session.cameras.get_mut_for_pan(&output) {
             camera::apply_pan(camera, horizontal.unwrap_or(0.0), vertical.unwrap_or(0.0));
             session.request_redraw();
         } else {
@@ -771,7 +771,7 @@ where
     else {
         return false;
     };
-    let Some(camera) = session.cameras.get_mut(&output) else {
+    let Some(camera) = session.cameras.get_mut_for_pan(&output) else {
         return false;
     };
     camera.snap_targets_to_live();
