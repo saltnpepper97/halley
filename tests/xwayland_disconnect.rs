@@ -18,6 +18,9 @@ use wayland_client::protocol::{
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
+use wayland_protocols::xdg::decoration::zv1::client::{
+    zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1,
+};
 use wayland_protocols::xdg::dialog::v1::client::{xdg_dialog_v1, xdg_wm_dialog_v1};
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 use x11rb::connection::Connection as _;
@@ -235,6 +238,9 @@ struct NativeState {
     toplevel: Option<xdg_toplevel::XdgToplevel>,
     exported_handles: Vec<String>,
     keyboard_focused: bool,
+    viewport: Option<wp_viewport::WpViewport>,
+    resize_for_configures: bool,
+    configured_fullscreen: bool,
 }
 delegate_noop!(NativeState: ignore wl_seat::WlSeat);
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
@@ -285,6 +291,9 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for NativeState {
             surface.ack_configure(serial);
             let window = state.surface.as_ref().unwrap();
             window.attach(state.buffer.as_ref(), 0, 0);
+            if state.resize_for_configures {
+                window.damage_buffer(0, 0, i32::MAX, i32::MAX);
+            }
             window.commit();
         }
     }
@@ -340,7 +349,37 @@ delegate_noop!(NativeState: ignore wl_buffer::WlBuffer);
 delegate_noop!(NativeState: ignore pixel::WpSinglePixelBufferManagerV1);
 delegate_noop!(NativeState: ignore wp_viewporter::WpViewporter);
 delegate_noop!(NativeState: ignore wp_viewport::WpViewport);
-delegate_noop!(NativeState: ignore xdg_toplevel::XdgToplevel);
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        _: &xdg_toplevel::XdgToplevel,
+        event: xdg_toplevel::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let xdg_toplevel::Event::Configure {
+            width,
+            height,
+            states,
+        } = event
+        {
+            state.configured_fullscreen = states.chunks_exact(4).any(|bytes| {
+                u32::from_ne_bytes(bytes.try_into().unwrap())
+                    == xdg_toplevel::State::Fullscreen as u32
+            });
+            if state.resize_for_configures && width > 0 && height > 0 {
+                state
+                    .viewport
+                    .as_ref()
+                    .unwrap()
+                    .set_destination(width, height);
+            }
+        }
+    }
+}
+delegate_noop!(NativeState: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
+delegate_noop!(NativeState: ignore zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1);
 delegate_noop!(NativeState: ignore xdg_wm_dialog_v1::XdgWmDialogV1);
 delegate_noop!(NativeState: ignore xdg_dialog_v1::XdgDialogV1);
 
@@ -413,6 +452,7 @@ fn native_window_named(
     let _fractional = manager.get_fractional_scale(&surface, &handle, ());
     let viewport = viewporter.get_viewport(&surface, &handle, ());
     viewport.set_destination(240, 160);
+    state.viewport = Some(viewport);
     let xdg_surface = shell.get_xdg_surface(&surface, &handle, ());
     let toplevel = xdg_surface.get_toplevel(&handle, ());
     toplevel.set_title(title.into());
@@ -1318,4 +1358,131 @@ fn xdg_dialog_nested_and_collapsed_children_do_not_strand_keyboard_focus() {
     }));
     request_native_focus(&mut fixture, parent_id);
     assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
+}
+
+fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileExt;
+    let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+        panic!("missing outputs")
+    };
+    let output = &outputs.outputs[0];
+    let mode = output.modes[output.current_mode.unwrap()];
+    let size = mode.width as usize * mode.height as usize * 4;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(fixture.path.join("fullscreen-chrome-capture"))
+        .unwrap();
+    file.set_len(size as u64).unwrap();
+    let request = Request::CaptureFrame(halley_ipc::CaptureFrameRequest {
+        stream_handle: "fullscreen-chrome-regression".into(),
+        source: halley_ipc::CaptureSource::Monitor {
+            name: output.name.clone(),
+            x: 0,
+            y: 0,
+            width: mode.width,
+            height: mode.height,
+        },
+        cursor_mode: halley_ipc::CursorMode::Hidden,
+        buffer: halley_ipc::CaptureBuffer::MemFd {
+            fd_index: 0,
+            offset: 0,
+            size: size as u64,
+            stride: mode.width as u32 * 4,
+        },
+    });
+    let response = fixture
+        .ipc
+        .as_mut()
+        .unwrap()
+        .request(&request, &[file.as_raw_fd()])
+        .unwrap()
+        .response;
+    assert!(matches!(response, Response::Frame(_)), "{response:?}");
+    let mut pixels = vec![0; size];
+    file.read_exact_at(&mut pixels, 0).unwrap();
+    pixels
+        .chunks_exact(4)
+        .filter(|p| p[1] > 245 && p[0] < 5 && p[2] < 5)
+        .count()
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; captures an isolated compositor's chrome"]
+fn fullscreen_exit_keeps_titlebar_pixels_hidden_until_return_motion_finishes() {
+    let mut fixture = Fixture::with_config(
+        "tiling",
+        r##"
+decorations:
+  titlebars:
+    enabled true
+    height 32
+    radius 0
+    show-buttons false
+    show-icons false
+    show-title false
+    colour-focused "#00ff00"
+    colour-unfocused "#00ff00"
+  end
+end
+animations:
+  fullscreen:
+    motion "easing"
+    duration-ms 1200
+    curve "linear"
+  end
+end
+"##,
+    );
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "fullscreen chrome pixels",
+        "halley.chrome.regression",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("fullscreen chrome pixels");
+    state.resize_for_configures = true;
+    let manager: zxdg_decoration_manager_v1::ZxdgDecorationManagerV1 =
+        state.registry.as_ref().unwrap().bind(
+            state.globals["zxdg_decoration_manager_v1"],
+            1,
+            &queue.handle(),
+            (),
+        );
+    let decoration =
+        manager.get_toplevel_decoration(state.toplevel.as_ref().unwrap(), &queue.handle(), ());
+    decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ServerSide);
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("visible windowed titlebar", || {
+        queue.roundtrip(&mut state).unwrap();
+        (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
+    });
+    state.toplevel.as_ref().unwrap().set_fullscreen(None);
+    wait_for("fullscreen configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.configured_fullscreen.then_some(())
+    });
+    queue.roundtrip(&mut state).unwrap();
+    thread::sleep(Duration::from_millis(1300));
+    assert_eq!(count_green_capture_pixels(&mut fixture), 0);
+    state.toplevel.as_ref().unwrap().unset_fullscreen();
+    wait_for("windowed configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (!state.configured_fullscreen).then_some(())
+    });
+    queue.roundtrip(&mut state).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    // Test the actual composed frame, not just a helper's opacity value.
+    assert_eq!(
+        count_green_capture_pixels(&mut fixture),
+        0,
+        "chrome appeared early during fullscreen return motion"
+    );
+    thread::sleep(Duration::from_millis(1150));
+    wait_for("fully restored titlebar after animation cleanup", || {
+        (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
+    });
 }
