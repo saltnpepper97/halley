@@ -224,10 +224,10 @@ pub(super) fn live_window_elements(
     );
     let (content_alpha, chrome_alpha) =
         window_content_and_chrome_alpha(visual.opening_alpha, rule_opacity, chrome_visible);
-    let chrome_reveal = context
-        .fullscreen
-        .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
-    let chrome_alpha = chrome_alpha * chrome_reveal;
+    let chrome_alpha = chrome_alpha
+        * context
+            .fullscreen
+            .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
     let server_titlebar = chrome_visible && chrome.has_server_titlebar();
     let node_id = context.nodes.id_for_surface(window_surface.as_ref());
     let user_pinned = node_id.is_some_and(|id| {
@@ -251,15 +251,16 @@ pub(super) fn live_window_elements(
     let titlebar_height = titlebar_metrics.height;
     let border_width =
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
-    // Reveal the clipping shape with the frame; logical fullscreen state alone
-    // would restore the full radius before any chrome has faded back in.
-    let titlebar_radius = titlebar_metrics.radius as f32 * chrome_reveal;
+    let rounding_progress = context
+        .fullscreen
+        .rounding_progress(window_surface.as_ref(), context.target_presentation_time);
+    let titlebar_radius = titlebar_metrics.radius as f32 * rounding_progress;
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
             context.decorations.border_radius_px,
             decoration_scale,
         ) as f32
-            * chrome_reveal
+            * rounding_progress
     } else {
         0.0
     };

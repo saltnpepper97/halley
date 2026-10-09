@@ -1568,9 +1568,11 @@ end
         0,
         "chrome appeared early during fullscreen return motion"
     );
+    thread::sleep(Duration::from_millis(900).saturating_sub(exit_started.elapsed()));
+    let returning_corner_inset = captured_client_bottom_corner_inset(&mut fixture);
     assert!(
-        captured_client_bottom_corner_inset(&mut fixture) <= 2,
-        "client corners must stay square before the frame starts fading back"
+        returning_corner_inset > 0 && returning_corner_inset < windowed_corner_inset,
+        "client corners must round in flight before the frame fade: {returning_corner_inset}, {windowed_corner_inset}"
     );
     if pan_during_exit {
         fixture.ack(Request::Control(halley_ipc::ControlRequest::PanField(
