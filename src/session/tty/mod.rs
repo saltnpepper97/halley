@@ -1217,28 +1217,20 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
     let cluster_camera_changed =
         super::sync_cluster_camera(app, &output.name(), target_presentation_time);
     let fullscreen_camera_changed = app.sync_fullscreen_camera(output, target_presentation_time);
-    let fullscreen_returning = app.cameras.is_fullscreen_returning(&output.name());
-    let zoom_tick = app.cameras.get_mut_for_pan(&output.name()).map(|camera| {
-        if fullscreen_returning {
-            return (
-                crate::input::zoom::tick_pan(
+    let zoom_tick =
+        app.cameras
+            .get_mut_for_tick(&output.name())
+            .map(|(camera, fullscreen_returning)| {
+                let before = crate::input::zoom::scale(camera);
+                let (after, animating) = crate::input::zoom::tick_camera(
                     camera,
+                    fullscreen_returning,
                     &app.settings.zoom,
                     app.settings.input.gestures.pan_decay_rate,
                     dt.as_secs_f32(),
-                ),
-                None,
-            );
-        }
-        let before = crate::input::zoom::scale(camera);
-        let (after, animating) = crate::input::zoom::tick(
-            camera,
-            &app.settings.zoom,
-            app.settings.input.gestures.pan_decay_rate,
-            dt.as_secs_f32(),
-        );
-        (animating, (before != after).then_some((before, after)))
-    });
+                );
+                (animating, (before != after).then_some((before, after)))
+            });
     let camera_animating = zoom_tick.is_some_and(|(animating, _)| animating);
     let edge_pan_animating = super::input::grabbed_window_edge_pan_active_on(app, &output.name());
     if let Some((before, after)) = zoom_tick.and_then(|(_, scales)| scales) {

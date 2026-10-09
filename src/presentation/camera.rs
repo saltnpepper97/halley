@@ -27,7 +27,9 @@ pub struct FullscreenCameraFrame {
 struct FullscreenCameraRestore {
     center: Vec2,
     view_size: Vec2,
-    pan_start_center: Vec2,
+    /// The snapshot before any pan. `center` drifts from it when an exit that
+    /// was panned reverses into fullscreen and keeps that pan as destination.
+    original_center: Vec2,
     /// Last camera center produced by the fullscreen track, before user pan.
     /// Present only during a committed exit; input and camera easing can then
     /// move relative to this track without the next frame erasing that motion.
@@ -36,6 +38,11 @@ struct FullscreenCameraRestore {
     handoff_from_view_size: Option<Vec2>,
     handoff_target_center: Option<Vec2>,
     handoff_target_view_size: Option<Vec2>,
+}
+
+/// Fullscreen locks the camera, except during a committed exit.
+fn allows_pan(restore: Option<&FullscreenCameraRestore>) -> bool {
+    restore.is_none_or(|restore| restore.pan_origin.is_some())
 }
 
 impl FullscreenCameraRestore {
@@ -158,10 +165,7 @@ impl OutputCameras {
     /// press to the client) instead of swallowing a click it cannot honor.
     pub fn is_pannable(&self, output_name: &str) -> bool {
         self.cameras.contains_key(output_name)
-            && self
-                .fullscreen
-                .get(output_name)
-                .is_none_or(|restore| restore.pan_origin.is_some())
+            && allows_pan(self.fullscreen.get(output_name))
             && !self.field_maximize.contains_key(output_name)
             && !self.cluster_locked.contains(output_name)
     }
@@ -180,6 +184,8 @@ impl OutputCameras {
         restore.pan_offset(self.cameras[output_name].center)
     }
 
+    /// Screen-space shift of the windowed destination caused by user pan,
+    /// including pan carried over from an exit that reversed into fullscreen.
     pub(crate) fn fullscreen_pan_translation(&self, output_name: &str) -> Point<i32, Physical> {
         let Some(restore) = self.fullscreen.get(output_name) else {
             return (0, 0).into();
@@ -187,8 +193,8 @@ impl OutputCameras {
         let offset = self.fullscreen_pan_offset(output_name);
         let scale = self.cameras[output_name].base_size.x / restore.view_size.x.max(1.0);
         (
-            (-(restore.center.x - restore.pan_start_center.x + offset.x) * scale).round() as i32,
-            (-(restore.center.y - restore.pan_start_center.y + offset.y) * scale).round() as i32,
+            (-(restore.center.x - restore.original_center.x + offset.x) * scale).round() as i32,
+            (-(restore.center.y - restore.original_center.y + offset.y) * scale).round() as i32,
         )
             .into()
     }
@@ -198,10 +204,7 @@ impl OutputCameras {
     /// navigation may prepare its destination underneath that transition so
     /// it begins easing as soon as the Field becomes visible again.
     pub fn center_field_on(&mut self, output_name: &str, center: Vec2) -> bool {
-        if self
-            .fullscreen
-            .get(output_name)
-            .is_some_and(|restore| restore.pan_origin.is_none())
+        if !allows_pan(self.fullscreen.get(output_name))
             || self.field_maximize.contains_key(output_name)
         {
             return false;
@@ -216,13 +219,15 @@ impl OutputCameras {
         changed
     }
 
-    pub fn is_fullscreen_returning(&self, output_name: &str) -> bool {
-        self.fullscreen
-            .get(output_name)
-            .is_some_and(|restore| restore.pan_origin.is_some())
+    /// The output's camera if it may tick, and whether a fullscreen exit
+    /// still owns its zoom (see [`crate::input::zoom::tick_camera`]).
+    pub fn get_mut_for_tick(&mut self, output_name: &str) -> Option<(&mut Camera, bool)> {
+        let returning = self.fullscreen.contains_key(output_name);
+        self.get_mut_for_pan(output_name)
+            .map(|camera| (camera, returning))
     }
 
-    /// Cameras available for ticking, and whether fullscreen owns their zoom.
+    /// Every camera that may tick, as for [`Self::get_mut_for_tick`].
     pub fn iter_for_tick(&mut self) -> impl Iterator<Item = (&mut Camera, bool)> {
         let Self {
             cameras,
@@ -231,9 +236,7 @@ impl OutputCameras {
             cluster_locked,
         } = self;
         cameras.iter_mut().filter_map(move |(name, camera)| {
-            (fullscreen
-                .get(name)
-                .is_none_or(|restore| restore.pan_origin.is_some())
+            (allows_pan(fullscreen.get(name))
                 && !field_maximize.contains_key(name)
                 && !cluster_locked.contains(name))
             .then_some((camera, fullscreen.contains_key(name)))
@@ -287,7 +290,7 @@ impl OutputCameras {
                     FullscreenCameraRestore {
                         center: camera.center,
                         view_size: camera.view_size,
-                        pan_start_center: camera.center,
+                        original_center: camera.center,
                         pan_origin: None,
                         handoff_from_center: None,
                         handoff_from_view_size: None,
@@ -420,7 +423,7 @@ impl OutputCameras {
             FullscreenCameraRestore {
                 center: restore.center,
                 view_size: restore.view_size,
-                pan_start_center: restore.center,
+                original_center: restore.center,
                 pan_origin: None,
                 handoff_from_center: Some(camera.center),
                 handoff_from_view_size: Some(camera.view_size),
@@ -884,8 +887,9 @@ mod tests {
             y: -200.0,
         };
         let view_size = camera.view_size;
-        crate::input::zoom::tick_pan(
+        crate::input::zoom::tick_camera(
             camera,
+            true,
             &halley_config::Zoom {
                 enabled: false,
                 ..Default::default()

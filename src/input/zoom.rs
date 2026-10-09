@@ -56,20 +56,26 @@ pub fn scale(camera: &Camera) -> f32 {
     crate::presentation::camera::scale(camera)
 }
 
-/// Fullscreen owns the zoom track during exit, while user pan keeps its usual
-/// easing and momentum. Do not run zoom clamping over that external track.
-pub fn tick_pan(
+/// Ticks one output camera. While a fullscreen exit owns the zoom track, only
+/// the user's pan advances, with its usual easing and momentum; zoom clamping
+/// must not run over that external track. Returns `(scale, animating)`.
+pub fn tick_camera(
     camera: &mut Camera,
+    fullscreen_returning: bool,
     zoom: &halley_config::Zoom,
     pan_decay_rate: f32,
     dt: f32,
-) -> bool {
-    camera.tick_pan(
+) -> (f32, bool) {
+    if !fullscreen_returning {
+        return tick(camera, zoom, pan_decay_rate, dt);
+    }
+    let animating = camera.tick_pan(
         dt.clamp(0.0, 1.0 / 20.0),
         halley_core::camera::zoom_smooth_rate(zoom.smooth_rate),
         true,
         pan_decay_rate,
-    )
+    );
+    (scale(camera), animating)
 }
 
 /// Applies one zoom-out step - a no-op if zoom is disabled in config

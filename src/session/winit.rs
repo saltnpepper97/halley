@@ -456,17 +456,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     app.cameras.get(&output_name).map(crate::input::zoom::scale);
                 let mut camera_animating = cluster_camera_changed;
                 for (camera, fullscreen_returning) in app.cameras.iter_for_tick() {
-                    if fullscreen_returning {
-                        camera_animating |= crate::input::zoom::tick_pan(
-                            camera,
-                            &app.settings.zoom,
-                            app.settings.input.gestures.pan_decay_rate,
-                            dt,
-                        );
-                        continue;
-                    }
-                    camera_animating |= crate::input::zoom::tick(
+                    camera_animating |= crate::input::zoom::tick_camera(
                         camera,
+                        fullscreen_returning,
                         &app.settings.zoom,
                         app.settings.input.gestures.pan_decay_rate,
                         dt,

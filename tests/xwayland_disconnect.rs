@@ -1453,10 +1453,11 @@ fn panning_during_fullscreen_exit_keeps_animating_without_snapping_back() {
 }
 
 fn fullscreen_exit_chrome_regression(pan_during_exit: bool) {
+    // Keep in sync with `duration-ms` below; slow enough to sample mid-exit.
     let duration_ms = 4000;
     let mut fixture = Fixture::with_config(
         "tiling",
-        &r##"
+        r##"
 decorations:
   border:
     size 4
@@ -1481,12 +1482,11 @@ animations:
   end
   fullscreen:
     motion "easing"
-    duration-ms 1200
+    duration-ms 4000
     curve "linear"
   end
 end
-"##
-        .replace("duration-ms 1200", &format!("duration-ms {duration_ms}")),
+"##,
     );
     let (mut queue, mut state) = native_window_named(
         &fixture,
