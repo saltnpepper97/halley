@@ -36,6 +36,8 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
   opaque. Open and close animations still fade the whole window.
 - `blur true` explicitly enables full-surface compositor blur for the match;
   a client-provided nonempty background-effect region remains region-limited.
+  Full-window blur follows the rendered client rectangle through fullscreen
+  and maximize transitions, independently of client buffer resize timing.
 - `blur false` disables all blur for the match, including client background-
   effect requests. With no blur rule, Halley honors explicit client regions
   only; opacity never enables blur implicitly.
