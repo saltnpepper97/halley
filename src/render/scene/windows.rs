@@ -224,6 +224,10 @@ pub(super) fn live_window_elements(
     );
     let (content_alpha, chrome_alpha) =
         window_content_and_chrome_alpha(visual.opening_alpha, rule_opacity, chrome_visible);
+    let chrome_alpha = chrome_alpha
+        * context
+            .fullscreen
+            .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
     let server_titlebar = chrome_visible && chrome.has_server_titlebar();
     let node_id = context.nodes.id_for_surface(window_surface.as_ref());
     let user_pinned = node_id.is_some_and(|id| {

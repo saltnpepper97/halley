@@ -503,7 +503,13 @@ fn window_under(
             || crate::xwayland::is_fullscreen(window);
         let chrome =
             crate::titlebar::WindowChrome::for_window(window, context.decorations, context.font);
-        if hit_kind == WindowHitKind::Any && !fullscreen {
+        let chrome_visible = surface.as_ref().is_none_or(|surface| {
+            context
+                .fullscreen
+                .chrome_alpha(surface.as_ref(), context.now)
+                > 0.0
+        });
+        if hit_kind == WindowHitKind::Any && !fullscreen && chrome_visible {
             let source_height = presentation.source_geometry().size.h.max(1);
             let visual_scale = visual_geometry.size.h as f32 / source_height as f32;
             let border_width =

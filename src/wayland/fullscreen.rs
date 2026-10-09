@@ -1351,14 +1351,22 @@ impl FullscreenManager {
 
     /// Whether compositor-owned window chrome should be omitted.
     ///
-    /// Chrome follows logical fullscreen state rather than presentation
-    /// progress: entering fullscreen removes it before the first animated
-    /// frame, and leaving fullscreen restores it while the window animates
-    /// back. Maximize presentations remain decorated.
+    /// Entering fullscreen removes chrome before the first animated frame.
+    /// Exiting reserves windowed chrome geometry immediately, while
+    /// `chrome_alpha` fades its pixels in near the end of the return motion.
+    /// Maximize presentations remain decorated.
     pub(crate) fn suppresses_chrome(&self, surface: &WlSurface) -> bool {
         self.windows
             .get(surface)
             .is_some_and(fullscreen_entry_suppresses_chrome)
+    }
+
+    /// Share the existing motion timeline so chrome has no separate delay,
+    /// redraw timer, or geometry animation and becomes fully visible at rest.
+    pub(crate) fn chrome_alpha(&self, surface: &WlSurface, now: Duration) -> f32 {
+        self.windows.get(surface).map_or(1.0, |entry| {
+            fullscreen_entry_chrome_alpha(entry, animations_enabled(&self.animations), now)
+        })
     }
 
     pub(crate) fn occupants_on_output(
@@ -1701,6 +1709,32 @@ fn fullscreen_origin_allows_global_blur(origin: FullscreenOrigin) -> bool {
 
 fn fullscreen_entry_suppresses_chrome(entry: &FullscreenWindow) -> bool {
     entry.desired && entry.origin != FullscreenOrigin::Maximize
+}
+
+fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: Duration) -> f32 {
+    if fullscreen_entry_suppresses_chrome(entry) {
+        return 0.0;
+    }
+    if !animated || entry.origin == FullscreenOrigin::Maximize {
+        return 1.0;
+    }
+    // Wait for the accepted windowed commit before beginning the return fade.
+    if entry.active != entry.desired || entry.external_pending.is_some() {
+        return 0.0;
+    }
+    let Some(transition) = entry.transition else {
+        return 1.0;
+    };
+    let duration = transition.duration().as_secs_f64();
+    if duration == 0.0 {
+        return 1.0;
+    }
+    // Use elapsed time, not spring displacement: overshoot must not make the
+    // titlebar flash or fade back out. Short motions use their whole timeline.
+    let fade_fraction = (0.100 / duration).min(1.0);
+    let progress = ((transition.linear_progress_at(now) - (1.0 - fade_fraction)) / fade_fraction)
+        .clamp(0.0, 1.0);
+    (progress * progress * (3.0 - 2.0 * progress)) as f32
 }
 
 /// Protocol state used for a native presentation.
@@ -2864,6 +2898,134 @@ mod tests {
         entry.active = true;
         entry.presented = true;
         assert!(!fullscreen_entry_suppresses_chrome(&entry));
+    }
+
+    #[test]
+    fn exit_chrome_fades_only_in_the_final_hundred_milliseconds() {
+        let mut entry = test_entry(false);
+        let start = Duration::from_secs(1);
+        entry.transition = Some(MotionTimeline::between(
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 400,
+                curve: AnimationCurve::Linear,
+            }),
+            start,
+            1.0,
+            0.0,
+            0.0,
+        ));
+        for (millis, expected) in [
+            (0, 0.0),
+            (250, 0.0),
+            (300, 0.0),
+            (350, 0.5),
+            (400, 1.0),
+            (500, 1.0),
+        ] {
+            let alpha =
+                fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(millis));
+            assert!((alpha - expected).abs() < 0.0001, "{millis}ms: {alpha}");
+        }
+        entry.transition = Some(MotionTimeline::between(
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 50,
+                curve: AnimationCurve::Linear,
+            }),
+            start,
+            1.0,
+            0.0,
+            0.0,
+        ));
+        assert_eq!(fullscreen_entry_chrome_alpha(&entry, true, start), 0.0);
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(25)),
+            0.5
+        );
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(50)),
+            1.0
+        );
+    }
+
+    #[test]
+    fn chrome_waits_for_exit_commit_and_respects_disabled_motion_and_maximize() {
+        let mut entry = test_entry(true);
+        entry.desired = false;
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            0.0
+        );
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, false, Duration::ZERO),
+            1.0
+        );
+        entry.active = false;
+        entry.presented = false;
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            1.0
+        );
+        entry.transition = Some(MotionTimeline::between(
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 0,
+                curve: AnimationCurve::Linear,
+            }),
+            Duration::ZERO,
+            1.0,
+            0.0,
+            0.0,
+        ));
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            1.0
+        );
+        entry.desired = true;
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            0.0
+        );
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, false, Duration::ZERO),
+            0.0
+        );
+        entry.origin = FullscreenOrigin::Maximize;
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            1.0
+        );
+    }
+
+    #[test]
+    fn spring_exit_chrome_is_monotonic_even_when_window_motion_overshoots() {
+        let mut entry = test_entry(false);
+        let transition = MotionTimeline::between(
+            AnimationMotion::Spring(halley_config::SpringMotion {
+                damping_ratio: 0.4,
+                stiffness: 800.0,
+            }),
+            Duration::ZERO,
+            1.0,
+            0.0,
+            0.0,
+        );
+        entry.transition = Some(transition);
+        let mut previous = 0.0;
+        let mut overshot = false;
+        for millis in 0..=transition.duration().as_millis() as u64 + 1 {
+            let now = Duration::from_millis(millis);
+            overshot |= transition.value_at(now) < 0.0;
+            let alpha = fullscreen_entry_chrome_alpha(&entry, true, now);
+            assert!(alpha >= previous && alpha <= 1.0);
+            previous = alpha;
+        }
+        assert!(overshot);
+        assert_eq!(previous, 1.0);
+        // Re-entering fullscreen hides chrome immediately, even mid-fade.
+        entry.desired = true;
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, transition.duration()),
+            0.0
+        );
     }
 
     #[test]

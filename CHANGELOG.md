@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Fade compositor titlebars, borders, shadows, and pin badges back in during
+  the final 100 ms of fullscreen exit instead of showing them throughout the
+  return motion. Keep invisible decorations out of pointer hit-testing and
+  show chrome immediately when fullscreen animations are disabled.
 - Skip duplicate `autostart.once` command entries without changing explicit
   reload commands. Report failed autostarts once with their command, exit status,
   and persistent log path; include bounded stderr context for failed session
