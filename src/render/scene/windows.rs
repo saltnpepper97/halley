@@ -224,6 +224,10 @@ pub(super) fn live_window_elements(
     );
     let (content_alpha, chrome_alpha) =
         window_content_and_chrome_alpha(visual.opening_alpha, rule_opacity, chrome_visible);
+    let chrome_alpha = chrome_alpha
+        * context
+            .fullscreen
+            .chrome_alpha(window_surface.as_ref(), context.target_presentation_time);
     let server_titlebar = chrome_visible && chrome.has_server_titlebar();
     let node_id = context.nodes.id_for_surface(window_surface.as_ref());
     let user_pinned = node_id.is_some_and(|id| {
@@ -517,7 +521,7 @@ pub(super) fn live_window_elements(
         let output_bounds =
             Rectangle::<i32, Physical>::from_size(context.output_geometry.size.to_physical(1));
         let rule_blur = context.window_rules.blur(window_surface.as_ref());
-        let mut requested = if rule_blur != Some(false) {
+        let requested = if rule_blur != Some(false) {
             crate::wayland::background_effect::blur_rects(window_surface.as_ref(), surface_size)
         } else {
             Vec::new()
@@ -527,17 +531,21 @@ pub(super) fn live_window_elements(
             .allows_global_blur(window_surface.as_ref());
         let policy_blur =
             managed && halley_config::window_blur_enabled(rule_blur, !global_blur_allowed);
-        if requested.is_empty() && policy_blur {
-            requested.push(Rectangle::from_size(surface_size));
-        }
-        let patches = requested
+        // Rule blur covers the presented client rectangle, not its current
+        // root allocation. Fullscreen texture transitions can present a held
+        // endpoint while the live buffer and window geometry resize separately.
+        // Mapping that live allocation makes the blur edge catch up to the
+        // captured window instead of sharing its exact frame geometry.
+        let policy_destination =
+            (requested.is_empty() && policy_blur).then_some(visual.animated_rect);
+        let destinations = requested
             .into_iter()
-            .filter_map(|rect| {
+            .map(|rect| {
                 let native = Rectangle::<i32, Physical>::new(
                     surface_location + rect.loc.to_physical(1),
                     rect.size.to_physical(1),
                 );
-                let destination = if visual.maps_from_source() {
+                if visual.maps_from_source() {
                     let destination = crate::animation::map_rect(
                         native,
                         visual.source_geometry.to_physical(1),
@@ -560,7 +568,11 @@ pub(super) fn live_window_elements(
                         visual.camera_rect,
                         visual.animated_rect,
                     )
-                };
+                }
+            })
+            .chain(policy_destination);
+        let patches = destinations
+            .filter_map(|destination| {
                 destination
                     .intersection(output_bounds)
                     .and_then(|rect| rect.intersection(visual.animated_rect))
