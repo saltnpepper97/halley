@@ -104,6 +104,17 @@ fn releases_pending_window_move(pending_button: u32, event_button: u32, released
     released && pending_button == event_button
 }
 
+/// A camera pan belongs to the button whose press began it: releasing any
+/// other button (for example a left click made while a middle-button pan is
+/// running) must neither end the drag nor be mistaken for its completion.
+fn releases_field_pan(grab: &crate::input::grab::Grab, event_button: u32, released: bool) -> bool {
+    released
+        && matches!(
+            grab,
+            crate::input::grab::Grab::Pan { button, .. } if *button == event_button
+        )
+}
+
 fn forward_pointer_button(intercepted: bool, finishing_client_move: bool) -> bool {
     !intercepted || finishing_client_move
 }
@@ -326,7 +337,7 @@ fn dispatch_pointer_grab_action<D: SessionDriver>(
                 return false;
             };
             if pointer_move_falls_back_to_field_pan(&route.target) {
-                return begin_field_pan(session, route, serial);
+                return begin_field_pan(session, route, button, serial);
             }
             let window = match &route.target {
                 crate::input::pointer::PointerTarget::Window(window)
@@ -410,7 +421,13 @@ fn dispatch_pointer_grab_action<D: SessionDriver>(
             let Some(route) = route else {
                 return false;
             };
-            begin_field_pan(session, route, serial)
+            begin_field_pan(session, route, button, serial)
+        }
+        halley_config::Action::PointerPanFieldAlways => {
+            let Some(route) = route else {
+                return false;
+            };
+            begin_field_pan_always(session, route, button, serial)
         }
         halley_config::Action::PointerDragPan => {
             let Some(route) = route else {
@@ -444,6 +461,7 @@ fn pointer_move_falls_back_to_field_pan(target: &crate::input::pointer::PointerT
 fn begin_field_pan<D: SessionDriver>(
     session: &mut Session<D>,
     route: &crate::input::pointer::PointerRoute,
+    button: u32,
     serial: smithay::utils::Serial,
 ) -> bool {
     if !matches!(
@@ -455,14 +473,107 @@ fn begin_field_pan<D: SessionDriver>(
     }
     wayland::focus::select_output(&mut session.wayland, &route.output);
     super::focus::focus_layer(session, None, serial);
+    start_field_pan_grab(session, route, button);
+    true
+}
+
+/// Layer-shell surfaces beneath the windows (wallpaper daemons, desktop
+/// widgets) are part of the desktop surface, so `pan-field-always` pans over
+/// them. Panels, launchers, notifications, and lock screens live on the Top and
+/// Overlay layers: they are screen-fixed UI that must keep their own clicks.
+fn layer_allows_field_pan_always(layer: smithay::wayland::shell::wlr_layer::Layer) -> bool {
+    use smithay::wayland::shell::wlr_layer::Layer;
+    matches!(layer, Layer::Background | Layer::Bottom)
+}
+
+/// Windows `pan-field-always` may begin over. It follows `drag-pan`'s policy
+/// for a window the compositor may grab (X11 override-redirect menus and
+/// tooltips are excluded) and additionally leaves fullscreen windows, including
+/// ones whose fullscreen request is still pending, entirely to the client.
+fn window_allows_field_pan_always<D: SessionDriver>(session: &Session<D>, window: &Window) -> bool {
+    crate::window::accepts_compositor_grab(window)
+        && !crate::xwayland::is_fullscreen(window)
+        && !window.wl_surface().is_some_and(|surface| {
+            session
+                .fullscreen
+                .is_fullscreen_or_pending(surface.as_ref())
+        })
+}
+
+/// Begins a camera pan for `pan-field-always`.
+///
+/// `pan-field` starts only on empty background because, bound to a bare
+/// button, it would otherwise hijack every click. This variant is meant for a
+/// modified chord and starts over windows, their titlebars and borders,
+/// collapsed nodes, and desktop-level layer surfaces as well. The drag then
+/// reuses [`Grab::Pan`](crate::input::grab::Grab::Pan), so motion, momentum,
+/// zoom scaling, and release behave exactly like an ordinary background pan.
+///
+/// Every refusal returns `false` before any state changes, so the press
+/// reaches the client precisely as if the chord were unbound. That is what
+/// keeps fullscreen apps, games holding a pointer lock or confinement, and a
+/// client's in-progress drag untouched.
+fn begin_field_pan_always<D: SessionDriver>(
+    session: &mut Session<D>,
+    route: &crate::input::pointer::PointerRoute,
+    button: u32,
+    serial: smithay::utils::Serial,
+) -> bool {
+    let target_allowed = match &route.target {
+        crate::input::pointer::PointerTarget::Background => true,
+        crate::input::pointer::PointerTarget::Layer(layer) => {
+            layer_allows_field_pan_always(layer.layer())
+        }
+        crate::input::pointer::PointerTarget::Window(window)
+        | crate::input::pointer::PointerTarget::Decoration { window, .. } => {
+            window_allows_field_pan_always(session, window)
+        }
+    };
+    if !target_allowed {
+        return false;
+    }
+    // Fullscreen, Field maximize, and an open cluster workspace own the camera.
+    // Starting a grab the motion handler cannot honor would only eat the click.
+    if !session.cameras.is_pannable(&route.output.name()) {
+        return false;
+    }
+    // A client that is mid-drag or holds a pointer lock/confinement keeps the
+    // pointer; a pan started now would freeze or fight it.
+    if session
+        .seat
+        .get_pointer()
+        .is_some_and(|pointer| pointer.is_grabbed())
+        || super::pointer::has_active_constraint(session)
+    {
+        return false;
+    }
+    wayland::focus::select_output(&mut session.wayland, &route.output);
+    // Dragging empty background drops layer keyboard focus, exactly as
+    // `pan-field` does. Over a window the drag is navigation, not interaction,
+    // so keyboard focus stays where it was.
+    if matches!(
+        &route.target,
+        crate::input::pointer::PointerTarget::Background
+    ) {
+        super::focus::focus_layer(session, None, serial);
+    }
+    start_field_pan_grab(session, route, button);
+    true
+}
+
+fn start_field_pan_grab<D: SessionDriver>(
+    session: &mut Session<D>,
+    route: &crate::input::pointer::PointerRoute,
+    button: u32,
+) {
     session.interactions.grab = crate::input::grab::Grab::Pan {
         output: route.output.name(),
+        button,
     };
     session.cursor.set_override(
         crate::cursor::OverrideSource::Grab,
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
-    true
 }
 
 pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(
@@ -2570,7 +2681,7 @@ where
                 }
             }
         }
-        crate::input::grab::Grab::Pan { output } => {
+        crate::input::grab::Grab::Pan { output, .. } => {
             let dx = position_after.0 - position_before.0;
             let dy = position_after.1 - position_before.1;
             if let Some(camera) = session.cameras.get_mut(output) {
@@ -3123,6 +3234,7 @@ where
                     action,
                     halley_config::Action::PointerMoveWindow
                         | halley_config::Action::PointerResizeWindow
+                        | halley_config::Action::PointerPanFieldAlways
                 )
             }) && dispatch_pointer_grab_action(
                 session,
@@ -3484,6 +3596,7 @@ where
                         halley_config::Action::PointerMoveWindow
                             | halley_config::Action::PointerResizeWindow
                             | halley_config::Action::PointerPanField
+                            | halley_config::Action::PointerPanFieldAlways
                             | halley_config::Action::PointerDragPan
                     );
                     let handled = if pointer_grab {
@@ -3818,18 +3931,25 @@ where
                             session.request_redraw();
                         }
                         intercepted = true;
-                    } else if matches!(
-                        session.interactions.grab,
-                        crate::input::grab::Grab::Pan { .. }
-                    ) {
-                        session.interactions.grab = crate::input::grab::Grab::None;
-                        session
-                            .cursor
-                            .set_override(crate::cursor::OverrideSource::Grab, None);
-                        intercepted = true;
                     }
                 }
             }
+        }
+
+        // A camera pan ends with the release of the button that began it, which
+        // may be any pointer button a `pan-field`/`pan-field-always` chord uses.
+        if !intercepted
+            && releases_field_pan(
+                &session.interactions.grab,
+                button,
+                state == ButtonState::Released,
+            )
+        {
+            session.interactions.grab = crate::input::grab::Grab::None;
+            session
+                .cursor
+                .set_override(crate::cursor::OverrideSource::Grab, None);
+            intercepted = true;
         }
 
         if !intercepted
@@ -4052,10 +4172,11 @@ mod tests {
     use super::{
         activation_shows_cluster_indicator, begin_cluster_core_direct_motion, bloom_drag_handoff,
         collapsed_node_drop_origin, drag_threshold_reached, forward_pointer_button,
-        outside_lift_press_dismisses, pending_window_move_motion,
+        layer_allows_field_pan_always, outside_lift_press_dismisses, pending_window_move_motion,
         plain_background_press_dismisses_bloom, pointer_move_falls_back_to_field_pan,
-        preferred_cluster_navigation_focus, releases_pending_window_move, sampled_drag_velocity,
-        shortcut_policy_allows_bindings, stacking_cycle_direction, typing_abandons_bloom,
+        preferred_cluster_navigation_focus, releases_field_pan, releases_pending_window_move,
+        sampled_drag_velocity, shortcut_policy_allows_bindings, stacking_cycle_direction,
+        typing_abandons_bloom,
     };
     // Model the real two-phase dispatch: consume pending state before interception,
     // then call the forwarding hook only for events delivered to the client.
@@ -4258,6 +4379,47 @@ mod tests {
         assert!(pointer_move_falls_back_to_field_pan(
             &crate::input::pointer::PointerTarget::Background
         ));
+    }
+
+    #[test]
+    fn camera_pan_ends_only_with_the_button_that_began_it() {
+        use crate::input::grab::Grab;
+        const BTN_MIDDLE: u32 = 0x112;
+
+        let pan = Grab::Pan {
+            output: "DP-1".into(),
+            button: BTN_MIDDLE,
+        };
+        assert!(releases_field_pan(&pan, BTN_MIDDLE, true));
+        assert!(
+            !releases_field_pan(&pan, BTN_MIDDLE, false),
+            "the press that began the pan must not end it"
+        );
+        assert!(
+            !releases_field_pan(&pan, BTN_LEFT, true),
+            "releasing another button must not drop a middle-button pan"
+        );
+        assert!(!releases_field_pan(&pan, BTN_RIGHT, true));
+
+        // A left-button pan (the historical `pan-field` binding) still ends on
+        // the left release, and nothing but a pan is ever released here.
+        let left = Grab::Pan {
+            output: "DP-1".into(),
+            button: BTN_LEFT,
+        };
+        assert!(releases_field_pan(&left, BTN_LEFT, true));
+        assert!(!releases_field_pan(&left, BTN_MIDDLE, true));
+        assert!(!releases_field_pan(&Grab::None, BTN_LEFT, true));
+    }
+
+    #[test]
+    fn always_pan_covers_desktop_layers_but_not_panels_or_overlays() {
+        use smithay::wayland::shell::wlr_layer::Layer;
+
+        assert!(layer_allows_field_pan_always(Layer::Background));
+        assert!(layer_allows_field_pan_always(Layer::Bottom));
+        assert!(!layer_allows_field_pan_always(Layer::Top));
+        assert!(!layer_allows_field_pan_always(Layer::Overlay));
     }
 
     #[test]

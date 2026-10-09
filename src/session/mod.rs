@@ -145,6 +145,7 @@ fn dispatch_action(
         Action::PointerMoveWindow
         | Action::PointerResizeWindow
         | Action::PointerPanField
+        | Action::PointerPanFieldAlways
         | Action::PointerDragPan => {
             eventline::warn!("keybinds: pointer grab action used outside a pointer-button binding")
         }

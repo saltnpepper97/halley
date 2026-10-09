@@ -384,6 +384,7 @@ fn parse_gesture_action(value: &Value, path: &str) -> Result<GestureAction, Inpu
             | crate::Action::PointerMoveWindow
             | crate::Action::PointerResizeWindow
             | crate::Action::PointerPanField
+            | crate::Action::PointerPanFieldAlways
             | crate::Action::PointerDragPan => Err(InputParseError(format!(
                 "{path}: unsupported gesture action {value:?}"
             ))),
@@ -1046,6 +1047,7 @@ end
             ("hold-0 \"zoom-reset\"", "unsupported field"),
             ("hold-3 \"notify-send hi\"", "unsupported gesture action"),
             ("hold-3 \"move-window\"", "unsupported gesture action"),
+            ("hold-3 \"pan-field-always\"", "unsupported gesture action"),
         ] {
             let error =
                 parse(&format!("input:\n  gestures:\n    {binding}\n  end\nend\n")).unwrap_err();

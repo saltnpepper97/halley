@@ -210,6 +210,7 @@ pub(crate) fn parse_action(s: &str) -> Action {
         "move-window" | "move_window" => Action::PointerMoveWindow,
         "resize-window" | "resize_window" => Action::PointerResizeWindow,
         "pan-field" | "pan_field" => Action::PointerPanField,
+        "pan-field-always" | "pan_field_always" => Action::PointerPanFieldAlways,
         "drag-pan" | "drag_pan" | "field-jump" | "field_jump" => Action::PointerDragPan,
         "reload" | "reload-config" | "reload_config" => Action::Reload,
         "open-terminal" | "open_terminal" | "default-terminal" | "default_terminal" => {
@@ -819,6 +820,38 @@ end
         for alias in ["drag_pan", "field-jump", "field_jump"] {
             assert_eq!(parse_action(alias), Action::PointerDragPan);
         }
+    }
+
+    #[test]
+    fn parses_pan_field_always_as_a_distinct_pointer_action() {
+        let kb = parse(
+            r#"
+keybinds:
+  mod "super"
+  "$var.mod+click-middle" "pan-field-always"
+  "$var.mod+shift+click-back" "pan_field_always"
+  "click-left" "pan-field"
+  "$var.mod+shift+h" "pan-field left"
+end
+"#,
+        );
+        assert_eq!(kb.binds[0].action, Action::PointerPanFieldAlways);
+        assert_eq!(kb.binds[0].key, "click-middle");
+        assert!(kb.binds[0].modifiers.super_key);
+        assert_eq!(kb.binds[0].scope, BindingScope::Field);
+        assert!(!kb.binds[0].repeat);
+        assert_eq!(kb.binds[1].action, Action::PointerPanFieldAlways);
+        assert_eq!(kb.binds[1].key, "click-back");
+        assert!(kb.binds[1].modifiers.super_key && kb.binds[1].modifiers.shift);
+        // The new name never shadows the existing empty-background drag or the
+        // directional keyboard form.
+        assert_eq!(kb.binds[2].action, Action::PointerPanField);
+        assert_eq!(kb.binds[3].action, Action::PanField(crate::Direction::Left));
+        assert_ne!(
+            parse_action("pan-field-always"),
+            parse_action("pan-field"),
+            "always-pan must stay a separate, explicitly requested action"
+        );
     }
 
     #[test]

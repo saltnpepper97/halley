@@ -260,10 +260,13 @@ pub enum Grab {
         id: halley_core::cluster::ClusterId,
         screen_offset: Vec2,
     },
-    /// Left-click-drag on empty desktop. The output is captured at press
-    /// time so crossing a boundary mid-drag never pans both monitors.
+    /// Camera pan drag (`pan-field`, `pan-field-always`, or `move-window`
+    /// falling back on empty background). The output is captured at press
+    /// time so crossing a boundary mid-drag never pans both monitors, and the
+    /// owning button is remembered so only its release ends the drag.
     Pan {
         output: String,
+        button: u32,
     },
     /// Mod+right-click-drag on a window.
     ResizeWindow(ResizeState),

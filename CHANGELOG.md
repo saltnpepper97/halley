@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add the `pan-field-always` pointer action, which pans the camera from a drag
+  that begins anywhere (over windows, titlebars, collapsed nodes, and wallpaper
+  layers) instead of only on empty field. It has no default binding, works on
+  any pointer button, and leaves fullscreen windows, panels and overlays,
+  pointer locks and confinements, and locked cameras (fullscreen, maximize, open
+  cluster) to the client. Existing `pan-field` binds are unchanged.
 - Support `xdg-dialog-v1` so applications can declare modal dialogs. Activating
   a parent focuses its eligible modal descendant; late modal hints and parent
   changes follow the same policy without stealing unrelated application focus.
@@ -23,6 +29,8 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- End a camera pan on the release of the button that started it, so `pan-field` and
+  `pan-field-always` work on any pointer button instead of only `click-left`.
 - Skip duplicate `autostart.once` command entries without changing explicit
   reload commands. Report failed autostarts once with their command, exit status,
   and persistent log path; include bounded stderr context for failed session
