@@ -399,9 +399,10 @@ fn window_under(
     output_local: Point<f64, Logical>,
     hit_kind: WindowHitKind,
 ) -> Option<PointerRoute> {
+    let output_geometry = context.space.output_geometry(output)?;
     let screen_position = (
-        context.space.output_geometry(output)?.loc.x as f64 + output_local.x,
-        context.space.output_geometry(output)?.loc.y as f64 + output_local.y,
+        output_geometry.loc.x as f64 + output_local.x,
+        output_geometry.loc.y as f64 + output_local.y,
     );
     let screen_location = Point::<f64, Logical>::from(screen_position);
     let exclusive = crate::presentation::window::cluster_exclusive_presentation(
@@ -511,7 +512,28 @@ fn window_under(
         });
         if hit_kind == WindowHitKind::Any && !fullscreen && chrome_visible {
             let source_height = presentation.source_geometry().size.h.max(1);
-            let visual_scale = visual_geometry.size.h as f32 / source_height as f32;
+            let chrome_return = surface.as_ref().and_then(|surface| {
+                context
+                    .fullscreen
+                    .chrome_return_geometry(surface.as_ref(), output)
+            });
+            let (chrome_geometry, visual_scale) = chrome_return.map_or_else(
+                || {
+                    (
+                        visual_geometry,
+                        visual_geometry.size.h as f32 / source_height as f32,
+                    )
+                },
+                |(rect, scale)| {
+                    (
+                        Rectangle::new(
+                            output_geometry.loc + rect.loc.to_logical(1),
+                            rect.size.to_logical(1),
+                        ),
+                        scale,
+                    )
+                },
+            );
             let border_width =
                 crate::render::window_decoration::scaled_metric(chrome.border_width, visual_scale);
             let titlebar_layout = chrome.has_server_titlebar().then(|| {
@@ -522,7 +544,7 @@ fn window_under(
                 )
                 .height;
                 crate::titlebar::DecorationLayout::new(
-                    visual_geometry,
+                    chrome_geometry,
                     border_width,
                     titlebar_height,
                     &context.decorations.titlebars,
@@ -550,7 +572,7 @@ fn window_under(
                         border_width,
                         titlebar_height: None,
                     }
-                    .outer_rect(visual_geometry)
+                    .outer_rect(chrome_geometry)
                 },
                 |layout| layout.outer,
             );
@@ -563,13 +585,14 @@ fn window_under(
             ) {
                 return Some(PointerRoute {
                     output: output.clone(),
-                    location: presentation.source_from_screen(screen_location),
+                    location: presentation
+                        .source_from_visual_rect(screen_location, chrome_geometry),
                     focus: None,
                     target: PointerTarget::Decoration {
                         window: window.clone(),
                         hit,
                     },
-                    visual_geometry: Some(visual_geometry),
+                    visual_geometry: Some(chrome_geometry),
                     is_desktop_popup: false,
                 });
             }

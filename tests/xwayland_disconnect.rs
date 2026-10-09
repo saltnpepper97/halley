@@ -1360,7 +1360,7 @@ fn xdg_dialog_nested_and_collapsed_children_do_not_strand_keyboard_focus() {
     assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
 }
 
-fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
+fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::FileExt;
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
@@ -1404,11 +1404,28 @@ fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
     assert!(matches!(response, Response::Frame(_)), "{response:?}");
     let mut pixels = vec![0; size];
     file.read_exact_at(&mut pixels, 0).unwrap();
-    pixels
-        .chunks_exact(4)
+    let mut count = 0;
+    let mut min_x = usize::MAX;
+    let mut min_y = usize::MAX;
+    let mut max_x = 0;
+    let mut max_y = 0;
+    for (index, p) in pixels.chunks_exact(4).enumerate() {
         // Detect partially faded green chrome too, not just its opaque endpoint.
-        .filter(|p| p[1] > 64 && u16::from(p[1]) > u16::from(p[0].max(p[2])) + 32)
-        .count()
+        if p[1] > 64 && u16::from(p[1]) > u16::from(p[0].max(p[2])) + 32 {
+            let x = index % mode.width as usize;
+            let y = index / mode.width as usize;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            count += 1;
+        }
+    }
+    (count, (count > 0).then_some([min_x, min_y, max_x, max_y]))
+}
+
+fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
+    capture_green_chrome(fixture).0
 }
 
 #[test]
@@ -1430,6 +1447,9 @@ decorations:
   end
 end
 animations:
+  window-open:
+    enabled false
+  end
   fullscreen:
     motion "easing"
     duration-ms 1200
@@ -1457,9 +1477,10 @@ end
         manager.get_toplevel_decoration(state.toplevel.as_ref().unwrap(), &queue.handle(), ());
     decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ServerSide);
     queue.roundtrip(&mut state).unwrap();
-    wait_for("visible windowed titlebar", || {
+    let windowed_bounds = wait_for("visible windowed titlebar", || {
         queue.roundtrip(&mut state).unwrap();
-        (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
+        let (count, bounds) = capture_green_chrome(&mut fixture);
+        (count > 1000).then(|| bounds.unwrap())
     });
     state.toplevel.as_ref().unwrap().set_fullscreen(None);
     wait_for("fullscreen configure", || {
@@ -1483,12 +1504,21 @@ end
         "chrome appeared early during fullscreen return motion"
     );
     thread::sleep(Duration::from_millis(700));
+    let (count, fading_bounds) = capture_green_chrome(&mut fixture);
     assert!(
-        count_green_capture_pixels(&mut fixture) > 1000,
+        count > 1000,
         "chrome stayed hidden until a separate late fade instead of returning with the window"
     );
+    assert_eq!(
+        fading_bounds,
+        Some(windowed_bounds),
+        "the returning titlebar must fade at its windowed position and size, without sliding or scaling"
+    );
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(capture_green_chrome(&mut fixture).1, Some(windowed_bounds));
     thread::sleep(Duration::from_millis(450));
     wait_for("fully restored titlebar after animation cleanup", || {
         (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
     });
+    assert_eq!(capture_green_chrome(&mut fixture).1, Some(windowed_bounds));
 }

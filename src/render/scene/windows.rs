@@ -242,7 +242,12 @@ pub(super) fn live_window_elements(
         visual.presentation_rect.size.h,
         visual.animated_rect.size.h,
     );
-    let decoration_scale = visual.zoom_scale * presentation_scale_y.max(0.0);
+    let content_decoration_scale = visual.zoom_scale * presentation_scale_y.max(0.0);
+    let chrome_return = context
+        .fullscreen
+        .chrome_return_geometry(window_surface.as_ref(), context.output);
+    let (chrome_rect, decoration_scale) =
+        chrome_return.unwrap_or((visual.animated_rect, content_decoration_scale));
     let titlebar_metrics = crate::titlebar::rendered_metrics(
         &context.decorations.titlebars,
         context.font.size,
@@ -254,11 +259,15 @@ pub(super) fn live_window_elements(
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
             context.decorations.border_radius_px,
-            decoration_scale,
+            content_decoration_scale,
         ) as f32
     } else {
         0.0
     };
+    let chrome_radius = crate::render::window_decoration::scaled_metric(
+        context.decorations.border_radius_px,
+        decoration_scale,
+    ) as f32;
     // Override-redirect X11 windows are unmanaged for focus, borders, shadows,
     // and titlebars, but their client content should still honor the configured
     // window radius. This covers popup windows such as Steam menus without
@@ -335,7 +344,7 @@ pub(super) fn live_window_elements(
             renderer,
             window,
             context.instance_identity,
-            visual.animated_rect,
+            chrome_rect,
             titlebar_height,
             titlebar_metrics.glyph_size,
             decoration_scale,
@@ -622,9 +631,9 @@ pub(super) fn live_window_elements(
                         crate::render::window_decoration::slot::BODY_BORDER,
                         context.instance_identity,
                     ),
-                    visual.animated_rect,
+                    chrome_rect,
                     border_width,
-                    content_radius,
+                    chrome_radius,
                     border_color,
                     chrome_alpha,
                 )
@@ -636,9 +645,9 @@ pub(super) fn live_window_elements(
                         crate::render::window_decoration::slot::BORDER,
                         context.instance_identity,
                     ),
-                    visual.animated_rect,
+                    chrome_rect,
                     border_width,
-                    content_radius,
+                    chrome_radius,
                     border_color,
                     chrome_alpha,
                 )
@@ -655,7 +664,7 @@ pub(super) fn live_window_elements(
                             context.instance_identity,
                         )
                     }),
-                    visual.animated_rect,
+                    chrome_rect,
                     border_width,
                     border_color * chrome_alpha,
                 )
@@ -670,7 +679,7 @@ pub(super) fn live_window_elements(
                             context.instance_identity,
                         )
                     }),
-                    visual.animated_rect,
+                    chrome_rect,
                     border_width,
                     border_color * chrome_alpha,
                 )
@@ -684,7 +693,7 @@ pub(super) fn live_window_elements(
         let border_outset = border_width.max(0);
         let caster = if server_titlebar {
             crate::titlebar::DecorationLayout::new(
-                visual.animated_rect,
+                chrome_rect,
                 border_outset,
                 titlebar_height,
                 &context.decorations.titlebars,
@@ -693,13 +702,13 @@ pub(super) fn live_window_elements(
         } else {
             Rectangle::new(
                 (
-                    visual.animated_rect.loc.x - border_outset,
-                    visual.animated_rect.loc.y - border_outset,
+                    chrome_rect.loc.x - border_outset,
+                    chrome_rect.loc.y - border_outset,
                 )
                     .into(),
                 (
-                    (visual.animated_rect.size.w + border_outset * 2).max(1),
-                    (visual.animated_rect.size.h + border_outset * 2).max(1),
+                    (chrome_rect.size.w + border_outset * 2).max(1),
+                    (chrome_rect.size.h + border_outset * 2).max(1),
                 )
                     .into(),
             )
@@ -707,12 +716,10 @@ pub(super) fn live_window_elements(
         let caster_radii = if rounded_available && server_titlebar {
             crate::render::window_decoration::CornerRadii {
                 top: titlebar_metrics.radius as f32,
-                bottom: content_radius + border_outset as f32,
+                bottom: chrome_radius + border_outset as f32,
             }
         } else if rounded_available {
-            crate::render::window_decoration::CornerRadii::all(
-                content_radius + border_outset as f32,
-            )
+            crate::render::window_decoration::CornerRadii::all(chrome_radius + border_outset as f32)
         } else {
             crate::render::window_decoration::CornerRadii::default()
         };
@@ -742,7 +749,7 @@ pub(super) fn live_window_elements(
             ),
             if server_titlebar {
                 let titlebar = crate::titlebar::DecorationLayout::new(
-                    visual.animated_rect,
+                    chrome_rect,
                     border_width,
                     titlebar_height,
                     &context.decorations.titlebars,
@@ -752,13 +759,13 @@ pub(super) fn live_window_elements(
                     context.pins,
                     titlebar,
                     context.decorations.titlebars.button_position,
-                    visual.zoom_scale,
+                    chrome_return.map_or(visual.zoom_scale, |(_, scale)| scale),
                 )
             } else {
                 crate::render::pin::window_badge_rect(
                     context.pins,
-                    visual.animated_rect,
-                    visual.zoom_scale,
+                    chrome_rect,
+                    chrome_return.map_or(visual.zoom_scale, |(_, scale)| scale),
                 )
             },
             chrome_alpha,

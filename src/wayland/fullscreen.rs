@@ -1369,6 +1369,20 @@ impl FullscreenManager {
         })
     }
 
+    /// Chrome returns at the final windowed endpoint while client pixels keep
+    /// following the fullscreen motion. Share this rectangle with input routing.
+    pub(crate) fn chrome_return_geometry(
+        &self,
+        surface: &WlSurface,
+        output: &Output,
+    ) -> Option<(Rectangle<i32, Physical>, f32)> {
+        let entry = self.windows.get(surface)?;
+        if entry.target_output != output.name() {
+            return None;
+        }
+        fullscreen_entry_chrome_return_geometry(entry)
+    }
+
     pub(crate) fn occupants_on_output(
         &self,
         output: &str,
@@ -1709,6 +1723,17 @@ fn fullscreen_origin_allows_global_blur(origin: FullscreenOrigin) -> bool {
 
 fn fullscreen_entry_suppresses_chrome(entry: &FullscreenWindow) -> bool {
     entry.desired && entry.origin != FullscreenOrigin::Maximize
+}
+
+fn fullscreen_entry_chrome_return_geometry(
+    entry: &FullscreenWindow,
+) -> Option<(Rectangle<i32, Physical>, f32)> {
+    if entry.desired || entry.origin == FullscreenOrigin::Maximize || entry.presentation_paused {
+        return None;
+    }
+    let rect = entry.restore_presentation_output?;
+    let native_height = entry.restore.as_ref()?.geometry.size.h.max(1);
+    Some((rect, rect.size.h as f32 / native_height as f32))
 }
 
 fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: Duration) -> f32 {
@@ -2945,6 +2970,66 @@ mod tests {
             fullscreen_entry_chrome_alpha(&entry, true, start + Duration::from_millis(50)),
             1.0
         );
+    }
+
+    #[test]
+    fn exit_chrome_keeps_the_restore_endpoint_and_scale_while_client_motion_changes() {
+        let mut entry = test_entry(false);
+        let restore = Rectangle::new((250, 320).into(), (500, 300).into());
+        entry.restore = Some(WindowedPlacement {
+            location: (200, 150).into(),
+            geometry: Rectangle::new((200, 150).into(), (1000, 600).into()),
+            output: Some("DP-1".into()),
+        });
+        entry.restore_presentation_output = Some(restore);
+        // A mode handoff's source must not replace the original restore target.
+        entry.presentation_output = Some(Rectangle::from_size((1920, 1080).into()));
+        entry.transition = Some(MotionTimeline::between(
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 400,
+                curve: AnimationCurve::Linear,
+            }),
+            Duration::ZERO,
+            1.0,
+            0.0,
+            0.0,
+        ));
+        for millis in [0, 140, 240, 340, 400] {
+            let presentation =
+                fullscreen_presentation(&entry, Duration::from_millis(millis)).unwrap();
+            if millis < 400 {
+                assert_ne!(
+                    presentation.client_rect(restore, (1920, 1080).into()),
+                    restore
+                );
+            }
+            assert_eq!(
+                fullscreen_entry_chrome_return_geometry(&entry),
+                Some((restore, 0.5))
+            );
+        }
+        // Pending client commits still retain the endpoint, but chrome_alpha
+        // keeps it invisible until the accepted restore commit.
+        entry.active = true;
+        assert_eq!(
+            fullscreen_entry_chrome_return_geometry(&entry),
+            Some((restore, 0.5))
+        );
+        assert_eq!(
+            fullscreen_entry_chrome_alpha(&entry, true, Duration::ZERO),
+            0.0
+        );
+        entry.desired = true;
+        assert_eq!(fullscreen_entry_chrome_return_geometry(&entry), None);
+        entry.desired = false;
+        entry.origin = FullscreenOrigin::Maximize;
+        assert_eq!(fullscreen_entry_chrome_return_geometry(&entry), None);
+        entry.origin = FullscreenOrigin::Client;
+        entry.presentation_paused = true;
+        assert_eq!(fullscreen_entry_chrome_return_geometry(&entry), None);
+        entry.presentation_paused = false;
+        entry.restore_presentation_output = None;
+        assert_eq!(fullscreen_entry_chrome_return_geometry(&entry), None);
     }
 
     #[test]

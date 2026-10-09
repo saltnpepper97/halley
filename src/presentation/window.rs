@@ -617,11 +617,15 @@ impl WindowPresentation {
     }
 
     pub fn source_from_screen(&self, screen: Point<f64, Logical>) -> Point<f64, Logical> {
-        map_point(
-            screen,
-            self.visual_geometry.to_f64(),
-            self.source_geometry.to_f64(),
-        )
+        self.source_from_visual_rect(screen, self.visual_geometry)
+    }
+
+    pub(crate) fn source_from_visual_rect(
+        &self,
+        screen: Point<f64, Logical>,
+        visual: Rectangle<i32, Logical>,
+    ) -> Point<f64, Logical> {
+        map_point(screen, visual.to_f64(), self.source_geometry.to_f64())
     }
 
     pub fn screen_from_source(&self, source: Point<f64, Logical>) -> Point<f64, Logical> {

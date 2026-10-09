@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Fade titlebars, borders, shadows, and pin badges back in at their final
+  windowed position and scale when leaving fullscreen, independently of the
+  client's fullscreen motion. Keep decoration hitboxes aligned during the fade.
 - Count all eligible windows and cluster cores in a crowded Bearings group
   before applying its nearest member's distance fade. Preserve the existing
   distance cutoff and pinned-target exemption, and omit fully faded groups
