@@ -55,8 +55,12 @@ ready and never flashes a temporary letter. `show-pinned` keeps pinned field
 nodes and pinned collapsed-cluster cores at full overlay opacity instead of
 applying distance fade. Their chips reserve space for and display the same
 original-Halley pin badge used on the field. Cluster members are never
-pinnable. `fade-distance` controls
-the old distance fade and is clamped from 120 through 100000 field pixels.
+pinnable. `fade-distance` is clamped from 120 through 100000 field pixels.
+Unpinned chips dim to 34% opacity at that distance, then disappear at 1.5 times
+that distance (1800 field pixels with the default). Crowded groups include all
+their eligible members in the count and use the nearest member's distance for
+the fade and click target. A group disappears when even its nearest member is
+beyond the cutoff, unless `show-pinned` keeps a pinned member visible.
 
 Labels and distance text use the shared Cosmic Text renderer and the global
 `font:` section. Titles are Unicode-safe and shorten after 24 characters.

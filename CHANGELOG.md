@@ -29,6 +29,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Count all eligible windows and cluster cores in a crowded Bearings group
+  before applying its nearest member's distance fade. Preserve the existing
+  distance cutoff and pinned-target exemption, and omit fully faded groups
+  from layout and pointer hit-testing.
 - Keep an existing compositor move, resize, landmark drag, or camera pan intact
   when another pan chord is pressed; reject the new pan before changing cursor
   overrides or output and keyboard focus.

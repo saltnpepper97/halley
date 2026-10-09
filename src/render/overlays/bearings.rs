@@ -398,14 +398,6 @@ fn collect_layouts(
         let lane = Lane::from(bearing);
         let distance = offscreen_distance(node.pos, node.footprint, &viewport);
         let pinned = node.pinned;
-        let alpha = if pinned && config.show_pinned {
-            mix
-        } else {
-            mix * distance_alpha(config.fade_distance, distance)
-        };
-        if alpha <= 0.002 {
-            continue;
-        }
         let label = bearing_label(record);
         let distance_text = config
             .show_distance
@@ -455,14 +447,6 @@ fn collect_layouts(
             .registry()
             .cluster(cluster)
             .is_some_and(|cluster| cluster.pinned);
-        let alpha = if pinned && config.show_pinned {
-            mix
-        } else {
-            mix * distance_alpha(config.fade_distance, distance)
-        };
-        if alpha <= 0.002 {
-            continue;
-        }
         let label = truncate_label(&metadata.name, || format!("Cluster {}", cluster.as_u64()));
         let distance_text = config
             .show_distance
@@ -537,19 +521,17 @@ fn group_candidates(
     for candidate in candidates {
         if let Some(previous) = current.last()
             && starts_new_group(previous, &candidate)
+            && let Some(group) =
+                finalize_group(renderer, ui_text, config, mix, std::mem::take(&mut current))?
         {
-            groups.push(finalize_group(
-                renderer,
-                ui_text,
-                config,
-                mix,
-                std::mem::take(&mut current),
-            )?);
+            groups.push(group);
         }
         current.push(candidate);
     }
-    if !current.is_empty() {
-        groups.push(finalize_group(renderer, ui_text, config, mix, current)?);
+    if !current.is_empty()
+        && let Some(group) = finalize_group(renderer, ui_text, config, mix, current)?
+    {
+        groups.push(group);
     }
     Ok(groups)
 }
@@ -565,7 +547,7 @@ fn finalize_group(
     config: halley_config::Bearings,
     mix: f32,
     members: Vec<Candidate>,
-) -> Result<Group, Box<dyn Error>> {
+) -> Result<Option<Group>, Box<dyn Error>> {
     let nearest = members
         .iter()
         .min_by(|left, right| {
@@ -582,6 +564,16 @@ fn finalize_group(
         format!("{count} nodes")
     };
     let pinned = members.iter().any(|member| member.pinned);
+    // Count the whole crowded group before applying its nearest target's fade.
+    // Fully faded groups must not create layouts or invisible hitboxes.
+    let alpha = if pinned && config.show_pinned {
+        mix
+    } else {
+        mix * distance_alpha(config.fade_distance, nearest.distance)
+    };
+    if alpha <= 0.002 {
+        return Ok(None);
+    }
     let distance_text = config
         .show_distance
         .then(|| format!("{:.0}px", nearest.distance.round()));
@@ -595,7 +587,7 @@ fn finalize_group(
         distance_text.as_deref(),
         pinned,
     )?;
-    Ok(Group {
+    Ok(Some(Group {
         target: nearest.target,
         lane: nearest.lane,
         projected: members.iter().map(|member| member.projected).sum::<f32>() / count as f32,
@@ -603,13 +595,9 @@ fn finalize_group(
         label,
         icon: (count == 1).then(|| nearest.icon.clone()).flatten(),
         pinned,
-        alpha: if pinned && config.show_pinned {
-            mix
-        } else {
-            mix * distance_alpha(config.fade_distance, nearest.distance)
-        },
+        alpha,
         size,
-    })
+    }))
 }
 
 fn layout_groups(lane: Lane, mut groups: Vec<Group>, screen_w: i32, screen_h: i32) -> Vec<Layout> {
@@ -935,7 +923,102 @@ mod tests {
     fn distance_fade_matches_old_halley_thresholds() {
         assert_eq!(distance_alpha(1_200.0, 0.0), 1.0);
         assert!((distance_alpha(1_200.0, 1_200.0) - MIN_DISTANCE_ALPHA).abs() < 0.0001);
+        assert!((distance_alpha(1_200.0, 1_500.0) - MIN_DISTANCE_ALPHA * 0.5).abs() < 0.0001);
         assert_eq!(distance_alpha(1_200.0, 1_800.0), 0.0);
+        assert_eq!(distance_alpha(1_200.0, 100_000.0), 0.0);
+    }
+
+    #[test]
+    #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+    fn four_window_group_counts_far_members_and_still_disappears_at_distance_cutoff() {
+        use smithay::backend::egl::{EGLContext, EGLDisplay, native::EGLSurfacelessDisplay};
+        let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+        let context = EGLContext::new(&display).unwrap();
+        let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+        let mut text = crate::render::text::UiTextRenderer::default();
+        let config = halley_config::Bearings::default();
+        let viewport = Viewport::new(
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1_920.0,
+                y: 1_200.0,
+            },
+        );
+        let footprint = Vec2 {
+            x: 1_000.0,
+            y: 640.0,
+        };
+        let size = Size {
+            chip_w: 44,
+            chip_h: 24,
+            distance_w: 0,
+            distance_h: 0,
+            show_icon: false,
+            crowding_w: 44,
+        };
+        let mut candidates = (0..4)
+            .map(|index| {
+                let position = Vec2 {
+                    x: -1_580.0 - index as f32 * 1_100.0,
+                    y: 0.0,
+                };
+                assert!(!intersects_view(position, footprint, &viewport));
+                assert_eq!(bearing_to_point(&viewport, position), Some(Bearing::W));
+                Candidate {
+                    target: BearingTarget::Node(halley_core::field::NodeId::new(index + 1)),
+                    lane: Lane::W,
+                    distance: offscreen_distance(position, footprint, &viewport),
+                    ..candidate(
+                        projected_anchor(position, &viewport, Lane::W, 1_920, 1_200),
+                        size,
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
+        let groups =
+            group_candidates(&mut renderer, &mut text, config, 1.0, candidates.clone()).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].label, "4 nodes");
+        assert_eq!(groups[0].target, candidates[0].target);
+        assert!(groups[0].alpha > 0.002);
+
+        // An isolated far target disappears rather than becoming a permanent chip.
+        assert!(
+            group_candidates(
+                &mut renderer,
+                &mut text,
+                config,
+                1.0,
+                vec![candidates[3].clone()]
+            )
+            .unwrap()
+            .is_empty()
+        );
+        for candidate in &mut candidates {
+            candidate.distance += 2_000.0;
+        }
+        assert!(
+            group_candidates(&mut renderer, &mut text, config, 1.0, candidates.clone())
+                .unwrap()
+                .is_empty()
+        );
+
+        // Preserve the existing explicit exemption for pinned targets.
+        candidates[3].pinned = true;
+        let groups =
+            group_candidates(&mut renderer, &mut text, config, 1.0, candidates.clone()).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].label, "4 nodes");
+        assert_eq!(groups[0].alpha, 1.0);
+        let config = halley_config::Bearings {
+            show_pinned: false,
+            ..config
+        };
+        assert!(
+            group_candidates(&mut renderer, &mut text, config, 1.0, candidates)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
