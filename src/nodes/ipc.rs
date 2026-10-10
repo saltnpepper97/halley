@@ -73,20 +73,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 Ok(id) => id,
                 Err(error) => return halley_ipc::Response::Error(error),
             };
-            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-            let focused = if session
-                .nodes
-                .record(id)
-                .is_some_and(|record| record.collapsed)
-            {
-                restore(session, id, serial)
-            } else if let Some(record) = session.nodes.record(id).cloned() {
-                crate::session::focus_window(session, &record.window, serial);
-                session.request_redraw();
-                true
-            } else {
-                false
-            };
+            let focused = crate::session::activate_node(session, id, true);
             if focused {
                 halley_ipc::Response::Ack
             } else {

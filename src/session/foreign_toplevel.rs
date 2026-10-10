@@ -156,7 +156,7 @@ impl<D: SessionDriver> Handler for Session<D> {
                 {
                     return;
                 }
-                reveal(self, id);
+                super::activate_node(self, id, false);
             }
             Action::Close => super::request_window_close(self, &record.window),
             Action::Minimize(desired) => {
@@ -166,12 +166,12 @@ impl<D: SessionDriver> Handler for Session<D> {
                 if desired {
                     crate::nodes::collapse(self, id, SERIAL_COUNTER.next_serial());
                 } else {
-                    reveal(self, id);
+                    super::activate_node(self, id, false);
                 }
             }
             Action::Maximize(desired) => {
                 if desired && !self.maximize.contains(&record.surface) {
-                    reveal(self, id);
+                    super::activate_node(self, id, false);
                 }
                 super::set_surface_field_maximized(self, &record.surface, desired);
             }
@@ -181,7 +181,7 @@ impl<D: SessionDriver> Handler for Session<D> {
                     return;
                 }
                 if desired {
-                    reveal(self, id);
+                    super::activate_node(self, id, false);
                 }
                 let Some(record) = self.nodes.record(id).filter(|r| !r.collapsed).cloned() else {
                     return;
@@ -191,68 +191,6 @@ impl<D: SessionDriver> Handler for Session<D> {
         }
         self.request_redraw();
     }
-}
-
-/// Select the owning cluster (or Field), bring a stack/overflow member into
-/// view, and then use normal restore/focus. Taskbars can select rear cards too.
-fn reveal<D: SessionDriver>(session: &mut Session<D>, id: NodeId) {
-    let Some(record) = session.nodes.record(id).cloned() else {
-        return;
-    };
-    let output_name =
-        crate::wayland::window_output_name(&record.window).unwrap_or_else(|| record.output.clone());
-    let Some(output) = session
-        .wayland
-        .space
-        .outputs()
-        .find(|o| o.name() == output_name)
-        .cloned()
-    else {
-        return;
-    };
-    let now = crate::frame_clock::monotonic_now();
-    if let Some(cluster) = session.clusters.cluster_for_member(id) {
-        session.clusters.activate_only(&output_name, cluster, now);
-        let work_area = smithay::desktop::layer_map_for_output(&output).non_exclusive_zone();
-        if !session.clusters.is_member_floating(id) {
-            if session.clusters.member_layout(id)
-                == Some(halley_core::cluster::layout::ClusterWorkspaceLayoutKind::Stacking)
-            {
-                let members = session.clusters.member_ids(cluster);
-                for _ in 0..members.len() {
-                    let front = session
-                        .clusters
-                        .member_ids(cluster)
-                        .into_iter()
-                        .find(|member| !session.clusters.is_member_floating(*member));
-                    if front == Some(id) {
-                        break;
-                    }
-                    if !matches!(
-                        session.clusters.cycle_stack(
-                            &output_name,
-                            halley_config::FocusCycleDirection::Forward,
-                            work_area,
-                            now,
-                        ),
-                        crate::clusters::StackCycleOutcome::Cycled(_)
-                    ) {
-                        break;
-                    }
-                }
-            } else {
-                session
-                    .clusters
-                    .promote_overflow_member(&output_name, id, work_area, now);
-            }
-        }
-        super::sync_cluster_camera(session, &output_name, now);
-        super::reconcile_cluster_surfaces(session, &output_name);
-    } else {
-        session.clusters.deactivate_output(&output_name, now);
-        super::sync_cluster_camera(session, &output_name, now);
-    }
-    crate::nodes::focus_or_reveal_node(session, id, SERIAL_COUNTER.next_serial(), true);
 }
 
 smithay::reexports::wayland_server::delegate_global_dispatch!(@<D: SessionDriver> Session<D>: [ZwlrForeignToplevelManagerV1: ()] => State);
