@@ -1,6 +1,6 @@
 use halley_core::field::Vec2;
 use halley_core::world::PortalDir;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{IsAlive, SERIAL_COUNTER};
 
 use super::{Session, SessionDriver};
 
@@ -56,6 +56,83 @@ pub(crate) fn center_pointer_on_output<D: SessionDriver>(
     super::pointer::update_client_state(session, session.start_time.elapsed().as_millis() as u32);
     session.request_output_redraw(&output);
     true
+}
+
+/// Select the owning cluster (or Field), bring a stack/overflow member into
+/// view, and then use normal restore/focus. Explicit search retrieval centers
+/// the target; taskbar activation retains minimal reveal behavior.
+pub(crate) fn activate_node<D: SessionDriver>(
+    session: &mut Session<D>,
+    id: halley_core::field::NodeId,
+    center: bool,
+) -> bool {
+    let Some(record) = session
+        .nodes
+        .record(id)
+        .filter(|record| record.attached && record.window.alive())
+        .cloned()
+    else {
+        return false;
+    };
+    let output_name =
+        crate::wayland::window_output_name(&record.window).unwrap_or_else(|| record.output.clone());
+    let Some(output) = session
+        .wayland
+        .space
+        .outputs()
+        .find(|o| o.name() == output_name)
+        .cloned()
+    else {
+        return false;
+    };
+    crate::wayland::focus::select_output(&mut session.wayland, &output);
+    let now = crate::frame_clock::monotonic_now();
+    if let Some(cluster) = session.clusters.cluster_for_member(id) {
+        session.clusters.activate_only(&output_name, cluster, now);
+        let work_area = smithay::desktop::layer_map_for_output(&output).non_exclusive_zone();
+        if !session.clusters.is_member_floating(id) {
+            if session.clusters.member_layout(id)
+                == Some(halley_core::cluster::layout::ClusterWorkspaceLayoutKind::Stacking)
+            {
+                let members = session.clusters.member_ids(cluster);
+                for _ in 0..members.len() {
+                    let front = session
+                        .clusters
+                        .member_ids(cluster)
+                        .into_iter()
+                        .find(|member| !session.clusters.is_member_floating(*member));
+                    if front == Some(id) {
+                        break;
+                    }
+                    if !matches!(
+                        session.clusters.cycle_stack(
+                            &output_name,
+                            halley_config::FocusCycleDirection::Forward,
+                            work_area,
+                            now,
+                        ),
+                        crate::clusters::StackCycleOutcome::Cycled(_)
+                    ) {
+                        break;
+                    }
+                }
+            } else {
+                session
+                    .clusters
+                    .promote_overflow_member(&output_name, id, work_area, now);
+            }
+        }
+        super::sync_cluster_camera(session, &output_name, now);
+        super::reconcile_cluster_surfaces(session, &output_name);
+    } else {
+        session.clusters.deactivate_output(&output_name, now);
+        super::sync_cluster_camera(session, &output_name, now);
+    }
+    if center {
+        crate::nodes::focus_and_center_node(session, id, SERIAL_COUNTER.next_serial())
+    } else {
+        crate::nodes::focus_or_reveal_node(session, id, SERIAL_COUNTER.next_serial(), true)
+    }
 }
 
 fn directional_field_node_is_eligible(

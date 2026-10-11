@@ -29,6 +29,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Retrieve API-selected running windows through the shared activation path:
+  select their monitor and workspace, bring stack/overflow members into view,
+  restore collapsed windows, and center Field targets. Lift selections now
+  reveal the chosen window instead of acknowledging focus without panning.
 - Clip the restored client buffer's own rounded edge during fullscreen texture
   blending, so it does not stay square inside the moving window until cleanup.
 - Allow eligible Field pans during a committed fullscreen exit while its return
