@@ -127,6 +127,12 @@ physical equals key regardless of layout or produced symbol, use its
 | Scroll Lock | `Scroll_Lock` |
 | Clear | `Clear` |
 
+In a native TTY session, plain `Ctrl+Alt+F1` through `Ctrl+Alt+F12` are
+reserved for switching virtual terminals, including while the session is locked
+or a modal UI is open. Adding Shift or Super leaves the chord available for
+configured bindings, such as `"ctrl+shift+alt+F3" "screenshot"`. Caps Lock and
+Num Lock do not disable VT switching.
+
 ### Modifier keys as triggers
 
 | Physical key | Rune trigger |
