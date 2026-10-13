@@ -31,7 +31,7 @@ use smithay::backend::session::Session;
 use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
 use smithay::backend::udev;
 use smithay::output::{Output, PhysicalProperties, Subpixel};
-use smithay::reexports::drm::control::{Mode, connector, crtc};
+use smithay::reexports::drm::control::{Device as _, Mode, connector, crtc};
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::DeviceFd;
 use smithay::utils::Scale;
@@ -325,6 +325,8 @@ pub struct TtyBackend {
     /// Connected outputs are discovered at startup; active entries are
     /// updated as configuration changes are applied.
     ipc_output_info: Vec<halley_ipc::OutputInfo>,
+    power_unavailable: Vec<Output>,
+    power_removed_devices: Vec<libc::dev_t>,
     primary_render_node: DrmNode,
     primary_formats: FormatSet,
 }
@@ -625,6 +627,8 @@ impl TtyBackend {
             primary_output,
             outputs,
             ipc_output_info,
+            power_unavailable: Vec::new(),
+            power_removed_devices: Vec::new(),
             primary_render_node,
             primary_formats,
         };
@@ -660,10 +664,51 @@ impl TtyBackend {
     }
 
     pub fn output_dpms_enabled(&self, output: &Output) -> bool {
+        if self.power_unavailable.contains(output) {
+            return false;
+        }
         self.drm_outputs
             .iter()
             .find(|entry| &entry.output == output)
             .is_none_or(|entry| entry.enabled && entry.dpms_enabled)
+    }
+
+    /// Observe connector loss without introducing display-layout hotplug policy.
+    /// Non-forcing queries use the kernel's cached connector state.
+    pub fn output_power_device_removed(&mut self, device_id: libc::dev_t) {
+        if !self.power_removed_devices.contains(&device_id) {
+            self.power_removed_devices.push(device_id);
+        }
+        self.refresh_output_power_support();
+    }
+
+    pub fn refresh_output_power_support(&mut self) {
+        self.power_unavailable = self
+            .drm_outputs
+            .iter()
+            .filter(|entry| {
+                self.power_removed_devices.contains(
+                    &self.gpus[entry.gpu_index]
+                        .drm_output_manager
+                        .device()
+                        .device_id(),
+                ) || !self.gpus[entry.gpu_index]
+                    .drm_fd
+                    .get_connector(entry.connector.handle(), false)
+                    .is_ok_and(|connector| connector.state() == connector::State::Connected)
+            })
+            .map(|entry| entry.output.clone())
+            .collect();
+    }
+
+    pub fn output_power(&self, output: &Output) -> Option<bool> {
+        if self.power_unavailable.contains(output) {
+            return None;
+        }
+        self.drm_outputs
+            .iter()
+            .find(|entry| entry.output == *output && entry.enabled)
+            .map(|entry| entry.dpms_enabled)
     }
 
     pub fn output_vrr_active(&self, output: &Output) -> bool {
@@ -674,9 +719,9 @@ impl TtyBackend {
     }
 
     pub fn any_output_dpms_enabled(&self) -> bool {
-        self.drm_outputs
-            .iter()
-            .any(|entry| entry.enabled && entry.dpms_enabled)
+        self.drm_outputs.iter().any(|entry| {
+            entry.enabled && entry.dpms_enabled && !self.power_unavailable.contains(&entry.output)
+        })
     }
 
     pub fn gamma_size(&self, output: &Output) -> Result<u32, String> {
@@ -931,8 +976,25 @@ impl TtyBackend {
                     .ok_or_else(|| format!("unknown active output {name:?}"))?;
                 vec![index]
             }
-            None => (0..self.drm_outputs.len()).collect(),
+            None => self
+                .drm_outputs
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| {
+                    entry.enabled && !self.power_unavailable.contains(&entry.output)
+                })
+                .map(|(index, _)| index)
+                .collect(),
         };
+        if targets.is_empty() {
+            return Err("dpms request has no active output targets".into());
+        }
+        if targets.iter().any(|index| {
+            let entry = &self.drm_outputs[*index];
+            !entry.enabled || self.power_unavailable.contains(&entry.output)
+        }) {
+            return Err("dpms target is disabled or disconnected".into());
+        }
         let target_enabled = dpms_target_enabled(
             command,
             targets
@@ -944,7 +1006,10 @@ impl TtyBackend {
             .iter()
             .all(|index| self.drm_outputs[*index].dpms_enabled == target_enabled)
         {
-            return Err("dpms request made no change".to_string());
+            return Ok(AppliedDpms {
+                changes: Vec::new(),
+                error: None,
+            });
         }
 
         let mut changes = Vec::new();
@@ -1256,6 +1321,7 @@ impl TtyBackend {
     }
 
     fn recover_outputs_after_loss(&mut self, reason: &str) {
+        self.refresh_output_power_support();
         // Any frame that was in flight before the VT switch away is gone -
         // without this, a stale `pending` would permanently block that
         // output from rendering again (its VBlank is never coming).

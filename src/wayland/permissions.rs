@@ -11,21 +11,23 @@ pub enum Capability {
     Clipboard = 1,
     VirtualKeyboard = 2,
     InputMethod = 3,
+    OutputPower = 4,
 }
 
-const VARIABLES: [&str; 4] = [
+const VARIABLES: [&str; 5] = [
     "HALLEY_ALLOW_SCREEN_CAPTURE",
     "HALLEY_ALLOW_CLIPBOARD_CONTROL",
     "HALLEY_ALLOW_VIRTUAL_KEYBOARD",
     "HALLEY_ALLOW_INPUT_METHOD",
+    "HALLEY_ALLOW_OUTPUT_POWER",
 ];
 
 #[derive(Default)]
-pub struct Permissions([bool; 4]);
+pub struct Permissions([bool; 5]);
 
 impl Permissions {
     pub fn for_socket(stream: &UnixStream) -> Self {
-        static POLICY: OnceLock<[Vec<PathBuf>; 4]> = OnceLock::new();
+        static POLICY: OnceLock<[Vec<PathBuf>; 5]> = OnceLock::new();
         let policy = POLICY.get_or_init(|| {
             VARIABLES.map(|name| {
                 std::env::var_os(name)
@@ -87,7 +89,7 @@ mod tests {
     use super::*;
     #[test]
     fn ordinary_connections_have_no_desktop_capabilities() {
-        assert_eq!(Permissions::default().0, [false; 4]);
+        assert_eq!(Permissions::default().0, [false; 5]);
     }
     #[test]
     fn grants_match_executable_identity_not_a_claimed_name() {
@@ -121,6 +123,7 @@ mod tests {
             Capability::Clipboard,
             Capability::VirtualKeyboard,
             Capability::InputMethod,
+            Capability::OutputPower,
         ] {
             assert!(!allowed(&ordinary, capability));
         }
@@ -129,7 +132,7 @@ mod tests {
             .insert_client(
                 socket,
                 Arc::new(super::super::ClientState {
-                    permissions: Permissions([false, false, false, true]),
+                    permissions: Permissions([false, false, false, true, false]),
                     ..Default::default()
                 }),
             )
@@ -138,5 +141,19 @@ mod tests {
         assert!(!allowed(&ime, Capability::Capture));
         assert!(!allowed(&ime, Capability::Clipboard));
         assert!(!allowed(&ime, Capability::VirtualKeyboard));
+        assert!(!allowed(&ime, Capability::OutputPower));
+        let (socket, _peer3) = UnixStream::pair().unwrap();
+        let power = handle
+            .insert_client(
+                socket,
+                Arc::new(super::super::ClientState {
+                    permissions: Permissions([false, false, false, false, true]),
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        assert!(allowed(&power, Capability::OutputPower));
+        assert!(!allowed(&power, Capability::Capture));
+        assert!(!allowed(&power, Capability::InputMethod));
     }
 }

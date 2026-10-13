@@ -28,6 +28,7 @@ mod lifecycle;
 mod navigation;
 pub(crate) mod opening;
 pub(crate) mod output;
+mod output_power;
 pub(crate) mod pointer;
 mod protocol;
 mod screenshot;

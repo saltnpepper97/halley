@@ -245,6 +245,14 @@ impl super::OutputDriver for TtyDriver {
         self.apply_dpms_command(command, output)
     }
 
+    fn refresh_output_power_support(&mut self) {
+        self.refresh_output_power_availability(None);
+    }
+
+    fn output_power(&self, output: &Output) -> Option<bool> {
+        self.backend.output_power(output)
+    }
+
     fn output_requires_lock_frame(&self, output: &Output) -> bool {
         self.backend.output_dpms_enabled(output)
     }
@@ -261,6 +269,28 @@ impl super::SessionDriver for TtyDriver {
 type TtyApp = super::Session<TtyDriver>;
 
 impl TtyDriver {
+    fn refresh_output_power_availability(&mut self, removed: Option<libc::dev_t>) {
+        if removed.is_none() && self.pause_reasons.any() {
+            return;
+        }
+        let before: Vec<_> = self
+            .backend
+            .outputs()
+            .map(|output| (output.clone(), self.backend.output_power(output)))
+            .collect();
+        if let Some(device_id) = removed {
+            self.backend.output_power_device_removed(device_id);
+        } else {
+            self.backend.refresh_output_power_support();
+        }
+        let now = crate::frame_clock::monotonic_now();
+        for (output, old) in before {
+            if old != self.backend.output_power(&output) {
+                self.recover_output_frame(&output, now);
+            }
+        }
+    }
+
     fn recover_output_frame(&mut self, output: &Output, now: Duration) {
         let renderable = self
             .pause_reasons
@@ -280,6 +310,7 @@ impl TtyDriver {
         if self.pause_reasons.any() {
             return Err("cannot change display power while the session is paused".into());
         }
+        self.refresh_output_power_availability(None);
         let applied = self.backend.apply_dpms(command, output)?;
         let now = crate::frame_clock::monotonic_now();
         for change in applied.changes {
@@ -659,6 +690,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     | smithay::backend::input::InputEvent::PointerAxis { .. }
             ) {
                 app.driver.wake_dpms_on_input(wake_before.as_ref());
+                app.sync_output_power();
             }
             match &event {
                 smithay::backend::input::InputEvent::DeviceAdded { device } => {
@@ -687,6 +719,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             ) {
                 let target = output_at_pointer(app);
                 app.driver.wake_dpms_on_input(target.as_ref());
+                app.sync_output_power();
             }
         })
         .expect("failed to insert libinput source");
@@ -736,6 +769,25 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         })
         .expect("failed to insert session notifier");
 
+    // Fail existing power objects promptly when an initialized connector is
+    // unplugged. New connector/CRTC allocation remains startup-only.
+    let power_monitor =
+        smithay::backend::udev::UdevBackend::new(app.driver.backend.session().seat())
+            .expect("failed to monitor DRM output power availability");
+    event_loop
+        .handle()
+        .insert_source(power_monitor, |event, _, app| {
+            if let smithay::backend::udev::UdevEvent::Removed { device_id } = event {
+                app.driver
+                    .refresh_output_power_availability(Some(device_id));
+                app.sync_output_power();
+            } else if !app.driver.pause_reasons.any() {
+                app.driver.refresh_output_power_availability(None);
+                app.sync_output_power();
+            }
+        })
+        .expect("failed to insert output power availability monitor");
+
     let mut drm_tokens = Vec::with_capacity(drm_notifiers.len());
     for (gpu_index, drm_notifier) in drm_notifiers.into_iter().enumerate() {
         let token = event_loop
@@ -760,6 +812,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             // than at each mutation site.
             super::workspace::sync_ext_workspace(app);
             super::foreign_toplevel::sync(app);
+            app.sync_output_power();
             let _ = app.wayland.display_handle.flush_clients();
         })
         .expect("event loop run failed");
