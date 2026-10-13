@@ -38,8 +38,13 @@ for each capability you intend to grant:
 | `HALLEY_ALLOW_CLIPBOARD_CONTROL` | Clipboard/primary-selection monitoring | `/usr/bin/wl-paste` |
 | `HALLEY_ALLOW_VIRTUAL_KEYBOARD` | Synthetic keyboard input | `/usr/bin/wtype` |
 | `HALLEY_ALLOW_INPUT_METHOD` | IME registration and keyboard grabs | `/usr/bin/fcitx5` |
+| `HALLEY_ALLOW_OUTPUT_POWER` | Native display DPMS control and observation | `/usr/bin/wlopm` |
 
 For example: `HALLEY_ALLOW_INPUT_METHOD=/usr/bin/fcitx5 halley`.
+For standard output power tools, approve the installed executable with
+`HALLEY_ALLOW_OUTPUT_POWER=/usr/bin/wlopm` before starting the native session.
+This grants visibility of `zwlr_output_power_manager_v1`; the nested backend
+never creates this global. See [output power management](output-power.md).
 There are no implicit grants, basename matches, or wildcards. The compositor
 compares the connecting peer's executable device/inode against the approved
 files. Grants are fixed for that connection. Restart Halley and reconnect the
