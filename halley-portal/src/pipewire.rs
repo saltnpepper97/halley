@@ -34,6 +34,7 @@ const ADVERTISE_DMABUF: bool = true;
 const MAX_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 const IDLE_LOOP_INTERVAL: Duration = Duration::from_millis(100);
 const DMABUF_CHUNK_MARKER: u32 = 9;
+const MAX_DMABUF_FIXATION_ATTEMPTS: u8 = 2;
 
 enum Command {
     Create {
@@ -82,8 +83,57 @@ struct DmabufAllocationFormat {
 
 #[derive(Debug, PartialEq, Eq)]
 struct NegotiatedDmabufModifier {
-    value: u64,
+    values: Vec<u64>,
     needs_fixation: bool,
+}
+
+#[derive(Default)]
+struct DmabufNegotiation {
+    fixation_attempts: u8,
+    memfd_only: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ModifierDecision {
+    Fixate(u64),
+    Ready(u64),
+    Fallback,
+    MemFd,
+}
+
+impl DmabufNegotiation {
+    fn decide(
+        &mut self,
+        negotiated: Option<&NegotiatedDmabufModifier>,
+        available: &[u64],
+    ) -> Result<ModifierDecision, &'static str> {
+        let Some(negotiated) = negotiated else {
+            return Ok(ModifierDecision::MemFd);
+        };
+        if self.memfd_only {
+            return Err("consumer still requested DMA-BUF after shared-memory fallback");
+        }
+        let selected = negotiated
+            .values
+            .iter()
+            .copied()
+            .find(|value| available.contains(value));
+        if selected.is_none()
+            || (negotiated.needs_fixation && self.fixation_attempts >= MAX_DMABUF_FIXATION_ATTEMPTS)
+        {
+            self.memfd_only = true;
+            return Ok(ModifierDecision::Fallback);
+        }
+        let selected = selected.expect("supported modifier was checked above");
+        if negotiated.needs_fixation {
+            self.fixation_attempts += 1;
+            Ok(ModifierDecision::Fixate(selected))
+        } else {
+            // Keep the retry budget for the whole stream. A consumer may first
+            // fixate successfully, fail its import, and restart negotiation.
+            Ok(ModifierDecision::Ready(selected))
+        }
+    }
 }
 
 pub struct Producer {
@@ -310,6 +360,8 @@ fn create_stream(
         .param_changed({
             let allocator = dmabuf_allocator.clone();
             let selected_dmabuf_format = selected_dmabuf_format.clone();
+            let modifiers = dmabuf_modifiers.clone();
+            let mut negotiation = DmabufNegotiation::default();
             move |stream, _frame_count, id, param| {
                 if id != spa::param::ParamType::Format.as_raw() {
                     return;
@@ -317,36 +369,75 @@ fn create_stream(
                 let Some(param) = param else {
                     return;
                 };
-                let selected = match negotiated_dmabuf_modifier(param) {
-                    Ok(Some(negotiated)) => {
-                        let selected = allocator.as_ref().and_then(|allocator| {
-                            allocator
-                                .formats
-                                .iter()
-                                .copied()
-                                .find(|format| u64::from(format.modifier) == negotiated.value)
-                        });
-                        let Some(selected) = selected else {
-                            eventline::error!(
-                                "PipeWire selected unallocatable DMA-BUF modifier {:#x}",
-                                negotiated.value
-                            );
-                            return;
-                        };
-                        if negotiated.needs_fixation {
-                            eventline::info!(
-                                "screencast: using DMA-BUF modifier choice default {:#x}",
-                                negotiated.value
-                            );
-                        }
-                        Some(selected)
-                    }
-                    Ok(None) => None,
+                let negotiated = match negotiated_dmabuf_modifier(param) {
+                    Ok(negotiated) => negotiated,
                     Err(err) => {
                         eventline::error!("inspect negotiated PipeWire format: {err}");
                         return;
                     }
                 };
+                let decision = match negotiation.decide(negotiated.as_ref(), &modifiers) {
+                    Ok(decision) => decision,
+                    Err(err) => {
+                        eventline::error!("negotiate PipeWire DMA-BUF: {err}");
+                        return;
+                    }
+                };
+                let selected_modifier = match decision {
+                    ModifierDecision::Fixate(_) | ModifierDecision::Fallback => {
+                        // Announce a final EnumFormat before configuring buffers.
+                        // Chromium can return an unfixated modifier choice even
+                        // when the producer originally offered scalar modifiers.
+                        selected_dmabuf_format.set(None);
+                        let offered = match decision {
+                            ModifierDecision::Fixate(modifier) => {
+                                eventline::info!(
+                                    "screencast: finalizing DMA-BUF modifier {modifier:#x}"
+                                );
+                                std::iter::once(modifier)
+                                    .chain(
+                                        modifiers
+                                            .iter()
+                                            .copied()
+                                            .filter(|value| *value != modifier),
+                                    )
+                                    .collect()
+                            }
+                            ModifierDecision::Fallback => {
+                                eventline::warn!(
+                                    "screencast: DMA-BUF negotiation did not settle, using MemFd"
+                                );
+                                Vec::new()
+                            }
+                            _ => unreachable!(),
+                        };
+                        let formats = match format_pods(width, height, &offered) {
+                            Ok(formats) => formats,
+                            Err(err) => {
+                                eventline::error!("build fixated PipeWire format: {err}");
+                                return;
+                            }
+                        };
+                        let mut params = formats
+                            .iter()
+                            .filter_map(|data| spa::pod::Pod::from_bytes(data))
+                            .collect::<Vec<_>>();
+                        if let Err(err) = stream.update_params(&mut params) {
+                            eventline::error!("finalize PipeWire format: {err}");
+                        }
+                        return;
+                    }
+                    ModifierDecision::Ready(modifier) => Some(modifier),
+                    ModifierDecision::MemFd => None,
+                };
+                let selected = selected_modifier.and_then(|modifier| {
+                    allocator
+                        .as_ref()?
+                        .formats
+                        .iter()
+                        .copied()
+                        .find(|format| u64::from(format.modifier) == modifier)
+                });
                 selected_dmabuf_format.set(selected);
                 let selected_dmabuf = selected.is_some();
                 let selected_blocks = selected.map_or(1, |format| format.plane_count);
@@ -658,20 +749,38 @@ fn negotiated_dmabuf_modifier(
     };
     match &property.value {
         spa::pod::Value::Long(modifier) => Ok(Some(NegotiatedDmabufModifier {
-            value: *modifier as u64,
-            needs_fixation: false,
+            values: vec![*modifier as u64],
+            needs_fixation: property
+                .flags
+                .contains(spa::pod::PropertyFlags::DONT_FIXATE),
         })),
         spa::pod::Value::Choice(spa::pod::ChoiceValue::Long(spa::utils::Choice(_, choice))) => {
-            let modifier = match choice {
-                spa::utils::ChoiceEnum::None(value) => *value,
-                spa::utils::ChoiceEnum::Range { default, .. }
-                | spa::utils::ChoiceEnum::Step { default, .. }
-                | spa::utils::ChoiceEnum::Enum { default, .. }
-                | spa::utils::ChoiceEnum::Flags { default, .. } => *default,
+            let mut values = match choice {
+                spa::utils::ChoiceEnum::None(value) => vec![*value as u64],
+                spa::utils::ChoiceEnum::Enum {
+                    default,
+                    alternatives,
+                } => std::iter::once(*default)
+                    .chain(alternatives.iter().copied())
+                    .map(|value| value as u64)
+                    .collect(),
+                _ => return Err("DMA-BUF modifier choice was not an enumeration".to_string()),
             };
+            let mut seen = Vec::new();
+            values.retain(|value| {
+                if seen.contains(value) {
+                    false
+                } else {
+                    seen.push(*value);
+                    true
+                }
+            });
             Ok(Some(NegotiatedDmabufModifier {
-                value: modifier as u64,
-                needs_fixation: true,
+                needs_fixation: property
+                    .flags
+                    .contains(spa::pod::PropertyFlags::DONT_FIXATE)
+                    || values.len() > 1,
+                values,
             }))
         }
         _ => Err("DMA-BUF modifier was neither a Long nor a Long choice".to_string()),
@@ -1323,14 +1432,14 @@ mod tests {
         assert_eq!(
             negotiated_dmabuf_modifier(tiled),
             Ok(Some(NegotiatedDmabufModifier {
-                value: 42,
+                values: vec![42],
                 needs_fixation: false,
             }))
         );
         assert_eq!(
             negotiated_dmabuf_modifier(linear),
             Ok(Some(NegotiatedDmabufModifier {
-                value: 0,
+                values: vec![0],
                 needs_fixation: false,
             }))
         );
@@ -1369,8 +1478,132 @@ mod tests {
         assert_eq!(
             negotiated_dmabuf_modifier(pod),
             Ok(Some(NegotiatedDmabufModifier {
-                value: 42,
+                values: vec![42, 0],
                 needs_fixation: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn negotiation_selects_a_supported_alternative() {
+        let mut negotiation = DmabufNegotiation::default();
+        let offered = NegotiatedDmabufModifier {
+            values: vec![42, 0],
+            needs_fixation: true,
+        };
+        assert_eq!(
+            negotiation.decide(Some(&offered), &[0]),
+            Ok(ModifierDecision::Fixate(0))
+        );
+        let fixed = format_pods(1920, 1080, &[0]).expect("fixed formats");
+        let fixed = negotiated_dmabuf_modifier(spa::pod::Pod::from_bytes(&fixed[0]).unwrap())
+            .expect("fixed modifier");
+        assert_eq!(
+            negotiation.decide(fixed.as_ref(), &[0]),
+            Ok(ModifierDecision::Ready(0))
+        );
+    }
+
+    #[test]
+    fn repeated_fixation_switches_permanently_to_memfd() {
+        let mut negotiation = DmabufNegotiation::default();
+        let offered = NegotiatedDmabufModifier {
+            values: vec![42],
+            needs_fixation: true,
+        };
+        let fixed = NegotiatedDmabufModifier {
+            values: vec![42],
+            needs_fixation: false,
+        };
+        for _ in 0..MAX_DMABUF_FIXATION_ATTEMPTS {
+            assert_eq!(
+                negotiation.decide(Some(&offered), &[42]),
+                Ok(ModifierDecision::Fixate(42))
+            );
+            // A failed consumer import can restart negotiation after a format
+            // was already fixed. That must not replenish the retry budget.
+            assert_eq!(
+                negotiation.decide(Some(&fixed), &[42]),
+                Ok(ModifierDecision::Ready(42))
+            );
+        }
+        assert_eq!(
+            negotiation.decide(Some(&offered), &[42]),
+            Ok(ModifierDecision::Fallback)
+        );
+        let formats = format_pods(1920, 1080, &[]).expect("MemFd formats");
+        assert_eq!(formats.len(), 1);
+        let fallback = negotiated_dmabuf_modifier(spa::pod::Pod::from_bytes(&formats[0]).unwrap())
+            .expect("fallback format");
+        assert_eq!(
+            negotiation.decide(fallback.as_ref(), &[42]),
+            Ok(ModifierDecision::MemFd)
+        );
+        assert!(negotiation.decide(Some(&offered), &[42]).is_err());
+        assert!(negotiation.decide(Some(&fixed), &[42]).is_err());
+    }
+
+    #[test]
+    fn unsupported_modifier_recovers_without_allocating_it() {
+        let mut negotiation = DmabufNegotiation::default();
+        let offered = NegotiatedDmabufModifier {
+            values: vec![42],
+            needs_fixation: true,
+        };
+        assert_eq!(
+            negotiation.decide(Some(&offered), &[0]),
+            Ok(ModifierDecision::Fallback)
+        );
+        assert_eq!(negotiation.decide(None, &[0]), Ok(ModifierDecision::MemFd));
+    }
+
+    #[test]
+    fn already_fixed_formats_preserve_the_gpu_path() {
+        let mut negotiation = DmabufNegotiation::default();
+        let fixed = NegotiatedDmabufModifier {
+            values: vec![42],
+            needs_fixation: false,
+        };
+        assert_eq!(
+            negotiation.decide(Some(&fixed), &[42]),
+            Ok(ModifierDecision::Ready(42))
+        );
+        assert_eq!(negotiation.fixation_attempts, 0);
+        assert!(!negotiation.memfd_only);
+    }
+
+    #[test]
+    fn a_fixed_single_value_choice_does_not_restart_negotiation() {
+        let data = format_pod(1920, 1080, Some(42)).unwrap();
+        let (_, mut value) =
+            spa::pod::deserialize::PodDeserializer::deserialize_from::<spa::pod::Value>(&data)
+                .unwrap();
+        let spa::pod::Value::Object(object) = &mut value else {
+            panic!("format is not an object");
+        };
+        let modifier = object
+            .properties
+            .iter_mut()
+            .find(|property| {
+                property.key == spa::param::format::FormatProperties::VideoModifier.as_raw()
+            })
+            .unwrap();
+        modifier.value = spa::pod::Value::Choice(spa::pod::ChoiceValue::Long(spa::utils::Choice(
+            spa::utils::ChoiceFlags::empty(),
+            spa::utils::ChoiceEnum::Enum {
+                default: 42,
+                alternatives: vec![42],
+            },
+        )));
+        let data = spa::pod::serialize::PodSerializer::serialize(Cursor::new(Vec::new()), &value)
+            .unwrap()
+            .0
+            .into_inner();
+        assert_eq!(
+            negotiated_dmabuf_modifier(spa::pod::Pod::from_bytes(&data).unwrap()),
+            Ok(Some(NegotiatedDmabufModifier {
+                values: vec![42],
+                needs_fixation: false
             }))
         );
     }
