@@ -98,6 +98,11 @@ pub trait OutputDriver: crate::ipc::OutputInfoSource + 'static {
     ) -> Result<(), String> {
         Err("dpms is only supported on the tty backend".to_string())
     }
+    fn refresh_output_power_support(&mut self) {}
+    /// None means disconnected, logically disabled, or unsupported.
+    fn output_power(&self, _output: &Output) -> Option<bool> {
+        None
+    }
     fn output_requires_lock_frame(&self, _output: &Output) -> bool {
         true
     }
@@ -260,6 +265,16 @@ impl<D: SessionDriver> Session<D> {
             crate::wayland::wlr_gamma_control::State::new::<Self>(
                 &display_handle,
                 D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty,
+            ),
+            crate::wayland::wlr_output_power::State::new::<Self>(
+                &display_handle,
+                D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty,
+                |client| {
+                    crate::wayland::permissions::allowed(
+                        client,
+                        crate::wayland::permissions::Capability::OutputPower,
+                    )
+                },
             ),
             crate::wayland::wlr_screencopy::State::new::<Self>(&display_handle),
             std::collections::HashMap::new(),

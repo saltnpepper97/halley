@@ -24,6 +24,7 @@ pub mod text_input;
 mod virtual_keyboard;
 pub mod wlr_gamma_control;
 pub mod wlr_output_management;
+pub mod wlr_output_power;
 pub mod wlr_screencopy;
 pub mod xdg_shell;
 
@@ -248,6 +249,7 @@ pub struct WaylandState {
     _output_manager_state: OutputManagerState,
     pub wlr_output_management_state: wlr_output_management::State,
     pub wlr_gamma_control_state: wlr_gamma_control::State,
+    pub wlr_output_power_state: wlr_output_power::State,
     pub wlr_screencopy_state: wlr_screencopy::State,
     pub(crate) idle_inhibitors: HashMap<WlSurface, usize>,
     output_globals: HashMap<String, GlobalId>,
@@ -346,6 +348,7 @@ impl WaylandState {
         output_manager_state: OutputManagerState,
         wlr_output_management_state: wlr_output_management::State,
         wlr_gamma_control_state: wlr_gamma_control::State,
+        wlr_output_power_state: wlr_output_power::State,
         wlr_screencopy_state: wlr_screencopy::State,
         output_globals: HashMap<String, GlobalId>,
         data_device_state: DataDeviceState,
@@ -385,6 +388,7 @@ impl WaylandState {
             _output_manager_state: output_manager_state,
             wlr_output_management_state,
             wlr_gamma_control_state,
+            wlr_output_power_state,
             wlr_screencopy_state,
             idle_inhibitors: HashMap::new(),
             output_globals,

@@ -184,6 +184,17 @@ the native session is paused. The ordinary DPMS wake path resumes through the
 next rendered frame. Re-enabling a display through config reload restores its
 `wl_output` advertisement as well as rendering.
 
+The TTY backend exposes `zwlr_output_power_manager_v1` version 1
+(`wlr-output-power-management-unstable-v1`) to clients approved through
+`HALLEY_ALLOW_OUTPUT_POWER`. Controls use existing DPMS and receive the current
+mode immediately, followed by effective changes from protocol clients,
+`halleyctl`, and input wake. Off retains logical output membership, configured
+mode, scale, position, and window placement. Unavailable outputs invalidate
+controls; invalid modes are protocol errors. Writes while the seat is paused
+fail, including requests for an already matching mode. The nested backend
+creates no power global. See [output power management](output-power.md) for
+permissions, lifecycle behavior, limitations, and hardware validation.
+
 The TTY backend advertises `zwlr_gamma_control_manager_v1` version 1. Each
 output with DRM gamma-ramp support has at most one active controller; requests
 for an unavailable output fail.

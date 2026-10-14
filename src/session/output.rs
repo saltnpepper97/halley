@@ -78,6 +78,7 @@ pub fn validate_complete_configuration(
 
 impl<D: SessionDriver> Session<D> {
     pub(crate) fn notify_output_management(&mut self) {
+        self.sync_output_power();
         let states = self.driver.output_states();
         let display = self.wayland.display_handle.clone();
         self.wayland
@@ -89,7 +90,9 @@ impl<D: SessionDriver> Session<D> {
         &mut self,
         configuration: &[OutputConfiguration],
     ) -> Result<(), String> {
-        let changes = self.driver.apply_output_configuration(configuration)?;
+        let result = self.driver.apply_output_configuration(configuration);
+        self.sync_output_power();
+        let changes = result?;
         if changes.is_empty() {
             return Ok(());
         }

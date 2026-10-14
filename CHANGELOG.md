@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support standard `wlr-output-power-management-unstable-v1` on the native TTY
+  backend through existing DPMS, retaining output layout and window placement.
+  Approved tools can control individual displays and observe IPC and input-wake
+  changes; unavailable outputs and paused-seat writes fail predictably.
 - Add the `pan-field-always` pointer action, which pans the camera from a drag
   that begins anywhere (over windows, titlebars, collapsed nodes, and wallpaper
   layers) instead of only on empty field. It has no default binding, works on

@@ -737,7 +737,9 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 .map(|path| path.to_string_lossy().into_owned()),
         ),
         halley_ipc::Request::Dpms { command, output } => {
-            match app.driver.apply_dpms(command, output.as_deref()) {
+            let result = app.driver.apply_dpms(command, output.as_deref());
+            app.sync_output_power();
+            match result {
                 Ok(()) => {
                     crate::wayland::session_lock::confirm_unlit_outputs(app);
                     halley_ipc::Response::Ack
