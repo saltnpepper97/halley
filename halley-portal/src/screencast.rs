@@ -125,16 +125,34 @@ impl ScreenCastInterface {
                 _ => return Ok((2, Vardict::new())),
             };
             let session_path = session_handle.to_string();
-            if this
-                .sessions
-                .lock()
-                .map_err(|_| fdo::Error::Failed("session store lock poisoned".to_string()))?
-                .get(&session_path)
-                .is_none()
             {
-                return Ok((2, Vardict::new()));
+                let mut sessions = this
+                    .sessions
+                    .lock()
+                    .map_err(|_| fdo::Error::Failed("session store lock poisoned".to_string()))?;
+                let Some(session) = sessions.get_mut(&session_path) else {
+                    return Ok((2, Vardict::new()));
+                };
+                // A session owns at most one outstanding selection. Retain its
+                // request handle so closing the session also dismisses consent.
+                if session.pending_source.is_some() {
+                    return Ok((2, Vardict::new()));
+                }
+                session.pending_source = Some(handle.to_string());
             }
-            match crate::compositor::choose_source(handle.to_string(), supported) {
+            let response = crate::compositor::choose_source(handle.to_string(), supported);
+            {
+                let mut sessions = this
+                    .sessions
+                    .lock()
+                    .map_err(|_| fdo::Error::Failed("session store lock poisoned".to_string()))?;
+                if let Some(session) = sessions.get_mut(&session_path)
+                    && session.pending_source.as_deref() == Some(handle.as_str())
+                {
+                    session.pending_source = None;
+                }
+            }
+            match response {
                 Ok(halley_ipc::SourceChooserResponse::Selected(source)) => {
                     let mut sessions = this.sessions.lock().map_err(|_| {
                         fdo::Error::Failed("session store lock poisoned".to_string())
@@ -272,14 +290,21 @@ impl SessionInterface {
                 sender.as_ref().map(|name| name.as_str()).unwrap_or(""),
                 &this.owner,
             )?;
+            // Invalidate the session before dismissing the chooser. A reply
+            // racing with Close must never revive consent or start a stream.
+            let session = this
+                .sessions
+                .lock()
+                .map_err(|_| fdo::Error::Failed("session store lock poisoned".to_string()))?
+                .remove(&this.handle);
+            if let Some(request_handle) = session.and_then(|session| session.pending_source) {
+                let _ = crate::compositor::cancel_source(request_handle);
+            }
             this.producer.destroy_stream(&this.handle);
             let _ = this
                 .connection
                 .object_server()
                 .remove::<SessionInterface, _>(this.handle.as_str());
-            if let Ok(mut sessions) = this.sessions.lock() {
-                sessions.remove(&this.handle);
-            }
             Ok(())
         })
         .await

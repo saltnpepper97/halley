@@ -6,6 +6,7 @@ pub struct PortalSession {
     pub owner: String,
     pub app_id: String,
     pub selected: Option<halley_ipc::CaptureSource>,
+    pub pending_source: Option<String>,
     pub cursor_mode: halley_ipc::CursorMode,
 }
 
@@ -31,6 +32,7 @@ impl SessionStore {
             app_id,
             id: format!("halley{}", self.next_id),
             selected: None,
+            pending_source: None,
             cursor_mode: halley_ipc::CursorMode::Hidden,
         };
         self.sessions.insert(handle, session.clone());
@@ -45,8 +47,8 @@ impl SessionStore {
         self.sessions.get_mut(handle)
     }
 
-    pub fn remove(&mut self, handle: &str) {
-        self.sessions.remove(handle);
+    pub fn remove(&mut self, handle: &str) -> Option<PortalSession> {
+        self.sessions.remove(handle)
     }
 }
 

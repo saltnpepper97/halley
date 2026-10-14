@@ -294,3 +294,133 @@ fn capture_dispatch_keeps_consent_ownership_and_cancellation_responsive() {
     assert_eq!(code, 0, "closed session was not removed");
     session.call::<_, _, ()>("Close", &()).unwrap();
 }
+
+#[test]
+fn closing_a_session_cancels_its_pending_source_chooser() {
+    let mut bus = Process(
+        Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut address = String::new();
+    std::io::BufReader::new(bus.0.stdout.take().unwrap())
+        .read_line(&mut address)
+        .unwrap();
+    let address = address.trim();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let runtime = Runtime(std::env::temp_dir().join(format!(
+        "halley-portal-session-close-{}-{unique}",
+        std::process::id()
+    )));
+    std::fs::create_dir_all(runtime.0.join("halley")).unwrap();
+    let listener = UnixListener::bind(runtime.0.join("halley/halley.sock")).unwrap();
+    let _backend = Process(
+        Command::new(env!("CARGO_BIN_EXE_xdg-desktop-portal-halley"))
+            .env("DBUS_SESSION_BUS_ADDRESS", address)
+            .env("XDG_RUNTIME_DIR", &runtime.0)
+            .env("PIPEWIRE_REMOTE", "nonexistent-test-pipewire")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let client = connection(address);
+    let bus_proxy = zbus::blocking::fdo::DBusProxy::new(&client).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !bus_proxy
+        .name_has_owner(BusName::try_from(BACKEND).unwrap())
+        .unwrap()
+    {
+        assert!(Instant::now() < deadline, "backend did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let cast = Proxy::new(
+        &client,
+        BACKEND,
+        PATH,
+        "org.freedesktop.impl.portal.ScreenCast",
+    )
+    .unwrap();
+    let (code, _): (u32, Vardict) = cast
+        .call(
+            "CreateSession",
+            &(path(REQUEST), path(SESSION), "test.app", Vardict::new()),
+        )
+        .unwrap();
+    assert_eq!(code, 0);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let compositor = std::thread::spawn(move || {
+        let (pending, _) = listener.accept().unwrap();
+        assert!(matches!(
+            read_request(&pending),
+            halley_ipc::Request::ChooseSource(_)
+        ));
+        listener.set_nonblocking(true).unwrap();
+        entered_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut cancelled = false;
+        while Instant::now() < deadline {
+            match listener.accept() {
+                Ok((cancel, _)) => {
+                    assert!(matches!(read_request(&cancel),
+                        halley_ipc::Request::CancelSourceChooser { request_handle } if request_handle == REQUEST));
+                    reply(&cancel, halley_ipc::Response::Ack);
+                    cancelled = true;
+                    break;
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(err) => panic!("accept cancel request: {err}"),
+            }
+        }
+        reply(
+            &pending,
+            halley_ipc::Response::Source(halley_ipc::SourceChooserResponse::Cancelled),
+        );
+        cancelled
+    });
+    let selecting_client = client.clone();
+    let selecting = std::thread::spawn(move || {
+        let cast = Proxy::new(
+            &selecting_client,
+            BACKEND,
+            PATH,
+            "org.freedesktop.impl.portal.ScreenCast",
+        )
+        .unwrap();
+        let (code, _): (u32, Vardict) = cast
+            .call(
+                "SelectSources",
+                &(
+                    path(REQUEST),
+                    path(SESSION),
+                    "test.app",
+                    options("types", halley_ipc::SOURCE_MONITOR),
+                ),
+            )
+            .unwrap();
+        code
+    });
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let session = Proxy::new(
+        &client,
+        BACKEND,
+        SESSION,
+        "org.freedesktop.impl.portal.Session",
+    )
+    .unwrap();
+    session.call::<_, _, ()>("Close", &()).unwrap();
+    let cancelled = compositor.join().unwrap();
+    assert_eq!(selecting.join().unwrap(), 1);
+    assert!(
+        cancelled,
+        "Session.Close left its source chooser active in the compositor"
+    );
+}
