@@ -219,7 +219,144 @@ fn scene(
             Kind::Unspecified,
         )));
     }
+    effects.end_scene(output);
     scene
+}
+
+#[test]
+#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+fn scene_cleanup_releases_retired_blur_textures_and_preserves_live_frames() {
+    fn blur(
+        renderer: &mut GlesRenderer,
+        effects: &mut BackdropBlurRenderer,
+        output: &str,
+        identity: BlurIdentity,
+    ) -> BackdropBlurElement {
+        effects
+            .blur_element(
+                renderer,
+                output,
+                identity,
+                (48, 32).into(),
+                vec![BlurPatch {
+                    rect: Rectangle::from_size((48, 32).into()),
+                    radius: 0.0,
+                    alpha: 1.0,
+                    clip: None,
+                }],
+                halley_config::Blur::default(),
+                0,
+                Transform::Normal,
+            )
+            .unwrap()
+            .unwrap()
+    }
+
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+    let context = EGLContext::new(&display).unwrap();
+    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+    let mut effects = BackdropBlurRenderer::default();
+    effects.begin_scene("secondary");
+    let secondary = blur(
+        &mut renderer,
+        &mut effects,
+        "secondary",
+        BlurIdentity::Overlay("stable"),
+    );
+    effects.end_scene("secondary");
+
+    let mut retired: Option<std::rc::Weak<ElementBlur>> = None;
+    let mut stable: Option<std::rc::Weak<ElementBlur>> = None;
+    let mut stable_id = None;
+    for tick in 0..64 {
+        effects.begin_scene("primary");
+        let surface = Id::new();
+        let identity = if tick % 2 == 0 {
+            BlurIdentity::Window {
+                surface,
+                instance: "canonical".into(),
+            }
+        } else {
+            BlurIdentity::Layer(surface)
+        };
+        let transient = blur(&mut renderer, &mut effects, "primary", identity);
+        let persistent = blur(
+            &mut renderer,
+            &mut effects,
+            "primary",
+            BlurIdentity::Overlay("stable"),
+        );
+        effects.end_scene("primary");
+
+        let resources = &effects.outputs["primary"];
+        assert_eq!(
+            resources.results.len(),
+            2,
+            "retired textures must not accumulate"
+        );
+        assert_eq!(
+            resources.ids.len(),
+            2,
+            "retired render identities must not accumulate"
+        );
+        if let Some(previous) = retired.take() {
+            assert!(
+                previous.upgrade().is_none(),
+                "a closed surface must release its texture owner"
+            );
+        }
+        if let Some(previous) = stable.as_ref().and_then(std::rc::Weak::upgrade) {
+            assert!(Rc::ptr_eq(&previous, &persistent.element));
+            assert_eq!(stable_id.as_ref(), Some(&persistent.id));
+        }
+        retired = Some(Rc::downgrade(&transient.element));
+        stable = Some(Rc::downgrade(&persistent.element));
+        stable_id = Some(persistent.id.clone());
+        assert!(Rc::ptr_eq(
+            &effects.outputs["secondary"].results[&BlurIdentity::Overlay("stable")],
+            &secondary.element,
+        ));
+    }
+
+    // An older scene may still own elements when a new, empty scene is built.
+    effects.begin_scene("primary");
+    let in_flight = blur(
+        &mut renderer,
+        &mut effects,
+        "primary",
+        BlurIdentity::Overlay("stable"),
+    );
+    effects.end_scene("primary");
+    let in_flight_owner = Rc::downgrade(&in_flight.element);
+    effects.begin_scene("primary");
+    effects.end_scene("primary");
+    assert!(effects.outputs["primary"].results.is_empty());
+    assert!(effects.outputs["primary"].ids.is_empty());
+    assert!(in_flight_owner.upgrade().is_some());
+    let size: Size<i32, Physical> = (48, 32).into();
+    let mut target = create_texture(&mut renderer, size).unwrap();
+    let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+    let scene = vec![
+        PixelElement::Partial(in_flight),
+        PixelElement::Solid(SolidColorRenderElement::new(
+            Id::new(),
+            Rectangle::from_size(size),
+            0,
+            Color32F::BLACK,
+            Kind::Unspecified,
+        )),
+    ];
+    let (pixels, _) = read_pixels(&mut renderer, &mut target, &mut tracker, &scene, 0);
+    assert_eq!(pixels.len(), 48 * 32 * 4);
+    drop(scene);
+    assert!(in_flight_owner.upgrade().is_none());
+    assert_eq!(effects.outputs["secondary"].results.len(), 1);
+    assert_eq!(effects.outputs["secondary"].ids.len(), 1);
+
+    effects.begin_scene("secondary");
+    effects.end_scene("secondary");
+    assert!(effects.outputs["secondary"].results.is_empty());
+    assert!(effects.outputs["secondary"].ids.is_empty());
 }
 
 #[test]
@@ -416,6 +553,7 @@ fn moving_blur_samples_the_current_backdrop_without_trails() {
             )
             .unwrap()
             .unwrap();
+        effects.end_scene("motion");
         let scene = vec![
             PixelElement::Partial(blur),
             PixelElement::Solid(SolidColorRenderElement::new(
