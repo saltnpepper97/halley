@@ -5,7 +5,7 @@ Commands:
   outputs        List connected monitors and their current mode/position
   reload         Reload the selected configuration immediately
   basics         Show Halley's one-time basics card again
-  capture        Enter Halley's native screenshot capture modes
+  capture        Capture a screen, window, or region
   dpms           Control tty output power state
   node           List, inspect, focus, move, collapse, restore, toggle, or close nodes
   cluster        List, inspect, switch, or change optional cluster workspaces
@@ -53,10 +53,16 @@ the card is dismissed with Enter, Escape, or a click.
 pub const CAPTURE_HELP: &str = "\
 Usage:
   halleyctl capture menu [-o OUTPUT]
-  halleyctl capture region [-o OUTPUT]
+  halleyctl capture region [-o OUTPUT] [--rect X Y WIDTH HEIGHT]
   halleyctl capture screen [-o OUTPUT]
-  halleyctl capture window [-o OUTPUT]
+  halleyctl capture window NODE_ID
 
+Screen with -o, window with a node ID, and region with --rect capture immediately
+without selection or notification UI. Find window IDs with `halleyctl node list`.
+--rect requires -o and uses logical pixels relative to that display's top-left.
+The rectangle must fit inside the display; WIDTH and HEIGHT must be positive.
+Screen without -o opens the screen picker. Region without --rect opens region
+selection, restricted to OUTPUT when provided. Menu opens all capture choices.
 The command waits until the capture is saved or cancelled.
 ";
 

@@ -15,11 +15,11 @@ pub use codec::{
 };
 pub use types::{
     ApiEvent, BearingsRequest, BearingsStatusResponse, CaptureBuffer, CaptureCapabilities,
-    CaptureFrameRequest, CaptureFrameResponse, CaptureSource, ClusterDraftAppLaunch,
-    ClusterDraftRequest, ClusterDraftSource, ClusterDraftState, ClusterInfo, ClusterLayoutKind,
-    ClusterListResponse, ClusterOutputGroup, ClusterRequest, ClusterSummary, ClusterTarget,
-    ControlDirection, ControlRequest, CursorMetadata, CursorMode, DmabufFormat, DmabufPlane,
-    DpmsCommand, EventTopic, HALLEY_API_VERSION, HALLEY_IPC_VERSION, HelloRequest,
+    CaptureFrameRequest, CaptureFrameResponse, CaptureRect, CaptureRequest, CaptureSource,
+    ClusterDraftAppLaunch, ClusterDraftRequest, ClusterDraftSource, ClusterDraftState, ClusterInfo,
+    ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterRequest, ClusterSummary,
+    ClusterTarget, ControlDirection, ControlRequest, CursorMetadata, CursorMode, DmabufFormat,
+    DmabufPlane, DpmsCommand, EventTopic, HALLEY_API_VERSION, HALLEY_IPC_VERSION, HelloRequest,
     LocalCaptureMode, LocalCaptureRequest, ModeInfo, MonitorFocusTarget, NodeInfo, NodeKind,
     NodeListResponse, NodeMoveDirection, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo,
     NodeRequest, NodeRole, NodeSelector, NodeState, OutputInfo, OutputsResponse,

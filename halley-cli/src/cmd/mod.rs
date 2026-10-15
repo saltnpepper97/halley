@@ -8,7 +8,7 @@ mod trail;
 use std::path::PathBuf;
 
 use halley_api::DpmsCommand;
-use halley_api::{CaptureMode, Direction, MonitorTarget, StackCycleDirection};
+use halley_api::{CaptureTarget, Direction, MonitorTarget, StackCycleDirection};
 
 pub use cluster::ClusterCommand;
 pub use node::NodeCommand;
@@ -28,8 +28,7 @@ pub enum Action {
     Outputs,
     Reload,
     Capture {
-        mode: CaptureMode,
-        output: Option<String>,
+        target: CaptureTarget,
     },
     CaptureHelp,
     Dpms {

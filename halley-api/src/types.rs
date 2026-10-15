@@ -109,6 +109,33 @@ pub enum CaptureMode {
     Window,
 }
 
+/// Rectangle relative to an output's top-left, measured in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Fully specified targets capture without selection or notification UI.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CaptureTarget {
+    Menu {
+        output: Option<String>,
+    },
+    Screen {
+        output: Option<String>,
+    },
+    Window {
+        node_id: NodeId,
+    },
+    Region {
+        output: Option<String>,
+        rect: Option<CaptureRect>,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureOutcome {
     Saved(PathBuf),

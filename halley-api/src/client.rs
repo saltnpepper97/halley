@@ -3,10 +3,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::{
-    BearingsCommand, CaptureMode, CaptureOutcome, ClusterDraft, ClusterInfo, ClusterSummary,
-    ClusterTarget, Direction, DpmsCommand, Error, ErrorKind, EventStream, EventTopic,
-    HALLEY_API_VERSION, MonitorTarget, NodeInfo, NodeMoveDirection, NodeSelector, OutputInfo,
-    Result, ServerInfo, StackCycleDirection, Subscription, TrailDirection, TrailInfo, TrailTarget,
+    BearingsCommand, CaptureMode, CaptureOutcome, CaptureTarget, ClusterDraft, ClusterInfo,
+    ClusterSummary, ClusterTarget, Direction, DpmsCommand, Error, ErrorKind, EventStream,
+    EventTopic, HALLEY_API_VERSION, MonitorTarget, NodeInfo, NodeMoveDirection, NodeSelector,
+    OutputInfo, Result, ServerInfo, StackCycleDirection, Subscription, TrailDirection, TrailInfo,
+    TrailTarget,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -308,6 +309,40 @@ impl Client {
     pub fn reload_config(&self) -> Result<()> {
         self.ack(halley_ipc::Request::ConfigReload)
     }
+    /// Capture a target and wait for the saved file or interactive cancellation.
+    /// Requires the `direct-capture-v1` capability. Explicit targets never open UI.
+    pub fn capture_target(&self, target: CaptureTarget) -> Result<CaptureOutcome> {
+        if !self
+            .server_info
+            .capabilities
+            .iter()
+            .any(|c| c == "direct-capture-v1")
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "this compositor does not support direct capture; restart Halley after upgrading",
+            ));
+        }
+        let request = match target {
+            CaptureTarget::Menu { output } => halley_ipc::CaptureRequest::Menu { output },
+            CaptureTarget::Screen { output } => halley_ipc::CaptureRequest::Screen { output },
+            CaptureTarget::Window { node_id } => halley_ipc::CaptureRequest::Window {
+                node_id: node_id.get(),
+            },
+            CaptureTarget::Region { output, rect } => halley_ipc::CaptureRequest::Region {
+                output,
+                rect: rect.map(|r| halley_ipc::CaptureRect {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                }),
+            },
+        };
+        self.capture_response(halley_ipc::Request::Capture(request))
+    }
+
+    /// Compatibility API. Window mode retains its interactive picker.
     pub fn capture(&self, mode: CaptureMode, output: Option<&str>) -> Result<CaptureOutcome> {
         let mode = match mode {
             CaptureMode::Menu => halley_ipc::LocalCaptureMode::Menu,
@@ -315,12 +350,16 @@ impl Client {
             CaptureMode::Screen => halley_ipc::LocalCaptureMode::Screen,
             CaptureMode::Window => halley_ipc::LocalCaptureMode::Window,
         };
-        match self.request(halley_ipc::Request::LocalCapture(
+        self.capture_response(halley_ipc::Request::LocalCapture(
             halley_ipc::LocalCaptureRequest {
                 mode,
                 output: output.map(str::to_owned),
             },
-        ))? {
+        ))
+    }
+
+    fn capture_response(&self, request: halley_ipc::Request) -> Result<CaptureOutcome> {
+        match self.request(request)? {
             halley_ipc::Response::Screenshot(halley_ipc::ScreenshotResponse::Saved { path }) => {
                 Ok(CaptureOutcome::Saved(path.into()))
             }

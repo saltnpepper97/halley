@@ -21,8 +21,8 @@ fn main() -> ExitCode {
             Ok(ExitCode::SUCCESS)
         }),
         Ok(Action::BasicsHelp) => show(help::BASICS_HELP),
-        Ok(Action::Capture { mode, output }) => with_client(|client| {
-            match client.capture(mode, output.as_deref())? {
+        Ok(Action::Capture { target }) => with_client(|client| {
+            match client.capture_target(target)? {
                 CaptureOutcome::Saved(path) => println!("saved: {}", path.display()),
                 CaptureOutcome::Cancelled => println!("cancelled"),
             }

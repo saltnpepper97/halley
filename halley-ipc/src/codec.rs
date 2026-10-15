@@ -389,6 +389,20 @@ mod tests {
                 mode: crate::LocalCaptureMode::Window,
                 output: Some("DP-2".to_string()),
             }),
+            Request::Capture(crate::CaptureRequest::Menu { output: None }),
+            Request::Capture(crate::CaptureRequest::Screen {
+                output: Some("DP-1".into()),
+            }),
+            Request::Capture(crate::CaptureRequest::Window { node_id: 42 }),
+            Request::Capture(crate::CaptureRequest::Region {
+                output: Some("DP-2".into()),
+                rect: Some(crate::CaptureRect {
+                    x: 10,
+                    y: 20,
+                    width: 300,
+                    height: 400,
+                }),
+            }),
             Request::Control(crate::ControlRequest::TileSwap {
                 direction: crate::ControlDirection::Left,
                 output: None,
