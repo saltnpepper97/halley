@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// the end of `Request`/`Response` silently breaks wire-compatibility with
 /// a differently-versioned build - worth remembering as this grows, not
 /// solved here (this first pass has nothing to negotiate against yet).
-pub const HALLEY_IPC_VERSION: u32 = 23;
+pub const HALLEY_IPC_VERSION: u32 = 25;
 pub const HALLEY_API_VERSION: u32 = 1;
 
 /// A request from `halleyctl`, the portal backend, or another local client.
@@ -46,6 +46,11 @@ pub enum Request {
     Trail(TrailRequest),
     LocalCapture(LocalCaptureRequest),
     Control(ControlRequest),
+    Capture(CaptureRequest),
+    CaptureWithOptions {
+        target: CaptureRequest,
+        silent: bool,
+    },
 }
 
 /// The compositor's reply to a `Request`.
@@ -520,6 +525,33 @@ pub enum LocalCaptureMode {
 pub struct LocalCaptureRequest {
     pub mode: LocalCaptureMode,
     pub output: Option<String>,
+}
+
+/// Output-relative rectangle in logical pixels, before display scaling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// A complete target captures immediately; omitted screen/region targets use UI.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CaptureRequest {
+    Menu {
+        output: Option<String>,
+    },
+    Screen {
+        output: Option<String>,
+    },
+    Window {
+        node_id: u64,
+    },
+    Region {
+        output: Option<String>,
+        rect: Option<CaptureRect>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

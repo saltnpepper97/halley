@@ -3,10 +3,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::{
-    BearingsCommand, CaptureMode, CaptureOutcome, ClusterDraft, ClusterInfo, ClusterSummary,
-    ClusterTarget, Direction, DpmsCommand, Error, ErrorKind, EventStream, EventTopic,
-    HALLEY_API_VERSION, MonitorTarget, NodeInfo, NodeMoveDirection, NodeSelector, OutputInfo,
-    Result, ServerInfo, StackCycleDirection, Subscription, TrailDirection, TrailInfo, TrailTarget,
+    BearingsCommand, CaptureMode, CaptureOptions, CaptureOutcome, CaptureTarget, ClusterDraft,
+    ClusterInfo, ClusterSummary, ClusterTarget, Direction, DpmsCommand, Error, ErrorKind,
+    EventStream, EventTopic, HALLEY_API_VERSION, MonitorTarget, NodeInfo, NodeMoveDirection,
+    NodeSelector, OutputInfo, Result, ServerInfo, StackCycleDirection, Subscription,
+    TrailDirection, TrailInfo, TrailTarget,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -308,6 +309,68 @@ impl Client {
     pub fn reload_config(&self) -> Result<()> {
         self.ack(halley_ipc::Request::ConfigReload)
     }
+    /// Capture a target and wait for the saved file or interactive cancellation.
+    /// Requires `direct-capture-v1`. Explicit targets skip selection and show the saved preview.
+    pub fn capture_target(&self, target: CaptureTarget) -> Result<CaptureOutcome> {
+        self.capture_target_with_options(target, CaptureOptions::default())
+    }
+
+    /// Capture with optional suppression of the saved notification (`silent-capture-v1`).
+    pub fn capture_target_with_options(
+        &self,
+        target: CaptureTarget,
+        options: CaptureOptions,
+    ) -> Result<CaptureOutcome> {
+        if !self
+            .server_info
+            .capabilities
+            .iter()
+            .any(|c| c == "direct-capture-v1")
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "this compositor does not support direct capture; restart Halley after upgrading",
+            ));
+        }
+        if options.silent
+            && !self
+                .server_info
+                .capabilities
+                .iter()
+                .any(|c| c == "silent-capture-v1")
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "this compositor does not support silent capture; restart Halley after upgrading",
+            ));
+        }
+        let request = match target {
+            CaptureTarget::Menu { output } => halley_ipc::CaptureRequest::Menu { output },
+            CaptureTarget::Screen { output } => halley_ipc::CaptureRequest::Screen { output },
+            CaptureTarget::Window { node_id } => halley_ipc::CaptureRequest::Window {
+                node_id: node_id.get(),
+            },
+            CaptureTarget::Region { output, rect } => halley_ipc::CaptureRequest::Region {
+                output,
+                rect: rect.map(|r| halley_ipc::CaptureRect {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                }),
+            },
+        };
+        self.capture_response(if options.silent {
+            halley_ipc::Request::CaptureWithOptions {
+                target: request,
+                silent: true,
+            }
+        } else {
+            halley_ipc::Request::Capture(request)
+        })
+    }
+
+    /// Compatibility API. Window mode retains its interactive picker.
     pub fn capture(&self, mode: CaptureMode, output: Option<&str>) -> Result<CaptureOutcome> {
         let mode = match mode {
             CaptureMode::Menu => halley_ipc::LocalCaptureMode::Menu,
@@ -315,12 +378,16 @@ impl Client {
             CaptureMode::Screen => halley_ipc::LocalCaptureMode::Screen,
             CaptureMode::Window => halley_ipc::LocalCaptureMode::Window,
         };
-        match self.request(halley_ipc::Request::LocalCapture(
+        self.capture_response(halley_ipc::Request::LocalCapture(
             halley_ipc::LocalCaptureRequest {
                 mode,
                 output: output.map(str::to_owned),
             },
-        ))? {
+        ))
+    }
+
+    fn capture_response(&self, request: halley_ipc::Request) -> Result<CaptureOutcome> {
+        match self.request(request)? {
             halley_ipc::Response::Screenshot(halley_ipc::ScreenshotResponse::Saved { path }) => {
                 Ok(CaptureOutcome::Saved(path.into()))
             }
@@ -496,5 +563,190 @@ fn topic_wire(v: EventTopic) -> halley_ipc::EventTopic {
         EventTopic::NodeGeometry => halley_ipc::EventTopic::NodeGeometry,
         EventTopic::Clusters => halley_ipc::EventTopic::Clusters,
         EventTopic::Config => halley_ipc::EventTopic::Config,
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::{CaptureRect, NodeId};
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
+
+    fn mock_client(
+        capabilities: &[&str],
+        run: impl FnOnce(UnixStream) + Send + 'static,
+    ) -> (Client, std::thread::JoinHandle<()>) {
+        let path = std::env::temp_dir().join(format!(
+            "halley-sdk-capture-{}-{}.sock",
+            std::process::id(),
+            NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
+        ));
+        let listener = UnixListener::bind(&path).unwrap();
+        let capabilities = capabilities.iter().map(|c| c.to_string()).collect();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let bytes = halley_ipc::read_frame(&mut stream).unwrap();
+            assert!(matches!(
+                halley_ipc::decode_request(&bytes).unwrap(),
+                halley_ipc::Request::Hello(_)
+            ));
+            let response = halley_ipc::Response::Hello(halley_ipc::ServerInfo {
+                compositor_version: "test".into(),
+                api_version: HALLEY_API_VERSION,
+                ipc_protocol: halley_ipc::HALLEY_IPC_VERSION,
+                capabilities,
+            });
+            halley_ipc::write_frame(
+                &mut stream,
+                &halley_ipc::encode_response(&response).unwrap(),
+            )
+            .unwrap();
+            run(stream);
+        });
+        let client = Client::connect_to(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        (client, server)
+    }
+
+    #[test]
+    fn unsupported_capture_never_sends_an_unknown_wire_request() {
+        use std::io::Read;
+        let (client, server) = mock_client(&[], |mut stream| {
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        let error = client
+            .capture_target(CaptureTarget::Window {
+                node_id: NodeId::new(42),
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn silent_capture_requires_its_capability_without_sending_an_unknown_request() {
+        use std::io::Read;
+        let (client, server) = mock_client(&["direct-capture-v1"], |mut stream| {
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        assert!(!CaptureOptions::default().silent);
+        let error = client
+            .capture_target_with_options(
+                CaptureTarget::Screen {
+                    output: Some("DP-1".into()),
+                },
+                CaptureOptions { silent: true },
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn capture_preserves_ids_rectangles_completion_and_typed_errors() {
+        let (client, server) = mock_client(
+            &["direct-capture-v1", "silent-capture-v1"],
+            |mut stream| {
+                for index in 0..4 {
+                    let bytes = halley_ipc::read_frame(&mut stream).unwrap();
+                    let request = halley_ipc::decode_request(&bytes).unwrap();
+                    let response = match index {
+                        0 => {
+                            assert!(matches!(
+                                request,
+                                halley_ipc::Request::Capture(halley_ipc::CaptureRequest::Window {
+                                    node_id: 42
+                                })
+                            ));
+                            halley_ipc::Response::Screenshot(
+                                halley_ipc::ScreenshotResponse::Saved {
+                                    path: "/tmp/captured.png".into(),
+                                },
+                            )
+                        }
+                        1 => {
+                            assert!(
+                                matches!(request, halley_ipc::Request::Capture(halley_ipc::CaptureRequest::Region { output: Some(name), rect: Some(halley_ipc::CaptureRect { x: 10, y: 20, width: 300, height: 400 }) }) if name == "DP-2")
+                            );
+                            halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
+                                halley_ipc::ServerErrorKind::InvalidRequest,
+                                "outside output",
+                            ))
+                        }
+                        2 => halley_ipc::Response::Screenshot(
+                            halley_ipc::ScreenshotResponse::Cancelled,
+                        ),
+                        _ => {
+                            assert!(matches!(
+                                request,
+                                halley_ipc::Request::CaptureWithOptions {
+                                    target: halley_ipc::CaptureRequest::Window { node_id: 42 },
+                                    silent: true,
+                                }
+                            ));
+                            halley_ipc::Response::Screenshot(
+                                halley_ipc::ScreenshotResponse::Saved {
+                                    path: "/tmp/silent.png".into(),
+                                },
+                            )
+                        }
+                    };
+                    halley_ipc::write_frame(
+                        &mut stream,
+                        &halley_ipc::encode_response(&response).unwrap(),
+                    )
+                    .unwrap();
+                }
+            },
+        );
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Window {
+                    node_id: NodeId::new(42)
+                })
+                .unwrap(),
+            CaptureOutcome::Saved("/tmp/captured.png".into())
+        );
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Region {
+                    output: Some("DP-2".into()),
+                    rect: Some(CaptureRect {
+                        x: 10,
+                        y: 20,
+                        width: 300,
+                        height: 400
+                    })
+                })
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidRequest
+        );
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Screen { output: None })
+                .unwrap(),
+            CaptureOutcome::Cancelled
+        );
+        assert_eq!(
+            client
+                .capture_target_with_options(
+                    CaptureTarget::Window {
+                        node_id: NodeId::new(42)
+                    },
+                    CaptureOptions { silent: true }
+                )
+                .unwrap(),
+            CaptureOutcome::Saved("/tmp/silent.png".into())
+        );
+        server.join().unwrap();
     }
 }

@@ -389,6 +389,28 @@ mod tests {
                 mode: crate::LocalCaptureMode::Window,
                 output: Some("DP-2".to_string()),
             }),
+            Request::Capture(crate::CaptureRequest::Menu { output: None }),
+            Request::Capture(crate::CaptureRequest::Screen {
+                output: Some("DP-1".into()),
+            }),
+            Request::Capture(crate::CaptureRequest::Window { node_id: 42 }),
+            Request::Capture(crate::CaptureRequest::Region {
+                output: Some("DP-2".into()),
+                rect: Some(crate::CaptureRect {
+                    x: 10,
+                    y: 20,
+                    width: 300,
+                    height: 400,
+                }),
+            }),
+            Request::CaptureWithOptions {
+                target: crate::CaptureRequest::Window { node_id: 42 },
+                silent: true,
+            },
+            Request::CaptureWithOptions {
+                target: crate::CaptureRequest::Menu { output: None },
+                silent: false,
+            },
             Request::Control(crate::ControlRequest::TileSwap {
                 direction: crate::ControlDirection::Left,
                 output: None,
@@ -398,6 +420,27 @@ mod tests {
             let decoded = decode_request(&bytes).unwrap();
             assert_eq!(format!("{decoded:?}"), format!("{req:?}"));
         }
+    }
+
+    #[test]
+    fn direct_capture_extension_preserves_existing_request_indices() {
+        // Version 23's local window request encoding must remain readable.
+        let bytes = [20, 3, 1, 4, b'D', b'P', b'-', b'2'];
+        let request = decode_request(&bytes).unwrap();
+        assert!(
+            matches!(&request, Request::LocalCapture(crate::LocalCaptureRequest {
+            mode: crate::LocalCaptureMode::Window, output: Some(name),
+        }) if name == "DP-2")
+        );
+        assert_eq!(encode_request(&request).unwrap(), bytes);
+        // Version 24's direct window request is unchanged by the options extension.
+        let direct = [22, 2, 42];
+        let request = decode_request(&direct).unwrap();
+        assert!(matches!(
+            request,
+            Request::Capture(crate::CaptureRequest::Window { node_id: 42 })
+        ));
+        assert_eq!(encode_request(&request).unwrap(), direct);
     }
 
     #[test]

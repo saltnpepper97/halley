@@ -109,6 +109,41 @@ pub enum CaptureMode {
     Window,
 }
 
+/// Rectangle relative to an output's top-left, measured in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Options for local screenshots. Saved-image notifications are enabled by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureOptions {
+    /// Suppress the saved-image notification, including its preview and Copy/Open actions.
+    /// Interactive selection is still required when the target is incomplete.
+    pub silent: bool,
+}
+
+/// Fully specified targets capture without selection UI.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CaptureTarget {
+    Menu {
+        output: Option<String>,
+    },
+    Screen {
+        output: Option<String>,
+    },
+    Window {
+        node_id: NodeId,
+    },
+    Region {
+        output: Option<String>,
+        rect: Option<CaptureRect>,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureOutcome {
     Saved(PathBuf),

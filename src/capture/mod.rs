@@ -137,6 +137,7 @@ pub struct CaptureState {
     source_chooser: SourceChooser,
     selection: Option<Selection>,
     pending: Option<PendingCapture>,
+    region_output: Option<String>,
 }
 
 enum Selection {
@@ -155,6 +156,7 @@ enum PendingCapture {
     Local {
         menu: ScreenshotMenu,
         reply: Option<crate::ipc::ReplySender>,
+        silent: bool,
     },
     Screenshot {
         request_handle: String,
@@ -172,7 +174,10 @@ struct AcceptedCapture {
 }
 
 enum AcceptedTarget {
-    Area(Rectangle<i32, Logical>),
+    Area {
+        region: Rectangle<i32, Logical>,
+        output: Option<String>,
+    },
     Screen(Rectangle<i32, Logical>),
     Window(WlSurface),
     Source(halley_ipc::CaptureSource),
@@ -294,22 +299,27 @@ impl CaptureState {
         let Some(geometry) = space.output_geometry(output) else {
             return false;
         };
+        self.region_output = None;
         self.selection = Some(Selection::Menu);
         self.pending = Some(PendingCapture::Local {
             menu: ScreenshotMenu::new(output.name(), geometry, window_available),
             reply: None,
+            silent: false,
         });
         true
     }
 
-    fn attach_local_reply(&mut self, reply: crate::ipc::ReplySender) {
+    fn attach_local_reply(&mut self, reply: crate::ipc::ReplySender, silent: bool) {
         let Some(PendingCapture::Local {
-            reply: local_reply, ..
+            reply: local_reply,
+            silent: local_silent,
+            ..
         }) = self.pending.as_mut()
         else {
             unreachable!("local reply can only be attached to a local capture")
         };
         *local_reply = Some(reply);
+        *local_silent = silent;
     }
 
     fn begin_area(
@@ -341,6 +351,7 @@ impl CaptureState {
         let Some(active) = active else {
             return Err(pending);
         };
+        self.region_output = None;
         self.picker.begin(outputs, active);
         self.selection = Some(Selection::Area);
         self.pending = Some(pending);
@@ -351,6 +362,7 @@ impl CaptureState {
         if self.pending.is_some() {
             return Err(pending);
         }
+        self.region_output = None;
         self.selection = Some(Selection::Window {
             surface: None,
             geometry: None,
@@ -378,17 +390,27 @@ impl CaptureState {
         let Some(geometry) = space.output_geometry(output) else {
             return Err(pending);
         };
+        self.region_output = None;
         self.source_chooser
             .begin(source_types, output.name(), geometry);
         self.pending = Some(pending);
         Ok(())
     }
 
-    pub fn update_layout(&mut self, space: &Space<Window>) {
+    /// False when a requested region output disappeared; the caller cancels capture.
+    pub fn update_layout(&mut self, space: &Space<Window>) -> bool {
         let outputs = space
             .outputs()
+            .filter(|output| {
+                self.region_output
+                    .as_deref()
+                    .is_none_or(|name| output.name() == name)
+            })
             .filter_map(|output| space.output_geometry(output))
             .collect::<Vec<_>>();
+        if outputs.is_empty() && self.region_output.is_some() {
+            return false;
+        }
         if !outputs.is_empty() {
             self.picker.update_outputs(outputs);
         }
@@ -400,6 +422,7 @@ impl CaptureState {
         {
             self.source_chooser.update_output_geometry(geometry);
         }
+        true
     }
 
     pub fn press(&mut self, position: (f64, f64)) -> Option<CapturePress> {
@@ -490,15 +513,8 @@ impl CaptureState {
         };
         match mode {
             ScreenshotMode::Region => {
-                let outputs = space
-                    .outputs()
-                    .filter_map(|output| space.output_geometry(output))
-                    .collect::<Vec<_>>();
-                if outputs.is_empty() {
-                    return false;
-                }
-                self.picker.begin(outputs, menu.output_geometry());
-                self.selection = Some(Selection::Area);
+                let output = self.region_output.clone();
+                return self.activate_region(space, output.as_deref());
             }
             ScreenshotMode::Screen => {
                 self.selection = Some(Selection::Screen {
@@ -513,6 +529,28 @@ impl CaptureState {
             }
             ScreenshotMode::Window => return false,
         }
+        true
+    }
+
+    fn activate_region(&mut self, space: &Space<Window>, output: Option<&str>) -> bool {
+        if !matches!(self.selection, Some(Selection::Menu)) {
+            return false;
+        }
+        let Some(menu) = self.local_menu() else {
+            return false;
+        };
+        let active = menu.output_geometry();
+        let outputs = space
+            .outputs()
+            .filter(|candidate| output.is_none_or(|name| candidate.name() == name))
+            .filter_map(|output| space.output_geometry(output))
+            .collect::<Vec<_>>();
+        if outputs.is_empty() {
+            return false;
+        }
+        self.region_output = output.map(str::to_owned);
+        self.picker.begin(outputs, active);
+        self.selection = Some(Selection::Area);
         true
     }
 
@@ -581,7 +619,10 @@ impl CaptureState {
                 self.selection = Some(Selection::Menu);
                 return None;
             }
-            Selection::Area => AcceptedTarget::Area(self.picker.accept()?),
+            Selection::Area => AcceptedTarget::Area {
+                region: self.picker.accept()?,
+                output: self.region_output.take(),
+            },
             Selection::Screen { geometry, .. } => AcceptedTarget::Screen(geometry),
             Selection::Window {
                 surface: Some(surface),
@@ -592,6 +633,7 @@ impl CaptureState {
                 return None;
             }
         };
+        self.region_output = None;
         Some(AcceptedCapture {
             target,
             pending: self.pending.take()?,
@@ -599,6 +641,7 @@ impl CaptureState {
     }
 
     fn cancel(&mut self) -> Option<PendingCapture> {
+        self.region_output = None;
         if matches!(self.selection.take(), Some(Selection::Area)) {
             self.picker.cancel();
         }
@@ -710,32 +753,206 @@ pub fn request_screenshot<D: SessionDriver>(
     }
 }
 
+fn fail_capture(
+    reply: crate::ipc::ReplySender,
+    kind: halley_ipc::ServerErrorKind,
+    message: impl Into<String>,
+) {
+    let _ = reply.send(
+        halley_ipc::Response::ApiError(halley_ipc::ServerError::new(kind, message)),
+        Vec::new(),
+    );
+}
+
+fn capture_unavailable<D: SessionDriver>(
+    session: &Session<D>,
+) -> Option<(halley_ipc::ServerErrorKind, &'static str)> {
+    if session.session_lock.active() {
+        Some((
+            halley_ipc::ServerErrorKind::InvalidRequest,
+            "session is locked",
+        ))
+    } else if session.capture.is_active() {
+        Some((
+            halley_ipc::ServerErrorKind::Busy,
+            "another capture is already active",
+        ))
+    } else {
+        None
+    }
+}
+
+fn requested_output_geometry<D: SessionDriver>(
+    session: &Session<D>,
+    name: &str,
+) -> Option<Rectangle<i32, Logical>> {
+    session
+        .wayland
+        .space
+        .outputs()
+        .find(|output| output.name() == name)
+        .and_then(|output| session.wayland.space.output_geometry(output))
+}
+
+/// Validate before translating into desktop coordinates. Never silently clip a target.
+fn output_relative_rect(
+    output: Rectangle<i32, Logical>,
+    rect: halley_ipc::CaptureRect,
+) -> Result<Rectangle<i32, Logical>, &'static str> {
+    if rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 {
+        return Err("capture rectangle requires nonnegative X/Y and positive WIDTH/HEIGHT");
+    }
+    if i64::from(rect.x) + i64::from(rect.width) > i64::from(output.size.w)
+        || i64::from(rect.y) + i64::from(rect.height) > i64::from(output.size.h)
+    {
+        return Err("capture rectangle is outside the output's logical bounds");
+    }
+    let x = output
+        .loc
+        .x
+        .checked_add(rect.x)
+        .ok_or("capture X coordinate overflow")?;
+    let y = output
+        .loc
+        .y
+        .checked_add(rect.y)
+        .ok_or("capture Y coordinate overflow")?;
+    x.checked_add(rect.width)
+        .ok_or("capture right edge overflow")?;
+    y.checked_add(rect.height)
+        .ok_or("capture bottom edge overflow")?;
+    Ok(Rectangle::new(
+        (x, y).into(),
+        (rect.width, rect.height).into(),
+    ))
+}
+
+pub fn request_capture<D: SessionDriver>(
+    session: &mut Session<D>,
+    request: halley_ipc::CaptureRequest,
+    silent: bool,
+    reply: crate::ipc::ReplySender,
+) {
+    use halley_ipc::{CaptureRequest, LocalCaptureMode, ServerErrorKind};
+    if let Some((kind, message)) = capture_unavailable(session) {
+        fail_capture(reply, kind, message);
+        return;
+    }
+    let (mode, output) = match request {
+        CaptureRequest::Window { node_id } => {
+            session.nodes.sync_from_space(&session.wayland.space);
+            let id = halley_core::field::NodeId::new(node_id);
+            let Some((surface, output_name)) = session
+                .nodes
+                .record(id)
+                .map(|record| (record.surface.clone(), record.output.clone()))
+            else {
+                fail_capture(
+                    reply,
+                    ServerErrorKind::NotFound,
+                    format!("unknown node {node_id}"),
+                );
+                return;
+            };
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
+            let captured = save_window(session, &surface);
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(output_name, reply, silent),
+            );
+            return;
+        }
+        CaptureRequest::Region {
+            output,
+            rect: Some(rect),
+        } => {
+            let Some(name) = output else {
+                fail_capture(
+                    reply,
+                    ServerErrorKind::InvalidRequest,
+                    "capture rectangle requires an output",
+                );
+                return;
+            };
+            let Some(geometry) = requested_output_geometry(session, &name) else {
+                fail_capture(
+                    reply,
+                    ServerErrorKind::NotFound,
+                    format!("unknown or unavailable output {name:?}"),
+                );
+                return;
+            };
+            let region = match output_relative_rect(geometry, rect) {
+                Ok(region) => region,
+                Err(message) => {
+                    fail_capture(reply, ServerErrorKind::InvalidRequest, message);
+                    return;
+                }
+            };
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
+            let captured = screenshot::save_output_region(session, &name, region);
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(name, reply, silent),
+            );
+            return;
+        }
+        CaptureRequest::Menu { output } => (LocalCaptureMode::Menu, output),
+        CaptureRequest::Screen { output } => (LocalCaptureMode::Screen, output),
+        CaptureRequest::Region { output, rect: None } => (LocalCaptureMode::Region, output),
+    };
+    request_local_capture_with_options(
+        session,
+        halley_ipc::LocalCaptureRequest { mode, output },
+        silent,
+        reply,
+    );
+}
+
 pub fn request_local_capture<D: SessionDriver>(
     session: &mut Session<D>,
     request: halley_ipc::LocalCaptureRequest,
     reply: crate::ipc::ReplySender,
 ) {
-    let fail = |reply: crate::ipc::ReplySender, message: &str| {
-        let _ = reply.send(
-            halley_ipc::Response::Screenshot(halley_ipc::ScreenshotResponse::Failed {
-                message: message.to_string(),
-            }),
-            Vec::new(),
-        );
-    };
-    if session.session_lock.active() {
-        fail(reply, "session is locked");
+    request_local_capture_with_options(session, request, false, reply);
+}
+
+fn request_local_capture_with_options<D: SessionDriver>(
+    session: &mut Session<D>,
+    request: halley_ipc::LocalCaptureRequest,
+    silent: bool,
+    reply: crate::ipc::ReplySender,
+) {
+    use halley_ipc::ServerErrorKind;
+    if let Some((kind, message)) = capture_unavailable(session) {
+        fail_capture(reply, kind, message);
         return;
     }
-    if let Some(output) = request.output.as_deref()
-        && !session
-            .wayland
-            .space
-            .outputs()
-            .any(|candidate| candidate.name() == output)
-    {
-        fail(reply, &format!("unknown output {output:?}"));
-        return;
+    let explicit_output = request.output.is_some();
+    if let Some(name) = request.output.as_deref() {
+        let Some(geometry) = requested_output_geometry(session, name) else {
+            fail_capture(
+                reply,
+                ServerErrorKind::NotFound,
+                format!("unknown or unavailable output {name:?}"),
+            );
+            return;
+        };
+        if request.mode == halley_ipc::LocalCaptureMode::Screen {
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
+            let captured = screenshot::save_output_region(session, name, geometry);
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(name.to_string(), reply, silent),
+            );
+            return;
+        }
     }
     let preferred = request.output.or_else(|| {
         crate::wayland::focus::selected_output(&session.wayland).map(|output| output.name())
@@ -752,25 +969,33 @@ pub fn request_local_capture<D: SessionDriver>(
         preferred.as_deref(),
         window_available,
     ) {
-        fail(
-            reply,
-            "another capture is already active or no output is available",
-        );
+        fail_capture(reply, ServerErrorKind::NotFound, "no available output");
         return;
     }
-    session.capture.attach_local_reply(reply);
+    session.capture.attach_local_reply(reply, silent);
     let mode = match request.mode {
         halley_ipc::LocalCaptureMode::Menu => None,
         halley_ipc::LocalCaptureMode::Region => Some(ScreenshotMode::Region),
         halley_ipc::LocalCaptureMode::Screen => Some(ScreenshotMode::Screen),
         halley_ipc::LocalCaptureMode::Window => Some(ScreenshotMode::Window),
     };
-    if mode.is_some_and(|mode| !session.capture.activate_menu(mode, &session.wayland.space)) {
+    let activated = match mode {
+        Some(ScreenshotMode::Region) if explicit_output => session
+            .capture
+            .activate_region(&session.wayland.space, preferred.as_deref()),
+        Some(mode) => session.capture.activate_menu(mode, &session.wayland.space),
+        None => true,
+    };
+    if !activated {
         if let Some(PendingCapture::Local {
             reply: Some(reply), ..
         }) = session.capture.cancel()
         {
-            fail(reply, "requested capture mode is unavailable");
+            fail_capture(
+                reply,
+                ServerErrorKind::NotFound,
+                "requested capture mode is unavailable",
+            );
         }
         return;
     }
@@ -886,7 +1111,14 @@ pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
         return true;
     }
     let captured = match accepted.target {
-        AcceptedTarget::Area(region) => save_area(session, region),
+        AcceptedTarget::Area {
+            region,
+            output: Some(output),
+        } => screenshot::save_output_region(session, &output, region),
+        AcceptedTarget::Area {
+            region,
+            output: None,
+        } => save_area(session, region),
         AcceptedTarget::Screen(region) => save_region(session, region),
         AcceptedTarget::Window(surface) => save_window(session, &surface),
         AcceptedTarget::Source(_) => unreachable!("handled above"),
@@ -942,12 +1174,32 @@ pub enum PendingCaptureReply {
     Ipc(crate::ipc::ReplySender),
 }
 
+impl PendingCaptureReply {
+    fn local(output_name: String, reply: crate::ipc::ReplySender, silent: bool) -> Self {
+        if silent {
+            Self::Ipc(reply)
+        } else {
+            Self::Local {
+                output_name,
+                reply: Some(reply),
+            }
+        }
+    }
+}
+
 impl From<PendingCapture> for PendingCaptureReply {
     fn from(pending: PendingCapture) -> Self {
         match pending {
-            PendingCapture::Local { menu, reply } => Self::Local {
+            PendingCapture::Local {
+                menu,
+                reply: Some(reply),
+                silent,
+            } => Self::local(menu.output_name().to_string(), reply, silent),
+            PendingCapture::Local {
+                menu, reply: None, ..
+            } => Self::Local {
                 output_name: menu.output_name().to_string(),
-                reply,
+                reply: None,
             },
             PendingCapture::Screenshot { reply, .. } => Self::Ipc(reply),
             PendingCapture::Source { .. } => {
@@ -1136,6 +1388,115 @@ mod tests {
         space.map_output(&left, (0, 0));
         space.map_output(&right, (1920, 0));
         space
+    }
+
+    #[test]
+    fn explicit_region_stays_on_its_output_after_layout_updates_and_menu_return() {
+        let mut space = outputs();
+        let right = space
+            .outputs()
+            .find(|output| output.name() == "DP-2")
+            .unwrap()
+            .clone();
+        let bounds = space.output_geometry(&right).unwrap();
+        let mut capture = CaptureState::default();
+        assert!(capture.begin_menu(&space, Some("DP-2"), true));
+        assert!(capture.activate_region(&space, Some("DP-2")));
+        assert!(capture.update_layout(&space));
+        let region = capture.picker.region().unwrap();
+        capture.press((
+            (region.loc.x + region.size.w / 2) as f64,
+            (region.loc.y + region.size.h / 2) as f64,
+        ));
+        capture.motion((-5000.0, -5000.0));
+        capture.release();
+        assert!(bounds.contains_rect(capture.picker.region().unwrap()));
+        assert!(capture.return_to_menu());
+        assert!(capture.activate_menu(ScreenshotMode::Region, &space));
+        assert_eq!(capture.region_output.as_deref(), Some("DP-2"));
+        space.unmap_output(&right);
+        assert!(!capture.update_layout(&space));
+        capture.cancel();
+        assert!(capture.begin_menu(&space, Some("DP-1"), true));
+        assert!(capture.activate_menu(ScreenshotMode::Region, &space));
+        assert!(capture.region_output.is_none());
+        assert!(capture.update_layout(&space));
+    }
+
+    #[test]
+    fn accepting_a_scoped_region_keeps_its_output_for_pixel_capture() {
+        let space = outputs();
+        let mut capture = CaptureState::default();
+        assert!(capture.begin_menu(&space, Some("DP-2"), true));
+        assert!(capture.activate_region(&space, Some("DP-2")));
+        let selected = capture.picker.region().unwrap();
+        let accepted = capture.accept().unwrap();
+        assert!(
+            matches!(accepted.target, AcceptedTarget::Area { region, output: Some(name) }
+            if region == selected && name == "DP-2")
+        );
+        assert!(!capture.is_active());
+        assert!(capture.region_output.is_none());
+    }
+
+    #[test]
+    fn rectangles_use_output_relative_logical_coordinates_and_reject_clipping_or_overflow() {
+        let bounds = Rectangle::new((-1600, 300).into(), (1600, 900).into());
+        let rect = |x, y, width, height| halley_ipc::CaptureRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(
+            output_relative_rect(bounds, rect(100, 50, 400, 200)).unwrap(),
+            Rectangle::new((-1500, 350).into(), (400, 200).into())
+        );
+        assert_eq!(
+            output_relative_rect(bounds, rect(0, 0, 1600, 900)).unwrap(),
+            bounds
+        );
+        for invalid in [
+            rect(-1, 0, 10, 10),
+            rect(0, -1, 10, 10),
+            rect(0, 0, 0, 10),
+            rect(0, 0, 10, -1),
+            rect(1599, 0, 2, 10),
+            rect(0, 899, 10, 2),
+            rect(i32::MAX, 0, i32::MAX, 10),
+        ] {
+            assert!(
+                output_relative_rect(bounds, invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+        let overflow = Rectangle::new((i32::MAX - 5, 0).into(), (1600, 900).into());
+        assert!(output_relative_rect(overflow, rect(10, 0, 10, 10)).is_err());
+        assert!(output_relative_rect(overflow, rect(0, 0, 10, 10)).is_err());
+    }
+
+    #[test]
+    fn named_output_capture_excludes_overlapping_outputs_with_other_scales() {
+        let mut space = outputs();
+        let right = space
+            .outputs()
+            .find(|output| output.name() == "DP-2")
+            .unwrap()
+            .clone();
+        right.change_current_state(
+            None,
+            None,
+            Some(smithay::output::Scale::Fractional(1.5)),
+            None,
+        );
+        space.map_output(&right, (0, 0));
+        let selected = screenshot::screenshot_outputs(&space, Some("DP-1"));
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].0.name(), "DP-1");
+        assert_eq!(selected[0].0.current_scale().fractional_scale(), 1.0);
+        assert_eq!(selected[0].1.size, (1920, 1080).into());
+        assert_eq!(screenshot::screenshot_outputs(&space, None).len(), 2);
+        assert!(screenshot::screenshot_outputs(&space, Some("missing")).is_empty());
     }
 
     #[test]

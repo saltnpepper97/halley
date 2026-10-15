@@ -31,20 +31,41 @@ pub fn save_region<D: SessionDriver>(
     session: &mut Session<D>,
     region: Rectangle<i32, Logical>,
 ) -> Result<CapturedImage, Box<dyn Error>> {
-    save_region_inner(session, region, false)
+    save_region_inner(session, region, false, None)
 }
 
 pub fn save_area<D: SessionDriver>(
     session: &mut Session<D>,
     region: Rectangle<i32, Logical>,
 ) -> Result<CapturedImage, Box<dyn Error>> {
-    save_region_inner(session, region, true)
+    save_region_inner(session, region, true, None)
+}
+
+/// An explicit output target must not composite overlapping/mirrored outputs.
+pub(super) fn save_output_region<D: SessionDriver>(
+    session: &mut Session<D>,
+    output: &str,
+    region: Rectangle<i32, Logical>,
+) -> Result<CapturedImage, Box<dyn Error>> {
+    save_region_inner(session, region, false, Some(output))
+}
+
+pub(super) fn screenshot_outputs(
+    space: &smithay::desktop::Space<smithay::desktop::Window>,
+    name: Option<&str>,
+) -> Vec<(Output, Rectangle<i32, Logical>)> {
+    space
+        .outputs()
+        .filter(|output| name.is_none_or(|name| output.name() == name))
+        .filter_map(|output| Some((output.clone(), space.output_geometry(output)?)))
+        .collect()
 }
 
 fn save_region_inner<D: SessionDriver>(
     session: &mut Session<D>,
     mut region: Rectangle<i32, Logical>,
     trim_outer_gaps: bool,
+    output_name: Option<&str>,
 ) -> Result<CapturedImage, Box<dyn Error>> {
     if session.session_lock.active() {
         return Err(io::Error::other("session is locked").into());
@@ -52,17 +73,7 @@ fn save_region_inner<D: SessionDriver>(
     if region.size.w <= 0 || region.size.h <= 0 {
         return Err(io::Error::other("selected screenshot region is empty").into());
     }
-    let all_outputs = session
-        .wayland
-        .space
-        .outputs()
-        .filter_map(|output| {
-            Some((
-                output.clone(),
-                session.wayland.space.output_geometry(output)?,
-            ))
-        })
-        .collect::<Vec<_>>();
+    let all_outputs = screenshot_outputs(&session.wayland.space, output_name);
     if trim_outer_gaps {
         region =
             visible_region_bounds(region, all_outputs.iter().map(|(_, geometry)| *geometry))
