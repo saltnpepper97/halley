@@ -57,14 +57,17 @@ Usage:
   halleyctl capture screen [-o OUTPUT] [--silent]
   halleyctl capture window NODE_ID [--silent]
 
-Screen with -o, window with a node ID, and region with --rect capture immediately
-without selection UI, then show the normal saved-image notification.
---silent suppresses this notification; interactive selection still appears when
-needed. Find window IDs with `halleyctl node list`.
---rect requires -o and uses logical pixels relative to that display's top-left.
-The rectangle must fit inside the display; WIDTH and HEIGHT must be positive.
-Screen without -o opens the screen picker. Region without --rect opens region
-selection, restricted to OUTPUT when provided. Menu opens all capture choices.
+Modes:
+  menu    Open all capture choices.
+  screen  Capture OUTPUT immediately with -o; otherwise choose a screen.
+  window  Capture NODE_ID immediately. Find IDs with: halleyctl node list
+  region  Capture immediately with --rect; otherwise select a region.
+          With -o, selection stays on that display.
+
+--rect requires -o and uses logical pixels from the display's top-left.
+X/Y must be nonnegative, WIDTH/HEIGHT positive, and the rectangle must fit.
+
+Saved captures show a preview notification; --silent suppresses it.
 The command waits until the capture is saved or cancelled.
 ";
 
