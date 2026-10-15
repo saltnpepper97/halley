@@ -156,6 +156,7 @@ enum PendingCapture {
     Local {
         menu: ScreenshotMenu,
         reply: Option<crate::ipc::ReplySender>,
+        silent: bool,
     },
     Screenshot {
         request_handle: String,
@@ -303,18 +304,22 @@ impl CaptureState {
         self.pending = Some(PendingCapture::Local {
             menu: ScreenshotMenu::new(output.name(), geometry, window_available),
             reply: None,
+            silent: false,
         });
         true
     }
 
-    fn attach_local_reply(&mut self, reply: crate::ipc::ReplySender) {
+    fn attach_local_reply(&mut self, reply: crate::ipc::ReplySender, silent: bool) {
         let Some(PendingCapture::Local {
-            reply: local_reply, ..
+            reply: local_reply,
+            silent: local_silent,
+            ..
         }) = self.pending.as_mut()
         else {
             unreachable!("local reply can only be attached to a local capture")
         };
         *local_reply = Some(reply);
+        *local_silent = silent;
     }
 
     fn begin_area(
@@ -825,6 +830,7 @@ fn output_relative_rect(
 pub fn request_capture<D: SessionDriver>(
     session: &mut Session<D>,
     request: halley_ipc::CaptureRequest,
+    silent: bool,
     reply: crate::ipc::ReplySender,
 ) {
     use halley_ipc::{CaptureRequest, LocalCaptureMode, ServerErrorKind};
@@ -836,10 +842,10 @@ pub fn request_capture<D: SessionDriver>(
         CaptureRequest::Window { node_id } => {
             session.nodes.sync_from_space(&session.wayland.space);
             let id = halley_core::field::NodeId::new(node_id);
-            let Some(surface) = session
+            let Some((surface, output_name)) = session
                 .nodes
                 .record(id)
-                .map(|record| record.surface.clone())
+                .map(|record| (record.surface.clone(), record.output.clone()))
             else {
                 fail_capture(
                     reply,
@@ -848,8 +854,14 @@ pub fn request_capture<D: SessionDriver>(
                 );
                 return;
             };
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
             let captured = save_window(session, &surface);
-            queue_capture(session, captured, PendingCaptureReply::Ipc(reply));
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(output_name, reply, silent),
+            );
             return;
         }
         CaptureRequest::Region {
@@ -879,17 +891,24 @@ pub fn request_capture<D: SessionDriver>(
                     return;
                 }
             };
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
             let captured = screenshot::save_output_region(session, &name, region);
-            queue_capture(session, captured, PendingCaptureReply::Ipc(reply));
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(name, reply, silent),
+            );
             return;
         }
         CaptureRequest::Menu { output } => (LocalCaptureMode::Menu, output),
         CaptureRequest::Screen { output } => (LocalCaptureMode::Screen, output),
         CaptureRequest::Region { output, rect: None } => (LocalCaptureMode::Region, output),
     };
-    request_local_capture(
+    request_local_capture_with_options(
         session,
         halley_ipc::LocalCaptureRequest { mode, output },
+        silent,
         reply,
     );
 }
@@ -897,6 +916,15 @@ pub fn request_capture<D: SessionDriver>(
 pub fn request_local_capture<D: SessionDriver>(
     session: &mut Session<D>,
     request: halley_ipc::LocalCaptureRequest,
+    reply: crate::ipc::ReplySender,
+) {
+    request_local_capture_with_options(session, request, false, reply);
+}
+
+fn request_local_capture_with_options<D: SessionDriver>(
+    session: &mut Session<D>,
+    request: halley_ipc::LocalCaptureRequest,
+    silent: bool,
     reply: crate::ipc::ReplySender,
 ) {
     use halley_ipc::ServerErrorKind;
@@ -915,8 +943,14 @@ pub fn request_local_capture<D: SessionDriver>(
             return;
         };
         if request.mode == halley_ipc::LocalCaptureMode::Screen {
+            session.shell.overlays.clear_screenshot();
+            session.request_redraw();
             let captured = screenshot::save_output_region(session, name, geometry);
-            queue_capture(session, captured, PendingCaptureReply::Ipc(reply));
+            queue_capture(
+                session,
+                captured,
+                PendingCaptureReply::local(name.to_string(), reply, silent),
+            );
             return;
         }
     }
@@ -938,7 +972,7 @@ pub fn request_local_capture<D: SessionDriver>(
         fail_capture(reply, ServerErrorKind::NotFound, "no available output");
         return;
     }
-    session.capture.attach_local_reply(reply);
+    session.capture.attach_local_reply(reply, silent);
     let mode = match request.mode {
         halley_ipc::LocalCaptureMode::Menu => None,
         halley_ipc::LocalCaptureMode::Region => Some(ScreenshotMode::Region),
@@ -1140,12 +1174,32 @@ pub enum PendingCaptureReply {
     Ipc(crate::ipc::ReplySender),
 }
 
+impl PendingCaptureReply {
+    fn local(output_name: String, reply: crate::ipc::ReplySender, silent: bool) -> Self {
+        if silent {
+            Self::Ipc(reply)
+        } else {
+            Self::Local {
+                output_name,
+                reply: Some(reply),
+            }
+        }
+    }
+}
+
 impl From<PendingCapture> for PendingCaptureReply {
     fn from(pending: PendingCapture) -> Self {
         match pending {
-            PendingCapture::Local { menu, reply } => Self::Local {
+            PendingCapture::Local {
+                menu,
+                reply: Some(reply),
+                silent,
+            } => Self::local(menu.output_name().to_string(), reply, silent),
+            PendingCapture::Local {
+                menu, reply: None, ..
+            } => Self::Local {
                 output_name: menu.output_name().to_string(),
-                reply,
+                reply: None,
             },
             PendingCapture::Screenshot { reply, .. } => Self::Ipc(reply),
             PendingCapture::Source { .. } => {

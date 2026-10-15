@@ -443,7 +443,8 @@ diagnostics. Run `halleyctl --help` for the current command surface.
 For automated screenshots, use `halleyctl capture screen -o OUTPUT`,
 `halleyctl capture window NODE_ID` (IDs from `halleyctl node list`), or
 `halleyctl capture region -o OUTPUT --rect X Y WIDTH HEIGHT`. These save
-immediately without confirmation or a preview notification. Rectangle coordinates
+immediately without confirmation and show the normal saved-image notification.
+Add `--silent` to suppress the notification. Rectangle coordinates
 are output-relative logical pixels. Omit `--rect` for interactive region
 selection, or use `halleyctl capture menu` for the native menu. See the
 [capture API](docs/api.md#screenshots-and-automation).

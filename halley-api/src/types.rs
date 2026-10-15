@@ -118,7 +118,15 @@ pub struct CaptureRect {
     pub height: i32,
 }
 
-/// Fully specified targets capture without selection or notification UI.
+/// Options for local screenshots. Saved-image notifications are enabled by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureOptions {
+    /// Suppress the saved-image notification, including its preview and Copy/Open actions.
+    /// Interactive selection is still required when the target is incomplete.
+    pub silent: bool,
+}
+
+/// Fully specified targets capture without selection UI.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureTarget {
     Menu {

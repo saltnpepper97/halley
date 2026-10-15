@@ -9,6 +9,19 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
     if matches!(mode, "-h" | "--help") {
         return Ok(Action::CaptureHelp);
     }
+    let mut silent = false;
+    let mut filtered = vec![mode.to_string()];
+    for arg in &args[1..] {
+        if arg == "--silent" {
+            if silent {
+                return Err("--silent may only be provided once".into());
+            }
+            silent = true;
+        } else {
+            filtered.push(arg.clone());
+        }
+    }
+    let args = &filtered;
     if mode == "window" {
         if args.len() != 2 {
             return Err(
@@ -23,6 +36,7 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
             .map_err(|_| "capture window requires a numeric node ID".to_string())?;
         return Ok(Action::Capture {
             target: CaptureTarget::Window { node_id },
+            silent,
         });
     }
     if !matches!(mode, "menu" | "screen" | "region") {
@@ -78,7 +92,7 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
         "region" => CaptureTarget::Region { output, rect },
         _ => unreachable!(),
     };
-    Ok(Action::Capture { target })
+    Ok(Action::Capture { target, silent })
 }
 
 #[cfg(test)]
@@ -94,6 +108,7 @@ mod tests {
         assert_eq!(
             parse_args(&["screen", "-o", "DP-1"]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Screen {
                     output: Some("DP-1".into())
                 },
@@ -102,12 +117,14 @@ mod tests {
         assert_eq!(
             parse_args(&["screen"]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Screen { output: None },
             })
         );
         assert_eq!(
             parse_args(&["window", "id:42"]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Window {
                     node_id: NodeId::new(42)
                 },
@@ -122,6 +139,7 @@ mod tests {
                 "region", "--rect", "10", "20", "300", "400", "--output", "DP-2"
             ]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Region {
                     output: Some("DP-2".into()),
                     rect: Some(CaptureRect {
@@ -136,6 +154,7 @@ mod tests {
         assert_eq!(
             parse_args(&["region", "-o", "DP-2"]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Region {
                     output: Some("DP-2".into()),
                     rect: None
@@ -145,9 +164,42 @@ mod tests {
         assert_eq!(
             parse_args(&["menu"]),
             Ok(Action::Capture {
+                silent: false,
                 target: CaptureTarget::Menu { output: None },
             })
         );
+    }
+
+    #[test]
+    fn silent_is_opt_in_for_all_modes() {
+        for args in [
+            vec!["screen", "-o", "DP-1"],
+            vec!["window", "42"],
+            vec!["region", "-o", "DP-1", "--rect", "0", "0", "100", "80"],
+            vec!["region"],
+            vec!["menu"],
+        ] {
+            let Ok(Action::Capture {
+                target,
+                silent: false,
+            }) = parse_args(&args)
+            else {
+                panic!("invalid normal capture");
+            };
+            for position in [1, args.len()] {
+                let mut quiet = args.clone();
+                quiet.insert(position, "--silent");
+                assert_eq!(
+                    parse_args(&quiet),
+                    Ok(Action::Capture {
+                        target: target.clone(),
+                        silent: true
+                    })
+                );
+            }
+        }
+        assert!(parse_args(&["screen", "--silent", "--silent"]).is_err());
+        assert!(parse_args(&["window", "--silent"]).is_err());
     }
 
     #[test]

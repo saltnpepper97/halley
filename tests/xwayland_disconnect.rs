@@ -1756,16 +1756,56 @@ fn explicit_capture_targets_save_without_confirmation_and_preserve_native_focus(
         .unwrap()
         .count();
     assert!(files >= 4);
+    let normal_files = fs::read_dir(fixture.path.join("screenshots"))
+        .unwrap()
+        .count();
+    let notification_log_count = |fixture: &Fixture| {
+        fs::read_to_string(fixture.path.join("console.log"))
+            .unwrap()
+            .matches("screenshot saved to ")
+            .count()
+    };
+    wait_for(
+        "normal captures use the saved-preview notification path",
+        || (notification_log_count(&fixture) == normal_files).then_some(()),
+    );
+    for target in [
+        CaptureRequest::Screen {
+            output: Some(output.name.clone()),
+        },
+        CaptureRequest::Window { node_id: red_id },
+        CaptureRequest::Region {
+            output: Some(output.name.clone()),
+            rect: Some(rect),
+        },
+    ] {
+        read_capture(fixture.request(Request::CaptureWithOptions {
+            target,
+            silent: true,
+        }));
+    }
+    // All three silent captures still saved a PNG, without entering that path.
+    assert_eq!(
+        fs::read_dir(fixture.path.join("screenshots"))
+            .unwrap()
+            .count(),
+        normal_files + 3
+    );
+    fixture.request(Request::Outputs);
+    assert_eq!(notification_log_count(&fixture), normal_files);
     // Region without coordinates must remain interactive. A second connection
     // can still get a bounded Busy error instead of silently choosing a target.
     let mut pending = UnixStream::connect(fixture.path.join("halley/halley.sock")).unwrap();
     pending
         .set_read_timeout(Some(Duration::from_millis(100)))
         .unwrap();
-    let request = Request::Capture(CaptureRequest::Region {
-        output: Some(output.name),
-        rect: None,
-    });
+    let request = Request::CaptureWithOptions {
+        target: CaptureRequest::Region {
+            output: Some(output.name),
+            rect: None,
+        },
+        silent: true,
+    };
     halley_ipc::write_frame(&mut pending, &halley_ipc::encode_request(&request).unwrap()).unwrap();
     assert!(
         matches!(halley_ipc::read_frame(&mut pending), Err(halley_ipc::CodecError::Io(error))

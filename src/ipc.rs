@@ -783,6 +783,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                         "control-v1".into(),
                         "local-capture-v1".into(),
                         "direct-capture-v1".into(),
+                        "silent-capture-v1".into(),
                     ],
                 })
             }
@@ -806,7 +807,11 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             return;
         }
         halley_ipc::Request::Capture(request) => {
-            crate::capture::request_capture(app, request, reply);
+            crate::capture::request_capture(app, request, false, reply);
+            return;
+        }
+        halley_ipc::Request::CaptureWithOptions { target, silent } => {
+            crate::capture::request_capture(app, target, silent, reply);
             return;
         }
         halley_ipc::Request::Control(request) => handle_control_request(app, request),

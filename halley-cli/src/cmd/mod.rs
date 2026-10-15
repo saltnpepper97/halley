@@ -29,6 +29,7 @@ pub enum Action {
     Reload,
     Capture {
         target: CaptureTarget,
+        silent: bool,
     },
     CaptureHelp,
     Dpms {

@@ -403,6 +403,14 @@ mod tests {
                     height: 400,
                 }),
             }),
+            Request::CaptureWithOptions {
+                target: crate::CaptureRequest::Window { node_id: 42 },
+                silent: true,
+            },
+            Request::CaptureWithOptions {
+                target: crate::CaptureRequest::Menu { output: None },
+                silent: false,
+            },
             Request::Control(crate::ControlRequest::TileSwap {
                 direction: crate::ControlDirection::Left,
                 output: None,
@@ -425,6 +433,14 @@ mod tests {
         }) if name == "DP-2")
         );
         assert_eq!(encode_request(&request).unwrap(), bytes);
+        // Version 24's direct window request is unchanged by the options extension.
+        let direct = [22, 2, 42];
+        let request = decode_request(&direct).unwrap();
+        assert!(matches!(
+            request,
+            Request::Capture(crate::CaptureRequest::Window { node_id: 42 })
+        ));
+        assert_eq!(encode_request(&request).unwrap(), direct);
     }
 
     #[test]

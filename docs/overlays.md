@@ -80,8 +80,7 @@ position. Both default to `0`, including generated/bootstrap configurations.
 Positive values move right/down; negative values move left/up. They apply to
 all notification cards and can be changed through normal configuration reload.
 
-After a screenshot is saved from the native Print menu or an interactive
-`halleyctl capture` selection,
+After a screenshot is saved from the native Print menu or `halleyctl capture`,
 a notification shows an aspect-preserving image preview, its destination
 directory, and **Copy** and **Open** buttons. Copy places the actual PNG image
 on the clipboard for pasting into applications; the clipboard remains available after the card disappears.
@@ -95,8 +94,10 @@ the pointer leaves. Other notifications retain their normal timeout. The
 one-time automatic-decay explanation (see below) uses the same notification
 position, offsets, and `success-duration-ms`. Portal screenshot requests
 return their saved path to the requesting application without displaying this local card.
-Explicit output, node-ID, and rectangle captures through the SDK or CLI also
-return their saved path without a notification or selection overlay. See
+Explicit output, node-ID, and rectangle captures through the SDK or CLI show
+the same card without first opening selection UI. Add `--silent` to a CLI capture
+or use SDK `CaptureOptions { silent: true }` to suppress the saved-image
+notification. Silent mode does not suppress interactive selection. See
 [screenshot automation](api.md#screenshots-and-automation).
 
 ## Zoom indicator

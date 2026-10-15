@@ -52,13 +52,15 @@ the card is dismissed with Enter, Escape, or a click.
 
 pub const CAPTURE_HELP: &str = "\
 Usage:
-  halleyctl capture menu [-o OUTPUT]
-  halleyctl capture region [-o OUTPUT] [--rect X Y WIDTH HEIGHT]
-  halleyctl capture screen [-o OUTPUT]
-  halleyctl capture window NODE_ID
+  halleyctl capture menu [-o OUTPUT] [--silent]
+  halleyctl capture region [-o OUTPUT] [--rect X Y WIDTH HEIGHT] [--silent]
+  halleyctl capture screen [-o OUTPUT] [--silent]
+  halleyctl capture window NODE_ID [--silent]
 
 Screen with -o, window with a node ID, and region with --rect capture immediately
-without selection or notification UI. Find window IDs with `halleyctl node list`.
+without selection UI, then show the normal saved-image notification.
+--silent suppresses this notification; interactive selection still appears when
+needed. Find window IDs with `halleyctl node list`.
 --rect requires -o and uses logical pixels relative to that display's top-left.
 The rectangle must fit inside the display; WIDTH and HEIGHT must be positive.
 Screen without -o opens the screen picker. Region without --rect opens region

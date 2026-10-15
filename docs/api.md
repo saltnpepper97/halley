@@ -61,8 +61,8 @@ for application persistence, logging, and JSON output.
 `Client::capture_target(CaptureTarget)` requires the `direct-capture-v1`
 capability. It returns `CaptureOutcome::Saved(path)` only after the PNG has
 been written, or `Cancelled` after interactive cancellation. Explicit targets
-capture immediately without confirmation, keyboard/pointer grabs, or a saved
-preview card:
+capture immediately without confirmation or keyboard/pointer grabs. They show
+the normal saved-image notification with a preview and Copy/Open actions:
 
 ```rust
 use halley_api::{CaptureRect, CaptureTarget, Client, NodeId};
@@ -91,6 +91,22 @@ halleyctl capture window 123
 halleyctl capture region -o DP-1 --rect 100 50 800 600
 ```
 
+Notifications are enabled by default for screen, window, and region captures.
+For automation, opt out with `--silent`, for example:
+
+```sh
+halleyctl capture screen -o DP-1 --silent
+halleyctl capture window 123 --silent
+halleyctl capture region -o DP-1 --rect 100 50 800 600 --silent
+```
+
+SDK callers use `Client::capture_target_with_options(target, CaptureOptions {
+silent: true })`. Silent capture requires the `silent-capture-v1` capability;
+unsupported servers return `Unsupported` without sending the new wire request.
+Silent mode suppresses the saved notification, not any required selection UI,
+and still returns the completed PNG path. Starting a direct capture clears the
+previous screenshot card so repeated captures do not include that card.
+
 Rectangles use **logical pixels relative to the output's top-left**. X/Y must
 be nonnegative, dimensions positive, and the complete rectangle must fit within
 the output. Invalid rectangles fail with `InvalidRequest`, without clipping.
@@ -109,7 +125,7 @@ The existing `Client::capture(mode, output)` remains supported. Its explicit
 screen output also captures immediately; window mode retains the legacy picker.
 The new CLI requires the new compositor capability and reports `Unsupported`
 until an upgraded compositor is running. The public API version remains 1;
-the private IPC version is 24, with the new request appended so existing request
+the private IPC version is 25, with new requests appended so existing request
 encodings remain valid.
 
 ## Subscriptions

@@ -6,7 +6,7 @@ mod print;
 use std::process::ExitCode;
 
 use cmd::{Action, BearingsAction, ClusterCommand, NodeCommand, TrailCommand};
-use halley_api::{BearingsCommand, CaptureOutcome, Client};
+use halley_api::{BearingsCommand, CaptureOptions, CaptureOutcome, Client};
 
 fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -21,8 +21,8 @@ fn main() -> ExitCode {
             Ok(ExitCode::SUCCESS)
         }),
         Ok(Action::BasicsHelp) => show(help::BASICS_HELP),
-        Ok(Action::Capture { target }) => with_client(|client| {
-            match client.capture_target(target)? {
+        Ok(Action::Capture { target, silent }) => with_client(|client| {
+            match client.capture_target_with_options(target, CaptureOptions { silent })? {
                 CaptureOutcome::Saved(path) => println!("saved: {}", path.display()),
                 CaptureOutcome::Cancelled => println!("cancelled"),
             }
