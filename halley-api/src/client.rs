@@ -537,3 +537,142 @@ fn topic_wire(v: EventTopic) -> halley_ipc::EventTopic {
         EventTopic::Config => halley_ipc::EventTopic::Config,
     }
 }
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::{CaptureRect, NodeId};
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
+
+    fn mock_client(
+        capability: bool,
+        run: impl FnOnce(UnixStream) + Send + 'static,
+    ) -> (Client, std::thread::JoinHandle<()>) {
+        let path = std::env::temp_dir().join(format!(
+            "halley-sdk-capture-{}-{}.sock",
+            std::process::id(),
+            NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
+        ));
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let bytes = halley_ipc::read_frame(&mut stream).unwrap();
+            assert!(matches!(
+                halley_ipc::decode_request(&bytes).unwrap(),
+                halley_ipc::Request::Hello(_)
+            ));
+            let response = halley_ipc::Response::Hello(halley_ipc::ServerInfo {
+                compositor_version: "test".into(),
+                api_version: HALLEY_API_VERSION,
+                ipc_protocol: halley_ipc::HALLEY_IPC_VERSION,
+                capabilities: if capability {
+                    vec!["direct-capture-v1".into()]
+                } else {
+                    vec![]
+                },
+            });
+            halley_ipc::write_frame(
+                &mut stream,
+                &halley_ipc::encode_response(&response).unwrap(),
+            )
+            .unwrap();
+            run(stream);
+        });
+        let client = Client::connect_to(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        (client, server)
+    }
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn unsupported_capture_never_sends_an_unknown_wire_request() {
+        use std::io::Read;
+        let (client, server) = mock_client(false, |mut stream| {
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        let error = client
+            .capture_target(CaptureTarget::Window {
+                node_id: NodeId::new(42),
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn capture_preserves_ids_rectangles_completion_and_typed_errors() {
+        let (client, server) = mock_client(true, |mut stream| {
+            for index in 0..3 {
+                let bytes = halley_ipc::read_frame(&mut stream).unwrap();
+                let request = halley_ipc::decode_request(&bytes).unwrap();
+                let response = match index {
+                    0 => {
+                        assert!(matches!(
+                            request,
+                            halley_ipc::Request::Capture(halley_ipc::CaptureRequest::Window {
+                                node_id: 42
+                            })
+                        ));
+                        halley_ipc::Response::Screenshot(halley_ipc::ScreenshotResponse::Saved {
+                            path: "/tmp/captured.png".into(),
+                        })
+                    }
+                    1 => {
+                        assert!(
+                            matches!(request, halley_ipc::Request::Capture(halley_ipc::CaptureRequest::Region { output: Some(name), rect: Some(halley_ipc::CaptureRect { x: 10, y: 20, width: 300, height: 400 }) }) if name == "DP-2")
+                        );
+                        halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
+                            halley_ipc::ServerErrorKind::InvalidRequest,
+                            "outside output",
+                        ))
+                    }
+                    _ => {
+                        halley_ipc::Response::Screenshot(halley_ipc::ScreenshotResponse::Cancelled)
+                    }
+                };
+                halley_ipc::write_frame(
+                    &mut stream,
+                    &halley_ipc::encode_response(&response).unwrap(),
+                )
+                .unwrap();
+            }
+        });
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Window {
+                    node_id: NodeId::new(42)
+                })
+                .unwrap(),
+            CaptureOutcome::Saved("/tmp/captured.png".into())
+        );
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Region {
+                    output: Some("DP-2".into()),
+                    rect: Some(CaptureRect {
+                        x: 10,
+                        y: 20,
+                        width: 300,
+                        height: 400
+                    })
+                })
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidRequest
+        );
+        assert_eq!(
+            client
+                .capture_target(CaptureTarget::Screen { output: None })
+                .unwrap(),
+            CaptureOutcome::Cancelled
+        );
+        server.join().unwrap();
+    }
+}

@@ -1207,7 +1207,9 @@ fn apply_tty_output_config(app: &mut TtyApp, outputs_config: &[halley_config::Ou
         // A pure output move rebases every window's global coordinates; the X
         // server only learns about it through this resync.
         crate::xwayland::sync_positions(app);
-        app.capture.update_layout(&app.wayland.space);
+        if !app.capture.update_layout(&app.wayland.space) {
+            crate::capture::cancel_selected(app);
+        }
     }
     if layout_changed || output_changed {
         app.xwayland.sync_desktop_geometry(&app.wayland.space);

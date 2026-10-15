@@ -72,7 +72,7 @@ impl Fixture {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
         fs::write(&config, format!(
-            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\nend\n{extra}"
+            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\nend\n{extra}\nscreenshot:\n  directory \"{}\"\nend\n", path.join("screenshots").display()
         )).unwrap();
         let log = File::create(path.join("console.log")).unwrap();
         let binary = std::env::var_os("HALLEY_TEST_BINARY")
@@ -1622,4 +1622,139 @@ end
         (count_green_capture_pixels(&mut fixture) > 1000).then_some(())
     });
     assert_eq!(capture_green_chrome(&mut fixture).1, Some(windowed_bounds));
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn explicit_capture_targets_save_without_confirmation_and_preserve_native_focus() {
+    use halley_ipc::{
+        CaptureRect, CaptureRequest, LocalCaptureMode, LocalCaptureRequest, ServerErrorKind,
+    };
+    let mut fixture = Fixture::with_config(
+        "tiling",
+        "view:\n  output:\n    name \"winit\"\n    scale 1.5\n  end\nend\n",
+    );
+    let (mut red_queue, mut red_state) = native_window(&fixture);
+    let red_id = fixture.node("surviving native window").id;
+    let (mut blue_queue, mut blue_state) = native_window_named(
+        &fixture,
+        "surviving native window",
+        "halley.capture.blue",
+        [0, 0, u32::MAX, u32::MAX],
+    );
+    let _keyboard = observe_keyboard(&mut blue_queue, &mut blue_state);
+    wait_for("blue keyboard focus", || {
+        blue_queue.roundtrip(&mut blue_state).unwrap();
+        blue_state.keyboard_focused.then_some(())
+    });
+    let output = wait_for("scaled nested output", || {
+        let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+            return None;
+        };
+        outputs
+            .outputs
+            .into_iter()
+            .find(|output| output.scale == 1.5)
+    });
+    let read_capture = |response: Response| {
+        let Response::Screenshot(halley_ipc::ScreenshotResponse::Saved { path }) = response else {
+            panic!("capture did not complete without user input: {response:?}");
+        };
+        image::open(path).unwrap().to_rgba8()
+    };
+    let window = wait_for(
+        "red window pixels by node ID despite duplicate titles",
+        || {
+            let image = read_capture(
+                fixture.request(Request::Capture(CaptureRequest::Window { node_id: red_id })),
+            );
+            let red = image
+                .pixels()
+                .filter(|pixel| pixel[0] > 245 && pixel[1] < 5 && pixel[2] < 5)
+                .count();
+            (red > 240 * 160).then_some(image)
+        },
+    );
+    assert!(window.width() >= 360 && window.height() >= 240);
+    let screen = read_capture(fixture.request(Request::Capture(CaptureRequest::Screen {
+        output: Some(output.name.clone()),
+    })));
+    let mode = output.modes[output.current_mode.unwrap()];
+    assert_eq!(screen.dimensions(), (mode.width as u32, mode.height as u32));
+    // The existing SDK/wire request must also bypass confirmation with an output.
+    let legacy = read_capture(fixture.request(Request::LocalCapture(LocalCaptureRequest {
+        mode: LocalCaptureMode::Screen,
+        output: Some(output.name.clone()),
+    })));
+    assert_eq!(legacy.dimensions(), screen.dimensions());
+    let rect = CaptureRect {
+        x: 20,
+        y: 30,
+        width: 100,
+        height: 80,
+    };
+    let region = read_capture(fixture.request(Request::Capture(CaptureRequest::Region {
+        output: Some(output.name.clone()),
+        rect: Some(rect),
+    })));
+    assert_eq!(region.dimensions(), (150, 120));
+    let focused_before = fixture
+        .nodes()
+        .into_iter()
+        .find(|node| node.focused)
+        .unwrap()
+        .id;
+    for (request, expected) in [
+        (
+            CaptureRequest::Window { node_id: u64::MAX },
+            ServerErrorKind::NotFound,
+        ),
+        (
+            CaptureRequest::Screen {
+                output: Some("missing-output".into()),
+            },
+            ServerErrorKind::NotFound,
+        ),
+        (
+            CaptureRequest::Region {
+                output: None,
+                rect: Some(rect),
+            },
+            ServerErrorKind::InvalidRequest,
+        ),
+        (
+            CaptureRequest::Region {
+                output: Some(output.name.clone()),
+                rect: Some(CaptureRect {
+                    width: i32::MAX,
+                    ..rect
+                }),
+            },
+            ServerErrorKind::InvalidRequest,
+        ),
+    ] {
+        assert!(
+            matches!(fixture.request(Request::Capture(request)), Response::ApiError(error) if error.kind == expected)
+        );
+    }
+    blue_queue.roundtrip(&mut blue_state).unwrap();
+    red_queue.roundtrip(&mut red_state).unwrap();
+    assert!(
+        blue_state.keyboard_focused,
+        "capture stole native keyboard focus"
+    );
+    assert_eq!(
+        fixture
+            .nodes()
+            .into_iter()
+            .find(|node| node.focused)
+            .unwrap()
+            .id,
+        focused_before
+    );
+    let files = fs::read_dir(fixture.path.join("screenshots"))
+        .unwrap()
+        .count();
+    assert!(files >= 4);
+    assert!(fixture.process.try_wait().unwrap().is_none());
 }

@@ -47,6 +47,7 @@ The version-1 semantic API includes:
 | Nodes | list, inspect, focus, move, close, collapse, restore, and toggle |
 | Clusters | list, inspect, open, activate a slot, cycle layout, finalize a draft |
 | Bearings | query visibility; show, hide, or toggle |
+| Capture | interactive menu/selection; immediate output, node-ID, or rectangle screenshots |
 | Configuration | discover the selected path and request a live reload |
 | Events | output, node, node-geometry, cluster, draft, and config changes |
 
@@ -54,6 +55,62 @@ Selectors and IDs are semantic types such as `NodeId`, `NodeSelector`,
 `ClusterId`, and `ClusterTarget`; callers do not construct wire requests.
 Public state and event values implement Serde serialization and deserialization
 for application persistence, logging, and JSON output.
+
+## Screenshots and automation
+
+`Client::capture_target(CaptureTarget)` requires the `direct-capture-v1`
+capability. It returns `CaptureOutcome::Saved(path)` only after the PNG has
+been written, or `Cancelled` after interactive cancellation. Explicit targets
+capture immediately without confirmation, keyboard/pointer grabs, or a saved
+preview card:
+
+```rust
+use halley_api::{CaptureRect, CaptureTarget, Client, NodeId};
+
+fn capture(client: &Client, node_id: NodeId) -> halley_api::Result<()> {
+    client.capture_target(CaptureTarget::Screen { output: Some("DP-1".into()) })?;
+    client.capture_target(CaptureTarget::Window { node_id })?;
+    client.capture_target(CaptureTarget::Region {
+        output: Some("DP-1".into()),
+        rect: Some(CaptureRect { x: 100, y: 50, width: 800, height: 600 }),
+    })?;
+    Ok(())
+}
+```
+
+Obtain window IDs from `Client::nodes` or `halleyctl node list --json`. Capture
+uses the node's window directly without focusing or revealing it. Titles are
+not capture selectors. Closed nodes fail with `NotFound`; unavailable window
+content or encoding failures return an error rather than opening a picker.
+
+The matching CLI commands are:
+
+```sh
+halleyctl capture screen -o DP-1
+halleyctl capture window 123
+halleyctl capture region -o DP-1 --rect 100 50 800 600
+```
+
+Rectangles use **logical pixels relative to the output's top-left**. X/Y must
+be nonnegative, dimensions positive, and the complete rectangle must fit within
+the output. Invalid rectangles fail with `InvalidRequest`, without clipping.
+Display scale determines the saved physical pixel dimensions; for example,
+a 100 by 80 logical rectangle at scale 1.5 produces a 150 by 120 PNG.
+
+`Screen { output: None }` opens a screen picker. `Region { rect: None, .. }`
+opens region selection, restricted to the specified output when provided;
+removing that output cancels selection. `Menu` opens the existing native menu,
+including interactive window selection. These interactive requests retain the
+saved preview card and can be cancelled. The Print shortcut and portal consent
+flows retain their existing behavior. Locked sessions reject capture, and an
+active picker causes competing requests to fail with `Busy`.
+
+The existing `Client::capture(mode, output)` remains supported. Its explicit
+screen output also captures immediately; window mode retains the legacy picker.
+The new CLI requires the new compositor capability and reports `Unsupported`
+until an upgraded compositor is running. The public API version remains 1;
+the private IPC version is 24, with the new request appended so existing request
+encodings remain valid.
 
 ## Subscriptions
 
