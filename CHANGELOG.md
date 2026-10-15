@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Wait for GPU capture completion when a native render fence cannot be exported,
+  using asynchronous readiness checks instead of reporting an unfinished frame
+  as ready or blocking the compositor event loop.
 - Release cached blur textures and render identities when their window, layer,
   or overlay is absent from an output's scene, while preserving resources still
   used by active scenes and other outputs.
