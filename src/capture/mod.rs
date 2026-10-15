@@ -173,7 +173,10 @@ struct AcceptedCapture {
 }
 
 enum AcceptedTarget {
-    Area(Rectangle<i32, Logical>),
+    Area {
+        region: Rectangle<i32, Logical>,
+        output: Option<String>,
+    },
     Screen(Rectangle<i32, Logical>),
     Window(WlSurface),
     Source(halley_ipc::CaptureSource),
@@ -611,7 +614,10 @@ impl CaptureState {
                 self.selection = Some(Selection::Menu);
                 return None;
             }
-            Selection::Area => AcceptedTarget::Area(self.picker.accept()?),
+            Selection::Area => AcceptedTarget::Area {
+                region: self.picker.accept()?,
+                output: self.region_output.take(),
+            },
             Selection::Screen { geometry, .. } => AcceptedTarget::Screen(geometry),
             Selection::Window {
                 surface: Some(surface),
@@ -873,7 +879,7 @@ pub fn request_capture<D: SessionDriver>(
                     return;
                 }
             };
-            let captured = save_region(session, region);
+            let captured = screenshot::save_output_region(session, &name, region);
             queue_capture(session, captured, PendingCaptureReply::Ipc(reply));
             return;
         }
@@ -909,7 +915,7 @@ pub fn request_local_capture<D: SessionDriver>(
             return;
         };
         if request.mode == halley_ipc::LocalCaptureMode::Screen {
-            let captured = save_region(session, geometry);
+            let captured = screenshot::save_output_region(session, name, geometry);
             queue_capture(session, captured, PendingCaptureReply::Ipc(reply));
             return;
         }
@@ -1071,7 +1077,14 @@ pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
         return true;
     }
     let captured = match accepted.target {
-        AcceptedTarget::Area(region) => save_area(session, region),
+        AcceptedTarget::Area {
+            region,
+            output: Some(output),
+        } => screenshot::save_output_region(session, &output, region),
+        AcceptedTarget::Area {
+            region,
+            output: None,
+        } => save_area(session, region),
         AcceptedTarget::Screen(region) => save_region(session, region),
         AcceptedTarget::Window(surface) => save_window(session, &surface),
         AcceptedTarget::Source(_) => unreachable!("handled above"),
@@ -1349,6 +1362,27 @@ mod tests {
         assert_eq!(capture.region_output.as_deref(), Some("DP-2"));
         space.unmap_output(&right);
         assert!(!capture.update_layout(&space));
+        capture.cancel();
+        assert!(capture.begin_menu(&space, Some("DP-1"), true));
+        assert!(capture.activate_menu(ScreenshotMode::Region, &space));
+        assert!(capture.region_output.is_none());
+        assert!(capture.update_layout(&space));
+    }
+
+    #[test]
+    fn accepting_a_scoped_region_keeps_its_output_for_pixel_capture() {
+        let space = outputs();
+        let mut capture = CaptureState::default();
+        assert!(capture.begin_menu(&space, Some("DP-2"), true));
+        assert!(capture.activate_region(&space, Some("DP-2")));
+        let selected = capture.picker.region().unwrap();
+        let accepted = capture.accept().unwrap();
+        assert!(
+            matches!(accepted.target, AcceptedTarget::Area { region, output: Some(name) }
+            if region == selected && name == "DP-2")
+        );
+        assert!(!capture.is_active());
+        assert!(capture.region_output.is_none());
     }
 
     #[test]
@@ -1385,6 +1419,30 @@ mod tests {
         let overflow = Rectangle::new((i32::MAX - 5, 0).into(), (1600, 900).into());
         assert!(output_relative_rect(overflow, rect(10, 0, 10, 10)).is_err());
         assert!(output_relative_rect(overflow, rect(0, 0, 10, 10)).is_err());
+    }
+
+    #[test]
+    fn named_output_capture_excludes_overlapping_outputs_with_other_scales() {
+        let mut space = outputs();
+        let right = space
+            .outputs()
+            .find(|output| output.name() == "DP-2")
+            .unwrap()
+            .clone();
+        right.change_current_state(
+            None,
+            None,
+            Some(smithay::output::Scale::Fractional(1.5)),
+            None,
+        );
+        space.map_output(&right, (0, 0));
+        let selected = screenshot::screenshot_outputs(&space, Some("DP-1"));
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].0.name(), "DP-1");
+        assert_eq!(selected[0].0.current_scale().fractional_scale(), 1.0);
+        assert_eq!(selected[0].1.size, (1920, 1080).into());
+        assert_eq!(screenshot::screenshot_outputs(&space, None).len(), 2);
+        assert!(screenshot::screenshot_outputs(&space, Some("missing")).is_empty());
     }
 
     #[test]

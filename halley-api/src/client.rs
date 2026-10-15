@@ -542,7 +542,7 @@ fn topic_wire(v: EventTopic) -> halley_ipc::EventTopic {
 mod capture_tests {
     use super::*;
     use crate::{CaptureRect, NodeId};
-    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
@@ -588,7 +588,6 @@ mod capture_tests {
         std::fs::remove_file(path).unwrap();
         (client, server)
     }
-    use std::os::unix::net::UnixStream;
 
     #[test]
     fn unsupported_capture_never_sends_an_unknown_wire_request() {

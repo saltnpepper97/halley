@@ -415,6 +415,19 @@ mod tests {
     }
 
     #[test]
+    fn direct_capture_extension_preserves_existing_request_indices() {
+        // Version 23's local window request encoding must remain readable.
+        let bytes = [20, 3, 1, 4, b'D', b'P', b'-', b'2'];
+        let request = decode_request(&bytes).unwrap();
+        assert!(
+            matches!(&request, Request::LocalCapture(crate::LocalCaptureRequest {
+            mode: crate::LocalCaptureMode::Window, output: Some(name),
+        }) if name == "DP-2")
+        );
+        assert_eq!(encode_request(&request).unwrap(), bytes);
+    }
+
+    #[test]
     fn capture_capabilities_round_trip_through_postcard() {
         let response = Response::CaptureCapabilities(crate::CaptureCapabilities {
             main_device: Some(226 << 8 | 128),

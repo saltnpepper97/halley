@@ -1756,5 +1756,24 @@ fn explicit_capture_targets_save_without_confirmation_and_preserve_native_focus(
         .unwrap()
         .count();
     assert!(files >= 4);
+    // Region without coordinates must remain interactive. A second connection
+    // can still get a bounded Busy error instead of silently choosing a target.
+    let mut pending = UnixStream::connect(fixture.path.join("halley/halley.sock")).unwrap();
+    pending
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let request = Request::Capture(CaptureRequest::Region {
+        output: Some(output.name),
+        rect: None,
+    });
+    halley_ipc::write_frame(&mut pending, &halley_ipc::encode_request(&request).unwrap()).unwrap();
+    assert!(
+        matches!(halley_ipc::read_frame(&mut pending), Err(halley_ipc::CodecError::Io(error))
+        if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock))
+    );
+    assert!(
+        matches!(fixture.request(Request::Capture(CaptureRequest::Window { node_id: red_id })),
+        Response::ApiError(error) if error.kind == ServerErrorKind::Busy)
+    );
     assert!(fixture.process.try_wait().unwrap().is_none());
 }
