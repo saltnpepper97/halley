@@ -98,7 +98,7 @@ pub fn build(
     output: &Output,
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
-    request: RenderRequest<'_>,
+    mut request: RenderRequest<'_>,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let scale = output.current_scale().fractional_scale();
     let locked = request.desktop.session_lock.active();
@@ -108,7 +108,17 @@ pub fn build(
         scale,
         crate::render::output_physical_size(output),
     );
-    let elements = build_logical(renderer, output, primary_output, output_geometry, request)?;
+    let elements = build_logical(
+        renderer,
+        output,
+        primary_output,
+        output_geometry,
+        &mut request,
+    )?;
+    request
+        .resources
+        .backdrop_blur_renderer
+        .end_scene(&output.name());
     Ok(elements
         .into_iter()
         .map(|element| super::display_scale::element(element, scale, locked))
@@ -120,7 +130,7 @@ fn build_logical(
     output: &Output,
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
-    request: RenderRequest<'_>,
+    request: &mut RenderRequest<'_>,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request

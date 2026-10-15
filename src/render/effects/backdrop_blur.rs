@@ -161,6 +161,19 @@ impl BackdropBlurRenderer {
         }
     }
 
+    pub fn end_scene(&mut self, output: &str) {
+        if let Some(resources) = self.outputs.get_mut(output) {
+            // Scene elements retain their own references, so retiring a cache
+            // entry cannot invalidate an older frame that is still in use.
+            resources
+                .results
+                .retain(|identity, _| resources.scene_identities.contains(identity));
+            resources
+                .ids
+                .retain(|identity, _| resources.scene_identities.contains(identity));
+        }
+    }
+
     pub fn remove_output(&mut self, output: &str) {
         self.outputs.remove(output);
         self.display_scales.remove(output);
