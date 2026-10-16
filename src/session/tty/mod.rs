@@ -141,6 +141,16 @@ impl super::RenderDriver for TtyDriver {
         super::render_completion::schedule(&self.loop_handle, sync, completion)
     }
 
+    fn defer_client_error(
+        &mut self,
+        client: Client,
+        display: smithay::reexports::wayland_server::DisplayHandle,
+        error: smithay::reexports::wayland_server::backend::protocol::ProtocolError,
+    ) {
+        self.loop_handle
+            .insert_idle(move |_| client.kill(&display, error));
+    }
+
     fn register_drm_syncobj_source(&mut self, client: Client, source: DrmSyncPointSource) -> bool {
         self.loop_handle
             .insert_source(source, move |_, _, app| {

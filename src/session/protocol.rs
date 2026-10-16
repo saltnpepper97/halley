@@ -132,6 +132,19 @@ pub fn init_wayland_listener<D: SessionDriver>(
     socket_name
 }
 
+fn reject_unready_commit<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &WlSurface,
+    display: &DisplayHandle,
+    message: String,
+) {
+    wayland::buffer_readiness::reject_commit(surface, message, |client, error| {
+        session
+            .driver
+            .defer_client_error(client, display.clone(), error);
+    });
+}
+
 impl<D: SessionDriver> CompositorHandler for Session<D> {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self.wayland.compositor_state
@@ -147,7 +160,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
-        add_pre_commit_hook::<Self, _>(surface, |session, _dh, surface| {
+        add_pre_commit_hook::<Self, _>(surface, |session, dh, surface| {
             let removes_buffer = with_states(surface, |states| {
                 matches!(
                     states
@@ -185,12 +198,21 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                 });
                 if let Some(dmabuf) = dmabuf
                     && let Some(client) = surface.client()
-                    && let Some(blocker) =
-                        wayland::dmabuf::defer_until_readable(&dmabuf, |source| {
-                            session.driver.register_dmabuf_source(client, source)
-                        })
                 {
-                    smithay::wayland::compositor::add_blocker(surface, blocker);
+                    match wayland::dmabuf::defer_until_readable(&dmabuf, |source| {
+                        session.driver.register_dmabuf_source(client, source)
+                    }) {
+                        Ok(Some(blocker)) => {
+                            smithay::wayland::compositor::add_blocker(surface, blocker);
+                        }
+                        Ok(None) => {}
+                        Err(err) => reject_unready_commit(
+                            session,
+                            surface,
+                            dh,
+                            format!("implicit synchronization setup failed: {err}"),
+                        ),
+                    }
                 }
                 return;
             }
@@ -213,16 +235,25 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
             match acquire_point.generate_blocker() {
                 Ok((blocker, source)) => {
                     let registered = session.driver.register_drm_syncobj_source(client, source);
-                    smithay::wayland::compositor::add_blocker(surface, blocker);
-                    if !registered {
-                        eventline::warn!(
-                            "explicit sync: acquire-point source was not registered; keeping the affected surface commit blocked"
+                    if registered {
+                        smithay::wayland::compositor::add_blocker(surface, blocker);
+                    } else {
+                        reject_unready_commit(
+                            session,
+                            surface,
+                            dh,
+                            "explicit synchronization setup failed: acquire-point source was not registered".into(),
                         );
                     }
                 }
                 Err(err) => {
-                    eventline::warn!(
-                        "explicit sync: failed to create acquire-point blocker: {err}"
+                    reject_unready_commit(
+                        session,
+                        surface,
+                        dh,
+                        format!(
+                            "explicit synchronization setup failed: could not create acquire-point blocker: {err}"
+                        ),
                     );
                 }
             }

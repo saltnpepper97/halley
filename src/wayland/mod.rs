@@ -1,4 +1,5 @@
 pub mod background_effect;
+pub mod buffer_readiness;
 pub(crate) mod clipboard_helper;
 pub mod compositor;
 pub mod decoration;

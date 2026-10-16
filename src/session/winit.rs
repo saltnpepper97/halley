@@ -90,6 +90,16 @@ impl super::RenderDriver for WinitDriver {
     ) -> Result<(), String> {
         super::render_completion::schedule(&self.loop_handle, sync, completion)
     }
+
+    fn defer_client_error(
+        &mut self,
+        client: smithay::reexports::wayland_server::Client,
+        display: smithay::reexports::wayland_server::DisplayHandle,
+        error: smithay::reexports::wayland_server::backend::protocol::ProtocolError,
+    ) {
+        self.loop_handle
+            .insert_idle(move |_| client.kill(&display, error));
+    }
 }
 
 impl super::OutputDriver for WinitDriver {

@@ -63,6 +63,12 @@ pub trait RenderDriver: 'static {
         completion: Box<dyn FnOnce() + 'static>,
     ) -> Result<(), String>;
     fn register_dmabuf_source(&mut self, client: Client, source: DmabufSource) -> bool;
+    fn defer_client_error(
+        &mut self,
+        client: Client,
+        display: DisplayHandle,
+        error: smithay::reexports::wayland_server::backend::protocol::ProtocolError,
+    );
     fn register_drm_syncobj_source(
         &mut self,
         _client: Client,

@@ -1,4 +1,6 @@
 //! Client compatibility requests through the production upstream dispatcher.
+#[path = "../src/wayland/buffer_readiness.rs"]
+mod buffer_readiness;
 #[path = "../src/wayland/clipboard_helper.rs"]
 mod clipboard_helper;
 #[path = "../src/wayland/surface_scale.rs"]
@@ -65,6 +67,10 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct Observations {
+    buffer_errors: Vec<(
+        smithay::reexports::wayland_server::Client,
+        smithay::reexports::wayland_server::backend::protocol::ProtocolError,
+    )>,
     rgba: Option<[u32; 4]>,
     destroyed_buffers: usize,
     content_type: u32,
@@ -84,8 +90,19 @@ struct Server {
 }
 
 #[derive(Default)]
-struct ClientData(CompositorClientState);
-impl smithay::reexports::wayland_server::backend::ClientData for ClientData {}
+struct ClientData(
+    CompositorClientState,
+    Mutex<Option<smithay::reexports::wayland_server::backend::DisconnectReason>>,
+);
+impl smithay::reexports::wayland_server::backend::ClientData for ClientData {
+    fn disconnected(
+        &self,
+        _: smithay::reexports::wayland_server::backend::ClientId,
+        reason: smithay::reexports::wayland_server::backend::DisconnectReason,
+    ) {
+        *self.1.lock().unwrap() = Some(reason);
+    }
+}
 
 impl CompositorHandler for Server {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -312,9 +329,14 @@ impl Fixture {
         };
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
+        let error_display = dh.clone();
         let worker = thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 display.dispatch_clients(&mut server).unwrap();
+                let errors = std::mem::take(&mut server.observations.lock().unwrap().buffer_errors);
+                for (client, error) in errors {
+                    client.kill(&error_display, error);
+                }
                 let request = server.observations.lock().unwrap().scale_request.take();
                 if let Some((surface, scale)) = request {
                     let output = smithay::output::Output::new(
@@ -400,6 +422,92 @@ impl Fixture {
 }
 
 const CLIPBOARD_APP_ID: &str = "io.github.bugaevc.wl-clipboard";
+
+#[test]
+fn unmonitorable_buffer_commits_never_apply_and_only_disconnect_the_affected_client() {
+    for failure in [
+        "implicit synchronization source registration failed",
+        "explicit synchronization acquire-point setup failed",
+    ] {
+        let mut f = Fixture::new();
+        let (_, server_surface, surface) = f.toplevel_with_surface("readiness-failure");
+        let server_client =
+            smithay::reexports::wayland_server::Resource::client(&server_surface).unwrap();
+        let (name, _) = f.state.globals["wp_content_type_manager_v1"];
+        let manager: content_manager::WpContentTypeManagerV1 =
+            f.registry.bind(name, 1, &f.queue.handle(), ());
+        let content = manager.get_surface_content_type(&surface, &f.queue.handle(), ());
+        content.set_content_type(content::Type::Game);
+        f.sync();
+
+        // Keep another connection alive across the failure on the same server.
+        let (client, server) = UnixStream::pair().unwrap();
+        f.display_handle
+            .clone()
+            .insert_client(server, Arc::new(ClientData::default()))
+            .unwrap();
+        let connection = Connection::from_socket(client).unwrap();
+        let mut queue = connection.new_event_queue();
+        let registry = connection.display().get_registry(&queue.handle(), ());
+        let mut state = Client::default();
+        queue.roundtrip(&mut state).unwrap();
+
+        smithay::wayland::compositor::add_pre_commit_hook::<Server, _>(
+            &server_surface,
+            move |server, _, surface| {
+                buffer_readiness::reject_commit(surface, failure.into(), |client, error| {
+                    server
+                        .observations
+                        .lock()
+                        .unwrap()
+                        .buffer_errors
+                        .push((client, error));
+                });
+            },
+        );
+        surface.commit();
+        // A display.sync in the same batch may finish before deferred teardown.
+        let disconnected = (0..4).any(|_| f.queue.roundtrip(&mut f.state).is_err());
+        assert!(
+            disconnected,
+            "the failed client must not remain blocked indefinitely"
+        );
+        {
+            let reason = server_client
+                .get_data::<ClientData>()
+                .unwrap()
+                .1
+                .lock()
+                .unwrap();
+            let Some(smithay::reexports::wayland_server::backend::DisconnectReason::ProtocolError(
+                error,
+            )) = reason.as_ref()
+            else {
+                panic!("expected a server protocol error, got {reason:?}");
+            };
+            assert_eq!(error.object_interface, "wl_display");
+            assert_eq!(
+                error.code,
+                u32::from(wayland_client::protocol::wl_display::Error::Implementation)
+            );
+            assert_eq!(error.message, failure);
+        }
+        assert_eq!(
+            f.observations.lock().unwrap().content_type,
+            content::Type::None as u32,
+            "the rejected transaction must never reach the commit handler",
+        );
+        assert!(!smithay::reexports::wayland_server::Resource::is_alive(
+            &server_surface
+        ));
+
+        let compositor: wl_compositor::WlCompositor =
+            registry.bind(state.globals["wl_compositor"].0, 6, &queue.handle(), ());
+        let unaffected = compositor.create_surface(&queue.handle(), ());
+        unaffected.commit();
+        queue.roundtrip(&mut state).unwrap();
+    }
+}
 
 #[test]
 fn clipboard_helper_remembers_the_exact_caller_with_two_or_three_windows() {
