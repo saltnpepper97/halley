@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Move fullscreen transactions and their saved windowed placements to an enabled
+  fallback when their output is disabled. Retire old-output animation snapshots
+  and reconfigure native and XWayland clients for the new output.
 - Let compositor fullscreen settle when an acknowledged client keeps its
   existing size. Bound the resize wait, retry idle clients from frame processing,
   and retain configure-serial and complete surface-tree validation.
