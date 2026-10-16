@@ -405,9 +405,7 @@ fn native_resize_mapping(
 ) -> ResizeMapping {
     native_resize_mapping_from_metadata(
         previous.surface_geometry,
-        previous.window_size,
         next.surface_geometry,
-        next.window_size,
         destination,
         display_scale,
     )
@@ -415,34 +413,30 @@ fn native_resize_mapping(
 
 fn native_resize_mapping_from_metadata(
     previous_surface: Rectangle<i32, Physical>,
-    previous_window: smithay::utils::Size<i32, Physical>,
     next_surface: Rectangle<i32, Physical>,
-    next_window: smithay::utils::Size<i32, Physical>,
     destination: Rectangle<i32, Physical>,
     display_scale: f32,
 ) -> ResizeMapping {
     let display_scale = display_scale.max(0.001);
-    let mapping = |surface: Rectangle<i32, Physical>,
-                   window: smithay::utils::Size<i32, Physical>| {
+    // Clients lay out from their top-left corner, so pin each endpoint there.
+    // Centring made toolbars and sidebars drift inside the moving frame at
+    // half the edge speed while every side was cropped at once.
+    let mapping = |surface: Rectangle<i32, Physical>| {
         let width = surface.size.w.max(1) as f32 * display_scale;
         let height = surface.size.h.max(1) as f32 * display_scale;
-        let window_width = window.w as f32 * display_scale;
-        let window_height = window.h as f32 * display_scale;
-        let center_x = (destination.size.w as f32 - window_width) * 0.5;
-        let center_y = (destination.size.h as f32 - window_height) * 0.5;
         (
             (
                 destination.size.w as f32 / width,
                 destination.size.h as f32 / height,
             ),
             (
-                -(center_x + surface.loc.x as f32 * display_scale) / width,
-                -(center_y + surface.loc.y as f32 * display_scale) / height,
+                -(surface.loc.x as f32 * display_scale) / width,
+                -(surface.loc.y as f32 * display_scale) / height,
             ),
         )
     };
-    let (previous_scale, previous_offset) = mapping(previous_surface, previous_window);
-    let (next_scale, next_offset) = mapping(next_surface, next_window);
+    let (previous_scale, previous_offset) = mapping(previous_surface);
+    let (next_scale, next_offset) = mapping(next_surface);
     ResizeMapping {
         draw_area: destination,
         input_scale: (1.0, 1.0),
@@ -832,13 +826,11 @@ mod tests {
     }
 
     #[test]
-    fn native_arrangement_centers_both_endpoints_without_scaling_them() {
+    fn native_arrangement_pins_both_endpoints_top_left_without_scaling_them() {
         let destination = Rectangle::new((10, 20).into(), (1000, 750).into());
         let mapping = native_resize_mapping_from_metadata(
             Rectangle::new((0, 0).into(), (800, 600).into()),
-            (800, 600).into(),
             Rectangle::new((0, 0).into(), (1200, 900).into()),
-            (1200, 900).into(),
             destination,
             1.0,
         );
@@ -847,11 +839,10 @@ mod tests {
         assert_eq!(mapping.input_scale, (1.0, 1.0));
         assert_eq!(mapping.input_offset, (0.0, 0.0));
         assert_eq!(mapping.previous_scale, (1.25, 1.25));
-        assert_eq!(mapping.previous_offset, (-0.125, -0.125));
+        assert_eq!(mapping.previous_offset, (0.0, 0.0));
         assert!((mapping.next_scale.0 - (5.0 / 6.0)).abs() < f32::EPSILON);
         assert!((mapping.next_scale.1 - (5.0 / 6.0)).abs() < f32::EPSILON);
-        assert!((mapping.next_offset.0 - (1.0 / 12.0)).abs() < f32::EPSILON);
-        assert!((mapping.next_offset.1 - (1.0 / 12.0)).abs() < f32::EPSILON);
+        assert_eq!(mapping.next_offset, (0.0, 0.0));
     }
 
     #[test]
