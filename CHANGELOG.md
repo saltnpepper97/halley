@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep the native compositor responsive while a rendered output frame needs
+  GPU synchronization before scanout. Retain one frame per output and check
+  completion asynchronously instead of blocking or submitting after a failed
+  wait; discard retained frames across output and session-lock changes.
 - Reject a client connection with a server error if a required buffer-readiness
   monitor cannot be created or registered. Keep the unfinished commit out of
   rendering without leaving a live client permanently blocked; already-ready

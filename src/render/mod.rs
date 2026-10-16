@@ -177,6 +177,7 @@ pub enum RenderStatus {
 pub struct RenderOutcome {
     status: RenderStatus,
     element_states: Option<RenderElementStates>,
+    needs_redraw: bool,
 }
 
 impl RenderOutcome {
@@ -184,7 +185,18 @@ impl RenderOutcome {
         Self {
             status,
             element_states,
+            needs_redraw: false,
         }
+    }
+
+    /// Owe another scene even if no input, client damage, or animation remains.
+    pub fn requiring_redraw(mut self) -> Self {
+        self.needs_redraw = true;
+        self
+    }
+
+    pub fn needs_redraw(&self) -> bool {
+        self.needs_redraw
     }
 
     pub fn status(&self) -> RenderStatus {

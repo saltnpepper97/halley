@@ -6,6 +6,7 @@ mod composition;
 mod dmabuf;
 mod gamma;
 mod output;
+mod presentation;
 
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -43,6 +44,7 @@ use self::output::{
     OutputState as HardwareOutputState, connector_name, connector_output_info, default_mode,
     drm_output_mode, output_diff, output_target,
 };
+use self::presentation::{DeferredFrame, Readiness};
 use super::{FrameSubmission, RenderOutcome, RenderRequest, RenderStatus, Renderable};
 use crate::render::scene::SceneElement;
 
@@ -271,6 +273,7 @@ struct DrmOutputEntry {
     drm_output: TtyDrmOutput,
     dmabuf_feedback: Option<super::dmabuf::SurfaceDmabufFeedback>,
     pending: bool,
+    deferred_frame: Option<DeferredFrame>,
     dpms_enabled: bool,
     enabled: bool,
     gamma: gamma::GammaState,
@@ -533,6 +536,7 @@ impl TtyBackend {
                                     drm_output,
                                     dmabuf_feedback: None,
                                     pending: false,
+                                    deferred_frame: None,
                                     dpms_enabled: true,
                                     enabled: true,
                                     gamma,
@@ -821,6 +825,9 @@ impl TtyBackend {
             .collect::<Vec<_>>();
 
         let mut failure = None;
+        for entry in &mut self.drm_outputs {
+            entry.discard_deferred_frame();
+        }
         for config in configuration {
             let index = self
                 .drm_outputs
@@ -1019,6 +1026,7 @@ impl TtyBackend {
             if entry.dpms_enabled == target_enabled {
                 continue;
             }
+            entry.discard_deferred_frame();
             // Powering on touches no DRM state at all - the CRTC is re-enabled
             // as a side effect of the first ordinary frame's atomic commit, so
             // the enable and its scan-out buffer land together. Old halley and
@@ -1125,6 +1133,7 @@ impl TtyBackend {
     }
 
     fn use_output_mode(&mut self, index: usize, mode: Mode) -> Result<(), String> {
+        self.drm_outputs[index].discard_deferred_frame();
         let target_node = self.drm_outputs[index].render_node;
         if target_node == self.primary_render_node {
             let mut renderer = self
@@ -1203,6 +1212,7 @@ impl TtyBackend {
                 continue;
             }
 
+            self.drm_outputs[index].discard_deferred_frame();
             if diff.mode_changed {
                 let result = self.use_output_mode(index, target.mode);
                 if let Err(err) = result {
@@ -1326,6 +1336,7 @@ impl TtyBackend {
         // without this, a stale `pending` would permanently block that
         // output from rendering again (its VBlank is never coming).
         for entry in &mut self.drm_outputs {
+            entry.discard_deferred_frame();
             entry.composed_frame = None;
             entry.pending = false;
             entry.direct_scanout_active = None;
@@ -1363,6 +1374,9 @@ impl TtyBackend {
 
     /// Drop DRM master before a VT switch away.
     pub fn pause(&mut self) {
+        for entry in &mut self.drm_outputs {
+            entry.discard_deferred_frame();
+        }
         for gpu in &mut self.gpus {
             gpu.drm_output_manager.pause();
         }
@@ -1500,6 +1514,25 @@ impl Renderable for TtyBackend {
         if self.drm_outputs[entry_index].pending {
             return Ok(RenderOutcome::new(RenderStatus::Skipped, None));
         }
+        let entry = &mut self.drm_outputs[entry_index];
+        if let Some(frame) = entry.deferred_frame.as_ref() {
+            match frame.readiness(request.desktop.session_lock.frame_generation()) {
+                Readiness::Obsolete => entry.discard_deferred_frame(),
+                Readiness::Pending => {
+                    return Ok(RenderOutcome::new(RenderStatus::Skipped, None).requiring_redraw());
+                }
+                Readiness::Ready => {
+                    let frame = entry.deferred_frame.take().expect("checked deferred frame");
+                    entry.submit_frame(frame.submission, frame.direct_scanout)?;
+                    // Input and client commits may have arrived during the wait.
+                    // Follow this presentation with a fresh scene even if idle.
+                    return Ok(
+                        RenderOutcome::new(RenderStatus::Submitted, Some(frame.states))
+                            .requiring_redraw(),
+                    );
+                }
+            }
+        }
         let requested_vrr = configured_vrr_target(
             self.drm_outputs[entry_index].configured_vrr,
             request.frame.vrr_auto_eligible,
@@ -1550,7 +1583,7 @@ impl Renderable for TtyBackend {
                 .drm_output
                 .with_compositor(|compositor| compositor.reset_buffer_ages());
         }
-        let (mut element_states, direct_scanout, is_empty) = if !is_cross_gpu {
+        let (mut element_states, direct_scanout, is_empty, sync) = if !is_cross_gpu {
             let mut renderer = self
                 .gpu_manager
                 .single_renderer(&self.primary_render_node)
@@ -1568,19 +1601,18 @@ impl Renderable for TtyBackend {
                     disable_hardware_cursor,
                 ),
             )?;
-            if result.needs_sync()
+            let sync = if result.needs_sync()
                 && let PrimaryPlaneElement::Swapchain(element) = &result.primary_element
-                && let Err(err) = element.sync.wait()
             {
-                eventline::warn!(
-                    "output {:?}: failed waiting for rendered frame completion: {err}",
-                    entry_output.name()
-                );
-            }
+                Some(element.sync.clone())
+            } else {
+                None
+            };
             (
                 result.states.clone(),
                 matches!(&result.primary_element, PrimaryPlaneElement::Element(_)),
                 result.is_empty,
+                sync,
             )
         } else {
             let mode_size = self.drm_outputs[entry_index].current_mode.size();
@@ -1654,16 +1686,14 @@ impl Renderable for TtyBackend {
                     return Err(err.into());
                 }
             };
-            if result.needs_sync()
+            let sync = if result.needs_sync()
                 && let PrimaryPlaneElement::Swapchain(element) = &result.primary_element
-                && let Err(err) = element.sync.wait()
             {
-                eventline::warn!(
-                    "output {:?}: failed waiting for rendered frame completion: {err}",
-                    entry_output.name()
-                );
-            }
-            (element_states, false, result.is_empty)
+                Some(element.sync.clone())
+            } else {
+                None
+            };
+            (element_states, false, result.is_empty, sync)
         };
         crate::render::window_open::extend_render_states(&elements, &mut element_states);
         if is_empty {
@@ -1681,29 +1711,56 @@ impl Renderable for TtyBackend {
             &element_states,
         );
         let variable_refresh = self.drm_outputs[entry_index].vrr_active;
-        if let Err(err) = self.drm_outputs[entry_index]
-            .drm_output
-            .queue_frame(FrameSubmission {
-                target_presentation_time,
-                presentation_feedback,
-                session_lock_generation,
-                variable_refresh,
-            })
+        let submission = FrameSubmission {
+            target_presentation_time,
+            presentation_feedback,
+            session_lock_generation,
+            variable_refresh,
+        };
+        let entry = &mut self.drm_outputs[entry_index];
+        if let Some(sync) = sync
+            && !sync.is_reached()
         {
-            // Rendering advanced the output's damage history, but this
-            // frame never reached scanout. Repaint the next swapchain slot
-            // even if the retained scene has not changed again.
-            self.drm_outputs[entry_index]
-                .drm_output
-                .with_compositor(|compositor| compositor.reset_buffer_ages());
-            return Err(err.into());
+            // Smithay retains the prepared swapchain frame until queue_frame
+            // or the next render_frame. Do not render over it while pending.
+            entry.deferred_frame = Some(DeferredFrame {
+                sync,
+                submission,
+                states: element_states,
+                direct_scanout,
+            });
+            return Ok(RenderOutcome::new(RenderStatus::Skipped, None).requiring_redraw());
         }
-        self.drm_outputs[entry_index].pending = true;
-        set_entry_direct_scanout(&mut self.drm_outputs[entry_index], direct_scanout);
+        entry.submit_frame(submission, direct_scanout)?;
         Ok(RenderOutcome::new(
             RenderStatus::Submitted,
             Some(element_states),
         ))
+    }
+}
+
+impl DrmOutputEntry {
+    fn discard_deferred_frame(&mut self) {
+        if self.deferred_frame.take().is_some() {
+            // The prepared frame advanced damage history without reaching scanout.
+            self.drm_output
+                .with_compositor(|compositor| compositor.reset_buffer_ages());
+        }
+    }
+
+    fn submit_frame(
+        &mut self,
+        submission: FrameSubmission,
+        direct_scanout: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Err(err) = self.drm_output.queue_frame(submission) {
+            self.drm_output
+                .with_compositor(|compositor| compositor.reset_buffer_ages());
+            return Err(err.into());
+        }
+        self.pending = true;
+        set_entry_direct_scanout(self, direct_scanout);
+        Ok(())
     }
 }
 
