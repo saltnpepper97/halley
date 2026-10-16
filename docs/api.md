@@ -5,6 +5,11 @@ automation, testing tools, and desktop components. It is the layer external
 programs should build against. `halley-ipc` is the private wire codec used by
 the SDK and compositor; its postcard representation is not a public contract.
 
+`halley --version` reports the installed compositor binary's version and Halley
+API version. `halleyctl --version` reports only the CLI's own version and works
+without a running compositor. To inspect a running compositor, use the SDK's
+`Client::server_info()` handshake result.
+
 ## Add the SDK
 
 From a sibling project beside the active Halley checkout, use a path dependency:
