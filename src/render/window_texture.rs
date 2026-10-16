@@ -67,6 +67,28 @@ pub(crate) struct ResizeCapture {
     elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>>,
 }
 
+impl ResizeCaptureState {
+    fn from_elements(window_geometry: Rectangle<i32, Logical>, elements: &[impl Element]) -> Self {
+        Self {
+            window_geometry,
+            layers: elements
+                .iter()
+                .map(|element| ResizeCaptureLayer {
+                    id: element.id().clone(),
+                    commit: element.current_commit(),
+                    geometry: element.geometry(Scale::from(1.0)),
+                    src: element.src(),
+                    transform: element.transform(),
+                    opaque_regions: element
+                        .opaque_regions(Scale::from(1.0))
+                        .into_iter()
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
 impl WindowTexture {
     pub fn render_element(
         &self,
@@ -178,23 +200,7 @@ pub(crate) fn prepare_resize_capture(
         return Err("window resize snapshot surface tree is empty".into());
     }
 
-    let state = ResizeCaptureState {
-        window_geometry: geometry,
-        layers: elements
-            .iter()
-            .map(|element| ResizeCaptureLayer {
-                id: element.id().clone(),
-                commit: element.current_commit(),
-                geometry: element.geometry(Scale::from(1.0)),
-                src: element.src(),
-                transform: element.transform(),
-                opaque_regions: element
-                    .opaque_regions(Scale::from(1.0))
-                    .into_iter()
-                    .collect(),
-            })
-            .collect(),
-    };
+    let state = ResizeCaptureState::from_elements(geometry, &elements);
     Ok(ResizeCapture { state, elements })
 }
 
@@ -648,6 +654,99 @@ fn capture_decorated_inner(
 mod tests {
     use super::*;
     use smithay::utils::{Buffer, Logical};
+
+    #[test]
+    fn resize_capture_tracks_each_rendered_layer_and_window_geometry() {
+        use smithay::backend::renderer::element::solid::{
+            SolidColorBuffer, SolidColorRenderElement,
+        };
+        let geometry = Rectangle::from_size((240, 160).into());
+        let mut root = SolidColorBuffer::new((240, 160), Color32F::BLACK);
+        let mut child = SolidColorBuffer::new((80, 60), [1.0; 4]);
+        let element = |buffer: &SolidColorBuffer, loc| {
+            SolidColorRenderElement::from_buffer(buffer, loc, 1.0, 1.0, Kind::Unspecified)
+        };
+        let root_element = element(&root, (0, 0));
+        let child_element = element(&child, (20, 20));
+        let state = ResizeCaptureState::from_elements(
+            geometry,
+            &[child_element.clone(), root_element.clone()],
+        );
+        for _ in 0..120 {
+            assert_eq!(
+                state,
+                ResizeCaptureState::from_elements(
+                    geometry,
+                    &[element(&child, (20, 20)), element(&root, (0, 0))]
+                )
+            );
+        }
+        // Independent child repaint must invalidate an unchanged root.
+        child.set_color([0.0, 1.0, 0.0, 1.0]);
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                geometry,
+                &[element(&child, (20, 20)), root_element.clone()]
+            )
+        );
+        // Root repaint must invalidate even with the old child still present.
+        root.set_color([1.0; 4]);
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                geometry,
+                &[child_element.clone(), element(&root, (0, 0))]
+            )
+        );
+        // Movement and stacking changes do not require new buffer contents.
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                geometry,
+                &[element(&child, (21, 20)), root_element.clone()]
+            )
+        );
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                geometry,
+                &[root_element.clone(), child_element.clone()]
+            )
+        );
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(geometry, std::slice::from_ref(&root_element))
+        );
+        let replacement = SolidColorBuffer::new((80, 60), [1.0; 4]);
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                geometry,
+                &[element(&replacement, (20, 20)), root_element.clone()]
+            )
+        );
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(
+                Rectangle::new((1, 0).into(), geometry.size),
+                &[child_element.clone(), root_element.clone()]
+            )
+        );
+        // Opaque-region metadata affects endpoint readiness even if the
+        // element's identity, damage counter and bounds are unchanged.
+        let transparent = SolidColorRenderElement::new(
+            child_element.id().clone(),
+            child_element.geometry(Scale::from(1.0)),
+            child_element.current_commit(),
+            Color32F::TRANSPARENT,
+            Kind::Unspecified,
+        );
+        assert_ne!(
+            state,
+            ResizeCaptureState::from_elements(geometry, &[transparent, root_element])
+        );
+    }
 
     #[test]
     fn texture_mapping_preserves_the_full_source() {

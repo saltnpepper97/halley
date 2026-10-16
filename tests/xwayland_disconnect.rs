@@ -13,7 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use halley_ipc::{ClusterRequest, ClusterTarget, NodeRequest, NodeSelector, Request, Response};
 use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat, wl_surface,
+    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat, wl_subcompositor, wl_subsurface,
+    wl_surface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
@@ -341,6 +342,8 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for NativeState {
     }
 }
 delegate_noop!(NativeState: ignore wl_compositor::WlCompositor);
+delegate_noop!(NativeState: ignore wl_subcompositor::WlSubcompositor);
+delegate_noop!(NativeState: ignore wl_subsurface::WlSubsurface);
 impl Dispatch<wl_surface::WlSurface, ()> for NativeState {
     fn event(
         state: &mut Self,
@@ -1671,6 +1674,132 @@ end
 #[ignore = "requires a Wayland desktop and XWayland; captures an isolated compositor's chrome"]
 fn fullscreen_exit_fades_the_attached_frame_near_the_end_of_the_return() {
     fullscreen_exit_chrome_regression(false);
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; captures live fullscreen surface-tree changes"]
+fn fullscreen_capture_reuse_preserves_root_child_and_removal_updates() {
+    let mut fixture = Fixture::with_config(
+        "tiling",
+        r#"
+decorations:
+  border:
+    size 0
+  end
+  titlebars:
+    enabled false
+  end
+end
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 12000
+    curve "linear"
+  end
+end
+"#,
+    );
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "fullscreen live tree",
+        "halley.fullscreen.live-tree",
+        [0, 0, 0, u32::MAX],
+    );
+    fixture.node("fullscreen live tree");
+    state.resize_for_configures = true;
+    state.toplevel.as_ref().unwrap().set_fullscreen(None);
+    wait_for("fullscreen configure for live-tree test", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.configured_fullscreen.then_some(())
+    });
+    let started = Instant::now();
+    // Hold one unchanged endpoint for many frames, then update it while the
+    // crossfade is still active and its incoming colour is readily visible.
+    thread::sleep(Duration::from_millis(3500));
+    let handle = queue.handle();
+    let registry = state.registry.as_ref().unwrap();
+    let pixels: pixel::WpSinglePixelBufferManagerV1 = registry.bind(
+        state.globals["wp_single_pixel_buffer_manager_v1"],
+        1,
+        &handle,
+        (),
+    );
+    let compositor: wl_compositor::WlCompositor =
+        registry.bind(state.globals["wl_compositor"], 6, &handle, ());
+    let subcompositor: wl_subcompositor::WlSubcompositor =
+        registry.bind(state.globals["wl_subcompositor"], 1, &handle, ());
+    let viewporter: wp_viewporter::WpViewporter =
+        registry.bind(state.globals["wp_viewporter"], 1, &handle, ());
+    let blue = pixels.create_u32_rgba_buffer(0, 0, u32::MAX, u32::MAX, &handle, ());
+    let green = pixels.create_u32_rgba_buffer(0, u32::MAX, 0, u32::MAX, &handle, ());
+    let red = pixels.create_u32_rgba_buffer(u32::MAX, 0, 0, u32::MAX, &handle, ());
+    let root = state.surface.as_ref().unwrap().clone();
+    state.buffer = Some(blue.clone());
+    root.attach(Some(&blue), 0, 0);
+    root.damage_buffer(0, 0, i32::MAX, i32::MAX);
+    root.commit();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("root repaint during cached fullscreen blend", || {
+        (capture_colour_bounds(&mut fixture)[0].0 > 1000).then_some(())
+    });
+
+    let child = compositor.create_surface(&handle, ());
+    let subsurface = subcompositor.get_subsurface(&child, &root, &handle, ());
+    subsurface.set_desync();
+    subsurface.set_position(40, 40);
+    let viewport = viewporter.get_viewport(&child, &handle, ());
+    viewport.set_destination(120, 80);
+    child.attach(Some(&green), 0, 0);
+    child.damage_buffer(0, 0, i32::MAX, i32::MAX);
+    child.commit();
+    root.commit();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("new child during fullscreen blend", || {
+        (capture_colour_bounds(&mut fixture)[1].0 > 100).then_some(())
+    });
+
+    // No root commit: its damage counter cannot invalidate these changes.
+    child.attach(Some(&red), 0, 0);
+    child.damage_buffer(0, 0, i32::MAX, i32::MAX);
+    child.commit();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("independent child repaint during fullscreen blend", || {
+        let colours = capture_colour_bounds(&mut fixture);
+        (colours[2].0 > 100 && colours[1].0 == 0).then_some(())
+    });
+    child.attach(Some(&green), 0, 0);
+    child.damage_buffer(0, 0, i32::MAX, i32::MAX);
+    child.commit();
+    queue.roundtrip(&mut state).unwrap();
+    let full_child_pixels = wait_for("restored green child", || {
+        let count = capture_colour_bounds(&mut fixture)[1].0;
+        (count > 100).then_some(count)
+    });
+    // Viewport-only commit, with no buffer attachment or damage.
+    viewport.set_destination(60, 40);
+    child.commit();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("child viewport change without repaint", || {
+        let count = capture_colour_bounds(&mut fixture)[1].0;
+        (count > 20 && count < full_child_pixels / 2).then_some(())
+    });
+
+    // Destroying the subsurface role unparents it immediately; there is no
+    // parent or child wl_surface commit to notify the fullscreen transaction.
+    subsurface.destroy();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for("removed child disappears from fullscreen capture", || {
+        let colours = capture_colour_bounds(&mut fixture);
+        (colours[1].0 == 0 && colours[0].0 > 1000).then_some(())
+    });
+    assert!(
+        started.elapsed() < Duration::from_secs(11),
+        "updates must be visible during the blend, before returning to live rendering"
+    );
+    assert!(fixture.process.try_wait().unwrap().is_none());
 }
 
 #[test]
