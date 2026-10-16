@@ -644,6 +644,61 @@ impl<D: SessionDriver> Session<D> {
     }
 
     pub fn cleanup_fullscreen(&mut self, now: std::time::Duration) -> bool {
+        let mut native_started = false;
+        for surface in self.fullscreen.native_size_retries_due(now) {
+            let Some(window) = self
+                .wayland
+                .space
+                .elements()
+                .find(|window| {
+                    window
+                        .wl_surface()
+                        .is_some_and(|candidate| candidate.as_ref() == &surface)
+                })
+                .cloned()
+            else {
+                continue;
+            };
+            let textures = &mut self.render.fullscreen_textures;
+            let has_snapshot = textures.awaiting_target(&surface);
+            let owner = crate::render::fullscreen_texture::TextureTransitionOwner::Fullscreen;
+            // Validate the current tree again: a newer commit may have
+            // replaced the complete endpoint which originally armed the wait.
+            let ready = !has_snapshot
+                || self.driver.with_renderer(|renderer| {
+                    textures
+                        .prepare_target(renderer, &window, owner)
+                        .unwrap_or(false)
+                });
+            let buffer_size =
+                smithay::backend::renderer::utils::with_renderer_surface_state(&surface, |state| {
+                    state.surface_size()
+                })
+                .flatten();
+            if self.fullscreen.handle_commit(
+                &mut self.wayland,
+                &self.cameras,
+                &surface,
+                buffer_size,
+                ready,
+                now,
+            ) {
+                if has_snapshot {
+                    // prepare_target succeeded in the same event-loop turn,
+                    // so capture_target adopts that exact validated endpoint.
+                    let _ = self.driver.with_renderer(|renderer| {
+                        textures.capture_target(renderer, &window, owner)
+                    });
+                }
+                native_started = true;
+            } else {
+                // A newer incomplete tree or incompatible protocol state
+                // needs another client commit, rather than repeated GPU
+                // captures of the same rejected endpoint on every frame.
+                self.fullscreen
+                    .defer_native_size_retry_until_commit(&surface);
+            }
+        }
         let cleanup = self.fullscreen.cleanup(now);
         let maximize_cleanup = self.maximize.cleanup(now);
         for surface in cleanup.finished_surfaces {
@@ -656,7 +711,7 @@ impl<D: SessionDriver> Session<D> {
         for output in outputs {
             self.sync_fullscreen_camera(&output, now);
         }
-        cleanup.visual_finished || maximize_cleanup.visual_finished
+        native_started || cleanup.visual_finished || maximize_cleanup.visual_finished
     }
 
     pub fn sync_fullscreen_camera(

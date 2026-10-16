@@ -23,6 +23,10 @@ use wayland_protocols::xdg::decoration::zv1::client::{
 };
 use wayland_protocols::xdg::dialog::v1::client::{xdg_dialog_v1, xdg_wm_dialog_v1};
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
+use wayland_protocols_wlr::foreign_toplevel::v1::client::{
+    zwlr_foreign_toplevel_handle_v1 as foreign_handle,
+    zwlr_foreign_toplevel_manager_v1 as foreign_manager,
+};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, WindowClass};
 use x11rb::rust_connection::RustConnection;
@@ -241,7 +245,30 @@ struct NativeState {
     viewport: Option<wp_viewport::WpViewport>,
     resize_for_configures: bool,
     configured_fullscreen: bool,
+    configure_count: usize,
+    configured_size: (i32, i32),
+    foreign_toplevel: Option<foreign_handle::ZwlrForeignToplevelHandleV1>,
 }
+
+impl Dispatch<foreign_manager::ZwlrForeignToplevelManagerV1, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        _: &foreign_manager::ZwlrForeignToplevelManagerV1,
+        event: foreign_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let foreign_manager::Event::Toplevel { toplevel } = event {
+            state.foreign_toplevel = Some(toplevel);
+        }
+    }
+
+    wayland_client::event_created_child!(NativeState, foreign_manager::ZwlrForeignToplevelManagerV1, [
+        foreign_manager::EVT_TOPLEVEL_OPCODE => (foreign_handle::ZwlrForeignToplevelHandleV1, ())
+    ]);
+}
+delegate_noop!(NativeState: ignore foreign_handle::ZwlrForeignToplevelHandleV1);
 delegate_noop!(NativeState: ignore wl_seat::WlSeat);
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
     fn event(
@@ -288,6 +315,7 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for NativeState {
         _: &QueueHandle<Self>,
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
+            state.configure_count += 1;
             surface.ack_configure(serial);
             let window = state.surface.as_ref().unwrap();
             window.attach(state.buffer.as_ref(), 0, 0);
@@ -364,6 +392,7 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for NativeState {
             states,
         } = event
         {
+            state.configured_size = (width, height);
             state.configured_fullscreen = states.chunks_exact(4).any(|bytes| {
                 u32::from_ne_bytes(bytes.try_into().unwrap())
                     == xdg_toplevel::State::Fullscreen as u32
@@ -1438,6 +1467,83 @@ fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>);
 
 fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
     capture_green_chrome(fixture).0
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn compositor_fullscreen_exit_releases_an_idle_client_that_keeps_its_buffer_size() {
+    let mut fixture = Fixture::with_config(
+        "stacking",
+        r#"
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 100
+    curve "linear"
+  end
+end
+"#,
+    );
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "fixed fullscreen endpoint",
+        "halley.fixed-endpoint.regression",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("fixed fullscreen endpoint");
+    state.resize_for_configures = true;
+    let _manager: foreign_manager::ZwlrForeignToplevelManagerV1 =
+        state.registry.as_ref().unwrap().bind(
+            state.globals["zwlr_foreign_toplevel_manager_v1"],
+            3,
+            &queue.handle(),
+            (),
+        );
+    wait_for("foreign toplevel handle", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.foreign_toplevel.clone()
+    });
+    let handle = state.foreign_toplevel.clone().unwrap();
+    let before_enter = state.configure_count;
+    // This reaches the same set_record_fullscreen path as the Mod+F binding.
+    handle.set_fullscreen(None);
+    wait_for("compositor fullscreen configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before_enter && state.configured_size.0 > 240).then_some(())
+    });
+    queue.roundtrip(&mut state).unwrap();
+    assert!(
+        !state.configured_fullscreen,
+        "compositor fullscreen must preserve protocol ownership"
+    );
+    thread::sleep(Duration::from_millis(350));
+
+    // Acknowledge exit while keeping the fullscreen viewport/buffer. After
+    // that response the client goes idle, without another wl_surface.commit.
+    state.resize_for_configures = false;
+    let before_exit = state.configure_count;
+    let fullscreen_size = state.configured_size;
+    handle.unset_fullscreen();
+    wait_for("windowed restore configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before_exit && state.configured_size != fullscreen_size)
+            .then_some(())
+    });
+    queue.roundtrip(&mut state).unwrap();
+    thread::sleep(Duration::from_millis(600));
+    assert!(
+        matches!(
+            fixture.request(Request::Control(halley_ipc::ControlRequest::PanField(
+                halley_ipc::ControlDirection::Right,
+            ))),
+            Response::Ack
+        ),
+        "the idle, acknowledged client must release the fullscreen camera lock"
+    );
+    assert!(fixture.process.try_wait().unwrap().is_none());
 }
 
 #[test]
