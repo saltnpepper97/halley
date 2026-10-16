@@ -152,11 +152,16 @@ impl ArrangeTextureTransitions {
             self.windows.remove(surface);
             return Ok(None);
         }
-        let Some(next) = entry.target.clone() else {
-            return Ok(None);
+        let (next, progress) = match entry.target.clone() {
+            Some(next) => (
+                next,
+                reveal_progress(arrange_completion, entry.target_ready_at_completion, true) as f32,
+            ),
+            // Until the client presents its new size, hold the outgoing frame
+            // through the same native top-left mapping. Stretching it instead
+            // made the content jump in scale when the target arrived.
+            None => (entry.previous.clone(), 0.0),
         };
-        let progress =
-            reveal_progress(arrange_completion, entry.target_ready_at_completion, true) as f32;
         Ok(Some(self.resize_renderer.native_element(
             renderer,
             entry.id.clone(),
