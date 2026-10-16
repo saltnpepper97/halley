@@ -37,6 +37,10 @@ struct TransitionTextures {
     target_readiness: TargetReadiness,
     target_damage: TargetDamageCoverage,
     capture_generation: CommitCounter,
+    /// Geometry progress at which the accepted endpoint first became
+    /// presentable. The crossfade runs from there, so a late client buffer
+    /// fades in instead of popping to the already-advanced geometry progress.
+    blend_start: Option<f64>,
 }
 
 #[derive(Debug, Default)]
@@ -229,6 +233,7 @@ impl FullscreenTextureTransitions {
                 target_readiness: TargetReadiness::default(),
                 target_damage: TargetDamageCoverage::default(),
                 capture_generation: CommitCounter::default(),
+                blend_start: None,
             },
         );
         Ok(())
@@ -494,7 +499,8 @@ impl FullscreenTextureTransitions {
             // Configure/buffer/tree validation already accepted this endpoint.
             // Opaque regions describe where a client permits occlusion, not
             // whether it has painted. A client may clear that hint at resize.
-            (next, progress)
+            let start = *entry.blend_start.get_or_insert(progress);
+            (next, crossfade_progress(start, progress))
         } else {
             (
                 ResizeWindowTexture {
@@ -521,6 +527,14 @@ impl FullscreenTextureTransitions {
             entry.capture_generation,
         )?))
     }
+}
+
+fn crossfade_progress(start: f64, progress: f64) -> f64 {
+    let remaining = 1.0 - start;
+    if remaining <= f64::EPSILON {
+        return 1.0;
+    }
+    ((progress - start) / remaining).clamp(0.0, 1.0)
 }
 
 pub(crate) fn snapshot_matches_target_endpoint(

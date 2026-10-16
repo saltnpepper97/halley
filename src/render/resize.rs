@@ -39,6 +39,8 @@ uniform vec2 halley_previous_scale;
 uniform vec2 halley_previous_offset;
 uniform vec2 halley_next_scale;
 uniform vec2 halley_next_offset;
+uniform vec2 halley_previous_step;
+uniform vec2 halley_next_step;
 uniform float halley_previous_opaque;
 uniform float halley_next_opaque;
 uniform float halley_native_reveal;
@@ -48,6 +50,24 @@ uniform vec2 halley_corner_radii;
 #if defined(DEBUG_FLAGS)
 uniform float tint;
 #endif
+
+// A fullscreen endpoint drawn into a windowed rectangle is minified by more
+// than 2x. One bilinear tap per pixel then skips texels and text shimmers
+// while the rectangle moves. Average a 3x3 grid spanning the pixel footprint;
+// `step` is zero when the endpoint is not minified.
+#define HALLEY_AREA_SAMPLE(result, sampler, coords, step)                      \
+    if (step.x == 0.0 && step.y == 0.0) {                                      \
+        result = texture2D(sampler, coords);                                   \
+    } else {                                                                   \
+        result = vec4(0.0);                                                    \
+        for (int ix = -1; ix <= 1; ix++) {                                     \
+            for (int iy = -1; iy <= 1; iy++) {                                 \
+                vec2 tap = coords + vec2(float(ix), float(iy)) * step / 3.0;   \
+                result += texture2D(sampler, clamp(tap, 0.0, 1.0));            \
+            }                                                                  \
+        }                                                                      \
+        result /= 9.0;                                                         \
+    }
 
 float rounded_alpha(vec2 coords, vec2 size, vec2 radii) {
     float radius = coords.y < size.y * 0.5 ? radii.x : radii.y;
@@ -79,7 +99,7 @@ void main() {
 
     vec4 previous = vec4(0.0);
     if (previous_inside) {
-        previous = texture2D(tex, previous_coords);
+        HALLEY_AREA_SAMPLE(previous, tex, previous_coords, halley_previous_step);
 #if defined(NO_ALPHA)
         previous.a = 1.0;
 #endif
@@ -89,7 +109,7 @@ void main() {
 
     vec4 next = vec4(0.0);
     if (next_inside) {
-        next = texture2D(halley_next_tex, next_coords);
+        HALLEY_AREA_SAMPLE(next, halley_next_tex, next_coords, halley_next_step);
         if (halley_next_opaque > 0.5)
             next.a = 1.0;
     }
@@ -111,7 +131,10 @@ void main() {
         else
             color = previous;
     } else {
-        color = mix(previous, next, halley_progress);
+        // Both endpoints are stretched over the same rectangle, so a long
+        // linear mix shows two differently scaled images at once. Hold each
+        // endpoint near its end and pass through the double image quickly.
+        color = mix(previous, next, smoothstep(0.15, 0.85, halley_progress));
     }
     color *= alpha;
 
@@ -140,6 +163,8 @@ pub struct ResizeRenderElement {
     previous_opaque: f32,
     next_opaque: f32,
     native_reveal: f32,
+    previous_step: (f32, f32),
+    next_step: (f32, f32),
     size: (f32, f32),
     radii: super::window_decoration::CornerRadii,
     commit: CommitCounter,
@@ -246,6 +271,8 @@ impl ResizeRenderer {
                         UniformName::new("halley_previous_offset", UniformType::_2f),
                         UniformName::new("halley_next_scale", UniformType::_2f),
                         UniformName::new("halley_next_offset", UniformType::_2f),
+                        UniformName::new("halley_previous_step", UniformType::_2f),
+                        UniformName::new("halley_next_step", UniformType::_2f),
                         UniformName::new("halley_previous_opaque", UniformType::_1f),
                         UniformName::new("halley_next_opaque", UniformType::_1f),
                         UniformName::new("halley_native_reveal", UniformType::_1f),
@@ -264,6 +291,18 @@ impl ResizeRenderer {
             top: fit_radius(radii.top, destination),
             bottom: fit_radius(radii.bottom, destination),
         };
+        let previous_step = minified_sample_step(
+            mapping.previous_scale,
+            mapping.input_scale,
+            mapping.draw_area,
+            previous.texture.size(),
+        );
+        let next_step = minified_sample_step(
+            mapping.next_scale,
+            mapping.input_scale,
+            mapping.draw_area,
+            next.texture.size(),
+        );
         let commit = resize_commit(
             base.current_commit(),
             generation,
@@ -282,10 +321,31 @@ impl ResizeRenderer {
             previous_opaque: if previous.client_opaque { 1.0 } else { 0.0 },
             next_opaque: if next.client_opaque { 1.0 } else { 0.0 },
             native_reveal: if native_reveal { 1.0 } else { 0.0 },
+            previous_step,
+            next_step,
             size: (destination.size.w as f32, destination.size.h as f32),
             radii,
             commit,
         })
+    }
+}
+
+/// Texture-coordinate span of one output pixel, or zero when the endpoint
+/// is shown at or above native resolution and a single tap is exact enough.
+fn minified_sample_step(
+    texture_scale: (f32, f32),
+    input_scale: (f32, f32),
+    draw_area: Rectangle<i32, Physical>,
+    texture_size: smithay::utils::Size<i32, Buffer>,
+) -> (f32, f32) {
+    let step_x = texture_scale.0 * input_scale.0 / draw_area.size.w.max(1) as f32;
+    let step_y = texture_scale.1 * input_scale.1 / draw_area.size.h.max(1) as f32;
+    let texels_x = step_x * texture_size.w.max(1) as f32;
+    let texels_y = step_y * texture_size.h.max(1) as f32;
+    if texels_x.max(texels_y) <= 1.25 {
+        (0.0, 0.0)
+    } else {
+        (step_x, step_y)
     }
 }
 
@@ -582,6 +642,8 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
                 Uniform::new("halley_previous_offset", self.mapping.previous_offset),
                 Uniform::new("halley_next_scale", self.mapping.next_scale),
                 Uniform::new("halley_next_offset", self.mapping.next_offset),
+                Uniform::new("halley_previous_step", self.previous_step),
+                Uniform::new("halley_next_step", self.next_step),
                 Uniform::new("halley_previous_opaque", self.previous_opaque),
                 Uniform::new("halley_next_opaque", self.next_opaque),
                 Uniform::new("halley_native_reveal", self.native_reveal),
