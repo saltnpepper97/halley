@@ -249,6 +249,7 @@ struct NativeState {
     configure_count: usize,
     configured_size: (i32, i32),
     foreign_toplevel: Option<foreign_handle::ZwlrForeignToplevelHandleV1>,
+    foreign_titles: HashMap<String, foreign_handle::ZwlrForeignToplevelHandleV1>,
 }
 
 impl Dispatch<foreign_manager::ZwlrForeignToplevelManagerV1, ()> for NativeState {
@@ -269,7 +270,20 @@ impl Dispatch<foreign_manager::ZwlrForeignToplevelManagerV1, ()> for NativeState
         foreign_manager::EVT_TOPLEVEL_OPCODE => (foreign_handle::ZwlrForeignToplevelHandleV1, ())
     ]);
 }
-delegate_noop!(NativeState: ignore foreign_handle::ZwlrForeignToplevelHandleV1);
+impl Dispatch<foreign_handle::ZwlrForeignToplevelHandleV1, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        handle: &foreign_handle::ZwlrForeignToplevelHandleV1,
+        event: foreign_handle::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let foreign_handle::Event::Title { title } = event {
+            state.foreign_titles.insert(title, handle.clone());
+        }
+    }
+}
 delegate_noop!(NativeState: ignore wl_seat::WlSeat);
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
     fn event(
@@ -450,21 +464,9 @@ fn native_window_named(
     app_id: &str,
     rgba: [u32; 4],
 ) -> (EventQueue<NativeState>, NativeState) {
-    let socket = fs::read_dir(&fixture.path)
-        .unwrap()
-        .filter_map(Result::ok)
-        .find(|entry| {
-            entry.file_name().to_string_lossy().starts_with("wayland-")
-                && !entry.file_name().to_string_lossy().ends_with(".lock")
-        })
-        .unwrap()
-        .path();
-    let connection = Connection::from_socket(UnixStream::connect(socket).unwrap()).unwrap();
-    let mut queue = connection.new_event_queue();
+    let (mut queue, mut state) = native_connection(fixture);
     let handle = queue.handle();
-    let registry = connection.display().get_registry(&handle, ());
-    let mut state = NativeState::default();
-    queue.roundtrip(&mut state).unwrap();
+    let registry = state.registry.as_ref().unwrap().clone();
     let compositor: wl_compositor::WlCompositor =
         registry.bind(state.globals["wl_compositor"], 6, &handle, ());
     let pixels: pixel::WpSinglePixelBufferManagerV1 = registry.bind(
@@ -491,7 +493,6 @@ fn native_window_named(
     let toplevel = xdg_surface.get_toplevel(&handle, ());
     toplevel.set_title(title.into());
     toplevel.set_app_id(app_id.into());
-    state.registry = Some(registry);
     state.toplevel = Some(toplevel);
     state.buffer =
         Some(pixels.create_u32_rgba_buffer(rgba[0], rgba[1], rgba[2], rgba[3], &handle, ()));
@@ -499,6 +500,26 @@ fn native_window_named(
     surface.commit();
     queue.roundtrip(&mut state).unwrap();
     queue.roundtrip(&mut state).unwrap();
+    (queue, state)
+}
+
+fn native_connection(fixture: &Fixture) -> (EventQueue<NativeState>, NativeState) {
+    let socket = fs::read_dir(&fixture.path)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry.file_name().to_string_lossy().starts_with("wayland-")
+                && !entry.file_name().to_string_lossy().ends_with(".lock")
+        })
+        .unwrap()
+        .path();
+    let connection = Connection::from_socket(UnixStream::connect(socket).unwrap()).unwrap();
+    let mut queue = connection.new_event_queue();
+    let handle = queue.handle();
+    let registry = connection.display().get_registry(&handle, ());
+    let mut state = NativeState::default();
+    queue.roundtrip(&mut state).unwrap();
+    state.registry = Some(registry);
     (queue, state)
 }
 
@@ -1398,7 +1419,7 @@ fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
     capture_colour_bounds(fixture)[1]
 }
 
-fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>); 3] {
+fn capture_frame_pixels(fixture: &mut Fixture) -> (Vec<u8>, usize) {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::FileExt;
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
@@ -1442,6 +1463,11 @@ fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>);
     assert!(matches!(response, Response::Frame(_)), "{response:?}");
     let mut pixels = vec![0; size];
     file.read_exact_at(&mut pixels, 0).unwrap();
+    (pixels, mode.width as usize)
+}
+
+fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>); 3] {
+    let (pixels, width) = capture_frame_pixels(fixture);
     std::array::from_fn(|channel| {
         let mut count = 0;
         let mut min_x = usize::MAX;
@@ -1457,8 +1483,8 @@ fn capture_colour_bounds(fixture: &mut Fixture) -> [(usize, Option<[usize; 4]>);
                 && u16::from(p[channel]) > u16::from(other) + 32
                 && (channel == 1 || other < 32)
             {
-                let x = index % mode.width as usize;
-                let y = index / mode.width as usize;
+                let x = index % width;
+                let y = index / width;
                 min_x = min_x.min(x);
                 min_y = min_y.min(y);
                 max_x = max_x.max(x);
@@ -1679,6 +1705,110 @@ fn fullscreen_exit_fades_the_attached_frame_near_the_end_of_the_return() {
 }
 
 #[test]
+#[ignore = "manual visual preview; runs Kitty fullscreen/maximize cycles in an isolated compositor"]
+fn shared_bounds_visual_preview() {
+    struct PreviewClient(Child);
+    impl Drop for PreviewClient {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut fixture = Fixture::with_config(
+        "stacking",
+        r#"
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 1000
+    curve "ease-in-out-cubic"
+  end
+  maximize:
+    motion "easing"
+    duration-ms 1000
+    curve "ease-in-out-cubic"
+  end
+end
+"#,
+    );
+    let (mut queue, mut state) = native_connection(&fixture);
+    let _manager: foreign_manager::ZwlrForeignToplevelManagerV1 =
+        state.registry.as_ref().unwrap().bind(
+            state.globals["zwlr_foreign_toplevel_manager_v1"],
+            3,
+            &queue.handle(),
+            (),
+        );
+    let socket = fs::read_dir(&fixture.path)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry.file_name().to_string_lossy().starts_with("wayland-")
+                && !entry.file_name().to_string_lossy().ends_with(".lock")
+        })
+        .unwrap()
+        .path();
+    let log = File::create(fixture.path.join("kitty.log")).unwrap();
+    let mut kitty = PreviewClient(Command::new("kitty")
+        .args(["--config", "NONE", "--title", "Halley blend preview",
+            "-o", "linux_display_server=wayland", "-o", "confirm_os_window_close=0",
+            "-o", "remember_window_size=no", "-o", "initial_window_width=720",
+            "-o", "initial_window_height=440", "-o", "font_size=15",
+            "-o", "background_opacity=0.90", "--hold", "sh", "-c",
+            r#"printf '\033[1;36mSHARED RECTANGLE BLEND PREVIEW\033[0m\n\n'; printf 'Fullscreen and maximize, then restore.\nWatch the window edge and text as the size changes.\n\n'; i=1; while [ $i -le 16 ]; do printf '\033[3%sm%02d  The quick brown fox | 0123456789 | Halley\033[0m\n' $((i % 6 + 1)) $i; i=$((i + 1)); done"#])
+        .env("WAYLAND_DISPLAY", socket).env("XDG_RUNTIME_DIR", &fixture.path)
+        .env_remove("DISPLAY").env_remove("WAYLAND_SOCKET")
+        .stdout(Stdio::from(log.try_clone().unwrap())).stderr(Stdio::from(log))
+        .spawn().unwrap());
+    let handle = wait_for("Kitty preview toplevel", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.foreign_titles.get("Halley blend preview").cloned()
+    });
+    eprintln!(
+        "Preview nested PID={}, runtime={}",
+        fixture.process.id(),
+        fixture.path.display()
+    );
+    thread::sleep(Duration::from_secs(4));
+    for cycle in 0..5 {
+        for (fullscreen, enabled) in [(true, true), (true, false), (false, true), (false, false)] {
+            match (fullscreen, enabled) {
+                (true, true) => handle.set_fullscreen(None),
+                (true, false) => handle.unset_fullscreen(),
+                (false, true) => handle.set_maximized(),
+                (false, false) => handle.unset_maximized(),
+            }
+            queue.roundtrip(&mut state).unwrap();
+            if cycle == 0 && fullscreen && enabled {
+                thread::sleep(Duration::from_millis(500));
+                let (mut pixels, width) = capture_frame_pixels(&mut fixture);
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                let image_path = std::env::temp_dir().join("halley-shared-bounds-preview.png");
+                image::save_buffer(
+                    &image_path,
+                    &pixels,
+                    width as u32,
+                    (pixels.len() / 4 / width) as u32,
+                    image::ColorType::Rgba8,
+                )
+                .unwrap();
+                eprintln!("Preview frame: {}", image_path.display());
+                thread::sleep(Duration::from_millis(1100));
+            } else {
+                thread::sleep(Duration::from_millis(1600));
+            }
+            assert!(fixture.process.try_wait().unwrap().is_none());
+            assert!(kitty.0.try_wait().unwrap().is_none());
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a Wayland desktop and XWayland; captures live fullscreen surface-tree changes"]
 fn fullscreen_capture_reuse_preserves_root_child_and_removal_updates() {
     let mut fixture = Fixture::with_config(
@@ -1863,8 +1993,14 @@ end
     let started = Instant::now();
     thread::sleep(Duration::from_millis(1000));
     wait_for("accepted ARGB endpoint blends during the animation", || {
-        let colours = capture_colour_bounds(&mut fixture);
-        (colours[0].0 > 1000).then_some(())
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        // Red outgoing and blue incoming should contribute together. A pure
+        // blue region outside a smaller red panel is no longer expected.
+        let mixed = pixels
+            .chunks_exact(4)
+            .filter(|p| p[0] > 32 && p[2] > 32 && p[1] < 20)
+            .count();
+        (mixed > 1000).then_some(())
     });
     assert!(
         started.elapsed() < Duration::from_secs(3),
