@@ -968,6 +968,9 @@ impl FullscreenManager {
         true
     }
 
+    /// Returns whether a pending presentation was completed, even if its
+    /// output disappeared before the window could be relocated. The caller
+    /// must retire the completed presentation's snapshots in either case.
     pub(crate) fn finish_external_presentation(
         &mut self,
         wayland: &mut WaylandState,
@@ -983,7 +986,8 @@ impl FullscreenManager {
             return false;
         }
         finish_external_transition(entry);
-        relocate_external_window(wayland, window, entry)
+        let _ = relocate_external_window(wayland, window, entry);
+        true
     }
 
     pub(crate) fn external_desired_matches(&self, window: &Window, fullscreen: bool) -> bool {

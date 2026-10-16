@@ -33,6 +33,8 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Release cached XWayland fullscreen transition textures when pointer confinement
+  forces the presentation to finish, including when its output is unavailable.
 - Move fullscreen transactions and their saved windowed placements to an enabled
   fallback when their output is disabled. Retire old-output animation snapshots
   and reconfigure native and XWayland clients for the new output.

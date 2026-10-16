@@ -779,8 +779,17 @@ impl<D: SessionDriver> Session<D> {
         let Some(window) = window else {
             return false;
         };
-        self.fullscreen
+        if !self
+            .fullscreen
             .finish_external_presentation(&mut self.wayland, &window)
+        {
+            return false;
+        }
+        // Forced completion removes the timeline before normal frame cleanup
+        // can observe it. Retire its snapshots now, in the same event-loop
+        // turn, so a later transition cannot inherit or lose its textures.
+        self.render.fullscreen_textures.remove(&root);
+        true
     }
 
     #[cfg(not(feature = "xwayland"))]
