@@ -1470,6 +1470,127 @@ fn count_green_capture_pixels(fixture: &mut Fixture) -> usize {
 }
 
 #[test]
+#[ignore = "requires a Wayland desktop and XWayland; confines only an isolated X11 client's pointer"]
+fn x11_pointer_confinement_finishes_fullscreen_and_preserves_live_frames() {
+    use x11rb::protocol::xproto::{
+        ChangeWindowAttributesAux, ClientMessageEvent, EventMask, GrabMode, GrabStatus,
+    };
+    let mut fixture = Fixture::with_config(
+        "stacking",
+        r#"
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 4000
+    curve "linear"
+  end
+end
+"#,
+    );
+    let (x11, _) = x11rb::connect(Some(&fixture.display)).unwrap();
+    let window = x11_window(&x11, "confined fullscreen regression");
+    fixture.node("confined fullscreen regression");
+    x11.change_window_attributes(
+        window,
+        &ChangeWindowAttributesAux::new().background_pixel(0xff0000),
+    )
+    .unwrap()
+    .check()
+    .unwrap();
+    x11.clear_area(false, window, 0, 0, 0, 0).unwrap();
+    x11.flush().unwrap();
+    thread::sleep(Duration::from_millis(250));
+    let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+        panic!("missing outputs")
+    };
+    let output = &outputs.outputs[0];
+    let mode = output.modes[output.current_mode.unwrap()];
+    let wm_state = x11
+        .intern_atom(false, b"_NET_WM_STATE")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let fullscreen = x11
+        .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    x11.send_event(
+        false,
+        x11.setup().roots[0].root,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        ClientMessageEvent::new(32, window, wm_state, [1, fullscreen, 0, 1, 0]),
+    )
+    .unwrap();
+    x11.flush().unwrap();
+    wait_for("resized X11 allocation", || {
+        let geometry = x11.get_geometry(window).unwrap().reply().unwrap();
+        (i32::from(geometry.width) == mode.width && i32::from(geometry.height) == mode.height)
+            .then_some(())
+    });
+    // Supply a complete repaint, then catch the compositor mid-animation.
+    x11.clear_area(false, window, 0, 0, 0, 0).unwrap();
+    x11.flush().unwrap();
+    wait_for("running fullscreen animation", || {
+        let bounds = capture_colour_bounds(&mut fixture)[2].1?;
+        let width = bounds[2] - bounds[0] + 1;
+        (width > 300 && width < mode.width as usize - 100).then_some(())
+    });
+
+    let grab = x11
+        .grab_pointer(
+            false,
+            window,
+            EventMask::POINTER_MOTION,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+            window,
+            x11rb::NONE,
+            x11rb::CURRENT_TIME,
+        )
+        .unwrap()
+        .reply()
+        .unwrap();
+    assert_eq!(grab.status, GrabStatus::SUCCESS);
+    let forced_at = Instant::now();
+    loop {
+        let bounds = capture_colour_bounds(&mut fixture)[2].1;
+        if bounds.is_some_and(|b| {
+            b[2] - b[0] + 1 == mode.width as usize && b[3] - b[1] + 1 == mode.height as usize
+        }) {
+            break;
+        }
+        assert!(
+            forced_at.elapsed() < Duration::from_secs(1),
+            "confinement must finish the four-second transition immediately"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    // The completed presentation must continue showing fresh client content.
+    x11.ungrab_pointer(x11rb::CURRENT_TIME).unwrap();
+    x11.change_window_attributes(
+        window,
+        &ChangeWindowAttributesAux::new().background_pixel(0x0000ff),
+    )
+    .unwrap()
+    .check()
+    .unwrap();
+    x11.clear_area(false, window, 0, 0, 0, 0).unwrap();
+    x11.flush().unwrap();
+    wait_for("live blue frame after forced completion", || {
+        let colours = capture_colour_bounds(&mut fixture);
+        (colours[0].0 > mode.width as usize * mode.height as usize / 2 && colours[2].0 == 0)
+            .then_some(())
+    });
+    assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+#[test]
 #[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
 fn compositor_fullscreen_exit_releases_an_idle_client_that_keeps_its_buffer_size() {
     let mut fixture = Fixture::with_config(
