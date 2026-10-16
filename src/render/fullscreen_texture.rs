@@ -686,12 +686,24 @@ fn transition_buffer_ready(
 mod tests {
     use super::super::window_texture::rectangles_cover_size as damage_covers_buffer;
     use super::{
-        TargetDamageCoverage, TargetReadiness, commit_has_advanced, native_target_buffer_ready,
-        native_target_candidate_ready, persistent_endpoint_layers_cover_target,
-        surface_tree_matches_target_endpoint, transition_buffer_ready,
+        TargetDamageCoverage, TargetReadiness, commit_has_advanced, crossfade_progress,
+        native_target_buffer_ready, native_target_candidate_ready,
+        persistent_endpoint_layers_cover_target, surface_tree_matches_target_endpoint,
+        transition_buffer_ready,
     };
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Buffer, Logical, Physical, Rectangle, Size};
+
+    #[test]
+    fn late_endpoint_fades_from_its_acceptance_without_a_jump() {
+        for start in [0.0, 0.25, 0.75, 0.99] {
+            assert_eq!(crossfade_progress(start, start), 0.0);
+            assert!((crossfade_progress(start, start + (1.0 - start) * 0.5) - 0.5).abs() < 1e-12);
+            assert_eq!(crossfade_progress(start, 1.0), 1.0);
+            assert_eq!(crossfade_progress(start, start - 0.1), 0.0);
+        }
+        assert_eq!(crossfade_progress(1.0, 1.0), 1.0);
+    }
 
     #[test]
     fn x11_fullscreen_exit_holds_previous_texture_until_restored_buffer_arrives() {

@@ -782,6 +782,53 @@ mod tests {
             render(&mut renderer, reference),
             "the endpoint must apply one antialias mask, without a cleanup jump"
         );
+
+        // A one-pixel checkerboard reduced by 3x aliases to alternating black
+        // and white pixels with a single bilinear tap. Area sampling should
+        // retain its average brightness in both axes instead.
+        let mut pixels = Vec::with_capacity(240 * 180 * 4);
+        for y in 0..180 {
+            for x in 0..240 {
+                let value = if (x + y) % 2 == 0 { 0 } else { 255 };
+                pixels.extend_from_slice(&[value, value, value, 255]);
+            }
+        }
+        let checkerboard = ResizeWindowTexture {
+            texture: renderer
+                .import_memory(&pixels, Fourcc::Abgr8888, (240, 180).into(), false)
+                .unwrap(),
+            context: renderer.context_id(),
+            surface_geometry: Rectangle::from_size((240, 180).into()),
+            window_size: (240, 180).into(),
+            client_opaque: true,
+            surface_layers: Vec::new(),
+        };
+        let minified = resize
+            .element(
+                &mut renderer,
+                Id::new(),
+                &checkerboard,
+                checkerboard.clone(),
+                settled,
+                0.5,
+                1.0,
+                super::super::window_decoration::CornerRadii::all(0.0),
+                CommitCounter::default(),
+            )
+            .unwrap();
+        let pixels = render(&mut renderer, minified);
+        for y in 2..58 {
+            for x in 2..78 {
+                let pixel = &pixels[(y * 80 + x) * 4..][..4];
+                assert!(
+                    pixel[..3]
+                        .iter()
+                        .all(|channel| (105..150).contains(channel)),
+                    "minified detail must retain its average brightness: {pixel:?}"
+                );
+                assert_eq!(pixel[3], 255);
+            }
+        }
     }
 
     #[test]

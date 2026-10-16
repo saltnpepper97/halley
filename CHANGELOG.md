@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep both client images within the same animated bounds during fullscreen
+  and maximize transitions, removing the smaller image's visible interior
+  edge. Smooth reduced-size detail and begin the crossfade when the new
+  client buffer is accepted.
 - Make `halleyctl --version` report only its own version without connecting to
   the compositor. Report the compositor and Halley API versions together in
   `halley --version`.
