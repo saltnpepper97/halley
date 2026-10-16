@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use halley_api::{
     ClusterInfo, ClusterLayout, ClusterSummary, ModeInfo, NodeInfo, NodeProtocolFamily, NodeRole,
-    NodeState, OutputInfo, ServerInfo, TrailInfo,
+    NodeState, OutputInfo, TrailInfo,
 };
 use serde::Serialize;
 
@@ -92,12 +92,8 @@ pub fn outputs(outputs: Vec<OutputInfo>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-pub fn version(info: &ServerInfo) -> ExitCode {
+pub fn version() -> ExitCode {
     println!("halleyctl {}", env!("CARGO_PKG_VERSION"));
-    println!(
-        "compositor {} (Halley API {})",
-        info.compositor_version, info.api_version
-    );
     ExitCode::SUCCESS
 }
 

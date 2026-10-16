@@ -35,7 +35,6 @@ fn main() {
     if let Some(status) = autostart_log::run_worker_if_requested() {
         std::process::exit(status);
     }
-    logging::init();
     let args = match StartupArgs::parse(std::env::args().skip(1)) {
         Ok(args) => args,
         Err(err) => {
@@ -49,10 +48,15 @@ fn main() {
         return;
     }
     if args.version {
-        println!("halley {}", env!("CARGO_PKG_VERSION"));
+        println!(
+            "halley {} (Halley API {})",
+            env!("CARGO_PKG_VERSION"),
+            halley_ipc::HALLEY_API_VERSION
+        );
         return;
     }
 
+    logging::init();
     if args.session {
         let _session = session::environment::NativeSession;
         session::environment::prepare_session();
@@ -125,7 +129,7 @@ fn print_help() {
     println!("      --session  Start a full TTY desktop session");
     println!("      --winit    Run nested inside the current desktop");
     println!("  -h, --help     Show this help");
-    println!("  -V, --version  Show the version");
+    println!("  -V, --version  Show the compositor and Halley API versions");
 }
 
 fn set_config_path(parsed: &mut StartupArgs, path: String) -> Result<(), String> {

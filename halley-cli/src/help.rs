@@ -28,7 +28,7 @@ Retrieval in the compositor:
 
 Options:
   -h, --help     Print this message
-  -V, --version  Print both halleyctl's and the running compositor's version
+  -V, --version  Print the halleyctl version
 ";
 
 pub const CLUSTER_HELP: &str = "\
