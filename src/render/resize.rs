@@ -39,16 +39,35 @@ uniform vec2 halley_previous_scale;
 uniform vec2 halley_previous_offset;
 uniform vec2 halley_next_scale;
 uniform vec2 halley_next_offset;
+uniform vec2 halley_previous_step;
+uniform vec2 halley_next_step;
 uniform float halley_previous_opaque;
 uniform float halley_next_opaque;
 uniform float halley_native_reveal;
 uniform vec2 halley_rect_size;
-uniform vec2 halley_next_rect_size;
 uniform vec2 halley_corner_radii;
 
 #if defined(DEBUG_FLAGS)
 uniform float tint;
 #endif
+
+// A fullscreen endpoint drawn into a windowed rectangle is minified by more
+// than 2x. One bilinear tap per pixel then skips texels and text shimmers
+// while the rectangle moves. Average a 3x3 grid spanning the pixel footprint;
+// `step` is zero when the endpoint is not minified.
+#define HALLEY_AREA_SAMPLE(result, sampler, coords, step)                      \
+    if (step.x == 0.0 && step.y == 0.0) {                                      \
+        result = texture2D(sampler, coords);                                   \
+    } else {                                                                   \
+        result = vec4(0.0);                                                    \
+        for (int ix = -1; ix <= 1; ix++) {                                     \
+            for (int iy = -1; iy <= 1; iy++) {                                 \
+                vec2 tap = coords + vec2(float(ix), float(iy)) * step / 3.0;   \
+                result += texture2D(sampler, clamp(tap, 0.0, 1.0));            \
+            }                                                                  \
+        }                                                                      \
+        result /= 9.0;                                                         \
+    }
 
 float rounded_alpha(vec2 coords, vec2 size, vec2 radii) {
     float radius = coords.y < size.y * 0.5 ? radii.x : radii.y;
@@ -80,7 +99,7 @@ void main() {
 
     vec4 previous = vec4(0.0);
     if (previous_inside) {
-        previous = texture2D(tex, previous_coords);
+        HALLEY_AREA_SAMPLE(previous, tex, previous_coords, halley_previous_step);
 #if defined(NO_ALPHA)
         previous.a = 1.0;
 #endif
@@ -90,20 +109,15 @@ void main() {
 
     vec4 next = vec4(0.0);
     if (next_inside) {
-        next = texture2D(halley_next_tex, next_coords);
+        HALLEY_AREA_SAMPLE(next, halley_next_tex, next_coords, halley_next_step);
         if (halley_next_opaque > 0.5)
             next.a = 1.0;
     }
 
     vec2 size = max(halley_rect_size, vec2(1.0));
     float mask = rounded_alpha(current_coords * size, size, halley_corner_radii);
-    float next_mask = mask;
-    // A shrinking endpoint has an edge inside the animated rectangle. Clip
-    // that edge before blending, so its visible corners round during motion.
-    if (halley_native_reveal < 0.5 && max(halley_corner_radii.x, halley_corner_radii.y) > 0.0)
-        next_mask = min(mask, rounded_alpha(current_coords * size, halley_next_rect_size, halley_corner_radii));
     previous *= mask;
-    next *= next_mask;
+    next *= mask;
     vec4 color;
     if (halley_native_reveal > 0.5) {
         // Native-scale arrangement never fades a covered pixel into empty
@@ -117,7 +131,10 @@ void main() {
         else
             color = previous;
     } else {
-        color = mix(previous, next, halley_progress);
+        // Both endpoints are stretched over the same rectangle, so a long
+        // linear mix shows two differently scaled images at once. Hold each
+        // endpoint near its end and pass through the double image quickly.
+        color = mix(previous, next, smoothstep(0.15, 0.85, halley_progress));
     }
     color *= alpha;
 
@@ -146,8 +163,9 @@ pub struct ResizeRenderElement {
     previous_opaque: f32,
     next_opaque: f32,
     native_reveal: f32,
+    previous_step: (f32, f32),
+    next_step: (f32, f32),
     size: (f32, f32),
-    next_rect_size: (f32, f32),
     radii: super::window_decoration::CornerRadii,
     commit: CommitCounter,
 }
@@ -177,7 +195,7 @@ impl ResizeRenderer {
         radii: super::window_decoration::CornerRadii,
         generation: CommitCounter,
     ) -> Result<ResizeRenderElement, GlesError> {
-        let mapping = resize_mapping(previous, &next, destination, progress);
+        let mapping = resize_mapping(previous, &next, destination);
         self.element_with_mapping(
             renderer,
             id,
@@ -253,11 +271,12 @@ impl ResizeRenderer {
                         UniformName::new("halley_previous_offset", UniformType::_2f),
                         UniformName::new("halley_next_scale", UniformType::_2f),
                         UniformName::new("halley_next_offset", UniformType::_2f),
+                        UniformName::new("halley_previous_step", UniformType::_2f),
+                        UniformName::new("halley_next_step", UniformType::_2f),
                         UniformName::new("halley_previous_opaque", UniformType::_1f),
                         UniformName::new("halley_next_opaque", UniformType::_1f),
                         UniformName::new("halley_native_reveal", UniformType::_1f),
                         UniformName::new("halley_rect_size", UniformType::_2f),
-                        UniformName::new("halley_next_rect_size", UniformType::_2f),
                         UniformName::new("halley_corner_radii", UniformType::_2f),
                     ],
                 )?;
@@ -272,10 +291,17 @@ impl ResizeRenderer {
             top: fit_radius(radii.top, destination),
             bottom: fit_radius(radii.bottom, destination),
         };
-        let content = interpolated_window_size(previous.window_size, next.window_size, progress);
-        let next_rect_size = (
-            destination.size.w as f32 * next.window_size.w as f32 / content.w as f32,
-            destination.size.h as f32 * next.window_size.h as f32 / content.h as f32,
+        let previous_step = minified_sample_step(
+            mapping.previous_scale,
+            mapping.input_scale,
+            mapping.draw_area,
+            previous.texture.size(),
+        );
+        let next_step = minified_sample_step(
+            mapping.next_scale,
+            mapping.input_scale,
+            mapping.draw_area,
+            next.texture.size(),
         );
         let commit = resize_commit(
             base.current_commit(),
@@ -295,11 +321,31 @@ impl ResizeRenderer {
             previous_opaque: if previous.client_opaque { 1.0 } else { 0.0 },
             next_opaque: if next.client_opaque { 1.0 } else { 0.0 },
             native_reveal: if native_reveal { 1.0 } else { 0.0 },
+            previous_step,
+            next_step,
             size: (destination.size.w as f32, destination.size.h as f32),
-            next_rect_size,
             radii,
             commit,
         })
+    }
+}
+
+/// Texture-coordinate span of one output pixel, or zero when the endpoint
+/// is shown at or above native resolution and a single tap is exact enough.
+fn minified_sample_step(
+    texture_scale: (f32, f32),
+    input_scale: (f32, f32),
+    draw_area: Rectangle<i32, Physical>,
+    texture_size: smithay::utils::Size<i32, Buffer>,
+) -> (f32, f32) {
+    let step_x = texture_scale.0 * input_scale.0 / draw_area.size.w.max(1) as f32;
+    let step_y = texture_scale.1 * input_scale.1 / draw_area.size.h.max(1) as f32;
+    let texels_x = step_x * texture_size.w.max(1) as f32;
+    let texels_y = step_y * texture_size.h.max(1) as f32;
+    if texels_x.max(texels_y) <= 1.25 {
+        (0.0, 0.0)
+    } else {
+        (step_x, step_y)
     }
 }
 
@@ -341,7 +387,6 @@ fn resize_mapping(
     previous: &ResizeWindowTexture,
     next: &ResizeWindowTexture,
     destination: Rectangle<i32, Physical>,
-    progress: f32,
 ) -> ResizeMapping {
     resize_mapping_from_metadata(
         previous.surface_geometry,
@@ -349,7 +394,6 @@ fn resize_mapping(
         next.surface_geometry,
         next.window_size,
         destination,
-        progress,
     )
 }
 
@@ -416,23 +460,19 @@ fn resize_mapping_from_metadata(
     next_surface: Rectangle<i32, Physical>,
     next_window: smithay::utils::Size<i32, Physical>,
     destination: Rectangle<i32, Physical>,
-    progress: f32,
 ) -> ResizeMapping {
     let previous_bounds = scaled_surface_bounds(previous_surface, previous_window, destination);
     let next_bounds = scaled_surface_bounds(next_surface, next_window, destination);
     let draw_area = previous_bounds.merge(next_bounds);
     let width = destination.size.w.max(1) as f32;
     let height = destination.size.h.max(1) as f32;
-    // Cluster never applies Field zoom to tiles: they are output-local native
-    // pixels, and clip-reveal uses that native dest. Field still eases zoom,
-    // so the on-screen dest can be a scaled-down cluster frame. Sample both
-    // textures in native window space (the cluster mapping), then the element
-    // is drawn at `destination` which uniformly scales that frame onto the
-    // screen. Using the zoomed dest as texel space magnified a crop of the
-    // incoming buffer — the fucked Field texture.
-    let content = interpolated_window_size(previous_window, next_window, progress);
-    let (previous_scale, previous_offset) = texture_coordinate_mapping(previous_surface, content);
-    let (next_scale, next_offset) = texture_coordinate_mapping(next_surface, content);
+    // Each client endpoint fills the same animated client rectangle. Mapping
+    // either through an interpolated buffer size leaves its smaller edge
+    // inside the window, where blending against empty space exposes a panel.
+    // Keep each endpoint's CSD margins relative to its own client geometry.
+    let (previous_scale, previous_offset) =
+        texture_coordinate_mapping(previous_surface, previous_window);
+    let (next_scale, next_offset) = texture_coordinate_mapping(next_surface, next_window);
 
     ResizeMapping {
         draw_area,
@@ -472,20 +512,6 @@ fn scaled_surface_bounds(
         (left, top).into(),
         (right.saturating_sub(left), bottom.saturating_sub(top)).into(),
     )
-}
-
-fn interpolated_window_size(
-    from: smithay::utils::Size<i32, Physical>,
-    to: smithay::utils::Size<i32, Physical>,
-    progress: f32,
-) -> smithay::utils::Size<i32, Physical> {
-    let progress = progress.clamp(0.0, 1.0);
-    let lerp = |from: i32, to: i32| {
-        (from as f32 + (to - from) as f32 * progress)
-            .round()
-            .max(1.0) as i32
-    };
-    (lerp(from.w, to.w), lerp(from.h, to.h)).into()
 }
 
 fn texture_coordinate_mapping(
@@ -616,11 +642,12 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
                 Uniform::new("halley_previous_offset", self.mapping.previous_offset),
                 Uniform::new("halley_next_scale", self.mapping.next_scale),
                 Uniform::new("halley_next_offset", self.mapping.next_offset),
+                Uniform::new("halley_previous_step", self.previous_step),
+                Uniform::new("halley_next_step", self.next_step),
                 Uniform::new("halley_previous_opaque", self.previous_opaque),
                 Uniform::new("halley_next_opaque", self.next_opaque),
                 Uniform::new("halley_native_reveal", self.native_reveal),
                 Uniform::new("halley_rect_size", self.size),
-                Uniform::new("halley_next_rect_size", self.next_rect_size),
                 Uniform::new("halley_corner_radii", (self.radii.top, self.radii.bottom)),
             ],
         );
@@ -640,16 +667,13 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        interpolated_window_size, native_resize_mapping_from_metadata, resize_commit,
-        resize_mapping_from_metadata,
-    };
+    use super::{native_resize_mapping_from_metadata, resize_commit, resize_mapping_from_metadata};
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Physical, Rectangle};
 
     #[test]
     #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1"]
-    fn shrinking_blend_rounds_the_incoming_edge_and_matches_the_settled_mask() {
+    fn shared_bounds_blend_has_no_inner_edge_and_matches_the_settled_mask() {
         use super::*;
         use smithay::backend::allocator::Fourcc;
         use smithay::backend::egl::{EGLContext, EGLDisplay, native::EGLSurfacelessDisplay};
@@ -694,34 +718,35 @@ mod tests {
                 .unwrap();
             renderer.map_texture(&mapping).unwrap().to_vec()
         };
-        let middle = resize
-            .element(
-                &mut renderer,
-                Id::new(),
-                &previous,
-                next.clone(),
-                Rectangle::from_size((120, 90).into()),
-                0.5,
-                0.9,
-                radii,
-                CommitCounter::default(),
-            )
-            .unwrap();
-        let pixels = render(&mut renderer, middle);
-        let corner = &pixels[(59 * 120 + 1) * 4..][..4];
-        let edge = &pixels[(59 * 120 + 20) * 4..][..4];
-        assert!(
-            corner[1] < 8,
-            "incoming corner must be clipped before the outer edge reaches it: {corner:?}"
-        );
-        assert!(
-            corner[0] > 90,
-            "outgoing texture must still cover that pixel: {corner:?}"
-        );
-        assert!(
-            edge[1] > 90,
-            "straight incoming edge must remain visible: {edge:?}"
-        );
+        for (outgoing, incoming) in [(&previous, next.clone()), (&next, previous.clone())] {
+            let middle = resize
+                .element(
+                    &mut renderer,
+                    Id::new(),
+                    outgoing,
+                    incoming,
+                    Rectangle::from_size((120, 90).into()),
+                    0.5,
+                    0.9,
+                    radii,
+                    CommitCounter::default(),
+                )
+                .unwrap();
+            let pixels = render(&mut renderer, middle);
+            // Both colours must contribute uniformly across the client. The
+            // former smaller endpoint ended around (80, 60), leaving a hard
+            // interior boundary and fading the rest toward the background.
+            for y in 12..78 {
+                for x in 12..108 {
+                    let pixel = &pixels[(y * 120 + x) * 4..][..4];
+                    assert!(
+                        (105..125).contains(&pixel[0]) && (105..125).contains(&pixel[1]),
+                        "uneven blend or opacity at ({x}, {y}): {pixel:?}"
+                    );
+                    assert!(pixel[2] < 8);
+                }
+            }
+        }
 
         let settled = Rectangle::from_size((80, 60).into());
         let blend = resize
@@ -757,6 +782,53 @@ mod tests {
             render(&mut renderer, reference),
             "the endpoint must apply one antialias mask, without a cleanup jump"
         );
+
+        // A one-pixel checkerboard reduced by 3x aliases to alternating black
+        // and white pixels with a single bilinear tap. Area sampling should
+        // retain its average brightness in both axes instead.
+        let mut pixels = Vec::with_capacity(240 * 180 * 4);
+        for y in 0..180 {
+            for x in 0..240 {
+                let value = if (x + y) % 2 == 0 { 0 } else { 255 };
+                pixels.extend_from_slice(&[value, value, value, 255]);
+            }
+        }
+        let checkerboard = ResizeWindowTexture {
+            texture: renderer
+                .import_memory(&pixels, Fourcc::Abgr8888, (240, 180).into(), false)
+                .unwrap(),
+            context: renderer.context_id(),
+            surface_geometry: Rectangle::from_size((240, 180).into()),
+            window_size: (240, 180).into(),
+            client_opaque: true,
+            surface_layers: Vec::new(),
+        };
+        let minified = resize
+            .element(
+                &mut renderer,
+                Id::new(),
+                &checkerboard,
+                checkerboard.clone(),
+                settled,
+                0.5,
+                1.0,
+                super::super::window_decoration::CornerRadii::all(0.0),
+                CommitCounter::default(),
+            )
+            .unwrap();
+        let pixels = render(&mut renderer, minified);
+        for y in 2..58 {
+            for x in 2..78 {
+                let pixel = &pixels[(y * 80 + x) * 4..][..4];
+                assert!(
+                    pixel[..3]
+                        .iter()
+                        .all(|channel| (105..150).contains(channel)),
+                    "minified detail must retain its average brightness: {pixel:?}"
+                );
+                assert_eq!(pixel[3], 255);
+            }
+        }
     }
 
     #[test]
@@ -794,24 +866,21 @@ mod tests {
             next_surface,
             (2560, 1440).into(),
             destination,
-            0.5,
         );
 
         assert_eq!(mapping.draw_area.loc, (-26, -22).into());
         assert_eq!(mapping.draw_area.size, (1332, 764).into());
         assert!(mapping.input_offset.0 < 0.0);
         assert!(mapping.input_offset.1 < 0.0);
-        let content_w = 996.0 + (2560.0 - 996.0) * 0.5;
-        let content_h = 664.0 + (1440.0 - 664.0) * 0.5;
-        assert!((mapping.previous_scale.0 - content_w / 1036.0).abs() < 0.01);
-        assert!((mapping.previous_scale.1 - content_h / 704.0).abs() < 0.01);
+        assert!((mapping.previous_scale.0 - 996.0 / 1036.0).abs() < 0.01);
+        assert!((mapping.previous_scale.1 - 664.0 / 704.0).abs() < 0.01);
         assert!((mapping.previous_offset.0 - 20.0 / 1036.0).abs() < f32::EPSILON);
-        assert!((mapping.next_scale.0 - content_w / 2560.0).abs() < 0.01);
+        assert_eq!(mapping.next_scale, (1.0, 1.0));
         assert_eq!(mapping.next_offset, (0.0, 0.0));
     }
 
     #[test]
-    fn endpoint_textures_remain_pixel_stable_instead_of_stretching() {
+    fn both_endpoint_clients_fill_the_animated_rectangle() {
         let previous_surface = Rectangle::new((0, 0).into(), (1000, 600).into());
         let next_surface = Rectangle::new((0, 0).into(), (2000, 1200).into());
         let midway = Rectangle::new((0, 0).into(), (1500, 900).into());
@@ -822,11 +891,10 @@ mod tests {
             next_surface,
             (2000, 1200).into(),
             midway,
-            0.5,
         );
 
-        assert_eq!(mapping.previous_scale, (1.5, 1.5));
-        assert_eq!(mapping.next_scale, (0.75, 0.75));
+        assert_eq!(mapping.previous_scale, (1.0, 1.0));
+        assert_eq!(mapping.next_scale, (1.0, 1.0));
     }
 
     #[test]
@@ -838,7 +906,6 @@ mod tests {
             surface,
             (996, 664).into(),
             Rectangle::new((100, 200).into(), (996, 664).into()),
-            0.0,
         );
         let cluster = resize_mapping_from_metadata(
             surface,
@@ -846,7 +913,6 @@ mod tests {
             surface,
             (996, 664).into(),
             Rectangle::new((500, 50).into(), (996, 664).into()),
-            0.0,
         );
 
         assert_eq!(field.input_scale, cluster.input_scale);
@@ -898,21 +964,11 @@ mod tests {
             next_surface,
             (2000, 1200).into(),
             zoomed,
-            0.0,
         );
 
-        // Native clip-reveal at the outgoing window, not the zoomed dest.
-        // next_scale 0.5 is a windowed-sized crop of the fullscreen buffer
-        // scaled down onto the 350px dest — not a 1:1 magnified 350px corner.
+        // Zoom scales the shared client rectangle, not a cropped corner of
+        // either endpoint. The whole fullscreen buffer remains represented.
         assert_eq!(mapping.previous_scale, (1.0, 1.0));
-        assert_eq!(mapping.next_scale, (0.5, 0.5));
-        assert_eq!(
-            interpolated_window_size((1000, 600).into(), (2000, 1200).into(), 0.0),
-            (1000, 600).into()
-        );
-        assert_eq!(
-            interpolated_window_size((1000, 600).into(), (2000, 1200).into(), 0.5),
-            (1500, 900).into()
-        );
+        assert_eq!(mapping.next_scale, (1.0, 1.0));
     }
 }
