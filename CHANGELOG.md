@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Reject a client connection with a server error if a required buffer-readiness
+  monitor cannot be created or registered. Keep the unfinished commit out of
+  rendering without leaving a live client permanently blocked; already-ready
+  buffers and successful implicit/explicit synchronization are unchanged.
 - Wait for GPU capture completion when a native render fence cannot be exported,
   using asynchronous readiness checks instead of reporting an unfinished frame
   as ready or blocking the compositor event loop.

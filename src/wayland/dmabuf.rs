@@ -14,14 +14,22 @@ use crate::backend::dmabuf::{DmabufCapabilities, SurfaceDmabufFeedback};
 use crate::wayland::{WaylandState, window_is_on_output};
 
 /// Keep an unfinished implicit-sync buffer out of committed renderer state.
-/// Only install a blocker when its one-shot readiness source was registered;
-/// an orphan blocker would freeze the surface permanently.
+/// Already-ready buffers need no blocker. A registration failure is a separate
+/// error: the caller must reject the commit instead of rendering an unfinished
+/// buffer or installing an orphan blocker.
 pub fn defer_until_readable(
     dmabuf: &Dmabuf,
     register: impl FnOnce(DmabufSource) -> bool,
-) -> Option<DmabufBlocker> {
-    let (blocker, source) = dmabuf.generate_blocker(calloop::Interest::READ).ok()?;
-    register(source).then_some(blocker)
+) -> std::io::Result<Option<DmabufBlocker>> {
+    let Ok((blocker, source)) = dmabuf.generate_blocker(calloop::Interest::READ) else {
+        return Ok(None);
+    };
+    if !register(source) {
+        return Err(std::io::Error::other(
+            "failed to register implicit buffer readiness source",
+        ));
+    }
+    Ok(Some(blocker))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,6 +206,7 @@ mod tests {
                 })
                 .is_ok()
         })
+        .unwrap()
         .unwrap();
         handle
             .insert_source(calloop::timer::Timer::immediate(), |_, _, state| {
@@ -232,13 +241,17 @@ mod tests {
         for writer in &mut writers {
             writer.write_all(&[1]).unwrap();
         }
-        assert!(defer_until_readable(&dmabuf, |_| panic!("already ready")).is_none());
+        assert!(
+            defer_until_readable(&dmabuf, |_| panic!("already ready"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
-    fn failed_source_registration_does_not_leave_an_orphan_blocker() {
+    fn failed_source_registration_is_an_error_instead_of_a_ready_buffer_or_orphan_blocker() {
         let (dmabuf, _writers) = pending_planes();
-        assert!(defer_until_readable(&dmabuf, |_| false).is_none());
+        assert!(defer_until_readable(&dmabuf, |_| false).is_err());
     }
 
     fn capabilities(main_device: Option<libc::dev_t>) -> DmabufCapabilities {
