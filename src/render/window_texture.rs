@@ -8,10 +8,10 @@ use smithay::backend::renderer::element::texture::TextureRenderElement;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, Id, Kind};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
-use smithay::backend::renderer::utils::draw_render_elements;
+use smithay::backend::renderer::utils::{CommitCounter, draw_render_elements};
 use smithay::backend::renderer::{Bind, Color32F, ContextId, Frame, Offscreen, Renderer, Texture};
 use smithay::desktop::Window;
-use smithay::utils::{Logical, Physical, Rectangle, Scale, Size, Transform};
+use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Size, Transform};
 use smithay::wayland::seat::WaylandFocus;
 
 #[derive(Clone, Debug)]
@@ -41,6 +41,30 @@ pub struct ResizeWindowTexture {
     /// which (for example) Firefox has resized its CSD surface but is still
     /// presenting the outgoing content surface.
     pub(crate) surface_layers: Vec<(Id, Rectangle<i32, Physical>)>,
+}
+
+/// Everything that affects the pixels or readiness metadata of a resize
+/// capture. Root damage alone misses child commits, viewport changes and
+/// subsurface removal/reordering, which can happen without a root repaint.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ResizeCaptureState {
+    window_geometry: Rectangle<i32, Logical>,
+    layers: Vec<ResizeCaptureLayer>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ResizeCaptureLayer {
+    id: Id,
+    commit: CommitCounter,
+    geometry: Rectangle<i32, Physical>,
+    src: Rectangle<f64, Buffer>,
+    transform: Transform,
+    opaque_regions: Vec<Rectangle<i32, Physical>>,
+}
+
+pub(crate) struct ResizeCapture {
+    pub(crate) state: ResizeCaptureState,
+    elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>>,
 }
 
 impl WindowTexture {
@@ -122,6 +146,16 @@ pub fn capture_for_resize(
     window: &Window,
     reusable: Option<GlesTexture>,
 ) -> Result<ResizeWindowTexture, Box<dyn Error>> {
+    prepare_resize_capture(renderer, window)?.capture(renderer, reusable)
+}
+
+/// Collect the actual rendered tree before deciding whether GPU capture is
+/// needed. In particular, destroying a subsurface does not require a commit
+/// on its parent, so commit callbacks alone cannot invalidate this cache.
+pub(crate) fn prepare_resize_capture(
+    renderer: &mut GlesRenderer,
+    window: &Window,
+) -> Result<ResizeCapture, Box<dyn Error>> {
     let surface = window
         .wl_surface()
         .ok_or("window resize snapshot has no surface")?;
@@ -144,74 +178,106 @@ pub fn capture_for_resize(
         return Err("window resize snapshot surface tree is empty".into());
     }
 
-    let surface_geometry = elements
-        .iter()
-        .map(|element| element.geometry(Scale::from(1.0)))
-        .reduce(|bounds, geometry| bounds.merge(geometry))
-        .ok_or("window resize snapshot surface tree is empty")?;
-    if surface_geometry.size.w <= 0 || surface_geometry.size.h <= 0 {
-        return Err("window resize snapshot surface tree has empty geometry".into());
-    }
-    let surface_layers = elements
-        .iter()
-        .map(|element| (element.id().clone(), element.geometry(Scale::from(1.0))))
-        .collect::<Vec<_>>();
-    let client_rect = Rectangle::<i32, Physical>::from_size(geometry.size.to_physical(1));
-    let opaque_regions = elements
-        .iter()
-        .flat_map(|element| {
-            let element_geometry = element.geometry(Scale::from(1.0));
-            element
-                .opaque_regions(Scale::from(1.0))
-                .into_iter()
-                .map(move |opaque| Rectangle::new(element_geometry.loc + opaque.loc, opaque.size))
-        })
-        .collect::<Vec<_>>();
-    let client_opaque = rectangle_is_covered(client_rect, &opaque_regions);
-    let opaque_area = opaque_regions
-        .iter()
-        .map(|region| i64::from(region.size.w.max(0)) * i64::from(region.size.h.max(0)))
-        .sum();
-    let offset = surface_geometry.loc.upscale(-1);
-    let relocated = elements
-        .iter()
-        .map(|element| RelocateRenderElement::from_element(element, offset, Relocate::Relative))
-        .collect::<Vec<_>>();
-
-    let size = surface_geometry.size;
-    let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
-    let context = renderer.context_id();
-    let mut reusable = reusable;
-    let can_reuse = reusable
-        .as_mut()
-        .is_some_and(|texture| texture.size() == buffer_size && texture.is_unique_reference());
-    let mut texture = if can_reuse {
-        reusable.expect("reusable texture checked above")
-    } else {
-        <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
-            renderer,
-            Fourcc::Abgr8888,
-            buffer_size,
-        )?
+    let state = ResizeCaptureState {
+        window_geometry: geometry,
+        layers: elements
+            .iter()
+            .map(|element| ResizeCaptureLayer {
+                id: element.id().clone(),
+                commit: element.current_commit(),
+                geometry: element.geometry(Scale::from(1.0)),
+                src: element.src(),
+                transform: element.transform(),
+                opaque_regions: element
+                    .opaque_regions(Scale::from(1.0))
+                    .into_iter()
+                    .collect(),
+            })
+            .collect(),
     };
-    let damage = Rectangle::<i32, Physical>::from_size(size);
-    {
-        let mut target = renderer.bind(&mut texture)?;
-        let mut frame = renderer.render(&mut target, size, Transform::Normal)?;
-        frame.clear(Color32F::TRANSPARENT, &[damage])?;
-        draw_render_elements(&mut frame, 1.0, &relocated, &[damage])?;
-        let _ = frame.finish()?;
-    }
+    Ok(ResizeCapture { state, elements })
+}
 
-    Ok(ResizeWindowTexture {
-        texture,
-        context,
-        surface_geometry,
-        window_size: geometry.size.to_physical(1),
-        client_opaque,
-        opaque_area,
-        surface_layers,
-    })
+impl ResizeCapture {
+    pub(crate) fn capture(
+        self,
+        renderer: &mut GlesRenderer,
+        reusable: Option<GlesTexture>,
+    ) -> Result<ResizeWindowTexture, Box<dyn Error>> {
+        let geometry = self.state.window_geometry;
+        let elements = self.elements;
+
+        let surface_geometry = elements
+            .iter()
+            .map(|element| element.geometry(Scale::from(1.0)))
+            .reduce(|bounds, geometry| bounds.merge(geometry))
+            .ok_or("window resize snapshot surface tree is empty")?;
+        if surface_geometry.size.w <= 0 || surface_geometry.size.h <= 0 {
+            return Err("window resize snapshot surface tree has empty geometry".into());
+        }
+        let surface_layers = elements
+            .iter()
+            .map(|element| (element.id().clone(), element.geometry(Scale::from(1.0))))
+            .collect::<Vec<_>>();
+        let client_rect = Rectangle::<i32, Physical>::from_size(geometry.size.to_physical(1));
+        let opaque_regions = elements
+            .iter()
+            .flat_map(|element| {
+                let element_geometry = element.geometry(Scale::from(1.0));
+                element
+                    .opaque_regions(Scale::from(1.0))
+                    .into_iter()
+                    .map(move |opaque| {
+                        Rectangle::new(element_geometry.loc + opaque.loc, opaque.size)
+                    })
+            })
+            .collect::<Vec<_>>();
+        let client_opaque = rectangle_is_covered(client_rect, &opaque_regions);
+        let opaque_area = opaque_regions
+            .iter()
+            .map(|region| i64::from(region.size.w.max(0)) * i64::from(region.size.h.max(0)))
+            .sum();
+        let offset = surface_geometry.loc.upscale(-1);
+        let relocated = elements
+            .iter()
+            .map(|element| RelocateRenderElement::from_element(element, offset, Relocate::Relative))
+            .collect::<Vec<_>>();
+
+        let size = surface_geometry.size;
+        let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
+        let context = renderer.context_id();
+        let mut reusable = reusable;
+        let can_reuse = reusable
+            .as_mut()
+            .is_some_and(|texture| texture.size() == buffer_size && texture.is_unique_reference());
+        let mut texture = if can_reuse {
+            reusable.expect("reusable texture checked above")
+        } else {
+            <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+                renderer,
+                Fourcc::Abgr8888,
+                buffer_size,
+            )?
+        };
+        let damage = Rectangle::<i32, Physical>::from_size(size);
+        {
+            let mut target = renderer.bind(&mut texture)?;
+            let mut frame = renderer.render(&mut target, size, Transform::Normal)?;
+            frame.clear(Color32F::TRANSPARENT, &[damage])?;
+            draw_render_elements(&mut frame, 1.0, &relocated, &[damage])?;
+            let _ = frame.finish()?;
+        }
+
+        Ok(ResizeWindowTexture {
+            texture,
+            context,
+            surface_geometry,
+            window_size: geometry.size.to_physical(1),
+            client_opaque,
+            opaque_area,
+            surface_layers,
+        })
+    }
 }
 
 fn rectangle_is_covered(

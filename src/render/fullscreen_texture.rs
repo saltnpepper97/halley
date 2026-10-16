@@ -13,13 +13,13 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-use super::window_texture::ResizeWindowTexture;
+use super::window_texture::{ResizeCaptureState, ResizeWindowTexture, prepare_resize_capture};
 
 #[derive(Debug)]
 struct TransitionTextures {
     id: Id,
     previous: ResizeWindowTexture,
-    /// Incoming endpoint, refreshed offscreen each animation frame. The live
+    /// Incoming endpoint, refreshed when its rendered surface tree changes. The live
     /// tree stays out of the scene; clip-reveal hides unpainted extra area of a
     /// newly-allocated buffer (the black Firefox fullscreen allocation) until
     /// later commits paint it into this snapshot.
@@ -28,6 +28,9 @@ struct TransitionTextures {
     /// owning transaction accepts the same commit. Mixed Firefox surface-tree
     /// commits never overwrite the displayed endpoint before that.
     prepared: Option<ResizeWindowTexture>,
+    /// Last attempted tree, including rejected mixed endpoints. Retrying an
+    /// identical tree cannot produce a different snapshot or readiness result.
+    last_capture: Option<ResizeCaptureState>,
     owner: TextureTransitionOwner,
     last_surface_commit: CommitCounter,
     outgoing_surface_size: Option<Size<i32, Logical>>,
@@ -219,6 +222,7 @@ impl FullscreenTextureTransitions {
                 previous,
                 next: None,
                 prepared: None,
+                last_capture: None,
                 owner,
                 last_surface_commit,
                 outgoing_surface_size,
@@ -344,7 +348,9 @@ impl FullscreenTextureTransitions {
             self.windows.remove(surface.as_ref());
             return Ok(false);
         }
-        let candidate = super::window_texture::capture_for_resize(renderer, window, None)?;
+        let capture = prepare_resize_capture(renderer, window)?;
+        let state = capture.state.clone();
+        let candidate = capture.capture(renderer, None)?;
         if !snapshot_matches_target_endpoint(&entry.previous, &candidate) {
             eventline::debug!(
                 "window transition: rejected mixed surface-tree endpoint owner={owner:?} outgoing-window={:?} candidate-window={:?} candidate-surface={:?} opaque={}",
@@ -356,6 +362,7 @@ impl FullscreenTextureTransitions {
             return Ok(false);
         }
         entry.prepared = Some(candidate);
+        entry.last_capture = Some(state);
         Ok(true)
     }
 
@@ -449,27 +456,37 @@ impl FullscreenTextureTransitions {
                 window.geometry().size,
             );
         let (next, texture_progress) = if buffer_matches {
-            let reusable = entry.prepared.take().map(|candidate| candidate.texture);
-            let candidate =
-                match super::window_texture::capture_for_resize(renderer, window, reusable) {
+            let capture = match prepare_resize_capture(renderer, window) {
+                Ok(capture) => capture,
+                Err(err) => {
+                    self.windows.remove(surface.as_ref());
+                    return Err(err);
+                }
+            };
+            if entry.last_capture.as_ref() != Some(&capture.state) {
+                let state = capture.state.clone();
+                let reusable = entry.prepared.take().map(|candidate| candidate.texture);
+                let candidate = match capture.capture(renderer, reusable) {
                     Ok(candidate) => candidate,
                     Err(err) => {
                         self.windows.remove(surface.as_ref());
                         return Err(err);
                     }
                 };
-            if snapshot_matches_target_endpoint(&entry.previous, &candidate) {
-                entry.prepared = entry.next.replace(candidate);
-                entry.capture_generation.increment();
-            } else {
-                eventline::debug!(
-                    "window transition: retained last complete endpoint owner={:?} candidate-window={:?} candidate-surface={:?} opaque={}",
-                    entry.owner,
-                    candidate.window_size,
-                    candidate.surface_geometry,
-                    candidate.client_opaque,
-                );
-                entry.prepared = Some(candidate);
+                if snapshot_matches_target_endpoint(&entry.previous, &candidate) {
+                    entry.prepared = entry.next.replace(candidate);
+                    entry.capture_generation.increment();
+                } else {
+                    eventline::debug!(
+                        "window transition: retained last complete endpoint owner={:?} candidate-window={:?} candidate-surface={:?} opaque={}",
+                        entry.owner,
+                        candidate.window_size,
+                        candidate.surface_geometry,
+                        candidate.client_opaque,
+                    );
+                    entry.prepared = Some(candidate);
+                }
+                entry.last_capture = Some(state);
             }
             let next = entry
                 .next
