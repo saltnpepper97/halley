@@ -529,6 +529,28 @@ mod tests {
     }
 
     #[test]
+    fn gpu_wait_retries_without_callbacks_and_redraws_after_deferred_submission() {
+        let mut state = state();
+        state.queue_redraw();
+        for _ in 0..16 {
+            assert!(matches!(
+                state.frame_skipped(true, false, Duration::from_secs(5)),
+                EstimatedVblankTimer::ArmAfter(_)
+            ));
+            state.timer_armed(registration_token());
+            assert_eq!(state.estimated_vblank_fired(), Ok(false));
+            assert!(state.is_redraw_queued());
+        }
+        state.frame_submitted(true);
+        assert_eq!(state.on_vblank(None), (VblankAction::Redraw, None));
+        assert!(state.is_redraw_queued());
+        // The follow-up scene can settle normally after catching up on damage.
+        state.frame_submitted(false);
+        assert_eq!(state.on_vblank(None), (VblankAction::SendCallbacks, None));
+        assert!(!state.is_redraw_queued());
+    }
+
+    #[test]
     fn redraw_queued_during_estimated_wait_takes_precedence_over_callbacks() {
         let mut state = state();
         state.queue_redraw();
