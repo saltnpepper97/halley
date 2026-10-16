@@ -168,7 +168,7 @@ fn main() -> ExitCode {
             client.request_quit()?;
             Ok(ExitCode::SUCCESS)
         }),
-        Ok(Action::Version) => with_client(|client| Ok(print::version(client.server_info()))),
+        Ok(Action::Version) => print::version(),
         Ok(Action::Help) => show(help::HELP),
         Err(err) => {
             eprintln!("halleyctl: {err}\n\n{}", help::HELP);

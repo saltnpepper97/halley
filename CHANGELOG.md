@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Make `halleyctl --version` report only its own version without connecting to
+  the compositor. Report the compositor and Halley API versions together in
+  `halley --version`.
 - Bound pending XWayland repaint coverage by the current buffer size instead
   of accumulating damage history across commits. Keep exact coverage checks,
   and release tracking storage once repaint completes or the buffer changes.
