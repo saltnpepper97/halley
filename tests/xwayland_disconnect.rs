@@ -13,8 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use halley_ipc::{ClusterRequest, ClusterTarget, NodeRequest, NodeSelector, Request, Response};
 use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat, wl_subcompositor, wl_subsurface,
-    wl_surface,
+    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat, wl_shm, wl_shm_pool,
+    wl_subcompositor, wl_subsurface, wl_surface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1 as pixel;
@@ -344,6 +344,8 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for NativeState {
 delegate_noop!(NativeState: ignore wl_compositor::WlCompositor);
 delegate_noop!(NativeState: ignore wl_subcompositor::WlSubcompositor);
 delegate_noop!(NativeState: ignore wl_subsurface::WlSubsurface);
+delegate_noop!(NativeState: ignore wl_shm::WlShm);
+delegate_noop!(NativeState: ignore wl_shm_pool::WlShmPool);
 impl Dispatch<wl_surface::WlSurface, ()> for NativeState {
     fn event(
         state: &mut Self,
@@ -1798,6 +1800,75 @@ end
     assert!(
         started.elapsed() < Duration::from_secs(11),
         "updates must be visible during the blend, before returning to live rendering"
+    );
+    assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; captures fullscreen without opaque hints"]
+fn fullscreen_blends_an_accepted_argb_buffer_without_opaque_regions() {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let mut fixture = Fixture::with_config(
+        "tiling",
+        r#"
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 4000
+    curve "linear"
+  end
+end
+"#,
+    );
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "fullscreen opaque hint",
+        "halley.fullscreen.opaque-hint",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("fullscreen opaque hint");
+    queue.roundtrip(&mut state).unwrap();
+    // The outgoing single-pixel buffer is known opaque. The incoming ARGB
+    // buffer has fully painted, opaque blue pixels but advertises no opaque
+    // region. That optional optimization must not veto the accepted endpoint.
+    let mut file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(fixture.path.join("blue-argb-pixel"))
+        .unwrap();
+    file.write_all(&0xff00_00ff_u32.to_ne_bytes()).unwrap();
+    let shm: wl_shm::WlShm =
+        state
+            .registry
+            .as_ref()
+            .unwrap()
+            .bind(state.globals["wl_shm"], 1, &queue.handle(), ());
+    let pool = shm.create_pool(file.as_fd(), 4, &queue.handle(), ());
+    let blue = pool.create_buffer(0, 1, 1, 4, wl_shm::Format::Argb8888, &queue.handle(), ());
+    pool.destroy();
+    state.buffer = Some(blue);
+    state.resize_for_configures = true;
+    state.toplevel.as_ref().unwrap().set_fullscreen(None);
+    wait_for("fullscreen configure without opaque hints", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.configured_fullscreen.then_some(())
+    });
+    queue.roundtrip(&mut state).unwrap();
+    let started = Instant::now();
+    thread::sleep(Duration::from_millis(1000));
+    wait_for("accepted ARGB endpoint blends during the animation", || {
+        let colours = capture_colour_bounds(&mut fixture);
+        (colours[0].0 > 1000).then_some(())
+    });
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "the opaque-region hint held the outgoing snapshot until the transition ended"
     );
     assert!(fixture.process.try_wait().unwrap().is_none());
 }
