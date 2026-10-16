@@ -103,9 +103,6 @@ impl ArrangeTextureTransitions {
         if !crate::render::fullscreen_texture::snapshot_matches_target_endpoint(
             &entry.previous,
             &candidate,
-        ) || !crate::render::fullscreen_texture::expanding_endpoint_is_painted(
-            &entry.previous,
-            &candidate,
         ) {
             return Ok(false);
         }
