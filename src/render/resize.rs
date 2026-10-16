@@ -667,7 +667,6 @@ mod tests {
                 surface_geometry: Rectangle::from_size(size.into()),
                 window_size: size.into(),
                 client_opaque: true,
-                opaque_area: i64::from(size.0 * size.1),
                 surface_layers: Vec::new(),
             }
         };

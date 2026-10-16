@@ -19,10 +19,9 @@ use super::window_texture::{ResizeCaptureState, ResizeWindowTexture, prepare_res
 struct TransitionTextures {
     id: Id,
     previous: ResizeWindowTexture,
-    /// Incoming endpoint, refreshed when its rendered surface tree changes. The live
-    /// tree stays out of the scene; clip-reveal hides unpainted extra area of a
-    /// newly-allocated buffer (the black Firefox fullscreen allocation) until
-    /// later commits paint it into this snapshot.
+    /// Incoming endpoint, refreshed when its rendered surface tree changes.
+    /// The owning transaction authorizes a validated endpoint before blending;
+    /// the live tree stays out of the scene for the rest of the crossfade.
     next: Option<ResizeWindowTexture>,
     /// Scratch endpoint used for validation. It becomes `next` only if the
     /// owning transaction accepts the same commit. Mixed Firefox surface-tree
@@ -492,12 +491,10 @@ impl FullscreenTextureTransitions {
                 .next
                 .clone()
                 .expect("authorized resize transition has an accepted endpoint");
-            let texture_progress = if expanding_endpoint_is_painted(&entry.previous, &next) {
-                progress
-            } else {
-                0.0
-            };
-            (next, texture_progress)
+            // Configure/buffer/tree validation already accepted this endpoint.
+            // Opaque regions describe where a client permits occlusion, not
+            // whether it has painted. A client may clear that hint at resize.
+            (next, progress)
         } else {
             (
                 ResizeWindowTexture {
@@ -506,7 +503,6 @@ impl FullscreenTextureTransitions {
                     surface_geometry: entry.previous.surface_geometry,
                     window_size: entry.previous.window_size,
                     client_opaque: entry.previous.client_opaque,
-                    opaque_area: entry.previous.opaque_area,
                     surface_layers: entry.previous.surface_layers.clone(),
                 },
                 0.0,
@@ -525,39 +521,6 @@ impl FullscreenTextureTransitions {
             entry.capture_generation,
         )?))
     }
-}
-
-pub(crate) fn expanding_endpoint_is_painted(
-    outgoing: &ResizeWindowTexture,
-    incoming: &ResizeWindowTexture,
-) -> bool {
-    incoming_paint_is_ready(
-        outgoing.window_size,
-        outgoing.opaque_area,
-        incoming.window_size,
-        incoming.client_opaque,
-        incoming.opaque_area,
-    )
-}
-
-fn incoming_paint_is_ready(
-    outgoing_size: Size<i32, Physical>,
-    outgoing_opaque_area: i64,
-    incoming_size: Size<i32, Physical>,
-    incoming_opaque: bool,
-    incoming_opaque_area: i64,
-) -> bool {
-    let expanding = incoming_size.w > outgoing_size.w || incoming_size.h > outgoing_size.h;
-    if !expanding {
-        return true;
-    }
-    // Firefox can attach a larger unpainted allocation whose opaque area is
-    // still empty. Hold the outgoing snapshot then. Clients that never
-    // advertise opaque regions (Quickshell / DMS Settings) report 0 on both
-    // ends even after they have finished painting; requiring `> 0` froze
-    // their enter blend at the windowed frame for the whole motion. Exit
-    // already skipped this hold because the destination shrinks.
-    incoming_opaque || incoming_opaque_area >= outgoing_opaque_area
 }
 
 pub(crate) fn snapshot_matches_target_endpoint(
@@ -709,41 +672,12 @@ fn transition_buffer_ready(
 mod tests {
     use super::super::window_texture::rectangles_cover_size as damage_covers_buffer;
     use super::{
-        TargetDamageCoverage, TargetReadiness, commit_has_advanced, incoming_paint_is_ready,
-        native_target_buffer_ready, native_target_candidate_ready,
-        persistent_endpoint_layers_cover_target, surface_tree_matches_target_endpoint,
-        transition_buffer_ready,
+        TargetDamageCoverage, TargetReadiness, commit_has_advanced, native_target_buffer_ready,
+        native_target_candidate_ready, persistent_endpoint_layers_cover_target,
+        surface_tree_matches_target_endpoint, transition_buffer_ready,
     };
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Buffer, Logical, Physical, Rectangle, Size};
-
-    #[test]
-    fn expanding_firefox_buffer_does_not_blend_until_it_has_paint() {
-        let windowed = Size::<i32, Physical>::from((800, 600));
-        let fullscreen = Size::<i32, Physical>::from((1920, 1080));
-        let painted = i64::from(800 * 600);
-
-        assert!(!incoming_paint_is_ready(
-            windowed, painted, fullscreen, false, 0
-        ));
-        assert!(incoming_paint_is_ready(
-            windowed, painted, fullscreen, true, painted
-        ));
-        assert!(incoming_paint_is_ready(
-            windowed, painted, fullscreen, false, painted
-        ));
-        assert!(incoming_paint_is_ready(
-            fullscreen, painted, windowed, false, 0
-        ));
-    }
-
-    #[test]
-    fn translucent_expanding_window_blends_without_opaque_regions() {
-        let windowed = Size::<i32, Physical>::from((1155, 910));
-        let maximized = Size::<i32, Physical>::from((1920, 1200));
-
-        assert!(incoming_paint_is_ready(windowed, 0, maximized, false, 0));
-    }
 
     #[test]
     fn x11_fullscreen_exit_holds_previous_texture_until_restored_buffer_arrives() {
