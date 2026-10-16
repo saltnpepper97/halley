@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Let compositor fullscreen settle when an acknowledged client keeps its
+  existing size. Bound the resize wait, retry idle clients from frame processing,
+  and retain configure-serial and complete surface-tree validation.
 - Keep the native compositor responsive while a rendered output frame needs
   GPU synchronization before scanout. Retain one frame per output and check
   completion asynchronously instead of blocking or submitting after a failed

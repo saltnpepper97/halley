@@ -594,7 +594,12 @@ fn native_target_buffer_ready(
     // client may then acknowledge the state change without attaching another
     // buffer. That is a valid endpoint, not a missing repaint. Protocol state
     // is still checked by the owning fullscreen/maximize transaction.
-    if committed_window_size.map(|size| size.to_physical(1)) == Some(outgoing_window_size)
+    // With no explicit xdg geometry, an unchanged root can itself describe
+    // the client window. Complete surface-tree validation still follows.
+    if committed_window_size
+        .or(surface_size)
+        .map(|size| size.to_physical(1))
+        == Some(outgoing_window_size)
         && surface_size.is_some()
         && surface_size == outgoing_surface_size
     {
@@ -760,6 +765,25 @@ mod tests {
         let ready = native_target_buffer_ready(false, window, root, root, root);
         assert!(ready);
         assert!(native_target_candidate_ready(false, false, ready));
+    }
+
+    #[test]
+    fn state_only_endpoint_without_explicit_xdg_geometry_can_keep_its_root() {
+        let root = Some((800, 600).into());
+        assert!(native_target_buffer_ready(
+            false,
+            (800, 600).into(),
+            root,
+            None,
+            root
+        ));
+        assert!(!native_target_buffer_ready(
+            false,
+            (800, 600).into(),
+            root,
+            None,
+            None
+        ));
     }
 
     #[test]

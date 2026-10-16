@@ -17,6 +17,16 @@ use crate::presentation::camera::{FullscreenCameraFrame, OutputCameras};
 
 use super::WaylandState;
 
+// Give clients which acknowledge before resizing a chance to attach their
+// target buffer, without pinning a valid fixed-size client indefinitely.
+const NATIVE_SIZE_WAIT: Duration = Duration::from_millis(200);
+
+#[derive(Clone, Copy, Debug)]
+struct NativePending {
+    serial: Serial,
+    size_retry_at: Option<Duration>,
+}
+
 #[derive(Clone, Debug)]
 struct WindowedPlacement {
     location: Point<i32, Logical>,
@@ -51,6 +61,7 @@ struct FullscreenWindow {
     snapshot_serials: Vec<Serial>,
     origin: FullscreenOrigin,
     native: Option<NativeFullscreenState>,
+    native_pending: Option<NativePending>,
     restore_kind: FullscreenRestoreKind,
     preserve_stack: bool,
     /// Temporarily releases output-camera/top-layer ownership while retaining
@@ -454,6 +465,7 @@ impl FullscreenManager {
                 snapshot_serials: Vec::new(),
                 origin,
                 native: Some(NativeFullscreenState::default()),
+                native_pending: None,
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
@@ -466,6 +478,7 @@ impl FullscreenManager {
         if transition_requested {
             entry.pending_motion = motion_before;
             entry.transition = None;
+            entry.native_pending = None;
         }
         entry.target_output = target.name();
         if retain_maximized {
@@ -497,6 +510,12 @@ impl FullscreenManager {
                 .flatten();
         });
         let configure_serial = send_required_configure(toplevel);
+        if transition_requested || entry.native_pending.is_some() {
+            entry.native_pending = configure_serial.map(|serial| NativePending {
+                serial,
+                size_retry_at: None,
+            });
+        }
         if let Some(serial) = configure_serial
             && animations_enabled(&self.animations)
             && transition_requested
@@ -599,6 +618,7 @@ impl FullscreenManager {
                 if transition_requested {
                     entry.pending_motion = motion_before;
                     entry.transition = None;
+                    entry.native_pending = None;
                 }
                 if let Some(window) = find_window(wayland, toplevel.wl_surface()) {
                     entry.fullscreen_size = window.geometry().size;
@@ -626,11 +646,16 @@ impl FullscreenManager {
             super::decoration::apply_tiled_hint(state);
         });
         if let Some(serial) = send_required_configure(toplevel)
-            && animations_enabled(&self.animations)
             && transition_requested
             && let Some(entry) = self.windows.get_mut(toplevel.wl_surface())
         {
-            entry.snapshot_serials.push(serial);
+            entry.native_pending = Some(NativePending {
+                serial,
+                size_retry_at: None,
+            });
+            if animations_enabled(&self.animations) {
+                entry.snapshot_serials.push(serial);
+            }
         }
     }
 
@@ -701,6 +726,7 @@ impl FullscreenManager {
                 snapshot_serials: Vec::new(),
                 origin,
                 native: None,
+                native_pending: None,
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
@@ -821,6 +847,7 @@ impl FullscreenManager {
                 snapshot_serials: Vec::new(),
                 origin,
                 native: None,
+                native_pending: None,
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
@@ -1035,14 +1062,14 @@ impl FullscreenManager {
         if commit_action == FullscreenCommitAction::Ignore {
             return false;
         }
-        if matches!(commit_action, FullscreenCommitAction::Visual(_)) && !target_repaint_ready {
-            return false;
-        }
-        if commit_action == FullscreenCommitAction::Visual(visual_desired)
-            && entry.origin == FullscreenOrigin::Compositor
-            && !native_visual_buffer_matches(entry, buffer_size, visual_desired)
-        {
-            return false;
+        if matches!(commit_action, FullscreenCommitAction::Visual(_)) {
+            let serial = toplevel.with_cached_state(|state| {
+                state.last_acked.as_ref().map(|configure| configure.serial)
+            });
+            let entry = self.windows.get_mut(surface).expect("entry checked above");
+            if !native_visual_commit_ready(entry, serial, buffer_size, target_repaint_ready, now) {
+                return false;
+            }
         }
         if let Some(native) = self
             .windows
@@ -1250,9 +1277,12 @@ impl FullscreenManager {
         self.windows.iter().any(|(surface, entry)| {
             matches(surface)
                 && entry.target_output == output.name()
-                && entry
-                    .transition
-                    .is_some_and(|transition| !transition.is_finished_at(now))
+                && (entry
+                    .native_pending
+                    .is_some_and(|pending| pending.size_retry_at.is_some())
+                    || entry
+                        .transition
+                        .is_some_and(|transition| !transition.is_finished_at(now)))
         })
     }
 
@@ -1538,13 +1568,44 @@ impl FullscreenManager {
                     state.bounds = Some(geometry.size);
                     super::decoration::clear_tiled_hint(state);
                 });
-                toplevel.send_configure();
+                let serial = toplevel.send_configure();
+                if entry.native_pending.is_some() {
+                    entry.native_pending = Some(NativePending {
+                        serial,
+                        size_retry_at: None,
+                    });
+                }
             } else {
                 entry.fullscreen_size = geometry.size;
                 external.push((window.clone(), geometry));
             }
         }
         external
+    }
+
+    /// Retry an already acknowledged, valid endpoint without requiring the
+    /// client to produce another commit just to release the size heuristic.
+    pub(crate) fn native_size_retries_due(&self, now: Duration) -> Vec<WlSurface> {
+        self.windows
+            .iter()
+            .filter_map(|(surface, entry)| {
+                entry
+                    .native_pending
+                    .and_then(|pending| pending.size_retry_at)
+                    .filter(|deadline| now >= *deadline)
+                    .map(|_| surface.clone())
+            })
+            .collect()
+    }
+
+    pub(crate) fn defer_native_size_retry_until_commit(&mut self, surface: &WlSurface) {
+        if let Some(pending) = self
+            .windows
+            .get_mut(surface)
+            .and_then(|entry| entry.native_pending.as_mut())
+        {
+            pending.size_retry_at = None;
+        }
     }
 
     pub fn cleanup(&mut self, now: Duration) -> FullscreenCleanup {
@@ -1817,6 +1878,41 @@ fn may_adopt_client_size(entry: &FullscreenWindow, now: Duration) -> bool {
     entry
         .transition
         .is_none_or(|transition| transition.is_finished_at(now))
+}
+
+fn native_visual_commit_ready(
+    entry: &mut FullscreenWindow,
+    serial: Option<Serial>,
+    buffer_size: Option<Size<i32, Logical>>,
+    target_repaint_ready: bool,
+    now: Duration,
+) -> bool {
+    if !target_repaint_ready || buffer_size.is_none() {
+        return false;
+    }
+    if let Some(pending) = entry.native_pending
+        && serial.is_none_or(|serial| !serial.is_no_older_than(&pending.serial))
+    {
+        return false;
+    }
+    if entry.origin != FullscreenOrigin::Compositor
+        || native_visual_buffer_matches(entry, buffer_size, entry.desired)
+    {
+        return true;
+    }
+    let Some(pending) = entry.native_pending.as_mut() else {
+        return false;
+    };
+    let deadline = *pending.size_retry_at.get_or_insert(now + NATIVE_SIZE_WAIT);
+    if now < deadline {
+        return false;
+    }
+    if entry.desired {
+        // This acknowledged endpoint stayed smaller than requested. Center it
+        // at its chosen size instead of stretching it to the configured size.
+        entry.fullscreen_size = buffer_size.expect("attached endpoint checked above");
+    }
+    true
 }
 
 fn native_visual_buffer_matches(
@@ -2182,6 +2278,7 @@ fn settle_visual_commit(
         retarget_visual(entry, animations, now, desired);
     }
     entry.active = desired;
+    entry.native_pending = None;
 }
 
 fn send_required_configure(toplevel: &ToplevelSurface) -> Option<Serial> {
@@ -2266,6 +2363,7 @@ mod tests {
             external_pending: None,
             snapshot_serials: Vec::new(),
             origin: FullscreenOrigin::Client,
+            native_pending: None,
             native: Some(NativeFullscreenState {
                 client_requested: active,
                 compositor_requested: false,
@@ -2748,6 +2846,158 @@ mod tests {
             Some(exiting.restore.as_ref().unwrap().geometry.size),
             false,
         ));
+    }
+
+    fn pending_compositor_entry() -> FullscreenWindow {
+        let mut entry = test_entry(false);
+        entry.desired = true;
+        entry.origin = FullscreenOrigin::Compositor;
+        entry.restore = Some(WindowedPlacement {
+            location: (400, 240).into(),
+            geometry: Rectangle::new((400, 240).into(), (800, 600).into()),
+            output: Some("DP-1".into()),
+        });
+        entry.native_pending = Some(NativePending {
+            serial: Serial::from(20),
+            size_retry_at: None,
+        });
+        entry
+    }
+
+    #[test]
+    fn constrained_native_client_settles_after_a_bounded_size_wait() {
+        let mut entry = pending_compositor_entry();
+        let started = Duration::from_secs(1);
+        let size = Some((800, 600).into());
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            size,
+            true,
+            started
+        ));
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            size,
+            true,
+            started + NATIVE_SIZE_WAIT - Duration::from_nanos(1),
+        ));
+        assert!(native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            size,
+            true,
+            started + NATIVE_SIZE_WAIT,
+        ));
+        assert_eq!(
+            entry.fullscreen_size,
+            size.unwrap(),
+            "letterbox the client's chosen size"
+        );
+        settle_visual_commit(
+            &mut entry,
+            &Animations::default(),
+            started + NATIVE_SIZE_WAIT,
+            true,
+        );
+        assert!(entry.active);
+        assert!(entry.native_pending.is_none());
+    }
+
+    #[test]
+    fn stale_configures_and_unpainted_or_missing_buffers_never_arm_the_size_fallback() {
+        let mut entry = pending_compositor_entry();
+        for (serial, size, ready) in [
+            (None, Some((800, 600).into()), true),
+            (Some(19.into()), Some((800, 600).into()), true),
+            (Some(20.into()), Some((800, 600).into()), false),
+            (Some(20.into()), None, true),
+        ] {
+            assert!(!native_visual_commit_ready(
+                &mut entry,
+                serial,
+                size,
+                ready,
+                Duration::from_secs(99)
+            ));
+            assert!(entry.native_pending.unwrap().size_retry_at.is_none());
+        }
+    }
+
+    #[test]
+    fn resized_native_endpoint_does_not_wait_and_late_invalid_trees_still_fail() {
+        let mut entry = pending_compositor_entry();
+        let size = Some(entry.fullscreen_size);
+        assert!(native_visual_commit_ready(
+            &mut entry,
+            Some(21.into()),
+            size,
+            true,
+            Duration::ZERO
+        ));
+        assert!(entry.native_pending.unwrap().size_retry_at.is_none());
+
+        let old_size = Some((800, 600).into());
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            old_size,
+            true,
+            Duration::ZERO
+        ));
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            old_size,
+            false,
+            NATIVE_SIZE_WAIT
+        ));
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(19.into()),
+            old_size,
+            true,
+            NATIVE_SIZE_WAIT
+        ));
+        assert!(native_visual_commit_ready(
+            &mut entry,
+            Some(21.into()),
+            old_size,
+            true,
+            NATIVE_SIZE_WAIT
+        ));
+    }
+
+    #[test]
+    fn unchanged_native_exit_can_release_its_camera_ownership() {
+        let mut entry = pending_compositor_entry();
+        entry.desired = false;
+        entry.active = true;
+        entry.presented = true;
+        entry.pending_motion = (1.0, 0.0);
+        let size = Some(entry.fullscreen_size);
+        assert!(!native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            size,
+            true,
+            Duration::ZERO
+        ));
+        assert!(native_visual_commit_ready(
+            &mut entry,
+            Some(20.into()),
+            size,
+            true,
+            NATIVE_SIZE_WAIT
+        ));
+        let mut animations = Animations::default();
+        animations.enabled = false;
+        settle_visual_commit(&mut entry, &animations, NATIVE_SIZE_WAIT, false);
+        assert!(!entry.active);
+        assert!(!entry.presented);
+        assert!(entry.native_pending.is_none());
+        assert!(!entry_owns_presentation(&entry));
     }
 
     #[test]
