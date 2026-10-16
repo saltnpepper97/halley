@@ -1,7 +1,6 @@
 use std::time::Instant;
 
-use calloop::generic::Generic;
-use calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction};
+use calloop::{EventLoop, LoopHandle};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{self as smithay_winit, WinitEvent};
 use smithay::input::{Seat, SeatState};
@@ -89,23 +88,7 @@ impl super::RenderDriver for WinitDriver {
         sync: smithay::backend::renderer::sync::SyncPoint,
         completion: Box<dyn FnOnce() + 'static>,
     ) -> Result<(), String> {
-        let Some(fence) = sync.export() else {
-            completion();
-            return Ok(());
-        };
-        let mut completion = Some(completion);
-        self.loop_handle
-            .insert_source(
-                Generic::new(fence, Interest::READ, Mode::OneShot),
-                move |_, _, _| {
-                    if let Some(completion) = completion.take() {
-                        completion();
-                    }
-                    Ok(PostAction::Remove)
-                },
-            )
-            .map(|_| ())
-            .map_err(|err| format!("failed to watch render fence: {err}"))
+        super::render_completion::schedule(&self.loop_handle, sync, completion)
     }
 }
 

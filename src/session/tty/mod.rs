@@ -5,9 +5,8 @@ mod frame;
 mod sleep;
 mod vt;
 
-use calloop::generic::Generic;
 use calloop::timer::{TimeoutAction, Timer};
-use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
+use calloop::{EventLoop, LoopHandle, LoopSignal};
 use smithay::backend::drm::{DrmEvent, DrmEventMetadata, DrmEventTime};
 use smithay::backend::input::KeyboardKeyEvent;
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
@@ -139,23 +138,7 @@ impl super::RenderDriver for TtyDriver {
         sync: smithay::backend::renderer::sync::SyncPoint,
         completion: Box<dyn FnOnce() + 'static>,
     ) -> Result<(), String> {
-        let Some(fence) = sync.export() else {
-            completion();
-            return Ok(());
-        };
-        let mut completion = Some(completion);
-        self.loop_handle
-            .insert_source(
-                Generic::new(fence, Interest::READ, Mode::OneShot),
-                move |_, _, _| {
-                    if let Some(completion) = completion.take() {
-                        completion();
-                    }
-                    Ok(PostAction::Remove)
-                },
-            )
-            .map(|_| ())
-            .map_err(|err| format!("failed to watch render fence: {err}"))
+        super::render_completion::schedule(&self.loop_handle, sync, completion)
     }
 
     fn register_drm_syncobj_source(&mut self, client: Client, source: DrmSyncPointSource) -> bool {
