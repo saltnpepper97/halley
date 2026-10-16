@@ -40,7 +40,11 @@ struct TransitionTextures {
 #[derive(Debug, Default)]
 struct TargetDamageCoverage {
     size: Option<Size<i32, Buffer>>,
-    damage: Vec<Rectangle<i32, Buffer>>,
+    // One bit per pixel bounds storage by the current buffer, not commit
+    // history. Most clients repaint the whole buffer and need no bitmap.
+    painted: Vec<u64>,
+    painted_pixels: usize,
+    allocation_failed: bool,
 }
 
 /// Repaint evidence is not transaction authority.
@@ -73,14 +77,72 @@ impl TargetDamageCoverage {
         damage: &[Rectangle<i32, Buffer>],
     ) -> bool {
         if self.size != size {
-            self.size = size;
-            self.damage.clear();
+            *self = Self {
+                size,
+                ..Self::default()
+            };
         }
         let Some(size) = size.filter(|size| size.w > 0 && size.h > 0) else {
             return false;
         };
-        self.damage.extend_from_slice(damage);
-        damage_covers_buffer(size, &self.damage)
+        let (width, height) = (size.w as usize, size.h as usize);
+        let word_bits = u64::BITS as usize;
+        let Some(total) = width.checked_mul(height) else {
+            return false;
+        };
+        if self.painted_pixels == total {
+            return true;
+        }
+        let clipped = damage.iter().filter_map(|rect| {
+            let x1 = rect.loc.x.clamp(0, size.w) as usize;
+            let y1 = rect.loc.y.clamp(0, size.h) as usize;
+            let x2 = rect.loc.x.saturating_add(rect.size.w).clamp(0, size.w) as usize;
+            let y2 = rect.loc.y.saturating_add(rect.size.h).clamp(0, size.h) as usize;
+            (x2 > x1 && y2 > y1).then_some((x1, y1, x2, y2))
+        });
+        if clipped.clone().any(|rect| rect == (0, 0, width, height)) {
+            self.painted_pixels = total;
+            self.painted = Vec::new();
+            return true;
+        }
+        if self.allocation_failed {
+            return false;
+        }
+        for (x1, y1, x2, y2) in clipped {
+            if self.painted.is_empty() {
+                let words = total.div_ceil(word_bits);
+                if self.painted.try_reserve_exact(words).is_err() {
+                    // Do not mistake missing coverage evidence for a repaint.
+                    // A subsequent full-buffer damage can still complete it.
+                    self.allocation_failed = true;
+                    return false;
+                }
+                self.painted.resize(words, 0);
+            }
+            for y in y1..y2 {
+                let start = y * width + x1;
+                let end = y * width + x2;
+                let first = start / word_bits;
+                let last = (end - 1) / word_bits;
+                for word in first..=last {
+                    let lo = if word == first { start % word_bits } else { 0 };
+                    let hi = if word == last {
+                        (end - 1) % word_bits + 1
+                    } else {
+                        word_bits
+                    };
+                    let mask = (u64::MAX << lo) & (u64::MAX >> (word_bits - hi));
+                    let fresh = mask & !self.painted[word];
+                    self.painted_pixels += fresh.count_ones() as usize;
+                    self.painted[word] |= mask;
+                }
+            }
+            if self.painted_pixels == total {
+                self.painted = Vec::new();
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -618,10 +680,6 @@ fn native_target_candidate_ready(
     endpoint_ready || (!root_commit_advanced && previous_candidate)
 }
 
-fn damage_covers_buffer(size: Size<i32, Buffer>, damage: &[Rectangle<i32, Buffer>]) -> bool {
-    super::window_texture::rectangles_cover_size(size, damage)
-}
-
 fn transition_buffer_ready(
     hold_previous: bool,
     buffer_size: Option<Size<i32, Logical>>,
@@ -632,9 +690,10 @@ fn transition_buffer_ready(
 
 #[cfg(test)]
 mod tests {
+    use super::super::window_texture::rectangles_cover_size as damage_covers_buffer;
     use super::{
-        TargetDamageCoverage, TargetReadiness, commit_has_advanced, damage_covers_buffer,
-        incoming_paint_is_ready, native_target_buffer_ready, native_target_candidate_ready,
+        TargetDamageCoverage, TargetReadiness, commit_has_advanced, incoming_paint_is_ready,
+        native_target_buffer_ready, native_target_candidate_ready,
         persistent_endpoint_layers_cover_target, surface_tree_matches_target_endpoint,
         transition_buffer_ready,
     };
@@ -1010,5 +1069,121 @@ mod tests {
             Some((200, 160).into()),
             &[Rectangle::new((0, 0).into(), (100, 80).into())]
         ));
+    }
+
+    #[test]
+    fn repeated_partial_damage_has_constant_storage_and_never_fills_a_hole() {
+        let target = (513, 7).into();
+        let mut coverage = TargetDamageCoverage::default();
+        let strips = [
+            Rectangle::new((0, 0).into(), (256, 7).into()),
+            Rectangle::new((257, 0).into(), (256, 7).into()),
+        ];
+        for _ in 0..10_000 {
+            assert!(!coverage.observe(Some(target), &strips));
+            assert_eq!(coverage.painted.len(), (513_usize * 7).div_ceil(64));
+            assert_eq!(coverage.painted_pixels, 512 * 7);
+        }
+        assert!(coverage.observe(
+            Some(target),
+            &[Rectangle::new((256, 0).into(), (1, 7).into())]
+        ));
+        assert!(
+            coverage.painted.is_empty(),
+            "completed tracking must release storage"
+        );
+        assert_eq!(coverage.painted.capacity(), 0);
+        assert!(coverage.observe(Some(target), &[]));
+    }
+
+    #[test]
+    fn clipped_overlapping_damage_matches_an_independent_pixel_oracle() {
+        const W: usize = 73;
+        const H: usize = 9;
+        let size = Some((W as i32, H as i32).into());
+        let mut coverage = TargetDamageCoverage::default();
+        let mut painted = [false; W * H];
+        let mut random = 17_u32;
+        for _ in 0..500 {
+            let mut next = || {
+                random = random.wrapping_mul(1664525).wrapping_add(1013904223);
+                random
+            };
+            let x = (next() % 100) as i32 - 15;
+            let y = (next() % 20) as i32 - 5;
+            let w = (next() % 25) as i32;
+            let h = (next() % 8) as i32;
+            for row in 0..H {
+                for col in 0..W {
+                    painted[row * W + col] |= col as i32 >= x
+                        && (col as i32) < x + w
+                        && row as i32 >= y
+                        && (row as i32) < y + h;
+                }
+            }
+            assert_eq!(
+                coverage.observe(size, &[Rectangle::new((x, y).into(), (w, h).into())]),
+                painted.iter().all(|pixel| *pixel)
+            );
+            assert_eq!(
+                coverage.painted_pixels,
+                painted.iter().filter(|pixel| **pixel).count()
+            );
+        }
+        // Fill remaining holes individually, exercising the bitmap completion
+        // path rather than the full-buffer fast path.
+        for index in 0..painted.len() {
+            if !painted[index] {
+                painted[index] = true;
+                assert_eq!(
+                    coverage.observe(
+                        size,
+                        &[Rectangle::new(
+                            ((index % W) as i32, (index / W) as i32).into(),
+                            (1, 1).into(),
+                        )]
+                    ),
+                    painted.iter().all(|pixel| *pixel)
+                );
+            }
+        }
+        assert!(coverage.observe(size, &[]));
+        assert_eq!(coverage.painted.capacity(), 0);
+    }
+
+    #[test]
+    fn full_repaint_needs_no_bitmap_and_size_changes_release_old_evidence() {
+        let mut coverage = TargetDamageCoverage::default();
+        let size = (100, 80).into();
+        assert!(coverage.observe(Some(size), &[Rectangle::from_size(size)]));
+        assert!(coverage.painted.is_empty());
+        assert!(coverage.observe(Some(size), &[]));
+
+        assert!(!coverage.observe(Some((200, 160).into()), &[Rectangle::from_size(size)]));
+        assert!(!coverage.painted.is_empty());
+        for invalid in [None, Some((0, 80).into()), Some((80, 0).into())] {
+            assert!(!coverage.observe(invalid, &[]));
+            assert!(coverage.painted.is_empty());
+            assert_eq!(coverage.painted.capacity(), 0);
+            assert_eq!(coverage.painted_pixels, 0);
+        }
+    }
+
+    #[test]
+    fn unallocatable_coverage_fails_closed_but_can_accept_a_later_full_repaint() {
+        // This exceeds the address space; no huge allocation is populated.
+        if usize::BITS < 64 {
+            return;
+        }
+        let mut coverage = TargetDamageCoverage::default();
+        let size = (i32::MAX, i32::MAX).into();
+        assert!(!coverage.observe(Some(size), &[Rectangle::from_size((1, 1).into())]));
+        assert!(coverage.allocation_failed);
+        assert!(coverage.painted.is_empty());
+        assert!(!coverage.observe(Some(size), &[Rectangle::from_size((2, 2).into())]));
+        assert!(coverage.observe(Some(size), &[Rectangle::from_size(size)]));
+        assert!(coverage.painted.is_empty());
+        assert!(coverage.observe(Some((8, 8).into()), &[Rectangle::from_size((8, 8).into())]));
+        assert!(!coverage.allocation_failed);
     }
 }

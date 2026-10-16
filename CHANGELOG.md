@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Bound pending XWayland repaint coverage by the current buffer size instead
+  of accumulating damage history across commits. Keep exact coverage checks,
+  and release tracking storage once repaint completes or the buffer changes.
 - Release cached XWayland fullscreen transition textures when pointer confinement
   forces the presentation to finish, including when its output is unavailable.
 - Move fullscreen transactions and their saved windowed placements to an enabled
