@@ -132,8 +132,10 @@ void main() {
     vec4 color;
     if (halley_native_reveal > 0.5) {
         // Both endpoints were edge-extended above, so every pixel is covered
-        // by both and never fades into empty space.
-        color = mix(previous, next, halley_progress);
+        // by both and never fades into empty space. Progress already follows
+        // the eased motion; pass through the reflowed double image while the
+        // frame moves fastest instead of lingering on it.
+        color = mix(previous, next, smoothstep(0.2, 0.8, halley_progress));
     } else {
         // Both endpoints are stretched over the same rectangle, so a long
         // linear mix shows two differently scaled images at once. Hold each

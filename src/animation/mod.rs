@@ -249,10 +249,12 @@ impl RectTransition {
         }
     }
 
-    fn linear_completion_at(self, now: Duration) -> f64 {
+    /// Fraction of the distance every axis has actually travelled, following
+    /// the configured curve rather than wall-clock time.
+    fn completion_at(self, now: Duration) -> f64 {
         [self.x, self.y, self.width, self.height]
             .into_iter()
-            .map(|timeline| timeline.linear_progress_at(now))
+            .map(|timeline| timeline.completion_at(now))
             .fold(1.0, f64::min)
     }
 
@@ -353,8 +355,10 @@ impl ArrangeTimeline {
         self.geometry.velocity_at(now)
     }
 
+    /// Eased so texture blends advance with the visible motion; a linear
+    /// clock changed the content before the frame had visibly moved.
     fn completion_at(self, now: Duration) -> f64 {
-        self.geometry.linear_completion_at(now)
+        self.geometry.completion_at(now)
     }
 
     fn is_finished_at(self, now: Duration) -> bool {
@@ -961,6 +965,30 @@ mod tests {
         );
         assert_eq!(timeline.rect_at(Duration::from_millis(300)), target);
         assert!(timeline.is_finished_at(Duration::from_millis(300)));
+    }
+
+    #[test]
+    fn arrange_completion_follows_the_eased_motion() {
+        let motion = AnimationMotion::Easing(EasingMotion {
+            duration_ms: 400,
+            curve: AnimationCurve::EaseInOutCubic,
+        });
+        let start = Rectangle::new((0, 0).into(), (800, 600).into());
+        let target = Rectangle::new((0, 0).into(), (1200, 900).into());
+        let zero = VisualRect {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+        };
+        let timeline = ArrangeTimeline::between(motion, Duration::ZERO, start, target, zero);
+
+        // A quarter of the time moves the frame only 1/16 of the way, so the
+        // texture blend must not already be a quarter done.
+        let quarter = timeline.completion_at(Duration::from_millis(100));
+        assert!((quarter - 0.0625).abs() < 1e-9, "{quarter}");
+        assert_eq!(timeline.completion_at(Duration::from_millis(200)), 0.5);
+        assert_eq!(timeline.completion_at(Duration::from_millis(400)), 1.0);
     }
 
     #[test]
