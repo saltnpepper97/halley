@@ -222,6 +222,12 @@ pub struct FullscreenManager {
     windows: HashMap<WlSurface, FullscreenWindow>,
 }
 
+#[derive(Default)]
+pub(crate) struct OutputReassignment {
+    pub retired_snapshots: Vec<WlSurface>,
+    pub external_configures: Vec<(Window, Rectangle<i32, Logical>)>,
+}
+
 impl FullscreenManager {
     pub fn new(animations: Animations) -> Self {
         Self {
@@ -1540,6 +1546,85 @@ impl FullscreenManager {
                 .is_none_or(|entry| entry.desired != fullscreen)
     }
 
+    /// The old output and its output-local animation endpoints are gone.
+    /// Keep protocol ownership, but move the transaction and its restore
+    /// placement together before accepting any more client commits.
+    pub(crate) fn reassign_disabled_output(
+        &mut self,
+        wayland: &mut WaylandState,
+        cameras: &OutputCameras,
+        disabled: &str,
+        fallback: &Output,
+    ) -> OutputReassignment {
+        let mut result = OutputReassignment::default();
+        let Some(target) = wayland.space.output_geometry(fallback) else {
+            return result;
+        };
+        let fallback_name = fallback.name();
+        let mut occupied = self.windows.values().any(|entry| {
+            entry_owns_output_presentation(entry) && entry_occupies_output(entry, &fallback_name)
+        });
+        for (surface, entry) in &mut self.windows {
+            if entry.target_output != disabled {
+                continue;
+            }
+            let Some(window) = find_window(wayland, surface).cloned() else {
+                continue;
+            };
+            let windowed_size = entry
+                .restore
+                .as_ref()
+                .map_or(window.geometry().size, |restore| restore.geometry.size);
+            let restore_location = crate::window::routing::centered_location_for_size(
+                wayland,
+                cameras,
+                fallback,
+                windowed_size,
+            );
+            reassign_fullscreen_entry(entry, &fallback_name, target.size, restore_location);
+            entry.presentation_paused |= occupied;
+            occupied |= entry_owns_output_presentation(entry)
+                && entry_occupies_output(entry, &fallback_name);
+            super::set_window_output(&window, fallback);
+            let geometry = if entry.desired {
+                target
+            } else {
+                entry
+                    .restore
+                    .as_ref()
+                    .map_or(Rectangle::new(restore_location, windowed_size), |restore| {
+                        restore.geometry
+                    })
+            };
+            let location = if entry.desired {
+                center_in_rect(window.geometry().size, target.loc, target.size)
+            } else {
+                restore_location
+            };
+            wayland.space.relocate_element(&window, location);
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.with_pending_state(|state| {
+                    configure_reassigned_native(entry, state, geometry.size, target.size);
+                });
+                if let Some(serial) = send_required_configure(toplevel)
+                    && entry.desired != entry.active
+                {
+                    entry.native_pending = Some(NativePending {
+                        serial,
+                        size_retry_at: None,
+                    });
+                }
+            } else {
+                // A cross-output move has no usable old animation endpoint.
+                // Supersede the old X11 geometry/buffer acknowledgement pair.
+                finish_external_transition(entry);
+                result.external_configures.push((window, geometry));
+            }
+            result.retired_snapshots.push(surface.clone());
+        }
+        result
+    }
+
     pub fn reconfigure_output(
         &mut self,
         wayland: &WaylandState,
@@ -1913,6 +1998,58 @@ fn native_visual_commit_ready(
         entry.fullscreen_size = buffer_size.expect("attached endpoint checked above");
     }
     true
+}
+
+fn reassign_fullscreen_entry(
+    entry: &mut FullscreenWindow,
+    output: &str,
+    fullscreen_size: Size<i32, Logical>,
+    restore_location: Point<i32, Logical>,
+) {
+    entry.target_output = output.to_owned();
+    entry.fullscreen_size = fullscreen_size;
+    if let Some(restore) = entry.restore.as_mut() {
+        let geometry_offset = restore.geometry.loc - restore.location;
+        restore.location = restore_location;
+        restore.geometry.loc = restore_location + geometry_offset;
+        restore.output = Some(output.to_owned());
+    }
+    entry.presentation_windowed = entry.restore.as_ref().map(|restore| restore.geometry);
+    entry.presentation_output = None;
+    entry.restore_presentation_output = None;
+    entry.transition = None;
+    entry.external_pending = None;
+    entry.native_pending = None;
+    entry.snapshot_serials.clear();
+    entry.presented = entry.active;
+    entry.pending_motion = (if entry.active { 1.0 } else { 0.0 }, 0.0);
+}
+
+fn configure_reassigned_native(
+    entry: &FullscreenWindow,
+    state: &mut ToplevelState,
+    size: Size<i32, Logical>,
+    bounds: Size<i32, Logical>,
+) {
+    let protocol_desired = entry
+        .native
+        .map_or(entry.desired, |native| native.protocol_desired);
+    apply_protocol_presentation_state_for_request(
+        state,
+        native_protocol_origin(entry),
+        protocol_desired,
+        retains_maximized_protocol(entry),
+    );
+    state.size = Some(size);
+    state.bounds = Some(bounds);
+    // The disabled wl_output must not survive in the next configure. Output
+    // assignment already selects the fallback; no client preference is needed.
+    state.fullscreen_output = None;
+    if entry.desired {
+        super::decoration::clear_tiled_hint(state);
+    } else {
+        super::decoration::apply_tiled_hint(state);
+    }
 }
 
 fn native_visual_buffer_matches(
@@ -2381,6 +2518,159 @@ mod tests {
         assert_eq!(
             center_in_rect((1280, 720).into(), (1920, 0).into(), (2560, 1440).into()),
             (2560, 360).into()
+        );
+    }
+
+    fn entry_on_disabled_output() -> FullscreenWindow {
+        let mut entry = test_entry(true);
+        entry.target_output = "disabled".into();
+        entry.restore = Some(WindowedPlacement {
+            location: (2100, 200).into(),
+            geometry: Rectangle::new((2110, 220).into(), (800, 600).into()),
+            output: Some("disabled".into()),
+        });
+        entry.presentation_output = Some(Rectangle::new((120, 80).into(), (800, 600).into()));
+        entry.restore_presentation_output = entry.presentation_output;
+        entry.snapshot_serials.push(10.into());
+        entry.native_pending = Some(NativePending {
+            serial: 10.into(),
+            size_retry_at: Some(Duration::from_secs(1)),
+        });
+        entry
+    }
+
+    #[test]
+    fn output_reassignment_moves_restore_geometry_and_retires_old_output_endpoints() {
+        let mut entry = entry_on_disabled_output();
+        entry.restore_kind = FullscreenRestoreKind::WindowedFromMaximize;
+        entry.preserve_stack = true;
+        let owners = entry.native;
+        let location = (-900, 120).into();
+        reassign_fullscreen_entry(&mut entry, "fallback", (1280, 720).into(), location);
+        assert_eq!(entry.target_output, "fallback");
+        assert_eq!(entry.fullscreen_size, (1280, 720).into());
+        let restore = entry.restore.as_ref().unwrap();
+        assert_eq!(restore.output.as_deref(), Some("fallback"));
+        assert_eq!(restore.location, location);
+        assert_eq!(
+            restore.geometry,
+            Rectangle::new((-890, 140).into(), (800, 600).into())
+        );
+        assert_eq!(entry.presentation_windowed, Some(restore.geometry));
+        assert!(entry.presentation_output.is_none());
+        assert!(entry.restore_presentation_output.is_none());
+        assert!(entry.snapshot_serials.is_empty());
+        assert!(entry.native_pending.is_none());
+        assert!(entry.transition.is_none());
+        assert_eq!(entry.native, owners);
+        assert_eq!(
+            entry.restore_kind,
+            FullscreenRestoreKind::WindowedFromMaximize
+        );
+        assert!(entry.preserve_stack);
+        assert!(entry_occupies_output(&entry, "fallback"));
+        assert!(!entry_occupies_output(&entry, "disabled"));
+    }
+
+    #[test]
+    fn reassigned_native_configure_preserves_client_and_compositor_ownership() {
+        for origin in [FullscreenOrigin::Client, FullscreenOrigin::Compositor] {
+            let mut entry = test_entry(false);
+            request_native_owner(&mut entry, origin);
+            reassign_fullscreen_entry(&mut entry, "fallback", (1280, 720).into(), (50, 80).into());
+            let mut state = ToplevelState::default();
+            state.states.set(State::Fullscreen);
+            configure_reassigned_native(&entry, &mut state, (1280, 720).into(), (1280, 720).into());
+            assert_eq!(
+                state.states.contains(State::Fullscreen),
+                origin == FullscreenOrigin::Client
+            );
+            assert_eq!(state.size, Some((1280, 720).into()));
+            assert_eq!(state.bounds, Some((1280, 720).into()));
+            assert!(state.fullscreen_output.is_none());
+        }
+    }
+
+    #[test]
+    fn pending_native_exit_keeps_its_restore_size_on_the_fallback() {
+        let mut entry = entry_on_disabled_output();
+        release_all_native_owners(&mut entry);
+        reassign_fullscreen_entry(
+            &mut entry,
+            "fallback",
+            (1280, 720).into(),
+            (-900, 120).into(),
+        );
+        assert!(!entry.desired);
+        assert!(
+            entry.active,
+            "the new restore configure still needs a matching commit"
+        );
+        let size = entry.restore.as_ref().unwrap().geometry.size;
+        let mut state = ToplevelState::default();
+        state.states.set(State::Fullscreen);
+        configure_reassigned_native(&entry, &mut state, size, (1280, 720).into());
+        assert_eq!(state.size, Some((800, 600).into()));
+        assert_eq!(state.bounds, Some((1280, 720).into()));
+        assert!(!state.states.contains(State::Fullscreen));
+        assert!(native_visual_buffer_matches(&entry, Some(size), false));
+        settle_visual_commit(&mut entry, &Animations::default(), Duration::ZERO, false);
+        assert!(!entry.active);
+    }
+
+    #[test]
+    fn reassigned_x11_transaction_can_exit_without_the_disabled_outputs_acknowledgement() {
+        let mut entry = entry_on_disabled_output();
+        entry.native = None;
+        let stale = Rectangle::new((1920, 0).into(), (1920, 1080).into());
+        entry.external_pending = Some(ExternalPending {
+            geometry: stale,
+            presentation: ExternalPresentationKind::Animated,
+            geometry_acknowledged: false,
+            surface_committed: false,
+        });
+        reassign_fullscreen_entry(
+            &mut entry,
+            "fallback",
+            (1280, 720).into(),
+            (-900, 120).into(),
+        );
+        finish_external_transition(&mut entry);
+        assert!(entry.external_pending.is_none());
+        let restore = entry.restore.as_ref().unwrap().geometry;
+        assert_eq!(
+            begin_external_restore(
+                &mut entry,
+                ExternalPresentationKind::Opening,
+                Duration::ZERO
+            ),
+            Some(ExternalTransactionRequest::Configure(restore))
+        );
+        assert_eq!(
+            acknowledge_external_geometry(
+                &mut entry,
+                stale,
+                &Animations::default(),
+                Duration::ZERO
+            ),
+            ExternalConfigureResult::Waiting
+        );
+        assert_eq!(
+            acknowledge_external_geometry(
+                &mut entry,
+                restore,
+                &Animations::default(),
+                Duration::ZERO
+            ),
+            ExternalConfigureResult::Settled {
+                fullscreen: false,
+                animated: false
+            }
+        );
+        assert!(!entry.active);
+        assert_eq!(
+            entry.restore.as_ref().unwrap().output.as_deref(),
+            Some("fallback")
         );
     }
 

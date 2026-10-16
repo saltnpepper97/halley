@@ -171,6 +171,30 @@ impl<D: SessionDriver> Session<D> {
             }
         }
 
+        // Enabled heads are all mapped now, including a fallback enabled in
+        // this same request. Fullscreen state must follow the window assignment
+        // before any later commit can resolve against the removed output.
+        let mut output_disabled = false;
+        for change in changes
+            .iter()
+            .filter(|change| change.before.enabled && !change.after.enabled)
+        {
+            output_disabled = true;
+            let reassigned = self.fullscreen.reassign_disabled_output(
+                &mut self.wayland,
+                &self.cameras,
+                &change.after.output.name(),
+                &fallback,
+            );
+            for surface in reassigned.retired_snapshots {
+                self.render.fullscreen_textures.remove(&surface);
+            }
+            crate::xwayland::reconfigure_fullscreen(reassigned.external_configures);
+        }
+        if output_disabled {
+            self.sync_fullscreen_camera(&fallback, crate::frame_clock::monotonic_now());
+            self.request_output_redraw(&fallback);
+        }
         self.wayland.space.refresh();
         crate::wayland::display_scale::refresh(&self.wayland, self.driver.primary_output());
         crate::xwayland::sync_positions(self);
