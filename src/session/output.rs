@@ -295,4 +295,25 @@ mod tests {
         config.adaptive_sync = true;
         assert!(validate_complete_configuration(&[state], &[config]).is_err());
     }
+
+    #[test]
+    fn validates_scale_for_every_head_before_accepting_a_multi_output_transaction() {
+        let (left, left_mode) = output("DP-1");
+        let (right, right_mode) = output("DP-2");
+        let states = vec![state(left, left_mode), state(right, right_mode)];
+        let mut requested = states.iter().map(configuration).collect::<Vec<_>>();
+        for scale in [0.25, 1.25, 1.5, 2.0, 10.0] {
+            requested[0].scale = scale;
+            requested[1].scale = scale;
+            assert!(validate_complete_configuration(&states, &requested).is_ok());
+        }
+        for invalid in [0.0, -1.0, 0.125, 10.5, f64::NAN, f64::INFINITY] {
+            for invalid_head in 0..2 {
+                requested[0].scale = 1.25;
+                requested[1].scale = 1.5;
+                requested[invalid_head].scale = invalid;
+                assert!(validate_complete_configuration(&states, &requested).is_err());
+            }
+        }
+    }
 }
