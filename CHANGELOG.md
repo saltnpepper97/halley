@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Accept fractional display-scale requests from output-management tools using
+  the same range and rounding as monitor configuration. Retain complete
+  transaction validation and the nested backend's host-controlled settings.
 - Fit Field arrange/restore snapshots to the animated client rectangle instead
   of extending their edge pixels, removing smeared toolbar and content bands.
   Shorten the layout crossfade to reduce overlapping text during motion, keep

@@ -33,6 +33,9 @@ use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, Win
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
+#[path = "support/output_management.rs"]
+mod output_management;
+
 struct Fixture {
     path: PathBuf,
     process: Child,
@@ -235,6 +238,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 #[derive(Default)]
 struct NativeState {
     globals: HashMap<String, u32>,
+    output_management: output_management::Observations,
     surface: Option<wl_surface::WlSurface>,
     buffer: Option<wl_buffer::WlBuffer>,
     integer_scales: Vec<i32>,
