@@ -16,6 +16,13 @@ without quotes or a percent sign. The default is `1.0`. Values from `0.25`
 through `10.0` are accepted and rounded to the Wayland fractional-scale unit
 of 1/120. The effective value appears in `halleyctl outputs`.
 
+Display tools using `wlr-output-management-unstable-v1` can test and apply the
+same scales at runtime. For example, use `wlr-randr --output eDP-1 --scale 1.5`
+with your connector name. These changes do not rewrite your config; a config
+reload or new session restores the configured scale. A rejected transaction
+leaves every output unchanged. The nested backend permits local scale changes
+but keeps the host's mode, position, transform, and enable state.
+
 A scale-only entry uses the connector's preferred native mode. To choose a
 resolution or refresh rate, supply `width` and `height` together as usual.
 These remain physical pixels; scaling does not lower the monitor's resolution.

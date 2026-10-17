@@ -675,8 +675,14 @@ impl<D: SessionDriver> Dispatch<ZwlrOutputConfigurationHeadV1, ConfigurationHead
                     );
                     return;
                 }
-                configuration.scale = scale;
-                head.unsupported |= (scale - 1.0).abs() > f64::EPSILON;
+                // Use the same range and 1/120 units as persistent output
+                // config. Positive scales outside that range fail the whole
+                // transaction rather than partially changing another head.
+                if let Some(scale) = halley_config::output::normalize_scale(scale) {
+                    configuration.scale = scale;
+                } else {
+                    head.unsupported = true;
+                }
             }
             zwlr_output_configuration_head_v1::Request::SetAdaptiveSync { state } => {
                 if head.adaptive_sync_set {

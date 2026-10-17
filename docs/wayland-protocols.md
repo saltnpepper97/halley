@@ -167,11 +167,15 @@ Halley advertises `zwlr_output_manager_v1` version 4 as a writable output
 management interface. Every request is validated as one complete, one-head-
 per-output configuration before test or apply. The TTY backend supports mode,
 position, transform, fractional scale, enable/disable, and adaptive-sync changes
-while retaining at least one enabled output. Custom modes are rejected.
+while retaining at least one enabled output. Scale requests use the same
+`0.25` through `10.0` range and 1/120 rounding as monitor configuration.
+Positive out-of-range values fail the complete transaction; zero or negative
+values are protocol errors. Custom modes are rejected.
 Display apply requests are rejected while the native session is paused;
 config-file output changes are deferred until both VT and system-sleep pauses
-have ended. The nested backend is host-controlled and accepts only configurations
-that leave its output unchanged. Successful TTY changes update `wl_output`
+have ended. The nested backend accepts local display-scale changes while its
+mode, position, transform, enable state, and adaptive sync remain host-controlled.
+Successful changes update `wl_output`
 globals, layer layout, camera/fullscreen geometry, gamma ownership, and pending
 capture ownership as one compositor transaction.
 
