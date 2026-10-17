@@ -190,3 +190,11 @@ restore geometry immediately. Arrangement accepts the same easing and spring
 motion knobs as maximize/fullscreen. Window contents, decorations, and input hit
 regions share the interpolated rectangle; a rapid toggle starts the return from
 the current intermediate presentation rather than snapping to either endpoint.
+
+During arrangement, each captured client layout fills the moving rectangle,
+including while Halley waits for the resized buffer. A brief crossfade near the
+middle switches to the resized layout; fitting both endpoints avoids repeated
+edge pixels and limits overlapping text. Contents temporarily scale with the
+rectangle, then return to the client's native rendering at the endpoint.
+Clients keep receiving frame callbacks throughout the blend so a browser can
+finish repainting its resized page before the snapshot hands back to live content.

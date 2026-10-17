@@ -504,14 +504,14 @@ impl WindowAnimations {
             .map(|timeline| timeline.visual_at(now, bounds))
     }
 
-    pub fn is_animating(&self, surface: &WlSurface, now: Duration) -> bool {
+    pub fn is_opening(&self, surface: &WlSurface, now: Duration) -> bool {
         self.opening
             .get(surface)
             .is_some_and(|timeline| !timeline.is_finished_at(now))
-            || self
-                .arranging
-                .get(surface)
-                .is_some_and(|timeline| !timeline.is_finished_at(now))
+    }
+
+    pub fn is_animating(&self, surface: &WlSurface, now: Duration) -> bool {
+        self.is_opening(surface, now) || self.is_arranging(surface, now)
     }
 
     pub fn remove(&mut self, surface: &WlSurface) {

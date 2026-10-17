@@ -29,10 +29,11 @@ struct ArrangeTexture {
 }
 
 impl ArrangeTextureTransitions {
-    pub fn awaiting_target(&self, surface: &WlSurface) -> bool {
-        self.windows
-            .get(surface)
-            .is_some_and(|entry| entry.target.is_none())
+    /// The client remains offscreen for the entire blend, including after
+    /// its first target buffer. Keep callbacks flowing so child surfaces can
+    /// finish resizing and animated content continues updating.
+    pub fn uses_snapshot(&self, surface: &WlSurface) -> bool {
+        self.windows.contains_key(surface)
     }
 
     pub fn capture(
@@ -134,12 +135,11 @@ impl ArrangeTextureTransitions {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn native_blend_element(
+    pub fn blend_element(
         &mut self,
         renderer: &mut GlesRenderer,
         surface: &WlSurface,
         destination: Rectangle<i32, Physical>,
-        display_scale: f32,
         arrange_completion: f64,
         alpha: f32,
         radii: super::window_decoration::CornerRadii,
@@ -157,18 +157,16 @@ impl ArrangeTextureTransitions {
                 next,
                 reveal_progress(arrange_completion, entry.target_ready_at_completion, true) as f32,
             ),
-            // Until the client presents its new size, hold the outgoing frame
-            // through the same native top-left mapping. Stretching it instead
-            // made the content jump in scale when the target arrived.
+            // Use the same fitted mapping while waiting for the client, so
+            // target arrival changes only the blend, not the outgoing scale.
             None => (entry.previous.clone(), 0.0),
         };
-        Ok(Some(self.resize_renderer.native_element(
+        Ok(Some(self.resize_renderer.arrange_element(
             renderer,
             entry.id.clone(),
             &entry.previous,
             next,
             destination,
-            display_scale,
             progress,
             alpha,
             radii,

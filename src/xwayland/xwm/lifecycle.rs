@@ -423,9 +423,10 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
             .settle_external_configure(&mut self.wayland, &window, geometry, now)
         {
             ExternalConfigureResult::NotPending => {
+                // Arrange also animates geometry, but must never reactivate
+                // the startup center when its configure response arrives.
                 let opening = window.wl_surface().is_some_and(|wl_surface| {
-                    self.window_animations
-                        .is_animating(wl_surface.as_ref(), now)
+                    self.window_animations.is_opening(wl_surface.as_ref(), now)
                 });
                 let client_geometry_guarded = self
                     .xwayland
