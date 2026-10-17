@@ -20,6 +20,7 @@ fn screen_position<D: SessionDriver>(
     route: &PointerRoute,
     surface: &WlSurface,
     local: Point<f64, Logical>,
+    now: std::time::Duration,
 ) -> Option<Point<f64, Logical>> {
     match &route.target {
         PointerTarget::Window(window) => {
@@ -37,7 +38,7 @@ fn screen_position<D: SessionDriver>(
                 &session.settings.font,
                 window,
                 &route.output,
-                crate::frame_clock::monotonic_now(),
+                now,
             )?;
             Some(
                 presentation.screen_from_source(
@@ -116,7 +117,8 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
         if !allowed {
             return;
         }
-        let Some(route) = super::route_client(self) else {
+        let now = crate::frame_clock::monotonic_now();
+        let Some(route) = super::route_client_at(self, self.pointer.position(), now) else {
             return;
         };
         if route.focus.as_ref().map(|(surface, _)| surface) != Some(&surface)
@@ -124,7 +126,7 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
         {
             return;
         }
-        let Some(screen) = screen_position(self, &route, &surface, local) else {
+        let Some(screen) = screen_position(self, &route, &surface, local, now) else {
             return;
         };
         if !self
@@ -137,7 +139,7 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
         }
         // Validate the destination before moving either cursor state. This
         // rejects off-output, occluded, collapsed and hidden-workspace targets.
-        let Some(destination) = super::route_client_at(self, (screen.x, screen.y)) else {
+        let Some(destination) = super::route_client_at(self, (screen.x, screen.y), now) else {
             return;
         };
         if destination.output != route.output

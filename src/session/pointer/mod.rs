@@ -128,6 +128,7 @@ fn grabbed_surface_offset(
 fn route_grabbed_client<D: SessionDriver>(
     session: &Session<D>,
     screen: Point<f64, Logical>,
+    now: std::time::Duration,
 ) -> Option<crate::input::pointer::PointerRoute> {
     use crate::input::pointer::{PointerRoute, PointerTarget};
     use smithay::desktop::layer_map_for_output;
@@ -163,7 +164,7 @@ fn route_grabbed_client<D: SessionDriver>(
             &session.settings.font,
             window,
             output,
-            crate::frame_clock::monotonic_now(),
+            now,
         )?;
         return Some(PointerRoute {
             output: output.clone(),
@@ -206,14 +207,19 @@ fn route_grabbed_client<D: SessionDriver>(
 pub(super) fn route_client<D: SessionDriver>(
     session: &Session<D>,
 ) -> Option<crate::input::pointer::PointerRoute> {
-    route_client_at(session, session.pointer.position())
+    route_client_at(
+        session,
+        session.pointer.position(),
+        crate::frame_clock::monotonic_now(),
+    )
 }
 
 fn route_client_at<D: SessionDriver>(
     session: &Session<D>,
     position: (f64, f64),
+    now: std::time::Duration,
 ) -> Option<crate::input::pointer::PointerRoute> {
-    if let Some(route) = route_grabbed_client(session, Point::from(position)) {
+    if let Some(route) = route_grabbed_client(session, Point::from(position), now) {
         return Some(route);
     }
     let mut route = crate::input::pointer::route_to_client(
@@ -229,7 +235,7 @@ fn route_client_at<D: SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
             focused: session.wayland.focused_window.as_ref(),
-            now: crate::frame_clock::monotonic_now(),
+            now,
         },
         position,
     )?;
@@ -250,7 +256,7 @@ fn route_client_at<D: SessionDriver>(
         &session.maximize,
         &route.output,
         output_geometry,
-        crate::frame_clock::monotonic_now(),
+        now,
     )
     .is_some_and(|presentation| presentation.progress > 0.0);
     if !route.is_desktop_popup

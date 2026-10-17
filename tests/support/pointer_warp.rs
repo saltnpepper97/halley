@@ -185,6 +185,14 @@ fn valid_warps_follow_field_scale_and_fullscreen_presentation() {
         queue.roundtrip(&mut state).unwrap();
         state.configured_fullscreen.then_some(())
     });
+    // The live transform must be sampled once per request, including while
+    // the fullscreen endpoints are moving. Client coordinates remain exact.
+    let center = (
+        f64::from(state.configured_size.0) * 0.5,
+        f64::from(state.configured_size.1) * 0.5,
+    );
+    request(&mut queue, &mut state, &pointer, &warp, center);
+    check_position(&state, center);
     thread::sleep(Duration::from_millis(500));
     focus(&mut fixture, &mut queue, &mut state);
     request(&mut queue, &mut state, &pointer, &warp, (90.5, 100.25));
