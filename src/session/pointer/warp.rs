@@ -103,6 +103,7 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
         {
             return;
         }
+        let active_constraint = super::has_active_constraint(self);
         let allowed = with_pointer_constraint(&surface, &pointer, |constraint| match constraint {
             Some(constraint) if constraint.is_active() => match &*constraint {
                 PointerConstraint::Locked(_) => false,
@@ -110,7 +111,7 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
                     .region()
                     .is_none_or(|region| region.contains(local.to_i32_floor())),
             },
-            _ => !super::has_active_constraint(self),
+            _ => !active_constraint,
         });
         if !allowed {
             return;
