@@ -43,9 +43,7 @@ uniform vec2 halley_previous_step;
 uniform vec2 halley_next_step;
 uniform float halley_previous_opaque;
 uniform float halley_next_opaque;
-uniform float halley_native_reveal;
-uniform vec4 halley_previous_clamp;
-uniform vec4 halley_next_clamp;
+uniform float halley_arrange;
 uniform vec2 halley_rect_size;
 uniform vec2 halley_corner_radii;
 
@@ -91,15 +89,6 @@ void main() {
         current_coords * halley_previous_scale + halley_previous_offset;
     vec2 next_coords =
         current_coords * halley_next_scale + halley_next_offset;
-    if (halley_native_reveal > 0.5) {
-        // Extend each endpoint's own window edge over the band it does not
-        // cover. Both endpoints then span the whole rectangle and blend at
-        // one uniform weight instead of meeting at a hard inner seam.
-        previous_coords = clamp(
-            previous_coords, halley_previous_clamp.xy, halley_previous_clamp.zw);
-        next_coords = clamp(
-            next_coords, halley_next_clamp.xy, halley_next_clamp.zw);
-    }
 
     bool previous_inside =
         all(greaterThanEqual(previous_coords, vec2(0.0))) &&
@@ -130,12 +119,10 @@ void main() {
     previous *= mask;
     next *= mask;
     vec4 color;
-    if (halley_native_reveal > 0.5) {
-        // Both endpoints were edge-extended above, so every pixel is covered
-        // by both and never fades into empty space. Progress already follows
-        // the eased motion; pass through the reflowed double image while the
-        // frame moves fastest instead of lingering on it.
-        color = mix(previous, next, smoothstep(0.2, 0.8, halley_progress));
+    if (halley_arrange > 0.5) {
+        // Reflowed text has different line breaks at each endpoint. Keep
+        // the double image brief, around the fastest part of the motion.
+        color = mix(previous, next, smoothstep(0.4, 0.6, halley_progress));
     } else {
         // Both endpoints are stretched over the same rectangle, so a long
         // linear mix shows two differently scaled images at once. Hold each
@@ -168,7 +155,7 @@ pub struct ResizeRenderElement {
     mapping: ResizeMapping,
     previous_opaque: f32,
     next_opaque: f32,
-    native_reveal: f32,
+    arrange: f32,
     previous_step: (f32, f32),
     next_step: (f32, f32),
     size: (f32, f32),
@@ -185,13 +172,7 @@ struct ResizeMapping {
     previous_offset: (f32, f32),
     next_scale: (f32, f32),
     next_offset: (f32, f32),
-    /// Texture-space window geometry (min x, min y, max x, max y) that a
-    /// native arrangement extends over the area its endpoint does not cover.
-    previous_clamp: (f32, f32, f32, f32),
-    next_clamp: (f32, f32, f32, f32),
 }
-
-const FULL_TEXTURE: (f32, f32, f32, f32) = (0.0, 0.0, 1.0, 1.0);
 
 impl ResizeRenderer {
     #[allow(clippy::too_many_arguments)]
@@ -224,20 +205,19 @@ impl ResizeRenderer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn native_element(
+    pub fn arrange_element(
         &mut self,
         renderer: &mut GlesRenderer,
         id: Id,
         previous: &ResizeWindowTexture,
         next: ResizeWindowTexture,
         destination: Rectangle<i32, Physical>,
-        display_scale: f32,
         progress: f32,
         alpha: f32,
         radii: super::window_decoration::CornerRadii,
         generation: CommitCounter,
     ) -> Result<ResizeRenderElement, GlesError> {
-        let mapping = native_resize_mapping(previous, &next, destination, display_scale);
+        let mapping = arrange_resize_mapping(previous, &next, destination);
         self.element_with_mapping(
             renderer,
             id,
@@ -266,7 +246,7 @@ impl ResizeRenderer {
         radii: super::window_decoration::CornerRadii,
         generation: CommitCounter,
         mapping: ResizeMapping,
-        native_reveal: bool,
+        arrange: bool,
     ) -> Result<ResizeRenderElement, GlesError> {
         let context = renderer.context_id();
         let program = match self.program.as_ref() {
@@ -287,9 +267,7 @@ impl ResizeRenderer {
                         UniformName::new("halley_next_step", UniformType::_2f),
                         UniformName::new("halley_previous_opaque", UniformType::_1f),
                         UniformName::new("halley_next_opaque", UniformType::_1f),
-                        UniformName::new("halley_native_reveal", UniformType::_1f),
-                        UniformName::new("halley_previous_clamp", UniformType::_4f),
-                        UniformName::new("halley_next_clamp", UniformType::_4f),
+                        UniformName::new("halley_arrange", UniformType::_1f),
                         UniformName::new("halley_rect_size", UniformType::_2f),
                         UniformName::new("halley_corner_radii", UniformType::_2f),
                     ],
@@ -334,7 +312,7 @@ impl ResizeRenderer {
             mapping,
             previous_opaque: if previous.client_opaque { 1.0 } else { 0.0 },
             next_opaque: if next.client_opaque { 1.0 } else { 0.0 },
-            native_reveal: if native_reveal { 1.0 } else { 0.0 },
+            arrange: if arrange { 1.0 } else { 0.0 },
             previous_step,
             next_step,
             size: (destination.size.w as f32, destination.size.h as f32),
@@ -411,50 +389,33 @@ fn resize_mapping(
     )
 }
 
-fn native_resize_mapping(
+fn arrange_resize_mapping(
     previous: &ResizeWindowTexture,
     next: &ResizeWindowTexture,
     destination: Rectangle<i32, Physical>,
-    display_scale: f32,
 ) -> ResizeMapping {
-    native_resize_mapping_from_metadata(
+    arrange_resize_mapping_from_metadata(
         previous.surface_geometry,
         previous.window_size,
         next.surface_geometry,
         next.window_size,
         destination,
-        display_scale,
     )
 }
 
-fn native_resize_mapping_from_metadata(
+fn arrange_resize_mapping_from_metadata(
     previous_surface: Rectangle<i32, Physical>,
     previous_window: smithay::utils::Size<i32, Physical>,
     next_surface: Rectangle<i32, Physical>,
     next_window: smithay::utils::Size<i32, Physical>,
     destination: Rectangle<i32, Physical>,
-    display_scale: f32,
 ) -> ResizeMapping {
-    let display_scale = display_scale.max(0.001);
-    // Clients lay out from their top-left corner, so pin each endpoint there.
-    // Centring made toolbars and sidebars drift inside the moving frame at
-    // half the edge speed while every side was cropped at once.
-    let mapping = |surface: Rectangle<i32, Physical>| {
-        let width = surface.size.w.max(1) as f32 * display_scale;
-        let height = surface.size.h.max(1) as f32 * display_scale;
-        (
-            (
-                destination.size.w as f32 / width,
-                destination.size.h as f32 / height,
-            ),
-            (
-                -(surface.loc.x as f32 * display_scale) / width,
-                -(surface.loc.y as f32 * display_scale) / height,
-            ),
-        )
-    };
-    let (previous_scale, previous_offset) = mapping(previous_surface);
-    let (next_scale, next_offset) = mapping(next_surface);
+    // Each client fills the animated rectangle. Native-size cropping and
+    // edge extension repeat toolbar/scrollbar pixels through uncovered bands.
+    // Keep CSD margins outside this rectangle and apply one shared mask.
+    let (previous_scale, previous_offset) =
+        texture_coordinate_mapping(previous_surface, previous_window);
+    let (next_scale, next_offset) = texture_coordinate_mapping(next_surface, next_window);
     ResizeMapping {
         draw_area: destination,
         input_scale: (1.0, 1.0),
@@ -463,8 +424,6 @@ fn native_resize_mapping_from_metadata(
         previous_offset,
         next_scale,
         next_offset,
-        previous_clamp: window_texture_bounds(previous_surface, previous_window),
-        next_clamp: window_texture_bounds(next_surface, next_window),
     }
 }
 
@@ -502,27 +461,7 @@ fn resize_mapping_from_metadata(
         previous_offset,
         next_scale,
         next_offset,
-        previous_clamp: FULL_TEXTURE,
-        next_clamp: FULL_TEXTURE,
     }
-}
-
-/// The window geometry inside a captured surface tree, in texture
-/// coordinates, inset by half a texel so bilinear taps never pull in a CSD
-/// shadow margin.
-fn window_texture_bounds(
-    surface: Rectangle<i32, Physical>,
-    window: smithay::utils::Size<i32, Physical>,
-) -> (f32, f32, f32, f32) {
-    let width = surface.size.w.max(1) as f32;
-    let height = surface.size.h.max(1) as f32;
-    let left = ((-surface.loc.x) as f32 + 0.5) / width;
-    let top = ((-surface.loc.y) as f32 + 0.5) / height;
-    let right = ((window.w - surface.loc.x) as f32 - 0.5) / width;
-    let bottom = ((window.h - surface.loc.y) as f32 - 0.5) / height;
-    let left = left.clamp(0.0, 1.0);
-    let top = top.clamp(0.0, 1.0);
-    (left, top, right.clamp(left, 1.0), bottom.clamp(top, 1.0))
 }
 
 fn scaled_surface_bounds(
@@ -680,9 +619,7 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
                 Uniform::new("halley_next_step", self.next_step),
                 Uniform::new("halley_previous_opaque", self.previous_opaque),
                 Uniform::new("halley_next_opaque", self.next_opaque),
-                Uniform::new("halley_native_reveal", self.native_reveal),
-                Uniform::new("halley_previous_clamp", self.mapping.previous_clamp),
-                Uniform::new("halley_next_clamp", self.mapping.next_clamp),
+                Uniform::new("halley_arrange", self.arrange),
                 Uniform::new("halley_rect_size", self.size),
                 Uniform::new("halley_corner_radii", (self.radii.top, self.radii.bottom)),
             ],
@@ -704,8 +641,7 @@ impl RenderElement<GlesRenderer> for ResizeRenderElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        native_resize_mapping_from_metadata, resize_commit, resize_mapping_from_metadata,
-        window_texture_bounds,
+        arrange_resize_mapping_from_metadata, resize_commit, resize_mapping_from_metadata,
     };
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Physical, Rectangle};
@@ -803,13 +739,12 @@ mod tests {
             .unwrap();
         let blend_pixels = render(&mut renderer, blend);
         let reference = resize
-            .native_element(
+            .arrange_element(
                 &mut renderer,
                 Id::new(),
                 &next,
                 next.clone(),
                 settled,
-                1.0,
                 1.0,
                 0.9,
                 radii,
@@ -868,46 +803,93 @@ mod tests {
                 assert_eq!(pixel[3], 255);
             }
         }
+
+        // Detail must span the whole animated client rather than repeat the
+        // smaller endpoint's last row/column. Check both resize directions
+        // and verify that only the middle of the gesture blends layouts.
+        let gradient = |renderer: &mut GlesRenderer, size: (i32, i32), blue: bool| {
+            let mut pixels = Vec::new();
+            for y in 0..size.1 {
+                for x in 0..size.0 {
+                    let horizontal = ((x as f32 + 0.5) * 255.0 / size.0 as f32) as u8;
+                    let vertical = ((y as f32 + 0.5) * 255.0 / size.1 as f32) as u8;
+                    let pixel = if blue {
+                        [0, vertical, horizontal, 255]
+                    } else {
+                        [horizontal, vertical, 0, 255]
+                    };
+                    pixels.extend_from_slice(&pixel);
+                }
+            }
+            ResizeWindowTexture {
+                texture: renderer
+                    .import_memory(&pixels, Fourcc::Abgr8888, size.into(), false)
+                    .unwrap(),
+                context: renderer.context_id(),
+                surface_geometry: Rectangle::from_size(size.into()),
+                window_size: size.into(),
+                client_opaque: true,
+                surface_layers: Vec::new(),
+            }
+        };
+        let wide = gradient(&mut renderer, (160, 120), false);
+        let small = gradient(&mut renderer, (80, 60), true);
+        for (outgoing, incoming, reversed) in [(&wide, &small, false), (&small, &wide, true)] {
+            for (progress, weight) in [(0.35, 0.0), (0.5, 0.5), (0.65, 1.0)] {
+                let element = resize
+                    .arrange_element(
+                        &mut renderer,
+                        Id::new(),
+                        outgoing,
+                        incoming.clone(),
+                        Rectangle::from_size((120, 90).into()),
+                        progress,
+                        1.0,
+                        crate::render::window_decoration::CornerRadii::default(),
+                        CommitCounter::default(),
+                    )
+                    .unwrap();
+                let pixels = render(&mut renderer, element);
+                let blue_weight = if reversed { 1.0 - weight } else { weight };
+                for y in [12, 45, 77] {
+                    for x in [12, 60, 107] {
+                        let horizontal = (x as f32 + 0.5) * 255.0 / 120.0;
+                        let expected = [
+                            horizontal * (1.0 - blue_weight),
+                            (y as f32 + 0.5) * 255.0 / 90.0,
+                            horizontal * blue_weight,
+                            255.0,
+                        ];
+                        let pixel = &pixels[(y * 120 + x) * 4..][..4];
+                        for (actual, expected) in pixel.iter().zip(expected) {
+                            assert!(
+                                (*actual as f32 - expected).abs() < 4.0,
+                                "arrange detail at ({x}, {y}), progress={progress}: {pixel:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
-    fn native_arrangement_pins_both_endpoints_top_left_without_scaling_them() {
+    fn arrangement_fits_both_clients_and_excludes_their_csd_margins() {
         let destination = Rectangle::new((10, 20).into(), (1000, 750).into());
-        let mapping = native_resize_mapping_from_metadata(
-            Rectangle::new((0, 0).into(), (800, 600).into()),
+        let mapping = arrange_resize_mapping_from_metadata(
+            Rectangle::new((-20, -10).into(), (840, 620).into()),
             (800, 600).into(),
             Rectangle::new((0, 0).into(), (1200, 900).into()),
             (1200, 900).into(),
             destination,
-            1.0,
         );
-
         assert_eq!(mapping.draw_area, destination);
         assert_eq!(mapping.input_scale, (1.0, 1.0));
         assert_eq!(mapping.input_offset, (0.0, 0.0));
-        assert_eq!(mapping.previous_scale, (1.25, 1.25));
-        assert_eq!(mapping.previous_offset, (0.0, 0.0));
-        assert!((mapping.next_scale.0 - (5.0 / 6.0)).abs() < f32::EPSILON);
-        assert!((mapping.next_scale.1 - (5.0 / 6.0)).abs() < f32::EPSILON);
+        assert_eq!(mapping.previous_scale, (800.0 / 840.0, 600.0 / 620.0));
+        assert_eq!(mapping.previous_offset, (20.0 / 840.0, 10.0 / 620.0));
+        assert_eq!(mapping.next_scale, (1.0, 1.0));
         assert_eq!(mapping.next_offset, (0.0, 0.0));
-    }
-
-    #[test]
-    fn native_arrangement_extends_window_edges_but_not_csd_margins() {
-        let bounds = window_texture_bounds(
-            Rectangle::new((-20, -10).into(), (840, 620).into()),
-            (800, 600).into(),
-        );
-        assert!((bounds.0 - 20.5 / 840.0).abs() < f32::EPSILON);
-        assert!((bounds.1 - 10.5 / 620.0).abs() < f32::EPSILON);
-        assert!((bounds.2 - 819.5 / 840.0).abs() < f32::EPSILON);
-        assert!((bounds.3 - 609.5 / 620.0).abs() < f32::EPSILON);
-
-        let plain = window_texture_bounds(
-            Rectangle::new((0, 0).into(), (100, 50).into()),
-            (100, 50).into(),
-        );
-        assert_eq!(plain, (0.005, 0.01, 0.995, 0.99));
     }
 
     #[test]

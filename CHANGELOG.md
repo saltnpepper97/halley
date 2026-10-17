@@ -33,6 +33,11 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Fit Field arrange/restore snapshots to the animated client rectangle instead
+  of extending their edge pixels, removing smeared toolbar and content bands.
+  Shorten the layout crossfade to reduce overlapping text during motion, keep
+  client repaint callbacks flowing through the blend, and preserve XWayland's
+  arranged position when its resized buffer arrives.
 - Keep both client images within the same animated bounds during fullscreen
   and maximize transitions, removing the smaller image's visible interior
   edge. Smooth reduced-size detail and begin the crossfade when the new

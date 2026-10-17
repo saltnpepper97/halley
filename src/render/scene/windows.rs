@@ -377,18 +377,17 @@ pub(super) fn live_window_elements(
             .window_animations
             .arrange_completion(window_surface.as_ref(), context.target_presentation_time)
             .unwrap_or(0.0);
-        match arrange_textures.native_blend_element(
+        match arrange_textures.blend_element(
             renderer,
             window_surface.as_ref(),
             visual.animated_rect,
-            visual.zoom_scale,
             completion,
             content_alpha,
             client_radii,
         ) {
             Ok(blend) => blend,
             Err(err) => {
-                eventline::warn!("field arrange: failed to render native reveal: {err}");
+                eventline::warn!("field arrange: failed to render texture blend: {err}");
                 None
             }
         }
