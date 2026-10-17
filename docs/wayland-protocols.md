@@ -17,6 +17,7 @@ focus. Implicit click grabs remain usable. Active pointer locks reject warps;
 confinement permits only positions inside its effective region. Session lock
 and powered-off outputs reject requests. Ordinary physical and relative input
 are unchanged; this protocol does not replace pointer lock or confinement.
+See [pointer warp testing](pointer-warp.md) for a small interactive test client.
 
 Halley advertises `zxdg_exporter_v2` and `zxdg_importer_v2` interface version 1
 (`xdg-foreign-v2`). Applications can export a toplevel handle and pass it to a
