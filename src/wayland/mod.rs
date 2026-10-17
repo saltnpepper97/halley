@@ -52,6 +52,7 @@ use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::pointer_constraints::PointerConstraintsState;
 use smithay::wayland::pointer_gestures::PointerGesturesState;
+use smithay::wayland::pointer_warp::PointerWarpManager;
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::selection::ext_data_control::DataControlState;
@@ -239,6 +240,7 @@ pub struct WaylandState {
     _idle_inhibit_manager_state: IdleInhibitManagerState,
     _relative_pointer_manager_state: RelativePointerManagerState,
     _pointer_constraints_state: PointerConstraintsState,
+    _pointer_warp_manager: PointerWarpManager,
     _pointer_gestures_state: PointerGesturesState,
     _cursor_shape_manager_state: CursorShapeManagerState,
     _virtual_keyboard_manager_state: VirtualKeyboardManagerState,
@@ -339,6 +341,7 @@ impl WaylandState {
         idle_inhibit_manager_state: IdleInhibitManagerState,
         relative_pointer_manager_state: RelativePointerManagerState,
         pointer_constraints_state: PointerConstraintsState,
+        pointer_warp_manager: PointerWarpManager,
         pointer_gestures_state: PointerGesturesState,
         cursor_shape_manager_state: CursorShapeManagerState,
         virtual_keyboard_manager_state: VirtualKeyboardManagerState,
@@ -378,6 +381,7 @@ impl WaylandState {
             _idle_inhibit_manager_state: idle_inhibit_manager_state,
             _relative_pointer_manager_state: relative_pointer_manager_state,
             _pointer_constraints_state: pointer_constraints_state,
+            _pointer_warp_manager: pointer_warp_manager,
             _pointer_gestures_state: pointer_gestures_state,
             _cursor_shape_manager_state: cursor_shape_manager_state,
             _virtual_keyboard_manager_state: virtual_keyboard_manager_state,

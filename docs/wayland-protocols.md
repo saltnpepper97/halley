@@ -5,6 +5,20 @@ version 1. Preferred integer and fractional buffer scales follow each window's
 assigned output, including popups and subsurfaces, and update on transfer or
 display-scale reload. See [display scaling](display-scale.md).
 
+Halley advertises `wp_pointer_warp_v1` version 1 (`pointer-warp-v1`) on native
+and nested backends. A client can request a surface-local cursor position
+using the current pointer-enter serial for its pointer-focused surface.
+Requests follow the same Field, fullscreen, popup/subsurface, layer, and output
+presentation as pointer hit testing. The destination must remain inside the
+surface's committed bounds and input region, on its current output, and routed
+to that surface. Stale serials, unfocused/hidden surfaces, and compositor-owned
+grabs or modal interactions are ignored without moving the cursor or stealing
+focus. Implicit click grabs remain usable. Active pointer locks reject warps;
+confinement permits only positions inside its effective region. Session lock
+and powered-off outputs reject requests. Ordinary physical and relative input
+are unchanged; this protocol does not replace pointer lock or confinement.
+See [pointer warp testing](pointer-warp.md) for a small interactive test client.
+
 Halley advertises `zxdg_exporter_v2` and `zxdg_importer_v2` interface version 1
 (`xdg-foreign-v2`). Applications can export a toplevel handle and pass it to a
 desktop portal; the portal imports the handle to attach its dialog to the

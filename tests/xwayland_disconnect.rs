@@ -35,6 +35,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 #[path = "support/output_management.rs"]
 mod output_management;
+#[path = "support/pointer_warp.rs"]
+mod pointer_warp;
 
 struct Fixture {
     path: PathBuf,
@@ -239,6 +241,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 struct NativeState {
     globals: HashMap<String, u32>,
     output_management: output_management::Observations,
+    pointer_warp: pointer_warp::Observations,
     surface: Option<wl_surface::WlSurface>,
     buffer: Option<wl_buffer::WlBuffer>,
     integer_scales: Vec<i32>,

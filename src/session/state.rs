@@ -249,6 +249,7 @@ impl<D: SessionDriver> Session<D> {
             IdleInhibitManagerState::new::<Self>(&display_handle),
             RelativePointerManagerState::new::<Self>(&display_handle),
             PointerConstraintsState::new::<Self>(&display_handle),
+            smithay::wayland::pointer_warp::PointerWarpManager::new::<Self>(&display_handle),
             PointerGesturesState::new::<Self>(&display_handle),
             CursorShapeManagerState::new::<Self>(&display_handle),
             VirtualKeyboardManagerState::new::<Self, _>(&display_handle, |client| {

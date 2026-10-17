@@ -1,4 +1,5 @@
 mod constraints;
+mod warp;
 
 #[cfg(test)]
 mod click_grab_tests;
@@ -126,6 +127,8 @@ fn grabbed_surface_offset(
 
 fn route_grabbed_client<D: SessionDriver>(
     session: &Session<D>,
+    screen: Point<f64, Logical>,
+    now: std::time::Duration,
 ) -> Option<crate::input::pointer::PointerRoute> {
     use crate::input::pointer::{PointerRoute, PointerTarget};
     use smithay::desktop::layer_map_for_output;
@@ -138,7 +141,6 @@ fn route_grabbed_client<D: SessionDriver>(
         grab.downcast_ref::<ClickGrab<Session<D>>>()
             .and_then(|_| grab.start_data().focus.clone())
     })??;
-    let screen = Point::from(session.pointer.position());
     for window in session.wayland.space.elements() {
         let Some(root) = window.wl_surface() else {
             continue;
@@ -162,7 +164,7 @@ fn route_grabbed_client<D: SessionDriver>(
             &session.settings.font,
             window,
             output,
-            crate::frame_clock::monotonic_now(),
+            now,
         )?;
         return Some(PointerRoute {
             output: output.clone(),
@@ -205,7 +207,19 @@ fn route_grabbed_client<D: SessionDriver>(
 pub(super) fn route_client<D: SessionDriver>(
     session: &Session<D>,
 ) -> Option<crate::input::pointer::PointerRoute> {
-    if let Some(route) = route_grabbed_client(session) {
+    route_client_at(
+        session,
+        session.pointer.position(),
+        crate::frame_clock::monotonic_now(),
+    )
+}
+
+fn route_client_at<D: SessionDriver>(
+    session: &Session<D>,
+    position: (f64, f64),
+    now: std::time::Duration,
+) -> Option<crate::input::pointer::PointerRoute> {
+    if let Some(route) = route_grabbed_client(session, Point::from(position), now) {
         return Some(route);
     }
     let mut route = crate::input::pointer::route_to_client(
@@ -221,12 +235,12 @@ pub(super) fn route_client<D: SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
             focused: session.wayland.focused_window.as_ref(),
-            now: crate::frame_clock::monotonic_now(),
+            now,
         },
-        session.pointer.position(),
+        position,
     )?;
-    if super::screenshot::hit(session, Point::from(session.pointer.position())).is_some() {
-        route.location = Point::from(session.pointer.position());
+    if super::screenshot::hit(session, Point::from(position)).is_some() {
+        route.location = Point::from(position);
         route.focus = None;
         route.target = crate::input::pointer::PointerTarget::Background;
         route.visual_geometry = None;
@@ -242,7 +256,7 @@ pub(super) fn route_client<D: SessionDriver>(
         &session.maximize,
         &route.output,
         output_geometry,
-        crate::frame_clock::monotonic_now(),
+        now,
     )
     .is_some_and(|presentation| presentation.progress > 0.0);
     if !route.is_desktop_popup
@@ -253,15 +267,12 @@ pub(super) fn route_client<D: SessionDriver>(
                 &route.output,
                 output_geometry,
                 camera,
-                Point::from(session.pointer.position()),
+                Point::from(position),
             )
             .is_some()
     {
-        let world = crate::input::grab::screen_to_world_on_output(
-            session.pointer.position(),
-            camera,
-            output_geometry,
-        );
+        let world =
+            crate::input::grab::screen_to_world_on_output(position, camera, output_geometry);
         route.location = Point::from((world.x as f64, world.y as f64));
         route.focus = None;
         route.target = crate::input::pointer::PointerTarget::Background;

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support focused surface-local cursor requests through `pointer-warp-v1`,
+  following Field, fullscreen, and output-scale presentation. Reject stale
+  serials, hidden or out-of-bounds targets, and compositor-owned interactions;
+  preserve pointer locks, confinement, and ordinary implicit click grabs.
 - Support standard `wlr-output-power-management-unstable-v1` on the native TTY
   backend through existing DPMS, retaining output layout and window placement.
   Approved tools can control individual displays and observe IPC and input-wake
