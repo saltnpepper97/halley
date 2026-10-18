@@ -88,7 +88,7 @@ Usage:
   halleyctl node list [-o OUTPUT] [--json]
   halleyctl node info [SELECTOR] [-o OUTPUT] [--json]
   halleyctl node focus [SELECTOR] [-o OUTPUT]
-  halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT]
+  halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT] [--distance UNITS]
   halleyctl node collapse [SELECTOR] [-o OUTPUT]
   halleyctl node restore [SELECTOR] [-o OUTPUT]
   halleyctl node toggle [SELECTOR] [-o OUTPUT]
@@ -96,6 +96,13 @@ Usage:
 
 Selectors:
   focused, latest, ID, id:ID, title:TEXT, app:APP_ID
+
+Movement:
+  Without --distance: legacy 80-Field-unit nearest-free placement.
+  With --distance: move up to UNITS along the axis, stopping at obstacles.
+  UNITS must be a whole number in 1..=2147483647; --distance=UNITS also works.
+  Field units are logical coordinates at native zoom, not physical pixels.
+  Expanded windows may overlap each other; pinned objects cannot move.
 
 Markers:
   * focused node

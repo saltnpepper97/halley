@@ -23,3 +23,7 @@ fn main() -> halley_api::Result<()> {
 
 See [`docs/api.md`](../docs/api.md) for the contract, operation list, event
 semantics, and integration guidance.
+
+For precise movement, `Client::move_node_by(direction, distance, selector, output)`
+moves up to a positive number of Field units and stops at obstructions. It requires
+`node-move-distance-v1`; the existing `move_node` method retains its behavior.

@@ -314,7 +314,7 @@ collapse, restore, and toggle controls added for complete remote state control:
 halleyctl node list [--output OUTPUT] [--json]
 halleyctl node info [SELECTOR] [--output OUTPUT] [--json]
 halleyctl node focus [SELECTOR] [--output OUTPUT]
-halleyctl node move left|right|up|down [SELECTOR] [--output OUTPUT]
+halleyctl node move left|right|up|down [SELECTOR] [--output OUTPUT] [--distance UNITS]
 halleyctl node collapse [SELECTOR] [--output OUTPUT]
 halleyctl node restore [SELECTOR] [--output OUTPUT]
 halleyctl node toggle [SELECTOR] [--output OUTPUT]
@@ -335,16 +335,37 @@ count, focus/latest flags, field position, and size. `info` prints the same
 fields for one node. This makes the default output useful for beginners while
 leaving `--json` stable for scripts.
 
-`focus` restores a collapsed node or focuses an active one. `move` requests an
-80-field-unit shift and then resolves the nearest legal landmark/window
-destination; pinned nodes reject that movement request. `collapse` and
+`focus` restores a collapsed node or focuses an active one. Without `--distance`,
+`move` retains its original behavior: request an 80-Field-unit shift and resolve
+a nearby legal destination. With `--distance UNITS` (or `--distance=UNITS`), it
+moves up to that distance along the requested axis and stops at the first
+obstruction, without jumping sideways or through an obstruction. A blocked
+move is a successful no-op. Expanded windows may overlap other expanded windows;
+collapsed nodes and cluster cores retain their configured clearance. Pinned
+objects reject both forms of movement.
+
+```sh
+halleyctl node move right --distance 10
+halleyctl node move up app:firefox --output DP-1 --distance 200
+```
+
+Distances are positive whole numbers in `1..=2147483647` Field units. Field units
+are logical coordinates at native camera zoom, not physical pixels. Camera
+zoom and output scaling affect the apparent screen distance, while the Field
+distance stays constant. Movement also stops at representable coordinate limits.
+The optional distance requires a compositor advertising `node-move-distance-v1`;
+restart Halley after installing the update if the CLI reports it as unsupported.
+
+`collapse` and
 `restore` explicitly set the selected node state
 and are idempotent; `toggle` inverts it. `close` sends the appropriate XDG or
 X11 close request without restoring first. `--json` is available for `list`
 and `info`.
 
 The same movement is available directly from the compositor with
-`node-move left|right|up|down`. The default `Mod+Alt+Arrow` bindings target the
+`node-move left|right|up|down [UNITS]`. An explicit distance uses the same
+directional obstacle handling as the CLI; omitting it preserves legacy movement.
+The default `Mod+Alt+Arrow` bindings target the
 focused or most-recent node on the selected output and operate only in the
 Field; cluster workspaces retain their own focus and swap controls.
 

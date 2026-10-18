@@ -49,7 +49,7 @@ The version-1 semantic API includes:
 | --- | --- |
 | Server | handshake, version and capability discovery, quit request |
 | Outputs | list output modes, logical placement, and display scale; set DPMS state |
-| Nodes | list, inspect, focus, move, close, collapse, restore, and toggle |
+| Nodes | list, inspect, focus, move (default or explicit distance), close, collapse, restore, and toggle |
 | Clusters | list, inspect, open, activate a slot, cycle layout, finalize a draft |
 | Bearings | query visibility; show, hide, or toggle |
 | Capture | interactive menu/selection; immediate output, node-ID, or rectangle screenshots |
@@ -60,6 +60,31 @@ Selectors and IDs are semantic types such as `NodeId`, `NodeSelector`,
 `ClusterId`, and `ClusterTarget`; callers do not construct wire requests.
 Public state and event values implement Serde serialization and deserialization
 for application persistence, logging, and JSON output.
+
+## Movement distances
+
+`Client::move_node` retains the original 80-Field-unit nearest-free placement.
+`Client::move_node_by` requests up to a positive whole-number distance along one
+axis, stopping at the first landmark obstruction. It requires the optional
+`node-move-distance-v1` capability and returns `Unsupported` before sending a new
+request when the running compositor lacks it. Invalid distances return
+`InvalidRequest`; the accepted range is `1..=i32::MAX`.
+
+```rust
+use halley_api::{Client, NodeMoveDirection, NodeSelector};
+
+fn nudge(client: &Client) -> halley_api::Result<()> {
+    client.move_node_by(NodeMoveDirection::Right, 10, Some(NodeSelector::Focused), None)
+}
+```
+
+Field units match logical coordinates at native camera zoom. Output scaling and
+camera zoom affect screen distance, not the requested Field distance. Explicit
+movement does not jump sideways or tunnel through obstructions; expanded windows
+may overlap each other. A blocked move succeeds without displacement; pinned
+objects reject movement. Existing selectors and output filters apply unchanged.
+The additive extension keeps public API version 1. Private IPC version 26 appends
+the distance request and preserves existing node request encodings.
 
 ## Screenshots and automation
 

@@ -916,7 +916,8 @@ keybinds:
   # "$var.mod+shift+k" "pan-field up" with scope "field"
   # "$var.mod+shift+l" "pan-field right" with scope "field"
 
-  # Move the focused or most-recent Field window/node by one placement step.
+  # Move the focused or most-recent Field window/node by 80 Field units.
+  # Optional distance: "node-move right 10" stops at obstacles along that axis.
   # Alt keeps this distinct from directional focus and cluster tile swapping.
   "$var.mod+alt+left" "node-move left"
   "$var.mod+alt+right" "node-move right"
