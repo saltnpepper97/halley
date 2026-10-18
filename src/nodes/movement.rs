@@ -29,11 +29,11 @@ impl AxisMove {
         }
     }
 
-    fn coordinate_limit(self, origin: f64) -> f64 {
+    fn coordinate_limit(self, origin: f64, margin: f64) -> f64 {
         let edge = if self.sign > 0.0 {
-            f64::from(i32::MAX)
+            f64::from(i32::MAX) - margin
         } else {
-            f64::from(i32::MIN)
+            f64::from(i32::MIN) + margin
         };
         self.distance.min(((edge - origin) * self.sign).max(0.0))
     }
@@ -105,7 +105,7 @@ fn landmark_destination(
 ) -> Vec2 {
     let motion = AxisMove::new(delta);
     let (origin, perpendicular) = motion.coordinates(current);
-    let mut travel = motion.coordinate_limit(origin);
+    let mut travel = motion.coordinate_limit(origin, f64::from(spacing.max(clearance)).ceil());
     for node in nodes {
         let (axis, cross) = motion.coordinates(*node);
         travel = motion.clip(
@@ -157,7 +157,18 @@ fn window_destination(
     } else {
         client.loc.y
     };
-    let mut travel = motion.coordinate_limit(f64::from(origin));
+    let mut travel = motion.coordinate_limit(f64::from(origin), 0.0);
+    let (outer_origin, outer_size) = if motion.horizontal {
+        (outer.loc.x, outer.size.w)
+    } else {
+        (outer.loc.y, outer.size.h)
+    };
+    let outer_edge = if motion.sign > 0.0 {
+        f64::from(outer_origin) + f64::from(outer_size)
+    } else {
+        f64::from(outer_origin)
+    };
+    travel = travel.min(motion.coordinate_limit(outer_edge, 0.0));
     // Sweeping a window past a stationary landmark is equivalent to sweeping
     // that landmark in the opposite direction past the window's outer bounds.
     let reverse = AxisMove {
@@ -429,10 +440,10 @@ mod tests {
             let pos = landmark_destination(point(100.0, 100.0), delta, &[], &[], 71.0, 45.5);
             assert!(pos.x.is_finite() && pos.y.is_finite());
             if delta.0 > 0 {
-                assert_eq!(moved.loc.x, i32::MAX);
+                assert_eq!(moved.loc.x, i32::MAX - client.size.w);
             }
             if delta.1 > 0 {
-                assert_eq!(moved.loc.y, i32::MAX);
+                assert_eq!(moved.loc.y, i32::MAX - client.size.h);
             }
         }
     }
