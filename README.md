@@ -498,6 +498,7 @@ halleyctl portal status
 - [Apogee and Alt+Tab](docs/apogee.md)
 - [Animations](docs/animations.md)
 - [Window decorations](docs/decorations.md)
+- [Backdrop blur and shadows](docs/effects.md)
 - [Managed-window rules](docs/window-rules.md)
 - [Wallpaper](docs/wallpaper.md)
 - [Screen sharing and the desktop portal](docs/portal.md)

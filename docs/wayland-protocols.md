@@ -113,7 +113,10 @@ damage hooks have been removed, so blur may require more GPU work. Local
 animations likewise repaint their output fully; unrelated outputs and the FPS
 overlay alone retain their existing redraw policy.
 
-All blur effects on one output share one persistent output-sized texture pool.
+All blur effects on one output share one persistent scratch texture pool.
+The [configured blur method](effects.md) selects either a Dual Kawase pyramid
+or separable Gaussian/box filtering; all use the same surface regions,
+clipping, and composition policy.
 Each stack depth still performs its own framebuffer capture, so an upper
 translucent surface includes lower windows and panels without including
 content above itself. No full texture chain is allocated per requesting

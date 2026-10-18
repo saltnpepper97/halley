@@ -2,9 +2,11 @@ use std::fmt;
 
 use rune_cfg::RuneConfig;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BlurMethod {
     DualKawase,
+    Gaussian,
+    Box,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -293,6 +295,8 @@ fn parse_method(config: &RuneConfig, default: BlurMethod) -> Result<BlurMethod, 
     };
     match value.trim().to_ascii_lowercase().as_str() {
         "dual-kawase" | "dual_kawase" | "kawase" => Ok(BlurMethod::DualKawase),
+        "gaussian" => Ok(BlurMethod::Gaussian),
+        "box" => Ok(BlurMethod::Box),
         _ => Err(EffectsParseError::InvalidValue {
             path: "effects.blur.method",
             value,
@@ -370,13 +374,28 @@ end
             "effects:\n  blur:\n    windows \"always\"\n  end\nend\n",
             "effects:\n  blur:\n    layer-shell \"auto\"\n  end\nend\n",
             "effects:\n  blur:\n    enabled true\n  end\nend\n",
-            "effects:\n  blur:\n    method \"gaussian\"\n  end\nend\n",
+            "effects:\n  blur:\n    method \"unknown\"\n  end\nend\n",
         ] {
             let config = RuneConfig::from_str(source).unwrap();
             assert!(matches!(
                 parse_effects(&config),
                 Err(EffectsParseError::InvalidValue { .. } | EffectsParseError::Deprecated { .. })
             ));
+        }
+    }
+
+    #[test]
+    fn parses_all_blur_methods_and_existing_aliases() {
+        for (name, expected) in [
+            ("dual-kawase", BlurMethod::DualKawase),
+            ("dual_kawase", BlurMethod::DualKawase),
+            ("kawase", BlurMethod::DualKawase),
+            (" Gaussian ", BlurMethod::Gaussian),
+            ("BOX", BlurMethod::Box),
+        ] {
+            let source = format!("effects:\n  blur:\n    method \"{name}\"\n  end\nend\n");
+            let config = RuneConfig::from_str(&source).unwrap();
+            assert_eq!(parse_effects(&config).unwrap().blur.method, expected);
         }
     }
 

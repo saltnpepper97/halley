@@ -21,6 +21,7 @@ use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Size, Transfor
 const DOWN_SHADER: &str = include_str!("shaders/blur_down.frag");
 const UP_SHADER: &str = include_str!("shaders/blur_up.frag");
 const COMPOSITE_SHADER: &str = include_str!("shaders/blur_composite.frag");
+mod filter;
 mod regions;
 use regions::BlurPlan;
 const BLUR_VERTEX_SHADER: &str = r#"#version 100
@@ -47,6 +48,7 @@ struct Programs {
     context: ContextId<GlesTexture>,
     down: RawPassProgram,
     up: RawPassProgram,
+    filter: filter::Program,
     composite: GlesTexProgram,
 }
 
@@ -64,6 +66,13 @@ struct BlurTextures {
     size: Size<i32, Physical>,
     accum: GlesTexture,
     chain: Vec<GlesTexture>,
+    filter: Option<FilterTextures>,
+}
+
+struct FilterTextures {
+    horizontal: GlesTexture,
+    // At full resolution the element's result doubles as the vertical target.
+    vertical: Option<GlesTexture>,
 }
 
 struct ElementBlur {
@@ -144,6 +153,8 @@ pub struct BackdropBlurElement {
     retry: Rc<RefCell<RetryState>>,
     down: RawPassProgram,
     up: RawPassProgram,
+    filter: filter::Program,
+    filter_settings: Option<filter::Settings>,
     composite: GlesTexProgram,
     offset: f32,
     saturation: f32,
@@ -283,7 +294,7 @@ impl BackdropBlurRenderer {
             resources.textures = None;
         }
         if resources.textures.is_none() {
-            match create_textures(renderer, physical_size, levels) {
+            match create_textures(renderer, physical_size, config) {
                 Ok(textures) => {
                     resources.textures = Some(Rc::new(RefCell::new(textures)));
                 }
@@ -356,6 +367,8 @@ impl BackdropBlurRenderer {
             retry: Rc::clone(&resources.retry),
             down: programs.down,
             up: programs.up,
+            filter: programs.filter,
+            filter_settings: filter::Settings::new(config),
             composite: programs.composite.clone(),
             offset: blur_offset(config.radius),
             saturation: config.saturation,
@@ -388,12 +401,20 @@ impl BackdropBlurRenderer {
             renderer.compile_custom_texture_shader(COMPOSITE_SHADER, &composite_uniforms)?;
         let down_source = raw_fragment_shader(DOWN_SHADER);
         let up_source = raw_fragment_shader(UP_SHADER);
-        let (down, up) = renderer.with_context(|gl| unsafe {
+        let (down, up, filter) = renderer.with_context(|gl| unsafe {
             let down = compile_raw_pass_program(gl, &down_source)?;
-            match compile_raw_pass_program(gl, &up_source) {
-                Ok(up) => Ok::<_, GlesError>((down, up)),
+            let up = match compile_raw_pass_program(gl, &up_source) {
+                Ok(up) => up,
                 Err(error) => {
                     gl.DeleteProgram(down.program);
+                    return Err(error);
+                }
+            };
+            match filter::Program::compile(gl) {
+                Ok(filter) => Ok::<_, GlesError>((down, up, filter)),
+                Err(error) => {
+                    gl.DeleteProgram(down.program);
+                    gl.DeleteProgram(up.program);
                     Err(error)
                 }
             }
@@ -402,6 +423,7 @@ impl BackdropBlurRenderer {
             context,
             down,
             up,
+            filter,
             composite,
         });
         Ok(())
@@ -454,6 +476,7 @@ fn retry_delay(attempt: u32) -> Duration {
 
 fn blur_config_fingerprint(config: halley_config::Blur) -> u64 {
     let mut hash = DefaultHasher::new();
+    config.method.hash(&mut hash);
     config.passes.hash(&mut hash);
     config.radius.to_bits().hash(&mut hash);
     config.saturation.to_bits().hash(&mut hash);
@@ -480,9 +503,10 @@ fn create_texture(
 fn create_textures(
     renderer: &mut GlesRenderer,
     size: Size<i32, Physical>,
-    levels: u32,
+    config: halley_config::Blur,
 ) -> Result<BlurTextures, GlesError> {
-    let levels = levels.clamp(1, 5);
+    let settings = filter::Settings::new(config);
+    let levels = settings.map_or(config.passes.clamp(1, 5), |s| s.levels);
     let mut chain = Vec::with_capacity(levels as usize);
     for level in 0..levels {
         chain.push(create_texture(renderer, level_size(size, level))?);
@@ -491,6 +515,23 @@ fn create_textures(
         size,
         accum: create_texture(renderer, size)?,
         chain,
+        filter: if settings.is_some() {
+            let working_size = if levels == 0 {
+                size
+            } else {
+                level_size(size, levels - 1)
+            };
+            Some(FilterTextures {
+                horizontal: create_texture(renderer, working_size)?,
+                vertical: if levels == 0 {
+                    None
+                } else {
+                    Some(create_texture(renderer, working_size)?)
+                },
+            })
+        } else {
+            None
+        },
     })
 }
 
@@ -570,16 +611,19 @@ unsafe fn clear_gl_errors(gl: &ffi::Gles2) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_blur(
     frame: &mut GlesFrame<'_, '_>,
     textures: &mut BlurTextures,
     result: &GlesTexture,
     down: RawPassProgram,
     up: RawPassProgram,
+    filter: filter::Program,
+    filter_settings: Option<filter::Settings>,
     offset: f32,
     plan: &BlurPlan,
 ) -> Result<(), GlesError> {
-    debug_assert_eq!(textures.size, plan.passes[0].source);
+    debug_assert!(filter_settings.is_some() || textures.size == plan.passes[0].source);
     frame.with_context(|gl| unsafe {
         let mut draw_fbo = 0_i32;
         let mut read_fbo = 0_i32;
@@ -603,6 +647,9 @@ fn run_blur(
         let mut attribs = vec![vertex_attrib_state(gl, down.vertex as u32)];
         if up.vertex != down.vertex {
             attribs.push(vertex_attrib_state(gl, up.vertex as u32));
+        }
+        if filter.vertex != down.vertex && filter.vertex != up.vertex {
+            attribs.push(vertex_attrib_state(gl, filter.vertex as u32));
         }
         clear_gl_errors(gl);
 
@@ -629,7 +676,7 @@ fn run_blur(
                     0.5 / source_size.w.max(1) as f32,
                     0.5 / source_size.h.max(1) as f32,
                 );
-                gl.Uniform1f(pass.offset, offset);
+                gl.Uniform1f(pass.offset, filter_settings.map_or(offset, |_| 1.0));
                 gl.Viewport(0, 0, target_size.w, target_size.h);
                 gl.FramebufferTexture2D(
                     ffi::DRAW_FRAMEBUFFER,
@@ -670,6 +717,97 @@ fn run_blur(
                 }
                 Ok(())
             };
+
+            if let Some(settings) = filter_settings {
+                // Only large kernels are downsampled. Each reduction uses the
+                // existing antialiased down shader, rather than skipping pixels.
+                let mut source = &textures.accum;
+                for target in &textures.chain {
+                    let source_size = Size::from((source.size().w, source.size().h));
+                    let target_size = Size::from((target.size().w, target.size().h));
+                    render_pass(
+                        source,
+                        source_size,
+                        target,
+                        target_size,
+                        down,
+                        &[Rectangle::from_size(target_size)],
+                    )?;
+                    source = target;
+                }
+                let scratch = textures.filter.as_ref().expect("filter scratch allocated");
+                let vertical = scratch.vertical.as_ref().unwrap_or(result);
+                let render_filter = |source: &GlesTexture,
+                                     target: &GlesTexture,
+                                     step: [f32; 2],
+                                     kernel: filter::Kernel|
+                 -> Result<(), GlesError> {
+                    gl.UseProgram(filter.program);
+                    gl.Uniform1i(filter.texture, 0);
+                    gl.Uniform2f(filter.step, step[0], step[1]);
+                    gl.Uniform1f(filter.center, kernel.center);
+                    gl.Uniform2fv(filter.kernel, 8, kernel.pairs.as_ptr());
+                    let size = target.size();
+                    gl.Viewport(0, 0, size.w, size.h);
+                    gl.Scissor(0, 0, size.w, size.h);
+                    gl.FramebufferTexture2D(
+                        ffi::DRAW_FRAMEBUFFER,
+                        ffi::COLOR_ATTACHMENT0,
+                        ffi::TEXTURE_2D,
+                        target.tex_id(),
+                        0,
+                    );
+                    if gl.CheckFramebufferStatus(ffi::DRAW_FRAMEBUFFER) != ffi::FRAMEBUFFER_COMPLETE
+                    {
+                        return Err(GlesError::FramebufferBindingError);
+                    }
+                    gl.BindTexture(ffi::TEXTURE_2D, source.tex_id());
+                    gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_MIN_FILTER, ffi::LINEAR as i32);
+                    gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_MAG_FILTER, ffi::LINEAR as i32);
+                    gl.TexParameteri(
+                        ffi::TEXTURE_2D,
+                        ffi::TEXTURE_WRAP_S,
+                        ffi::CLAMP_TO_EDGE as i32,
+                    );
+                    gl.TexParameteri(
+                        ffi::TEXTURE_2D,
+                        ffi::TEXTURE_WRAP_T,
+                        ffi::CLAMP_TO_EDGE as i32,
+                    );
+                    gl.EnableVertexAttribArray(filter.vertex as u32);
+                    gl.BindBuffer(ffi::ARRAY_BUFFER, 0);
+                    gl.VertexAttribPointer(
+                        filter.vertex as u32,
+                        2,
+                        ffi::FLOAT,
+                        ffi::FALSE,
+                        0,
+                        vertices.as_ptr().cast(),
+                    );
+                    gl.DrawArrays(ffi::TRIANGLES, 0, 6);
+                    Ok(())
+                };
+                let size = scratch.horizontal.size();
+                for _ in 0..settings.iterations {
+                    render_filter(
+                        source,
+                        &scratch.horizontal,
+                        [1.0 / size.w as f32, 0.0],
+                        settings.kernel,
+                    )?;
+                    render_filter(
+                        &scratch.horizontal,
+                        vertical,
+                        [0.0, 1.0 / size.h as f32],
+                        settings.kernel,
+                    )?;
+                    source = vertical;
+                }
+                if scratch.vertical.is_some() {
+                    render_filter(vertical, result, [0.0, 0.0], filter::Kernel::IDENTITY)?;
+                }
+                return Ok(());
+            }
 
             let levels = textures.chain.len();
             for (index, pass) in plan.passes.iter().enumerate() {
@@ -738,6 +876,34 @@ fn run_blur(
 }
 
 impl BackdropBlurElement {
+    fn capture_plan(&self, full: bool) -> BlurPlan {
+        if self.filter_settings.is_some() {
+            // The upstream framebuffer-effect path already captures the entire
+            // output. Keep that conservative policy for both new filters.
+            return BlurPlan {
+                capture: vec![Rectangle::from_size(self.size)],
+                passes: Vec::new(),
+            };
+        }
+        let levels = self.textures.borrow().chain.len() as u32;
+        if full {
+            regions::plan_for_outputs(
+                self.size,
+                levels,
+                self.offset,
+                vec![Rectangle::from_size(self.size)],
+            )
+        } else {
+            regions::plan(
+                self.size,
+                levels,
+                self.offset,
+                &self.patches,
+                &[Rectangle::from_size(self.size)],
+            )
+        }
+    }
+
     pub(crate) fn visible_geometry(&self) -> Rectangle<i32, Physical> {
         self.patches
             .iter()
@@ -818,28 +984,11 @@ impl RenderElement<GlesRenderer> for BackdropBlurElement {
         if self.retry.borrow().blocked(now) {
             return Ok(());
         }
-        let textures = self.textures.borrow();
         let mut plan = self.plan.borrow_mut();
         // Wrappers that use Element's conservative default still get a safe
         // closed dependency plan covering every displayed patch.
-        let plan = plan.get_or_insert_with(|| {
-            if self.partial {
-                regions::plan(
-                    self.size,
-                    textures.chain.len() as u32,
-                    self.offset,
-                    &self.patches,
-                    &[Rectangle::from_size(self.size)],
-                )
-            } else {
-                regions::plan_for_outputs(
-                    self.size,
-                    textures.chain.len() as u32,
-                    self.offset,
-                    vec![Rectangle::from_size(self.size)],
-                )
-            }
-        });
+        let plan = plan.get_or_insert_with(|| self.capture_plan(!self.partial));
+        let textures = self.textures.borrow();
         let capture = frame.with_context(|gl| unsafe {
             let mut current_draw_fbo = 0_i32;
             let mut current_read_fbo = 0_i32;
@@ -933,6 +1082,8 @@ impl RenderElement<GlesRenderer> for BackdropBlurElement {
                 &self.element.result,
                 self.down,
                 self.up,
+                self.filter,
+                self.filter_settings,
                 self.offset,
                 self.plan
                     .borrow()
@@ -1088,6 +1239,7 @@ fn blur_commit(
     // instead of compositing a stale blur onto a freshly cleared swapchain
     // buffer.
     presentation_epoch.hash(&mut hash);
+    config.method.hash(&mut hash);
     config.passes.hash(&mut hash);
     config.radius.to_bits().hash(&mut hash);
     config.saturation.to_bits().hash(&mut hash);
@@ -1185,6 +1337,31 @@ mod tests {
             blur_commit(&patches, config, 7),
             blur_commit(&patches, config, 7)
         );
+    }
+
+    #[test]
+    fn method_switch_invalidates_both_resource_and_framebuffer_caches() {
+        let configs = [
+            halley_config::BlurMethod::DualKawase,
+            halley_config::BlurMethod::Gaussian,
+            halley_config::BlurMethod::Box,
+        ]
+        .map(|method| halley_config::Blur {
+            method,
+            ..Default::default()
+        });
+        for (i, a) in configs.iter().enumerate() {
+            for b in &configs[i + 1..] {
+                assert_ne!(
+                    super::blur_config_fingerprint(*a),
+                    super::blur_config_fingerprint(*b)
+                );
+                assert_ne!(
+                    super::blur_commit(&[], *a, 0),
+                    super::blur_commit(&[], *b, 0)
+                );
+            }
+        }
     }
 
     #[test]

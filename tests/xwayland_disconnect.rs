@@ -1456,6 +1456,188 @@ fn xdg_dialog_nested_and_collapsed_children_do_not_strand_keyboard_focus() {
     assert_native_focus(&mut fixture, parent_id, &mut parent_queue, &mut parent);
 }
 
+#[test]
+#[ignore = "requires a Wayland desktop, XWayland, and Kitty; validates live blur method reloads"]
+fn backdrop_blur_methods_reload_over_real_translucent_kitty() {
+    struct Client(Child);
+    impl Drop for Client {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    let mut fixture = Fixture::with_config(
+        "tiling",
+        r#"
+rules:
+  window-rule:
+    app-id "halley-blur-test"
+    width 720
+    height 440
+    blur true
+  end
+end
+animations:
+  window-open:
+    enabled false
+  end
+end
+effects:
+  blur:
+    method "dual-kawase"
+    radius 24
+    passes 3
+    saturation 1
+    noise 0
+  end
+end
+"#,
+    );
+    let config_path = fixture.path.join("halley.rune");
+    let mut config = fs::read_to_string(&config_path).unwrap();
+    let mut wallpaper = image::RgbaImage::new(1280, 800);
+    for (x, y, pixel) in wallpaper.enumerate_pixels_mut() {
+        *pixel = image::Rgba(if (x / 19 + y / 23) % 2 == 0 {
+            [205, 125, 48, 255]
+        } else {
+            [35, 80, 155, 255]
+        });
+    }
+    wallpaper.save(fixture.path.join("wallpaper.png")).unwrap();
+    config.push_str(
+        "\nwallpaper:\n  mode \"classic\"\n  path \"wallpaper.png\"\n  fit \"stretch\"\nend\n",
+    );
+    fs::write(&config_path, &config).unwrap();
+    fixture.ack(Request::ConfigReload);
+    let socket = fs::read_dir(&fixture.path)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry.file_name().to_string_lossy().starts_with("wayland-")
+                && !entry.file_name().to_string_lossy().ends_with(".lock")
+        })
+        .unwrap()
+        .path();
+    let log = File::create(fixture.path.join("kitty.log")).unwrap();
+    let mut kitty = Client(Command::new("kitty")
+        .args(["--config", "NONE", "--class", "halley-blur-test", "--title", "Halley blur methods",
+            "-o", "linux_display_server=wayland", "-o", "confirm_os_window_close=0",
+            "-o", "remember_window_size=no", "-o", "font_size=16", "-o", "cursor_blink_interval=0",
+            "-o", "background_opacity=0.55", "--hold", "sh", "-c",
+            r"printf '\033[1;36mHALLEY BACKDROP BLUR\033[0m\n\nGaussian / Box / Dual Kawase\n\nSharp text over a translucent terminal.\nThe wallpaper behind this window should blur.\n'"])
+        .env("WAYLAND_DISPLAY", socket).env("XDG_RUNTIME_DIR", &fixture.path)
+        .env_remove("DISPLAY").env_remove("WAYLAND_SOCKET")
+        .stdout(Stdio::from(log.try_clone().unwrap())).stderr(Stdio::from(log))
+        .spawn().unwrap());
+    fixture.node("Halley blur methods");
+    thread::sleep(Duration::from_millis(1500));
+    let mut captures: HashMap<&str, Vec<u8>> = HashMap::new();
+    let mut last_sample = None::<Vec<u8>>;
+    for method in [
+        "dual-kawase",
+        "gaussian",
+        "box",
+        "dual-kawase",
+        "gaussian",
+        "box",
+    ] {
+        fs::write(
+            &config_path,
+            config.replace("method \"dual-kawase\"", &format!("method \"{method}\"")),
+        )
+        .unwrap();
+        fixture.ack(Request::ConfigReload);
+        // CaptureFrame can return the last completed frame while a slower
+        // software renderer is still drawing the newly accepted configuration.
+        let (pixels, width, sample) = wait_for("blur frame after method reload", || {
+            let (pixels, width) = capture_frame_pixels(&mut fixture);
+            // Sample the blank lower part of the terminal. Reload notifications
+            // above it animate independently of the blur result.
+            let height = pixels.len() / 4 / width;
+            let sample: Vec<u8> = (height * 2 / 3..height * 7 / 10)
+                .flat_map(|y| {
+                    pixels[(y * width + width * 3 / 10) * 4..(y * width + width * 7 / 10) * 4]
+                        .iter()
+                        .copied()
+                })
+                .collect();
+            let ready = if let Some(expected) = captures.get(method) {
+                sample
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, b)| a.abs_diff(*b) <= 1)
+            } else if let Some(previous) = &last_sample {
+                sample
+                    .chunks_exact(4)
+                    .zip(previous.chunks_exact(4))
+                    .filter(|(a, b)| a.iter().zip(*b).any(|(a, b)| a.abs_diff(*b) > 2))
+                    .count()
+                    > 1000
+            } else {
+                true
+            };
+            ready.then_some((pixels, width, sample))
+        });
+        last_sample = Some(sample.clone());
+        if let Some(previous) = captures.get(method) {
+            let error = sample
+                .iter()
+                .zip(previous)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                error <= 1,
+                "switching back to {method} left stale pixels: {error}"
+            );
+        } else {
+            let mut rgba = pixels.clone();
+            for pixel in rgba.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            let backend = if std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_some() {
+                "software"
+            } else {
+                "gpu"
+            };
+            let path = std::env::temp_dir().join(format!("halley-blur-{backend}-{method}.png"));
+            image::save_buffer(
+                &path,
+                &rgba,
+                width as u32,
+                (rgba.len() / 4 / width) as u32,
+                image::ColorType::Rgba8,
+            )
+            .unwrap();
+            eprintln!("{method} real Kitty capture: {}", path.display());
+            captures.insert(method, sample);
+        }
+        assert!(fixture.process.try_wait().unwrap().is_none());
+        assert!(kitty.0.try_wait().unwrap().is_none());
+    }
+    for (a, b) in [
+        ("dual-kawase", "gaussian"),
+        ("gaussian", "box"),
+        ("box", "dual-kawase"),
+    ] {
+        let changed = captures[a]
+            .chunks_exact(4)
+            .zip(captures[b].chunks_exact(4))
+            .filter(|(a, b)| a.iter().zip(*b).any(|(a, b)| a.abs_diff(*b) > 2))
+            .count();
+        assert!(
+            changed > 1000,
+            "{a} and {b} did not produce visibly distinct blurred backdrops: {changed}"
+        );
+    }
+    let logs = fs::read_to_string(fixture.path.join("console.log")).unwrap();
+    assert!(
+        !logs.contains("backdrop-blur:"),
+        "blur renderer reported a failure: {logs}"
+    );
+}
+
 fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
     capture_colour_bounds(fixture)[1]
 }
