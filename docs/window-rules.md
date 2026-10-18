@@ -70,6 +70,8 @@ windows. Initial size and placement remain initial-map decisions.
 
 Blur activation is entirely rule-driven: `effects.blur` configures quality and
 whether compositor-owned overlays may blur, but has no global enable switch.
+See [backdrop blur and shadows](effects.md) for method selection, radius,
+passes, saturation, and noise.
 An old `rules.rule` entry must be renamed to `rules.window-rule`; the old
 `effects.blur.enabled` setting has been removed.
 

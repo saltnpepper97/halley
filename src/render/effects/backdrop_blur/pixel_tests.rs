@@ -4,6 +4,235 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::{Bind, Color32F, ExportMem};
 
+// CPU references deliberately use unpaired, direct convolution and bilinear
+// sampling, rather than production kernels or shaders. Quantize after each
+// stage to match the renderer's ARGB8888 intermediate textures.
+fn reference_sample(pixels: &[u8], size: (usize, usize), x: f64, y: f64, c: usize) -> f64 {
+    let (ix, iy) = (x.floor() as isize, y.floor() as isize);
+    let (fx, fy) = (x - x.floor(), y - y.floor());
+    let mut value = 0.0;
+    for (dy, wy) in [(0, 1.0 - fy), (1, fy)] {
+        for (dx, wx) in [(0, 1.0 - fx), (1, fx)] {
+            let sx = (ix + dx).clamp(0, size.0 as isize - 1) as usize;
+            let sy = (iy + dy).clamp(0, size.1 as isize - 1) as usize;
+            value += pixels[(sy * size.0 + sx) * 4 + c] as f64 * wx * wy;
+        }
+    }
+    value
+}
+
+fn reference_resize(
+    pixels: &[u8],
+    source: (usize, usize),
+    target: (usize, usize),
+    down: bool,
+) -> Vec<u8> {
+    let mut output = vec![0; target.0 * target.1 * 4];
+    for y in 0..target.1 {
+        for x in 0..target.0 {
+            let sx = (x as f64 + 0.5) * source.0 as f64 / target.0 as f64 - 0.5;
+            let sy = (y as f64 + 0.5) * source.1 as f64 / target.1 as f64 - 0.5;
+            for c in 0..4 {
+                let mut value = reference_sample(pixels, source, sx, sy, c);
+                if down {
+                    value *= 4.0;
+                    for dx in [-0.5, 0.5] {
+                        for dy in [-0.5, 0.5] {
+                            value += reference_sample(pixels, source, sx + dx, sy + dy, c);
+                        }
+                    }
+                    value /= 8.0;
+                }
+                output[(y * target.0 + x) * 4 + c] = value.round() as u8;
+            }
+        }
+    }
+    output
+}
+
+fn reference_filter(
+    mut pixels: Vec<u8>,
+    original: (usize, usize),
+    config: halley_config::Blur,
+) -> Vec<u8> {
+    let mut size = original;
+    let mut radius = config.radius as f64 / (config.passes as f64).sqrt();
+    while radius > 16.0 {
+        let target = ((size.0 / 2).max(1), (size.1 / 2).max(1));
+        pixels = reference_resize(&pixels, size, target, true);
+        size = target;
+        radius /= 2.0;
+    }
+    let reach = radius.ceil() as isize;
+    let mut weights: Vec<f64> = (-reach..=reach)
+        .map(|tap| {
+            if radius == 0.0 {
+                1.0
+            } else if config.method == halley_config::BlurMethod::Gaussian {
+                (-(tap as f64).powi(2) / (2.0 * (radius / 3.0).powi(2))).exp()
+            } else {
+                (radius + 1.0 - tap.abs() as f64).clamp(0.0, 1.0)
+            }
+        })
+        .collect();
+    let total: f64 = weights.iter().sum();
+    weights.iter_mut().for_each(|w| *w /= total);
+    for _ in 0..config.passes {
+        for horizontal in [true, false] {
+            let mut output = vec![0; pixels.len()];
+            for y in 0..size.1 {
+                for x in 0..size.0 {
+                    for c in 0..4 {
+                        let mut sum = 0.0;
+                        for (tap, weight) in (-reach..=reach).zip(&weights) {
+                            let sx = (x as isize + if horizontal { tap } else { 0 })
+                                .clamp(0, size.0 as isize - 1)
+                                as usize;
+                            let sy = (y as isize + if horizontal { 0 } else { tap })
+                                .clamp(0, size.1 as isize - 1)
+                                as usize;
+                            sum += pixels[(sy * size.0 + sx) * 4 + c] as f64 * weight;
+                        }
+                        output[(y * size.0 + x) * 4 + c] = sum.round() as u8;
+                    }
+                }
+            }
+            pixels = output;
+        }
+    }
+    if size != original {
+        reference_resize(&pixels, size, original, false)
+    } else {
+        pixels
+    }
+}
+
+#[test]
+#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+fn separable_filters_match_independent_cpu_reference_and_live_switches() {
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+    let context = EGLContext::new(&display).unwrap();
+    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+    let mut effects = BackdropBlurRenderer::default();
+    let mut comparisons = 0;
+    for dimensions in [(37, 29), (1, 7), (9, 1)] {
+        let size: Size<i32, Physical> = dimensions.into();
+        let mut background: Vec<PixelElement> = (0..size.w)
+            .flat_map(|x| {
+                (0..size.h).map(move |y| {
+                    PixelElement::Solid(SolidColorRenderElement::new(
+                        Id::new(),
+                        Rectangle::new((x, y).into(), (1, 1).into()),
+                        0,
+                        Color32F::new(
+                            ((x * 3 + y * 7) % 11) as f32 / 10.0,
+                            ((x * 7 + y * 5) % 13) as f32 / 12.0,
+                            ((x * 5 + y * 3) % 7) as f32 / 6.0,
+                            1.0,
+                        ),
+                        Kind::Unspecified,
+                    ))
+                })
+            })
+            .collect();
+        let mut target = create_texture(&mut renderer, size).unwrap();
+        let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+        let baseline = read_pixels(&mut renderer, &mut target, &mut tracker, &background, 0).0;
+        let mut prior_owner = None::<std::rc::Weak<ElementBlur>>;
+        let mut prior_id = None;
+        for radius in [0.0, 0.4, 2.5, 16.0, 24.0, 128.0] {
+            for passes in [1, 3, 5] {
+                // Alternate the method at identical radius/pass settings, on
+                // the same output/identity with an unchanged background.
+                for method in [
+                    halley_config::BlurMethod::Gaussian,
+                    halley_config::BlurMethod::Box,
+                ] {
+                    let config = halley_config::Blur {
+                        method,
+                        radius,
+                        passes,
+                        saturation: 1.0,
+                        noise: 0.0,
+                        ..Default::default()
+                    };
+                    effects.begin_scene("reference");
+                    let blur = effects
+                        .blur_element(
+                            &mut renderer,
+                            "reference",
+                            BlurIdentity::Overlay("reference"),
+                            size.to_logical(1),
+                            vec![BlurPatch {
+                                rect: Rectangle::from_size(size),
+                                radius: 0.0,
+                                alpha: 1.0,
+                                clip: None,
+                            }],
+                            config,
+                            0,
+                            Transform::Normal,
+                        )
+                        .unwrap()
+                        .unwrap();
+                    effects.end_scene("reference");
+                    if let Some(owner) = prior_owner.take() {
+                        assert!(
+                            owner.upgrade().is_none(),
+                            "method/config changes must retire cached results"
+                        );
+                    }
+                    if let Some(id) = prior_id.as_ref() {
+                        assert_eq!(id, &blur.id);
+                    }
+                    prior_owner = Some(Rc::downgrade(&blur.element));
+                    prior_id = Some(blur.id.clone());
+                    background.insert(0, PixelElement::Partial(blur));
+                    let composed =
+                        read_pixels(&mut renderer, &mut target, &mut tracker, &background, 1).0;
+                    // Compare the raw filtered texture: composition separately
+                    // antialiases patch edges, blending a little unblurred scene.
+                    let PixelElement::Partial(blur) = &background[0] else {
+                        unreachable!()
+                    };
+                    let texture = &blur.element.result;
+                    let mapping = renderer
+                        .copy_texture(
+                            texture,
+                            Rectangle::from_size(texture.size()),
+                            Fourcc::Abgr8888,
+                        )
+                        .unwrap();
+                    let actual = renderer.map_texture(&mapping).unwrap().to_vec();
+                    let expected = reference_filter(
+                        baseline.clone(),
+                        (size.w as usize, size.h as usize),
+                        config,
+                    );
+                    let error = actual
+                        .iter()
+                        .zip(&expected)
+                        .map(|(a, b)| a.abs_diff(*b))
+                        .max()
+                        .unwrap();
+                    assert!(
+                        error <= 3,
+                        "{method:?}, size={size:?}, radius={radius}, passes={passes}: error={error}"
+                    );
+                    // Also exercise the no-recapture/cached frame.
+                    assert_eq!(
+                        composed,
+                        read_pixels(&mut renderer, &mut target, &mut tracker, &background, 1).0
+                    );
+                    background.remove(0);
+                    comparisons += 1;
+                }
+            }
+        }
+        effects.remove_output("reference");
+    }
+    eprintln!("independent CPU filter comparisons: {comparisons}");
+}
 // Independent reference: preserve the old full-output capture and unbounded
 // filter passes, while using the same production shaders and composition.
 struct FullBlur(BackdropBlurElement);
@@ -34,12 +263,7 @@ impl RenderElement<GlesRenderer> for FullBlur {
         dst: Rectangle<i32, Physical>,
         cache: &UserDataMap,
     ) -> Result<(), GlesError> {
-        *self.0.plan.borrow_mut() = Some(regions::plan_for_outputs(
-            self.0.size,
-            self.0.textures.borrow().chain.len() as u32,
-            self.0.offset,
-            vec![Rectangle::from_size(self.0.size)],
-        ));
+        *self.0.plan.borrow_mut() = Some(self.0.capture_plan(true));
         self.0.capture_framebuffer(frame, src, dst, cache)
     }
     fn draw(
@@ -386,7 +610,16 @@ fn upstream_blur_matches_full_processing_pixels_without_seams_or_stale_cache() {
     ] {
         cases.push(((259, 195), 3, transform, 1.25));
     }
-    for (mode, levels, transform, scale) in cases {
+    let cases = cases.into_iter().flat_map(|case| {
+        [
+            halley_config::BlurMethod::DualKawase,
+            halley_config::BlurMethod::Gaussian,
+            halley_config::BlurMethod::Box,
+        ]
+        .into_iter()
+        .map(move |method| (case, method))
+    });
+    for ((mode, levels, transform, scale), method) in cases {
         let mode: Size<i32, Physical> = mode.into();
         let size = transform.transform_size(mode);
         for (noise_index, noise) in [0.0, halley_config::Blur::default().noise]
@@ -399,6 +632,7 @@ fn upstream_blur_matches_full_processing_pixels_without_seams_or_stale_cache() {
             let mut full = create_texture(&mut renderer, mode).unwrap();
             let mut tracker = OutputDamageTracker::new(mode, scale, transform);
             let config = halley_config::Blur {
+                method,
                 passes: levels,
                 radius: if levels % 2 == 0 { 48.0 } else { 24.0 },
                 noise,
@@ -434,14 +668,9 @@ fn upstream_blur_matches_full_processing_pixels_without_seams_or_stale_cache() {
                     {
                         let capture_pixels: i32 =
                             plan.capture.iter().map(|r| r.size.w * r.size.h).sum();
-                        let final_pixels: i32 = plan
-                            .passes
-                            .last()
-                            .unwrap()
-                            .regions
-                            .iter()
-                            .map(|r| r.size.w * r.size.h)
-                            .sum();
+                        let final_pixels: i32 = plan.passes.last().map_or(size.w * size.h, |p| {
+                            p.regions.iter().map(|r| r.size.w * r.size.h).sum()
+                        });
                         saw_partial_processing |=
                             capture_pixels < size.w * size.h && final_pixels < size.w * size.h;
                     }
@@ -475,7 +704,7 @@ fn upstream_blur_matches_full_processing_pixels_without_seams_or_stale_cache() {
                 let tolerance = (noise * 510.0).ceil() as u8 + 1;
                 assert!(
                     max_error <= tolerance,
-                    "size={size:?} transform={transform:?} scale={scale} levels={levels} noise={noise} tick={tick} max_error={max_error}"
+                    "method={method:?} size={size:?} transform={transform:?} scale={scale} levels={levels} noise={noise} tick={tick} max_error={max_error}"
                 );
                 let stats = &mut statistics[noise_index];
                 stats.0 = stats.0.max(max_error);

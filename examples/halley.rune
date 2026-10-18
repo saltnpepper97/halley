@@ -396,8 +396,12 @@ effects:
     # notifications, popups, and labels) to use blur.
     overlays true
 
-    # Quality / performance. Dual Kawase is a downsampled multi-pass blur
-    # tuned to look Gaussian-ish without a true large-kernel Gaussian's cost.
+    # Methods: "dual-kawase" (default), "gaussian", or "box".
+    # Dual Kawase uses a downsample/upsample pyramid; passes sets its depth.
+    # Gaussian and box use horizontal/vertical filter pairs; passes sets the
+    # number of pairs, with radius distributed to keep spread roughly stable.
+    # Large Gaussian/box radii use a smaller working texture to bound GPU cost.
+    # See docs/effects.md for appearance and performance tradeoffs.
     method "dual-kawase"
     radius 24
     passes 3

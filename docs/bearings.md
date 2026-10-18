@@ -69,8 +69,8 @@ come from the shared [`overlays:`](overlays.md) section; `bearings.blur`
 continues to control the Bearings-only backdrop effect.
 
 With `blur true`, all chips on one output share a single persistent backdrop
-capture and Dual Kawase blur chain. The blurred result is recomputed when the
-backdrop changes and then reused for every chip; Bearings does not run one
+capture and [configured blur filter](effects.md). The blurred result is
+recomputed when the backdrop changes and then reused for every chip; Bearings does not run one
 full-frame capture or blur chain per label.
 
 ## `halleyctl bearings`
