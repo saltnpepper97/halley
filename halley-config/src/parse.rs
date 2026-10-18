@@ -68,7 +68,63 @@ fn parse_direction(value: &str) -> Option<crate::Direction> {
     }
 }
 
+fn movement_action(s: &str) -> Option<Result<Action, String>> {
+    let words = s.split_whitespace().collect::<Vec<_>>();
+    let (direction, arguments) = match words.as_slice() {
+        ["node-move"] | ["node", "move"] => {
+            return Some(Err("node movement requires left, right, up, or down".into()));
+        }
+        ["node", "move", direction, arguments @ ..] | ["node-move", direction, arguments @ ..] => {
+            (*direction, arguments)
+        }
+        ["move", direction, arguments @ ..] if parse_direction(direction).is_some() => {
+            (*direction, arguments)
+        }
+        [command, arguments @ ..] => {
+            let direction = command
+                .strip_prefix("node-move-")
+                .or_else(|| command.strip_prefix("node_move_"))
+                .or_else(|| command.strip_prefix("move-"))
+                .or_else(|| command.strip_prefix("move_"))?;
+            // Unknown compact actions retain their existing shell fallback.
+            parse_direction(direction)?;
+            (direction, arguments)
+        }
+        _ => return None,
+    };
+    Some((|| {
+        let direction = parse_direction(direction)
+            .ok_or_else(|| "node movement requires left, right, up, or down".to_string())?;
+        match arguments {
+            [] => Ok(Action::MoveNode(direction)),
+            [distance] => {
+                let distance =
+                    distance
+                        .parse::<i32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| {
+                            "movement distance must be a whole number in 1..=2147483647 Field units"
+                                .to_string()
+                        })?;
+                Ok(Action::MoveNodeBy {
+                    direction,
+                    distance: distance as u32,
+                })
+            }
+            _ => Err("node movement accepts one optional distance in Field units".into()),
+        }
+    })())
+}
+
+pub(crate) fn parse_action_checked(s: &str) -> Result<Action, String> {
+    movement_action(s).unwrap_or_else(|| Ok(parse_action(s)))
+}
+
 pub(crate) fn parse_action(s: &str) -> Action {
+    if let Some(Ok(action)) = movement_action(s) {
+        return action;
+    }
     let words = s.split_whitespace().collect::<Vec<_>>();
     if let ["cluster", "slot", slot] = words.as_slice()
         && let Ok(slot) = slot.parse::<u8>()
@@ -324,7 +380,7 @@ fn parse_binding(
     value: &Value,
 ) -> Result<(Action, Option<bool>, Option<BindingScope>), ParseError> {
     if let Value::String(action) = value {
-        return Ok((parse_action(action), None, None));
+        return Ok((binding_action(chord, action)?, None, None));
     }
     if let Value::Annotated(binding) = value {
         let action = binding_string(chord, &binding.value)?;
@@ -360,7 +416,7 @@ fn parse_binding(
             }
         };
         let scope = parse_inline_scope(chord, &binding.attributes)?;
-        return Ok((parse_action(action), repeat, scope));
+        return Ok((binding_action(chord, action)?, repeat, scope));
     }
     let Value::Object(items) = value else {
         return Err(ParseError::InvalidBinding {
@@ -400,7 +456,14 @@ fn parse_binding(
         .get("scope")
         .map(|value| binding_string(chord, value).and_then(|scope| parse_scope(chord, scope)))
         .transpose()?;
-    Ok((parse_action(action), repeat, scope))
+    Ok((binding_action(chord, action)?, repeat, scope))
+}
+
+fn binding_action(chord: &str, action: &str) -> Result<Action, ParseError> {
+    parse_action_checked(action).map_err(|message| ParseError::InvalidBinding {
+        chord: chord.to_string(),
+        message,
+    })
 }
 
 fn parse_inline_scope(
@@ -506,6 +569,73 @@ end
                     && bind.modifiers.super_key
                     && bind.action == Action::ToggleFullscreen
             }));
+        }
+    }
+
+    #[test]
+    fn movement_distances_repeat_in_field_and_accept_legacy_aliases() {
+        for action in [
+            "node-move right 10",
+            "node move right 10",
+            "move right 10",
+            "node-move-right 10",
+            "node_move_right 10",
+            "move-right 10",
+            "move_right 10",
+        ] {
+            let kb = parse(&format!("keybinds:\n  \"super+right\" \"{action}\"\nend\n"));
+            let bind = &kb.binds[0];
+            assert_eq!(
+                bind.action,
+                Action::MoveNodeBy {
+                    direction: crate::Direction::Right,
+                    distance: 10
+                }
+            );
+            assert!(bind.repeat);
+            assert_eq!(bind.scope, BindingScope::Field);
+        }
+        let kb =
+            parse("keybinds:\n  \"super+right\" \"node-move right 1\" with repeat false\nend\n");
+        assert!(!kb.binds[0].repeat);
+        assert_eq!(
+            parse_action_checked("move files"),
+            Ok(Action::Spawn("move files".into()))
+        );
+    }
+
+    #[test]
+    fn malformed_movement_is_a_config_error_in_every_binding_form() {
+        for action in [
+            "node-move right 0",
+            "node-move right -1",
+            "node-move right 1.5",
+            "node-move right NaN",
+            "node-move right 2147483648",
+            "node-move right 10 extra",
+            "node-move",
+            "node move",
+            "node-move sideways 10",
+        ] {
+            for binding in [
+                format!("\"{action}\""),
+                format!("\"{action}\" with repeat true"),
+                format!("\n    action \"{action}\"\n  end"),
+            ] {
+                let text = if binding.starts_with('\n') {
+                    format!("keybinds:\n  \"super+right\":{binding}\nend\n")
+                } else {
+                    format!("keybinds:\n  \"super+right\" {binding}\nend\n")
+                };
+                let config = RuneConfig::from_str(&text).unwrap();
+                assert!(
+                    matches!(
+                        parse_keybinds(&config),
+                        Err(ParseError::InvalidBinding { .. })
+                    ),
+                    "{text}"
+                );
+            }
         }
     }
 

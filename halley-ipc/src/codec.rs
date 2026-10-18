@@ -423,6 +423,30 @@ mod tests {
     }
 
     #[test]
+    fn distance_movement_is_appended_without_changing_legacy_node_encoding() {
+        let legacy = crate::NodeRequest::Move {
+            direction: crate::NodeMoveDirection::Left,
+            selector: None,
+            output: None,
+        };
+        assert_eq!(encode(&legacy).unwrap(), [3, 0, 0, 0]);
+        let request = Request::Node(crate::NodeRequest::MoveBy {
+            direction: crate::NodeMoveDirection::Down,
+            distance: 10,
+            selector: Some(crate::NodeSelector::Focused),
+            output: Some("DP-1".into()),
+        });
+        let Request::Node(decoded) = decode_request(&encode_request(&request).unwrap()).unwrap()
+        else {
+            panic!("not a node request")
+        };
+        let Request::Node(expected) = request else {
+            unreachable!()
+        };
+        assert_eq!(decoded, expected);
+    }
+
+    #[test]
     fn direct_capture_extension_preserves_existing_request_indices() {
         // Version 23's local window request encoding must remain readable.
         let bytes = [20, 3, 1, 4, b'D', b'P', b'-', b'2'];

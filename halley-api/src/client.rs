@@ -145,6 +145,46 @@ impl Client {
             output: output.map(str::to_owned),
         }))
     }
+    /// Move by up to `distance` Field units along one axis, stopping at the
+    /// first landmark obstruction. Expanded windows may overlap each other.
+    /// Requires `node-move-distance-v1`; distance must be in `1..=i32::MAX`.
+    pub fn move_node_by(
+        &self,
+        direction: NodeMoveDirection,
+        distance: u32,
+        selector: Option<NodeSelector>,
+        output: Option<&str>,
+    ) -> Result<()> {
+        if distance == 0 || distance > i32::MAX as u32 {
+            return Err(Error::new(
+                ErrorKind::InvalidRequest,
+                "movement distance must be a whole number in 1..=2147483647 Field units",
+            ));
+        }
+        if !self
+            .server_info
+            .capabilities
+            .iter()
+            .any(|c| c == "node-move-distance-v1")
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "this compositor does not support movement distances; restart Halley after upgrading",
+            ));
+        }
+        self.ack(halley_ipc::Request::Node(halley_ipc::NodeRequest::MoveBy {
+            direction: match direction {
+                NodeMoveDirection::Left => halley_ipc::NodeMoveDirection::Left,
+                NodeMoveDirection::Right => halley_ipc::NodeMoveDirection::Right,
+                NodeMoveDirection::Up => halley_ipc::NodeMoveDirection::Up,
+                NodeMoveDirection::Down => halley_ipc::NodeMoveDirection::Down,
+            },
+            distance,
+            selector: selector.map(selector_wire),
+            output: output.map(str::to_owned),
+        }))
+    }
+
     pub fn close_node(&self, selector: Option<NodeSelector>, output: Option<&str>) -> Result<()> {
         self.ack(halley_ipc::Request::Node(halley_ipc::NodeRequest::Close {
             selector: selector.map(selector_wire),
@@ -626,6 +666,77 @@ mod capture_tests {
             })
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Unsupported);
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn distance_movement_checks_capability_and_input_before_sending() {
+        use std::io::Read;
+        let (client, server) = mock_client(&[], |mut stream| {
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        assert_eq!(
+            client
+                .move_node_by(NodeMoveDirection::Right, 10, None, None)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Unsupported
+        );
+        for distance in [0, i32::MAX as u32 + 1, u32::MAX] {
+            assert_eq!(
+                client
+                    .move_node_by(NodeMoveDirection::Right, distance, None, None)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::InvalidRequest
+            );
+        }
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn distance_movement_and_legacy_movement_use_distinct_requests() {
+        let (client, server) = mock_client(&["node-move-distance-v1"], |mut stream| {
+            for expected in [
+                halley_ipc::NodeRequest::MoveBy {
+                    direction: halley_ipc::NodeMoveDirection::Up,
+                    distance: 10,
+                    selector: Some(halley_ipc::NodeSelector::Id(42)),
+                    output: Some("DP-1".into()),
+                },
+                halley_ipc::NodeRequest::Move {
+                    direction: halley_ipc::NodeMoveDirection::Left,
+                    selector: None,
+                    output: None,
+                },
+            ] {
+                let request =
+                    halley_ipc::decode_request(&halley_ipc::read_frame(&mut stream).unwrap())
+                        .unwrap();
+                let halley_ipc::Request::Node(request) = request else {
+                    panic!("not a node request")
+                };
+                assert_eq!(request, expected);
+                halley_ipc::write_frame(
+                    &mut stream,
+                    &halley_ipc::encode_response(&halley_ipc::Response::Ack).unwrap(),
+                )
+                .unwrap();
+            }
+        });
+        client
+            .move_node_by(
+                NodeMoveDirection::Up,
+                10,
+                Some(NodeSelector::Id(NodeId::new(42))),
+                Some("DP-1"),
+            )
+            .unwrap();
+        client
+            .move_node(NodeMoveDirection::Left, None, None)
+            .unwrap();
         drop(client);
         server.join().unwrap();
     }

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Choose a movement distance with `halleyctl node move DIRECTION --distance UNITS`,
+  `node-move DIRECTION UNITS` keybindings, or `Client::move_node_by`. Explicit
+  distances move along the requested axis and stop at landmark obstructions
+  without jumping sideways or tunneling through them. Existing commands and
+  bindings retain their 80-Field-unit nearest-free placement. Advertise the
+  optional `node-move-distance-v1` capability; the private IPC version is 26.
 - Support focused surface-local cursor requests through `pointer-warp-v1`,
   following Field, fullscreen, and output-scale presentation. Reject stale
   serials, hidden or out-of-bounds targets, and compositor-owned interactions;

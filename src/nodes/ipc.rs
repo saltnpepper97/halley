@@ -89,7 +89,29 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 Ok(id) => id,
                 Err(error) => return halley_ipc::Response::Error(error),
             };
-            if move_node(session, id, direction) {
+            if move_node(session, id, direction, None) {
+                halley_ipc::Response::Ack
+            } else {
+                halley_ipc::Response::Error(format!("failed to move node {id}"))
+            }
+        }
+        halley_ipc::NodeRequest::MoveBy {
+            direction,
+            distance,
+            selector,
+            output,
+        } => {
+            if distance == 0 || distance > i32::MAX as u32 {
+                return halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
+                    halley_ipc::ServerErrorKind::InvalidRequest,
+                    "movement distance must be a whole number in 1..=2147483647 Field units",
+                ));
+            }
+            let id = match resolve(session, selector.as_ref(), output.as_deref()) {
+                Ok(id) => id,
+                Err(error) => return halley_ipc::Response::Error(error),
+            };
+            if move_node(session, id, direction, Some(distance)) {
                 halley_ipc::Response::Ack
             } else {
                 halley_ipc::Response::Error(format!("failed to move node {id}"))
@@ -255,6 +277,24 @@ pub(crate) fn move_selected_direction<D: crate::session::SessionDriver>(
     direction: halley_config::Direction,
     output: Option<&str>,
 ) -> bool {
+    move_selected(session, direction, None, output)
+}
+
+pub(crate) fn move_selected_by<D: crate::session::SessionDriver>(
+    session: &mut crate::session::Session<D>,
+    direction: halley_config::Direction,
+    distance: u32,
+    output: Option<&str>,
+) -> bool {
+    move_selected(session, direction, Some(distance), output)
+}
+
+fn move_selected<D: crate::session::SessionDriver>(
+    session: &mut crate::session::Session<D>,
+    direction: halley_config::Direction,
+    distance: Option<u32>,
+    output: Option<&str>,
+) -> bool {
     session.nodes.sync_from_space(&session.wayland.space);
     let Ok(id) = resolve(session, None, output) else {
         return false;
@@ -265,7 +305,7 @@ pub(crate) fn move_selected_direction<D: crate::session::SessionDriver>(
         halley_config::Direction::Up => halley_ipc::NodeMoveDirection::Up,
         halley_config::Direction::Down => halley_ipc::NodeMoveDirection::Down,
     };
-    move_node(session, id, direction)
+    move_node(session, id, direction, distance)
 }
 
 pub(crate) fn resize_selected_direction<D: crate::session::SessionDriver>(
@@ -322,18 +362,23 @@ fn move_node<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
     direction: halley_ipc::NodeMoveDirection,
+    distance: Option<u32>,
 ) -> bool {
+    if distance.is_some_and(|distance| distance == 0 || distance > i32::MAX as u32) {
+        return false;
+    }
     let Some(record) = session.nodes.record(id).cloned() else {
         return false;
     };
     if crate::session::node_user_pinned(session, id) {
         return false;
     }
+    let step = distance.unwrap_or(80) as i32;
     let (dx, dy) = match direction {
-        halley_ipc::NodeMoveDirection::Left => (-80, 0),
-        halley_ipc::NodeMoveDirection::Right => (80, 0),
-        halley_ipc::NodeMoveDirection::Up => (0, -80),
-        halley_ipc::NodeMoveDirection::Down => (0, 80),
+        halley_ipc::NodeMoveDirection::Left => (-step, 0),
+        halley_ipc::NodeMoveDirection::Right => (step, 0),
+        halley_ipc::NodeMoveDirection::Up => (0, -step),
+        halley_ipc::NodeMoveDirection::Down => (0, step),
     };
     if record.collapsed {
         let Some(current) = session.nodes.field.node(id).map(|node| node.pos) else {
@@ -354,16 +399,24 @@ fn move_node<D: crate::session::SessionDriver>(
             .into_iter()
             .filter_map(|(_, _, output, position, _)| (output == record.output).then_some(position))
             .collect::<Vec<_>>();
-        let destination = session.nodes.nearest_free_position(
-            id,
-            desired,
-            scale,
-            &occupied_cores,
-            super::PlacementChrome {
-                decorations: &session.settings.decorations,
-                font: &session.settings.font,
-            },
-        );
+        let chrome = super::PlacementChrome {
+            decorations: &session.settings.decorations,
+            font: &session.settings.font,
+        };
+        let destination = if distance.is_some() {
+            session.nodes.directional_landmark_position(
+                id,
+                current,
+                (dx, dy),
+                scale,
+                &occupied_cores,
+                chrome,
+            )
+        } else {
+            session
+                .nodes
+                .nearest_free_position(id, desired, scale, &occupied_cores, chrome)
+        };
         if let Some(node) = session.nodes.field.node_mut(id) {
             node.pos = destination;
         }
@@ -379,7 +432,10 @@ fn move_node<D: crate::session::SessionDriver>(
         let Some(location) = session.wayland.space.element_location(&record.window) else {
             return false;
         };
-        let desired = location + Point::<i32, Logical>::from((dx, dy));
+        let desired = Point::<i32, Logical>::from((
+            location.x.saturating_add(dx),
+            location.y.saturating_add(dy),
+        ));
         let scale = session
             .cameras
             .get(&record.output)
@@ -391,20 +447,35 @@ fn move_node<D: crate::session::SessionDriver>(
             .into_iter()
             .filter_map(|(_, _, output, position, _)| (output == record.output).then_some(position))
             .collect::<Vec<_>>();
-        let next = session
-            .nodes
-            .nearest_free_active_rect(
-                id,
-                Rectangle::new(desired, record.geometry.size),
-                &record.output,
-                scale,
-                &occupied_cores,
-                super::PlacementChrome {
-                    decorations: &session.settings.decorations,
-                    font: &session.settings.font,
-                },
-            )
-            .loc;
+        let chrome = super::PlacementChrome {
+            decorations: &session.settings.decorations,
+            font: &session.settings.font,
+        };
+        let next = if distance.is_some() {
+            session
+                .nodes
+                .directional_active_rect(
+                    id,
+                    Rectangle::new(location, record.geometry.size),
+                    (dx, dy),
+                    scale,
+                    &occupied_cores,
+                    chrome,
+                )
+                .loc
+        } else {
+            session
+                .nodes
+                .nearest_free_active_rect(
+                    id,
+                    Rectangle::new(desired, record.geometry.size),
+                    &record.output,
+                    scale,
+                    &occupied_cores,
+                    chrome,
+                )
+                .loc
+        };
         if next != location {
             session
                 .interactions

@@ -296,7 +296,7 @@ The built-in action strings are `quit`, `close-focused`, `toggle-fullscreen`,
 `center-last-focused`, `arrange-visible`, `undo-arrange`, `reload`, `zoom-in`,
 `zoom-out`, `zoom-reset`, `screenshot`, and `cluster-toggle-float`. Parameterized actions also include
 `focus-DIRECTION`, `cluster-focus-DIRECTION`, `cluster-tile-swap-DIRECTION`,
-`node-move DIRECTION`, `resize-window-DIRECTION`, and `monitor-focus DIRECTION`, where `DIRECTION` is
+`node-move DIRECTION [UNITS]`, `resize-window-DIRECTION`, and `monitor-focus DIRECTION`, where `DIRECTION` is
 `left`, `right`, `up`, or `down`. The default `Mod+Arrow` `focus-DIRECTION`
 walks spatially among expanded windows, collapsed nodes, and collapsed cluster
 cores on the active output. It pans each target minimally into view without
@@ -304,9 +304,31 @@ opening node or core handles; a collapsed node reserves its full restored
 decorated-window bounds so opening it afterward remains completely visible.
 While a `Mod+A` arrangement is active on that output, the same keybind still
 moves focus but does not pan the camera.
-`node-move` shifts the focused or most-recent Field window/collapsed node by one
-legal placement step; the default binding is
-`Mod+Alt+Arrow`. Field `resize-window` uses `left`/`up` to
+`node-move` shifts the focused or most-recent Field window/collapsed node. Without
+a distance it retains the original 80-Field-unit nearest-free placement; the
+default binding is `Mod+Alt+Arrow`. Add a positive whole-number distance to move
+up to that many Field units along the requested axis, stopping at obstacles:
+
+```rune
+# Replace the corresponding bindings inside keybinds: for smaller movements.
+"$var.mod+alt+left" "node-move left 10"
+"$var.mod+alt+right" "node-move right 10"
+"$var.mod+alt+up" "node-move up 10"
+"$var.mod+alt+down" "node-move down 10"
+```
+
+Distances range from `1` through `2147483647`. Field units are logical coordinates
+at native zoom; camera zoom and output scaling affect their apparent screen
+distance. Explicit moves stop at the first obstruction without jumping sideways
+or through landmarks. Expanded windows may still overlap each other. Pinned
+objects stay fixed, and a fully blocked move does nothing. Both movement forms
+repeat while held by default and support `with repeat false`. The existing
+aliases (`node move right 10`, `move right 10`, and `node-move-right 10`, for
+example) also accept distances. Invalid distances fail configuration verification.
+`Mod+Alt+Shift+Arrow` remains reserved by the default configuration for monitor
+transfer; it is not a second movement-speed binding.
+
+Field `resize-window` uses `left`/`up` to
 shrink and `right`/`down` to grow, sharing `Mod+Ctrl+Arrow` with scoped tile
 swapping. `monitor focus DP-1` targets an exact connector name. `Alt+Tab` and
 `Alt+Shift+Tab` open and navigate the focus carousel; releasing Alt commits,

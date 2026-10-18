@@ -348,7 +348,7 @@ swipe, and hold actions.
 | Focus | `Super+H` | Center the last-focused Field window |
 | Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
-| Move | `Super+Alt+Arrow` | Move the focused Field node |
+| Move | `Super+Alt+Arrow` | Move the focused Field node; [custom distances](docs/keybinds.md#actions) are optional |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
 | Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
 | Clusters | `Super+Shift+C` | Enter cluster creation mode |

@@ -33,6 +33,7 @@ pub enum NodeCommand {
     },
     Move {
         direction: NodeMoveDirection,
+        distance: Option<u32>,
         selector: Option<NodeSelector>,
         output: Option<String>,
     },
@@ -89,13 +90,48 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
                 Some(other) => return Err(format!("unknown node move direction {other:?}")),
                 None => return Err("node move requires left, right, up, or down".to_string()),
             };
-            let (selector, output, json) = parse_flags(&args[2..], true)?;
+            let mut distance = None;
+            let mut remaining = Vec::new();
+            let mut index = 2;
+            while index < args.len() {
+                let arg = &args[index];
+                if arg == "--distance" || arg.starts_with("--distance=") {
+                    let value = if let Some(value) = arg.strip_prefix("--distance=") {
+                        value
+                    } else {
+                        index += 1;
+                        args.get(index)
+                            .ok_or("--distance requires a positive whole number")?
+                    };
+                    let amount = value.parse::<i32>().ok().filter(|n| *n > 0).ok_or(
+                        "movement distance must be a whole number in 1..=2147483647 Field units",
+                    )?;
+                    if distance.replace(amount as u32).is_some() {
+                        return Err("--distance was specified more than once".into());
+                    }
+                } else {
+                    // Preserve option values literally, even when an output
+                    // name happens to look like a movement option.
+                    remaining.push(arg.clone());
+                    if matches!(arg.as_str(), "-o" | "--output") {
+                        index += 1;
+                        remaining.push(
+                            args.get(index)
+                                .ok_or("node output option requires a connector name")?
+                                .clone(),
+                        );
+                    }
+                }
+                index += 1;
+            }
+            let (selector, output, json) = parse_flags(&remaining, true)?;
             if json {
                 return Err("--json is supported only by node list and node info".to_string());
             }
             Ok(Action::Node {
                 request: NodeCommand::Move {
                     direction,
+                    distance,
                     selector,
                     output,
                 },
