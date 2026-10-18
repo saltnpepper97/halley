@@ -1017,13 +1017,31 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
         // as Steam. A later decoration-button or title-bar request is deliberate
         // and maps to Halley's field-maximize presentation.
         if !surface.is_initial_configure_sent() {
+            let output = wayland::focus::selected_output(&self.wayland)
+                .unwrap_or_else(|| self.driver.primary_output());
+            let bounds = smithay::desktop::layer_map_for_output(output)
+                .non_exclusive_zone()
+                .size;
+            let size =
+                crate::window::recovery::presentation_close_recovery_size(bounds, Some(bounds));
             surface.with_pending_state(|state| {
+                // A restored maximized client may have no usable normal size.
+                // Give it the same bounded windowed fallback as presentation
+                // close recovery, without accepting startup maximize ownership.
+                if !state.states.contains(
+                    smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen,
+                ) {
+                    state.size.get_or_insert(size);
+                    state.bounds = Some(bounds);
+                }
                 state.states.unset(
                     smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized,
                 );
                 wayland::decoration::apply_tiled_hint(state);
             });
-            surface.send_configure();
+            // The first bufferless wl_surface.commit applies size rules and
+            // recovery policy before sending the initial configure. Sending
+            // it here skips that policy and can expose a tiny startup buffer.
             return;
         }
         if let Some(id) = self.nodes.id_for_surface(surface.wl_surface())

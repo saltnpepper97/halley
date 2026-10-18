@@ -90,6 +90,12 @@ xdg-positioner constraints inverse-map the output through that window's live
 presentation rather than the field camera viewport, so fullscreen and
 field-maximize menus stay on their anchor.
 
+Startup maximize requests do not take Field-maximize ownership. Halley offers
+those clients a windowed size at three quarters of the output's usable width
+and height, rather than an unspecified size that can produce a small first
+frame. The initial configure waits for the first surface commit so explicit
+initial-size rules and session recovery hints can take precedence.
+
 When an independent native toplevel closes while fullscreen or field-maximized,
 Halley retains a normal client size for that app ID for the current session. A
 genuine smaller pre-presentation size is preserved; an already-poisoned
