@@ -352,6 +352,16 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 crate::nodes::move_selected_direction(session, direction, Some(&output));
             }
         }
+        super::super::SessionControl::MoveNodeBy {
+            direction,
+            distance,
+        } => {
+            if let Some(output) = action_output
+                && session.clusters.active_on(&output).is_none()
+            {
+                crate::nodes::ipc::move_selected_by(session, direction, distance, Some(&output));
+            }
+        }
         super::super::SessionControl::ResizeWindow(direction) => {
             if let Some(output) = action_output
                 && session.clusters.active_on(&output).is_none()

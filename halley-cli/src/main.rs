@@ -68,9 +68,15 @@ fn main() -> ExitCode {
                 }
                 NodeCommand::Move {
                     direction,
+                    distance,
                     selector,
                     output,
-                } => client.move_node(direction, selector, output.as_deref())?,
+                } => match distance {
+                    Some(distance) => {
+                        client.move_node_by(direction, distance, selector, output.as_deref())?
+                    }
+                    None => client.move_node(direction, selector, output.as_deref())?,
+                },
             }
             Ok(ExitCode::SUCCESS)
         }),

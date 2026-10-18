@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// the end of `Request`/`Response` silently breaks wire-compatibility with
 /// a differently-versioned build - worth remembering as this grows, not
 /// solved here (this first pass has nothing to negotiate against yet).
-pub const HALLEY_IPC_VERSION: u32 = 25;
+pub const HALLEY_IPC_VERSION: u32 = 26;
 pub const HALLEY_API_VERSION: u32 = 1;
 
 /// A request from `halleyctl`, the portal backend, or another local client.
@@ -397,6 +397,14 @@ pub enum NodeRequest {
         output: Option<String>,
     },
     Toggle {
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
+    /// Directional movement that stops at the first obstacle. Appended to
+    /// preserve the encoding of existing node requests.
+    MoveBy {
+        direction: NodeMoveDirection,
+        distance: u32,
         selector: Option<NodeSelector>,
         output: Option<String>,
     },

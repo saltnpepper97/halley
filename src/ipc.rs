@@ -784,6 +784,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                         "local-capture-v1".into(),
                         "direct-capture-v1".into(),
                         "silent-capture-v1".into(),
+                        "node-move-distance-v1".into(),
                     ],
                 })
             }

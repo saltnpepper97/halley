@@ -17,6 +17,7 @@ use smithay::wayland::shell::xdg::dialog::ToplevelDialogHint;
 mod dynamics;
 pub(crate) mod ipc;
 mod keyboard_navigation;
+mod movement;
 mod session_ops;
 pub(crate) use keyboard_navigation::{pan_field, transfer_window};
 

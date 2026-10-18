@@ -368,6 +368,7 @@ mod tests {
             Ok(Action::Node {
                 request: NodeCommand::Move {
                     direction: NodeMoveDirection::Left,
+                    distance: None,
                     selector: Some(NodeSelector::App("firefox".into())),
                     output: None,
                 },
@@ -375,5 +376,54 @@ mod tests {
             })
         );
         assert!(parse(&args(&["node", "collapse", "--json"])).is_err());
+    }
+
+    #[test]
+    fn node_move_distance_retains_selectors_and_output_in_any_order() {
+        for arguments in [
+            vec![
+                "node",
+                "move",
+                "right",
+                "--distance",
+                "10",
+                "app:firefox",
+                "-o",
+                "DP-1",
+            ],
+            vec![
+                "node",
+                "move",
+                "right",
+                "app:firefox",
+                "--output",
+                "DP-1",
+                "--distance=10",
+            ],
+        ] {
+            assert_eq!(
+                parse(&args(&arguments)),
+                Ok(Action::Node {
+                    request: NodeCommand::Move {
+                        direction: NodeMoveDirection::Right,
+                        distance: Some(10),
+                        selector: Some(NodeSelector::App("firefox".into())),
+                        output: Some("DP-1".into()),
+                    },
+                    output: NodeOutput::Ack,
+                })
+            );
+        }
+        for value in ["0", "-1", "1.5", "abc", "2147483648", ""] {
+            assert!(parse(&args(&["node", "move", "right", "--distance", value])).is_err());
+        }
+        for arguments in [
+            vec!["node", "move", "right", "--distance"],
+            vec!["node", "move", "right", "--distance", "10", "--distance=20"],
+            vec!["node", "focus", "--distance", "10"],
+            vec!["node", "move", "right", "--distance=10", "--json"],
+        ] {
+            assert!(parse(&args(&arguments)).is_err());
+        }
     }
 }

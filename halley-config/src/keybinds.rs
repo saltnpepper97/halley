@@ -100,6 +100,11 @@ pub enum Action {
     FocusDirection(Direction),
     /// Move the focused or most-recent Field node by one placement step.
     MoveNode(Direction),
+    /// Move along the requested axis by up to a positive number of Field units.
+    MoveNodeBy {
+        direction: Direction,
+        distance: u32,
+    },
     TransferWindow(Direction),
     PanField(Direction),
     /// Resize the focused Field window by one placement step. Left and up
@@ -157,6 +162,7 @@ impl Action {
                 | Self::Trail(_)
                 | Self::FocusDirection(_)
                 | Self::MoveNode(_)
+                | Self::MoveNodeBy { .. }
                 | Self::PanField(_)
                 | Self::ResizeWindow(_)
                 | Self::ClusterTileFocus(_)
@@ -170,6 +176,7 @@ impl Action {
     pub fn default_scope(&self) -> BindingScope {
         match self {
             Self::MoveNode(_)
+            | Self::MoveNodeBy { .. }
             | Self::TransferWindow(_)
             | Self::PanField(_)
             | Self::ResizeWindow(_)

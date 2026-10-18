@@ -91,6 +91,10 @@ enum SessionControl {
     Trail(halley_config::TrailDirection),
     FocusDirection(halley_config::Direction),
     MoveNode(halley_config::Direction),
+    MoveNodeBy {
+        direction: halley_config::Direction,
+        distance: u32,
+    },
     TransferWindow(halley_config::Direction),
     PanField(halley_config::Direction),
     ResizeWindow(halley_config::Direction),
@@ -141,6 +145,15 @@ fn dispatch_action(
         Action::TransferWindow(direction) => return SessionControl::TransferWindow(direction),
         Action::PanField(direction) => return SessionControl::PanField(direction),
         Action::MoveNode(direction) => return SessionControl::MoveNode(direction),
+        Action::MoveNodeBy {
+            direction,
+            distance,
+        } => {
+            return SessionControl::MoveNodeBy {
+                direction,
+                distance,
+            };
+        }
         Action::ResizeWindow(direction) => return SessionControl::ResizeWindow(direction),
         Action::ArrangeVisible => return SessionControl::ArrangeVisible,
         Action::UndoArrange => return SessionControl::UndoArrange,

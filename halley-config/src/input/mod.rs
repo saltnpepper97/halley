@@ -379,7 +379,9 @@ fn parse_gesture_action(value: &Value, path: &str) -> Result<GestureAction, Inpu
     match value.as_str() {
         "apogee-open" | "overview-open" => Ok(GestureAction::ApogeeOpen),
         "apogee-close" | "overview-close" => Ok(GestureAction::ApogeeClose),
-        _ => match crate::parse::parse_action(value) {
+        _ => match crate::parse::parse_action_checked(value)
+            .map_err(|error| InputParseError(format!("{path}: {error}")))?
+        {
             crate::Action::Spawn(_)
             | crate::Action::PointerMoveWindow
             | crate::Action::PointerResizeWindow
