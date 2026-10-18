@@ -80,7 +80,11 @@ ellipsized as needed so they cannot overlap controls or the pin badge.
 Field-maximized windows retain their rounded border. Entering true fullscreen
 removes compositor chrome immediately, while the client content and geometry
 continue animating. The fullscreen surface is square and eligible for direct
-scanout from its first presented frame.
+scanout from its first presented frame. Mod+F keeps native clients
+protocol-windowed so a later F11 or HTML fullscreen request can trigger a fresh
+client reflow. Halley retains the tiled-edge hints in this mode to keep
+client-drawn corners square; client-owned fullscreen uses the fullscreen state
+instead.
 
 Leaving fullscreen keeps compositor chrome hidden during the early return
 motion, then gradually fades it into place from 65% to 90% of the existing

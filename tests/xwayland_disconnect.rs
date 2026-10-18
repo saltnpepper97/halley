@@ -253,8 +253,11 @@ struct NativeState {
     viewport: Option<wp_viewport::WpViewport>,
     resize_for_configures: bool,
     configured_fullscreen: bool,
+    configured_maximized: bool,
+    configured_all_tiled: bool,
     configure_count: usize,
     configured_size: (i32, i32),
+    first_configured_size: Option<(i32, i32)>,
     foreign_toplevel: Option<foreign_handle::ZwlrForeignToplevelHandleV1>,
     foreign_titles: HashMap<String, foreign_handle::ZwlrForeignToplevelHandleV1>,
 }
@@ -419,9 +422,26 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for NativeState {
         } = event
         {
             state.configured_size = (width, height);
+            state.first_configured_size.get_or_insert((width, height));
             state.configured_fullscreen = states.chunks_exact(4).any(|bytes| {
                 u32::from_ne_bytes(bytes.try_into().unwrap())
                     == xdg_toplevel::State::Fullscreen as u32
+            });
+            state.configured_maximized = states.chunks_exact(4).any(|bytes| {
+                u32::from_ne_bytes(bytes.try_into().unwrap())
+                    == xdg_toplevel::State::Maximized as u32
+            });
+            state.configured_all_tiled = [
+                xdg_toplevel::State::TiledTop,
+                xdg_toplevel::State::TiledBottom,
+                xdg_toplevel::State::TiledLeft,
+                xdg_toplevel::State::TiledRight,
+            ]
+            .into_iter()
+            .all(|edge| {
+                states
+                    .chunks_exact(4)
+                    .any(|bytes| u32::from_ne_bytes(bytes.try_into().unwrap()) == edge as u32)
             });
             if state.resize_for_configures && width > 0 && height > 0 {
                 state
@@ -471,7 +491,18 @@ fn native_window_named(
     app_id: &str,
     rgba: [u32; 4],
 ) -> (EventQueue<NativeState>, NativeState) {
+    native_window_named_with_startup_maximize(fixture, title, app_id, rgba, false)
+}
+
+fn native_window_named_with_startup_maximize(
+    fixture: &Fixture,
+    title: &str,
+    app_id: &str,
+    rgba: [u32; 4],
+    startup_maximize: bool,
+) -> (EventQueue<NativeState>, NativeState) {
     let (mut queue, mut state) = native_connection(fixture);
+    state.resize_for_configures = startup_maximize;
     let handle = queue.handle();
     let registry = state.registry.as_ref().unwrap().clone();
     let compositor: wl_compositor::WlCompositor =
@@ -484,7 +515,7 @@ fn native_window_named(
     );
     let viewporter: wp_viewporter::WpViewporter =
         registry.bind(state.globals["wp_viewporter"], 1, &handle, ());
-    let shell: xdg_wm_base::XdgWmBase = registry.bind(state.globals["xdg_wm_base"], 1, &handle, ());
+    let shell: xdg_wm_base::XdgWmBase = registry.bind(state.globals["xdg_wm_base"], 2, &handle, ());
     let surface = compositor.create_surface(&handle, ());
     let manager: fractional_manager::WpFractionalScaleManagerV1 = registry.bind(
         state.globals["wp_fractional_scale_manager_v1"],
@@ -500,6 +531,9 @@ fn native_window_named(
     let toplevel = xdg_surface.get_toplevel(&handle, ());
     toplevel.set_title(title.into());
     toplevel.set_app_id(app_id.into());
+    if startup_maximize {
+        toplevel.set_maximized();
+    }
     state.toplevel = Some(toplevel);
     state.buffer =
         Some(pixels.create_u32_rgba_buffer(rgba[0], rgba[1], rgba[2], rgba[3], &handle, ()));
@@ -1626,6 +1660,100 @@ end
             .then_some(())
     });
     assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; checks startup maximize sizing"]
+fn startup_maximize_uses_a_windowed_fallback_and_preserves_initial_size_rules() {
+    for rule in [None, Some((720, 520))] {
+        let extra = rule.map_or_else(String::new, |(width, height)| {
+            format!("rules:\n  window-rule:\n    app-id \"halley.startup-size\"\n    width {width}\n    height {height}\n  end\nend\n")
+        });
+        let mut fixture = Fixture::with_config("stacking", &extra);
+        let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+            panic!("missing outputs");
+        };
+        let output = &outputs.outputs[0];
+        let mode = output.modes[output.current_mode.unwrap()];
+        let expected = rule.unwrap_or((mode.width * 3 / 4, mode.height * 3 / 4));
+        let (_queue, state) = native_window_named_with_startup_maximize(
+            &fixture,
+            "startup maximized window",
+            "halley.startup-size",
+            [u32::MAX, 0, 0, u32::MAX],
+            true,
+        );
+        assert_eq!(state.first_configured_size, Some(expected));
+        assert!(!state.configured_fullscreen);
+        assert!(!state.configured_maximized);
+        fixture.node("startup maximized window");
+    }
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; checks native fullscreen decoration hints"]
+fn compositor_fullscreen_preserves_square_client_corners_across_nested_fullscreen() {
+    let mut fixture = Fixture::with_config("stacking", "animations:\n  enabled false\nend\n");
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "fullscreen client corners",
+        "halley.fullscreen.client-corners",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("fullscreen client corners");
+    state.resize_for_configures = true;
+    let _manager: foreign_manager::ZwlrForeignToplevelManagerV1 =
+        state.registry.as_ref().unwrap().bind(
+            state.globals["zwlr_foreign_toplevel_manager_v1"],
+            3,
+            &queue.handle(),
+            (),
+        );
+    let handle = wait_for("foreign toplevel handle", || {
+        queue.roundtrip(&mut state).unwrap();
+        state.foreign_toplevel.clone()
+    });
+    let before = state.configure_count;
+    handle.set_fullscreen(None); // Same compositor action as Mod+F.
+    wait_for("compositor fullscreen configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before && state.configured_size.0 > 240).then_some(())
+    });
+    assert!(!state.configured_fullscreen);
+    assert!(
+        state.configured_all_tiled,
+        "Mod+F must keep client corners square"
+    );
+
+    let before = state.configure_count;
+    state.toplevel.as_ref().unwrap().set_fullscreen(None); // Client F11.
+    wait_for("nested client fullscreen configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before && state.configured_fullscreen).then_some(())
+    });
+    assert!(!state.configured_all_tiled);
+
+    let fullscreen_size = state.configured_size;
+    let before = state.configure_count;
+    state.toplevel.as_ref().unwrap().unset_fullscreen();
+    wait_for("nested client fullscreen exit configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before && !state.configured_fullscreen).then_some(())
+    });
+    assert_eq!(state.configured_size, fullscreen_size);
+    assert!(
+        state.configured_all_tiled,
+        "leaving F11 under Mod+F must restore square client corners"
+    );
+
+    let before = state.configure_count;
+    handle.unset_fullscreen();
+    wait_for("windowed configure", || {
+        queue.roundtrip(&mut state).unwrap();
+        (state.configure_count > before && state.configured_size != fullscreen_size).then_some(())
+    });
+    assert!(!state.configured_fullscreen);
+    assert!(state.configured_all_tiled);
 }
 
 #[test]

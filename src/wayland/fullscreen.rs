@@ -507,7 +507,6 @@ impl FullscreenManager {
                 protocol_desired,
                 keep_maximized_protocol,
             );
-            super::decoration::clear_tiled_hint(state);
             state.size = Some(output_geometry.size);
             state.bounds = Some(output_geometry.size);
             state.fullscreen_output = (protocol_origin != FullscreenOrigin::Maximize
@@ -562,7 +561,6 @@ impl FullscreenManager {
                 state.size = Some(bounds);
                 state.bounds = Some(bounds);
                 state.fullscreen_output = None;
-                super::decoration::clear_tiled_hint(state);
             });
             send_required_configure(toplevel);
             self.discard_snapshot_requests(toplevel.wl_surface());
@@ -601,7 +599,6 @@ impl FullscreenManager {
                 apply_protocol_presentation_state(state, origin, true);
                 state.size = Some(bounds);
                 state.bounds = Some(bounds);
-                super::decoration::clear_tiled_hint(state);
             });
             send_required_configure(toplevel);
             self.discard_snapshot_requests(toplevel.wl_surface());
@@ -1655,7 +1652,6 @@ impl FullscreenManager {
                     apply_protocol_presentation_state(state, protocol_origin, protocol_desired);
                     state.size = Some(geometry.size);
                     state.bounds = Some(geometry.size);
-                    super::decoration::clear_tiled_hint(state);
                 });
                 let serial = toplevel.send_configure();
                 if entry.native_pending.is_some() {
@@ -1772,6 +1768,7 @@ fn apply_protocol_presentation_state_for_request(
     if retain_maximized && origin == FullscreenOrigin::Compositor && !active {
         state.states.unset(State::Fullscreen);
         state.states.set(State::Maximized);
+        super::decoration::apply_tiled_hint(state);
         return;
     }
     apply_protocol_presentation_state(state, origin, active);
@@ -1794,6 +1791,11 @@ fn apply_protocol_presentation_state(
     if active {
         state.states.set(protocol_presentation_state(origin));
     }
+    // Mod+F keeps native clients protocol-windowed so nested client
+    // fullscreen can trigger a fresh reflow. Keep every tiled edge in that
+    // state: CSD clients otherwise repaint their own rounded corners even
+    // though the compositor has already removed its fullscreen mask.
+    super::decoration::apply_tiled_hint(state);
 }
 
 fn fullscreen_presentation(
@@ -2049,11 +2051,6 @@ fn configure_reassigned_native(
     // The disabled wl_output must not survive in the next configure. Output
     // assignment already selects the fallback; no client preference is needed.
     state.fullscreen_output = None;
-    if entry.desired {
-        super::decoration::clear_tiled_hint(state);
-    } else {
-        super::decoration::apply_tiled_hint(state);
-    }
 }
 
 fn native_visual_buffer_matches(
@@ -2589,6 +2586,17 @@ mod tests {
                 state.states.contains(State::Fullscreen),
                 origin == FullscreenOrigin::Client
             );
+            for edge in [
+                State::TiledTop,
+                State::TiledBottom,
+                State::TiledLeft,
+                State::TiledRight,
+            ] {
+                assert_eq!(
+                    state.states.contains(edge),
+                    origin == FullscreenOrigin::Compositor
+                );
+            }
             assert_eq!(state.size, Some((1280, 720).into()));
             assert_eq!(state.bounds, Some((1280, 720).into()));
             assert!(state.fullscreen_output.is_none());
