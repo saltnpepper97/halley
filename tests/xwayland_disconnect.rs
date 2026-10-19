@@ -33,6 +33,8 @@ use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, Win
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
+#[path = "support/fifo_nested.rs"]
+mod fifo_nested;
 #[path = "support/output_management.rs"]
 mod output_management;
 #[path = "support/pointer_warp.rs"]
@@ -239,6 +241,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct NativeState {
+    fifo_frames: Vec<(u32, u32)>,
     globals: HashMap<String, u32>,
     output_management: output_management::Observations,
     pointer_warp: pointer_warp::Observations,
