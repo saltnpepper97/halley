@@ -92,6 +92,8 @@ rustPlatform.buildRustPackage {
           coreutils
         ]
       }'
+    substituteInPlace tests/idle_service.rs \
+      --replace-fail '"--session"' '"--config-file=${dbus}/share/dbus-1/session.conf"'
   '';
 
   postInstall = ''
