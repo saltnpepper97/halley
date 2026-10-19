@@ -1,4 +1,8 @@
-{ nixpkgs, system, self }:
+{
+  nixpkgs,
+  system,
+  self,
+}:
 let
   pkgs = nixpkgs.legacyPackages.${system};
   evaluated = nixpkgs.lib.nixosSystem {
@@ -8,7 +12,10 @@ let
       {
         programs.halley.enable = true;
         boot.loader.grub.enable = false;
-        fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
+        fileSystems."/" = {
+          device = "none";
+          fsType = "tmpfs";
+        };
         system.stateVersion = "26.05";
       }
     ];

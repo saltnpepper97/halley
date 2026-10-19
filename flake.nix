@@ -3,9 +3,13 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
@@ -13,14 +17,19 @@
         halley = final.callPackage ./nix/package.nix { };
       };
 
-      packages = forAllSystems (system:
+      packages = forAllSystems (
+        system:
         let
-          pkgs = import nixpkgs { inherit system; overlays = [ self.overlays.default ]; };
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ self.overlays.default ];
+          };
         in
         {
           inherit (pkgs) halley;
           default = pkgs.halley;
-        });
+        }
+      );
 
       apps = forAllSystems (system: {
         default = {
@@ -30,16 +39,25 @@
         };
       });
 
-      devShells = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system};
-        in {
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
           default = pkgs.mkShell {
             inputsFrom = [ self.packages.${system}.halley ];
-            packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ];
+            packages = [
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.clippy
+            ];
           };
-        });
+        }
+      );
 
-      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       checks = forAllSystems (system: {
         inherit (self.packages.${system}) halley;

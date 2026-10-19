@@ -1,5 +1,10 @@
 self:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.programs.halley;
 in
@@ -28,11 +33,11 @@ in
     };
 
     hardware.graphics.enable = lib.mkDefault true;
+    services.graphical-desktop.enable = true;
     security.polkit.enable = true;
     security.pam.services.swaylock = { };
-    services.libinput.enable = true;
-    services.xserver.xkb.export = true;
     programs.dconf.enable = lib.mkDefault true;
+    services.xserver.desktopManager.runXdgAutostartIfNone = lib.mkDefault true;
 
     services.pipewire = {
       enable = lib.mkDefault true;
@@ -41,7 +46,10 @@ in
 
     xdg.portal = {
       enable = lib.mkDefault true;
-      extraPortals = [ cfg.package pkgs.xdg-desktop-portal-gtk ];
+      extraPortals = [
+        cfg.package
+        pkgs.xdg-desktop-portal-gtk
+      ];
       configPackages = [ cfg.package ];
     };
   };

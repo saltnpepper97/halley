@@ -15,6 +15,8 @@
   libgbm,
   libglvnd,
   libinput,
+  libx11,
+  libxi,
   libxkbcommon,
   pipewire,
   seatd,
@@ -26,44 +28,68 @@ rustPlatform.buildRustPackage {
   pname = "halley";
   version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).package.version;
 
-  src = lib.cleanSource ../.;
+  src = lib.cleanSourceWith {
+    src = lib.cleanSource ../.;
+    filter = path: type: !(type == "directory" && builtins.baseNameOf path == "target");
+  };
 
   cargoLock = {
     lockFile = ../Cargo.lock;
     # Both Smithay crates share this pinned checkout.
-    outputHashes."smithay-0.7.0" = lib.fakeHash;
+    outputHashes."smithay-0.7.0" = "sha256-DUSciVTN5Ds2AYZVaGmMu7DBINRxu3CIdUCT4QCplTY=";
   };
 
-  nativeBuildInputs = [ pkg-config makeWrapper rustPlatform.bindgenHook ];
+  nativeBuildInputs = [
+    pkg-config
+    makeWrapper
+    rustPlatform.bindgenHook
+  ];
   buildInputs = [
     libdrm
     libgbm
     libglvnd
     libinput
+    libx11
+    libxi
     libxkbcommon
     pipewire
     seatd
     systemdLibs
     wayland
   ];
-  nativeCheckInputs = [ bash coreutils dbus ];
+  nativeCheckInputs = [
+    bash
+    coreutils
+    dbus
+  ];
 
   cargoBuildFlags = [ "--workspace" ];
   cargoTestFlags = [ "--workspace" ];
 
   # Keep dynamically loaded graphics libraries in the runtime closure/RPATH.
-  env.RUSTFLAGS = lib.concatStringsSep " " (map (arg: "-C link-arg=${arg}") [
-    "-Wl,--push-state,--no-as-needed"
-    "-lEGL"
-    "-lwayland-client"
-    "-Wl,--pop-state"
-  ]);
+  env.RUSTFLAGS = lib.concatStringsSep " " (
+    map (arg: "-C link-arg=${arg}") [
+      "-Wl,--push-state,--no-as-needed"
+      "-lEGL"
+      "-lwayland-client"
+      "-lX11"
+      "-lX11-xcb"
+      "-lXi"
+      "-lxkbcommon-x11"
+      "-Wl,--pop-state"
+    ]
+  );
 
   postPatch = ''
     # These test fixtures deliberately clear PATH and create executable scripts.
     substituteInPlace tests/session_lifecycle.rs \
       --replace-fail '/bin/sh' '${lib.getExe bash}' \
-      --replace-fail '/usr/bin:/bin' '${lib.makeBinPath [ bash coreutils ]}'
+      --replace-fail '/usr/bin:/bin' '${
+        lib.makeBinPath [
+          bash
+          coreutils
+        ]
+      }'
   '';
 
   postInstall = ''
@@ -75,8 +101,7 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/wayland-sessions/halley.desktop \
       "$out/share/wayland-sessions/halley.desktop"
     substituteInPlace "$out/share/wayland-sessions/halley.desktop" \
-      --replace-fail 'Exec=halley-session' "Exec=$out/bin/halley-session" \
-      --replace-fail 'TryExec=halley-session' "TryExec=$out/bin/halley-session"
+      --replace-fail '=halley-session' "=$out/bin/halley-session"
 
     mkdir -p "$out/share/xdg-desktop-portal" "$out/share/dbus-1/services" \
       "$out/lib/systemd/user"
@@ -91,9 +116,39 @@ rustPlatform.buildRustPackage {
       --replace-fail '/usr/bin/halley-session' "$out/bin/halley-session"
 
     wrapProgram "$out/bin/halley" \
-      --prefix PATH : ${lib.makeBinPath [ bash dbus systemd xwayland ]}
+      --prefix PATH : ${
+        lib.makeBinPath [
+          bash
+          dbus
+          systemd
+          xwayland
+        ]
+      }
     wrapProgram "$out/bin/halley-session" \
-      --prefix PATH : ${lib.makeBinPath [ coreutils dbus gnugrep gnused procps systemd ]}
+      --prefix PATH : ${
+        lib.makeBinPath [
+          coreutils
+          dbus
+          gnugrep
+          gnused
+          procps
+          systemd
+        ]
+      }
+  '';
+
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    "$out/bin/halley" --version
+    "$out/bin/halleyctl" --help
+    test -x "$out/bin/xdg-desktop-portal-halley"
+    test -x "$out/bin/halley-session"
+    grep -F "Exec=$out/bin/halley-session" "$out/share/wayland-sessions/halley.desktop"
+    grep -F "ExecStart=$out/bin/halley-session" "$out/lib/systemd/user/halley.service"
+    grep -F "ExecStart=$out/bin/xdg-desktop-portal-halley" \
+      "$out/lib/systemd/user/xdg-desktop-portal-halley.service"
+    runHook postInstallCheck
   '';
 
   passthru.providedSessions = [ "halley" ];
