@@ -43,10 +43,12 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          package = self.packages.${system}.halley;
         in
         {
           default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.halley ];
+            inputsFrom = [ package ];
+            RUSTFLAGS = package.RUSTFLAGS;
             packages = [
               pkgs.cargo
               pkgs.rustc
