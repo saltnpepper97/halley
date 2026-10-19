@@ -11,6 +11,7 @@
   procps,
   systemd,
   systemdLibs,
+  libdisplay-info_0_3,
   libdrm,
   libgbm,
   libglvnd,
@@ -45,6 +46,7 @@ rustPlatform.buildRustPackage {
     rustPlatform.bindgenHook
   ];
   buildInputs = [
+    libdisplay-info_0_3
     libdrm
     libgbm
     libglvnd
