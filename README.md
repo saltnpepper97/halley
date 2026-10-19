@@ -286,6 +286,8 @@ sessions, while dinit and direct init-agnostic launch paths are also packaged.
 
 ## Build and Install
 
+For Nix and NixOS, see [the flake and NixOS setup guide](docs/nix.md).
+
 Build the complete workspace:
 
 ```sh
