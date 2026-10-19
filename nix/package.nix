@@ -68,6 +68,10 @@ rustPlatform.buildRustPackage {
   cargoBuildFlags = [ "--workspace" ];
   cargoTestFlags = [ "--workspace" ];
 
+  preCheck = ''
+    export XDG_RUNTIME_DIR=$(mktemp -d)
+  '';
+
   # Keep dynamically loaded graphics libraries in the runtime closure/RPATH.
   env.RUSTFLAGS = lib.concatStringsSep " " (
     map (arg: "-C link-arg=${arg}") [
