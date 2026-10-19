@@ -72,7 +72,7 @@ You can override `programs.halley.package` with another compatible Halley
 derivation. The overlay is available as `halley.overlays.default` if you prefer
 to access the package as `pkgs.halley`.
 
-The module does not write or replace `~/.config/halley/config.rune`. Halley
+The module does not write or replace `~/.config/halley/halley.rune`. Halley
 uses its normal first-run configuration behavior. The session launcher uses
 the user's login-shell environment for application discovery.
 
