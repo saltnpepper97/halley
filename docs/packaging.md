@@ -1,5 +1,7 @@
 # Building and packaging
 
+For reproducible Nix builds and NixOS session setup, see [Nix and NixOS](nix.md).
+
 Halley's default build preserves the complete desktop and development feature
 set:
 
