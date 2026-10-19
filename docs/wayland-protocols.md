@@ -25,6 +25,22 @@ This enables FIFO presentation for clients that use it; it does not promise
 higher FPS, lower latency, reduced memory usage, or changes to other clients.
 Commit-timing support is separate work.
 
+The protocol regression tests run with:
+
+```sh
+cargo test -p halley --test client_compatibility_protocol fifo_tests --locked
+cargo test -p halley --test xwayland_disconnect fifo_nested --locked -- --ignored --test-threads=1
+```
+
+The second command needs a running Wayland desktop and XWayland. It creates
+an isolated nested compositor and checks separate refresh opportunities,
+collapse/restore and session lock without changing the host session. Socket
+tests cover independent acquire blockers, synchronized subsurfaces, stale
+frame snapshots across output handoff and the no-output fallback. Physical
+TTY presentation, mixed-refresh monitors, DPMS and hotplug still require
+native-session checks; nested EGL timing is not hardware presentation proof.
+No new configuration or permission grant is needed to use FIFO.
+
 Halley advertises `wp_pointer_warp_v1` version 1 (`pointer-warp-v1`) on native
 and nested backends. A client can request a surface-local cursor position
 using the current pointer-enter serial for its pointer-focused surface.
