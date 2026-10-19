@@ -96,7 +96,7 @@ rustPlatform.buildRustPackage {
           coreutils
         ]
       }'
-    substituteInPlace tests/idle_service.rs \
+    substituteInPlace tests/idle_service.rs halley-portal/tests/portal_dispatch.rs \
       --replace-fail '"--session"' '"--config-file=${dbus}/share/dbus-1/session.conf"'
   '';
 
