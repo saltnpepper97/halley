@@ -1,0 +1,108 @@
+{
+  lib,
+  rustPlatform,
+  pkg-config,
+  makeWrapper,
+  bash,
+  coreutils,
+  dbus,
+  gnugrep,
+  gnused,
+  procps,
+  systemd,
+  systemdLibs,
+  libdrm,
+  libgbm,
+  libglvnd,
+  libinput,
+  libxkbcommon,
+  pipewire,
+  seatd,
+  wayland,
+  xwayland,
+}:
+
+rustPlatform.buildRustPackage {
+  pname = "halley";
+  version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).package.version;
+
+  src = lib.cleanSource ../.;
+
+  cargoLock = {
+    lockFile = ../Cargo.lock;
+    # Both Smithay crates share this pinned checkout.
+    outputHashes."smithay-0.7.0" = lib.fakeHash;
+  };
+
+  nativeBuildInputs = [ pkg-config makeWrapper rustPlatform.bindgenHook ];
+  buildInputs = [
+    libdrm
+    libgbm
+    libglvnd
+    libinput
+    libxkbcommon
+    pipewire
+    seatd
+    systemdLibs
+    wayland
+  ];
+  nativeCheckInputs = [ bash coreutils dbus ];
+
+  cargoBuildFlags = [ "--workspace" ];
+  cargoTestFlags = [ "--workspace" ];
+
+  # Keep dynamically loaded graphics libraries in the runtime closure/RPATH.
+  env.RUSTFLAGS = lib.concatStringsSep " " (map (arg: "-C link-arg=${arg}") [
+    "-Wl,--push-state,--no-as-needed"
+    "-lEGL"
+    "-lwayland-client"
+    "-Wl,--pop-state"
+  ]);
+
+  postPatch = ''
+    # These test fixtures deliberately clear PATH and create executable scripts.
+    substituteInPlace tests/session_lifecycle.rs \
+      --replace-fail '/bin/sh' '${lib.getExe bash}' \
+      --replace-fail '/usr/bin:/bin' '${lib.makeBinPath [ bash coreutils ]}'
+  '';
+
+  postInstall = ''
+    install -Dm755 packaging/wayland-sessions/halley-session "$out/bin/halley-session"
+    patchShebangs "$out/bin/halley-session"
+    substituteInPlace "$out/bin/halley-session" \
+      --replace-fail '/usr/bin/halley' "$out/bin/halley"
+
+    install -Dm644 packaging/wayland-sessions/halley.desktop \
+      "$out/share/wayland-sessions/halley.desktop"
+    substituteInPlace "$out/share/wayland-sessions/halley.desktop" \
+      --replace-fail 'Exec=halley-session' "Exec=$out/bin/halley-session" \
+      --replace-fail 'TryExec=halley-session' "TryExec=$out/bin/halley-session"
+
+    mkdir -p "$out/share/xdg-desktop-portal" "$out/share/dbus-1/services" \
+      "$out/lib/systemd/user"
+    cp -r packaging/xdg-desktop-portal/. "$out/share/xdg-desktop-portal/"
+    cp packaging/dbus-1/services/*.service "$out/share/dbus-1/services/"
+    cp -r packaging/systemd-user/. "$out/lib/systemd/user/"
+    substituteInPlace \
+      "$out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.halley.service" \
+      "$out/lib/systemd/user/xdg-desktop-portal-halley.service" \
+      --replace-fail '/usr/bin/xdg-desktop-portal-halley' "$out/bin/xdg-desktop-portal-halley"
+    substituteInPlace "$out/lib/systemd/user/halley.service" \
+      --replace-fail '/usr/bin/halley-session' "$out/bin/halley-session"
+
+    wrapProgram "$out/bin/halley" \
+      --prefix PATH : ${lib.makeBinPath [ bash dbus systemd xwayland ]}
+    wrapProgram "$out/bin/halley-session" \
+      --prefix PATH : ${lib.makeBinPath [ coreutils dbus gnugrep gnused procps systemd ]}
+  '';
+
+  passthru.providedSessions = [ "halley" ];
+
+  meta = {
+    description = "Spatial Wayland compositor built around infinite workspace navigation";
+    homepage = "https://github.com/saltnpepper97/halley";
+    license = lib.licenses.gpl3Only;
+    platforms = lib.platforms.linux;
+    mainProgram = "halley";
+  };
+}
