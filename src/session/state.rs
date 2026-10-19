@@ -232,6 +232,7 @@ impl<D: SessionDriver> Session<D> {
         WaylandState::new(
             display_handle.clone(),
             CompositorState::new_v6::<Self>(&display_handle),
+            smithay::wayland::fifo::FifoManagerState::new::<Self>(&display_handle),
             dmabuf_state,
             dmabuf_global,
             XdgShellState::new::<Self>(&display_handle),

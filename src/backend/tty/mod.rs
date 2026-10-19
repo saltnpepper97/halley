@@ -1547,6 +1547,7 @@ impl Renderable for TtyBackend {
             .space
             .output_geometry(&entry_output)
             .ok_or_else(|| format!("tty output {:?} is not mapped", entry_output.name()))?;
+        let fifo = request.desktop.fifo;
         let space = request.desktop.space;
         let session_lock = request.desktop.session_lock;
         let clear = if request.desktop.session_lock.active() {
@@ -1696,11 +1697,12 @@ impl Renderable for TtyBackend {
             (element_states, false, result.is_empty, sync)
         };
         crate::render::window_open::extend_render_states(&elements, &mut element_states);
+        let fifo_barriers = fifo.snapshot(&element_states);
         if is_empty {
-            return Ok(RenderOutcome::new(
-                RenderStatus::Skipped,
-                Some(element_states),
-            ));
+            return Ok(
+                RenderOutcome::new(RenderStatus::Skipped, Some(element_states))
+                    .with_fifo(fifo_barriers),
+            );
         }
 
         let presentation_feedback = crate::wayland::presentation::take_output_feedback(
@@ -1712,6 +1714,7 @@ impl Renderable for TtyBackend {
         );
         let variable_refresh = self.drm_outputs[entry_index].vrr_active;
         let submission = FrameSubmission {
+            fifo_barriers,
             target_presentation_time,
             presentation_feedback,
             session_lock_generation,

@@ -5,6 +5,26 @@ version 1. Preferred integer and fractional buffer scales follow each window's
 assigned output, including popups and subsurfaces, and update on transfer or
 display-scale reload. See [display scaling](display-scale.md).
 
+Halley advertises `wp_fifo_manager_v1` version 1 (`fifo-v1`) on native and
+nested backends. Opting-in clients can keep a committed update active for a
+refresh opportunity before a later update replaces it. FIFO barriers remain
+independent of implicit/explicit GPU synchronization and ordinary frame
+callbacks. Synchronized subsurfaces follow their parent's transaction.
+
+Native submitted frames release only the barriers captured when that frame
+was composed, at its page-flip event. Unchanged native scenes and nested EGL
+submissions use a timer for one output refresh interval; nested timing is an
+estimate because the host compositor owns physical presentation. A shared
+one-second fallback releases barriers that have waited at least one second,
+including collapsed, occluded, unmapped, locked-out, powered-off and removed
+output cases. Normal event-loop operation therefore bounds these waits below
+two seconds. Clients still need frame callbacks or timestamps to throttle
+hidden rendering. Destroyed surfaces and disconnected clients are pruned.
+
+This enables FIFO presentation for clients that use it; it does not promise
+higher FPS, lower latency, reduced memory usage, or changes to other clients.
+Commit-timing support is separate work.
+
 Halley advertises `wp_pointer_warp_v1` version 1 (`pointer-warp-v1`) on native
 and nested backends. A client can request a surface-local cursor position
 using the current pointer-enter serial for its pointer-focused surface.

@@ -178,6 +178,7 @@ pub struct RenderOutcome {
     status: RenderStatus,
     element_states: Option<RenderElementStates>,
     needs_redraw: bool,
+    pub fifo_barriers: Vec<crate::wayland::fifo::FrameBarrier>,
 }
 
 impl RenderOutcome {
@@ -186,12 +187,18 @@ impl RenderOutcome {
             status,
             element_states,
             needs_redraw: false,
+            fifo_barriers: Vec::new(),
         }
     }
 
     /// Owe another scene even if no input, client damage, or animation remains.
     pub fn requiring_redraw(mut self) -> Self {
         self.needs_redraw = true;
+        self
+    }
+
+    pub fn with_fifo(mut self, barriers: Vec<crate::wayland::fifo::FrameBarrier>) -> Self {
+        self.fifo_barriers = barriers;
         self
     }
 
@@ -210,6 +217,7 @@ impl RenderOutcome {
 
 #[derive(Debug)]
 pub struct FrameSubmission {
+    pub fifo_barriers: Vec<crate::wayland::fifo::FrameBarrier>,
     pub target_presentation_time: std::time::Duration,
     pub presentation_feedback: smithay::desktop::utils::OutputPresentationFeedback,
     pub session_lock_generation: Option<u64>,
@@ -231,6 +239,7 @@ pub struct FrameContext {
 
 /// Desktop state and presentation policy used to place live surfaces.
 pub struct DesktopContext<'a> {
+    pub fifo: &'a crate::wayland::fifo::State,
     pub session_lock: &'a crate::wayland::session_lock::State,
     pub space: &'a Space<Window>,
     pub focused: Option<&'a WlSurface>,
