@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Honor `commit-timing-v1` timestamps on native and nested backends using the
+  presentation clock. Keep future commits blocked until their monotonic
+  deadline without blocking input, rendering, or unrelated clients. Preserve
+  FIFO and acquire-fence constraints, validate timestamps, and clean up pending
+  work when surfaces or clients disappear, including synchronized children.
 - Support `fifo-v1` frame-pacing barriers on native and nested backends.
   Release barriers with their rendered frame's progress, preserve independent
   GPU synchronization, and keep hidden or suspended surfaces progressing.

@@ -39,6 +39,8 @@ mod fifo_nested;
 mod output_management;
 #[path = "support/pointer_warp.rs"]
 mod pointer_warp;
+#[path = "support/commit_timing_nested.rs"]
+mod timing_nested;
 
 struct Fixture {
     path: PathBuf,
@@ -241,6 +243,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct NativeState {
+    commit_timing: timing_nested::Observations,
     fifo_frames: Vec<(u32, u32)>,
     globals: HashMap<String, u32>,
     output_management: output_management::Observations,
