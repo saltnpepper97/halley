@@ -15,7 +15,7 @@ impl Drop for RealTerminal {
     }
 }
 
-fn terminal(fixture: &Fixture, title: &str, background: &str) -> RealTerminal {
+fn terminal(fixture: &Fixture, title: &str, background: &str, protocol: &str) -> RealTerminal {
     let socket = fs::read_dir(&fixture.path)
         .unwrap()
         .flatten()
@@ -30,7 +30,7 @@ fn terminal(fixture: &Fixture, title: &str, background: &str) -> RealTerminal {
         .unwrap();
     RealTerminal(Command::new("kitty").args([
         "--config", "NONE", "--title", title,
-        "--override", "linux_display_server=wayland",
+        "--override", &format!("linux_display_server={protocol}"),
         "--override", "initial_window_width=480",
         "--override", "initial_window_height=300",
         "--override", "remember_window_size=no",
@@ -38,7 +38,7 @@ fn terminal(fixture: &Fixture, title: &str, background: &str) -> RealTerminal {
         "--override", &format!("background={background}"),
         "/bin/sh", "-c", "printf 'Real terminal fullscreen navigation\\n\\nWatch the window edges return to the Field.\\n'; read -r answer",
     ]).env("WAYLAND_DISPLAY", socket).env("XDG_RUNTIME_DIR", &fixture.path)
-        .env_remove("DISPLAY").env_remove("WAYLAND_SOCKET")
+        .env("DISPLAY", &fixture.display).env_remove("WAYLAND_SOCKET")
         .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap())
 }
 
@@ -69,9 +69,37 @@ fn terminal_bounds(pixels: &[u8], width: usize) -> [i32; 4] {
 #[test]
 #[ignore = "requires a Wayland desktop, XWayland and Kitty; measures real rendered fullscreen return motion"]
 fn nearby_navigation_returns_real_terminal_without_a_cleanup_jump() {
+    for direction in [
+        halley_ipc::NodeMoveDirection::Right,
+        halley_ipc::NodeMoveDirection::Left,
+    ] {
+        nearby_navigation_motion("wayland", direction, 1.0);
+    }
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop, XWayland and Kitty; measures X11 fullscreen return motion"]
+fn nearby_navigation_returns_real_x11_terminal_without_a_cleanup_jump() {
+    nearby_navigation_motion("x11", halley_ipc::NodeMoveDirection::Right, 1.0);
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop, XWayland and Kitty; measures fractionally scaled fullscreen return motion"]
+fn nearby_navigation_at_fractional_scale_has_no_cleanup_jump() {
+    nearby_navigation_motion("wayland", halley_ipc::NodeMoveDirection::Right, 1.25);
+}
+
+fn nearby_navigation_motion(protocol: &str, direction: halley_ipc::NodeMoveDirection, scale: f32) {
     let mut fixture = Fixture::with_config(
         "stacking",
-        r#"
+        &format!(
+            r#"
+view:
+  output:
+    name "winit"
+    scale {scale}
+  end
+end
 animations:
   window-open:
     enabled false
@@ -82,18 +110,25 @@ animations:
     curve "linear"
   end
 end
-"#,
+"#
+        ),
     );
-    let _source = terminal(&fixture, "Fullscreen motion source", "#9c3769");
+    let _source = terminal(&fixture, "Fullscreen motion source", "#9c3769", protocol);
     let source = fixture.node("Fullscreen motion source");
-    let _destination = terminal(&fixture, "Fullscreen motion destination", "#203040");
+    let _destination = terminal(
+        &fixture,
+        "Fullscreen motion destination",
+        "#203040",
+        "wayland",
+    );
     let destination = fixture.node("Fullscreen motion destination");
     fixture.ack(Request::Node(NodeRequest::MoveBy {
-        direction: halley_ipc::NodeMoveDirection::Right,
-        distance: 260,
+        direction,
+        distance: 220,
         selector: Some(NodeSelector::Id(destination.id)),
         output: None,
     }));
+    let destination = fixture.node("Fullscreen motion destination");
     request_native_focus(&mut fixture, source.id);
     let (mut queue, mut state) = native_connection(&fixture);
     let _manager: foreign_manager::ZwlrForeignToplevelManagerV1 =
@@ -128,7 +163,7 @@ end
         let bounds = terminal_bounds(&pixels, width);
         samples.push((start.elapsed().as_millis(), bounds));
         if let Ok(path) = std::env::var("HALLEY_NAVIGATION_ARTIFACTS") {
-            let path = PathBuf::from(path);
+            let path = PathBuf::from(path).join(format!("{protocol}-{scale}-{direction:?}"));
             fs::create_dir_all(&path).unwrap();
             for pixel in pixels.chunks_exact_mut(4) {
                 pixel.swap(0, 2);
@@ -144,16 +179,23 @@ end
         }
         thread::sleep(Duration::from_millis(30));
     }
-    eprintln!("real terminal navigation bounds: {samples:?}");
+    eprintln!("real terminal navigation ({protocol}, {scale}, {direction:?}) bounds: {samples:?}");
     let worst = samples
         .windows(2)
         .map(|pair| {
             let gap = pair[1].0 - pair[0].0;
-            let jump = pair[0]
-                .1
+            // The selected destination can occlude the source's near edge
+            // once X11 fullscreen stacking retires. Track its exposed outer
+            // edge and vertical extent, rather than mistaking that legitimate
+            // occlusion for a geometry jump.
+            let horizontal = if direction == halley_ipc::NodeMoveDirection::Right {
+                0
+            } else {
+                2
+            };
+            let jump = [horizontal, 1, 3]
                 .into_iter()
-                .zip(pair[1].1)
-                .map(|(a, b)| a.abs_diff(b))
+                .map(|index| pair[0].1[index].abs_diff(pair[1].1[index]))
                 .max()
                 .unwrap();
             (jump, gap)
@@ -165,7 +207,17 @@ end
         "fullscreen return jumped between consecutive frames: {worst:?}; samples: {samples:?}"
     );
     let last = samples.last().unwrap().1;
-    assert!((last[2] - last[0] - source.width as i32).abs() <= 3);
+    let expected_left =
+        width as f32 / 2.0 + (source.pos_x - destination.pos_x - source.width / 2.0) * scale;
+    let (edge, expected) = if direction == halley_ipc::NodeMoveDirection::Right {
+        (last[0], expected_left)
+    } else {
+        (last[2], expected_left + source.width * scale)
+    };
+    assert!(
+        (edge - expected.round() as i32).abs() <= 3,
+        "return must meet the real Field placement: {last:?}, expected edge {expected}"
+    );
 }
 
 #[test]
