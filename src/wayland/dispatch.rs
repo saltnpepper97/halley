@@ -16,6 +16,26 @@ pub(crate) fn dialog_request_is_live<I: Resource>(resource: &I) -> bool {
             .is_some_and(|toplevel| toplevel.alive())
 }
 
+/// The pinned timestamp dispatcher does not validate the nanoseconds field.
+/// Reject invalid wire values before forwarding any protocol state changes.
+pub(crate) fn commit_timestamp_is_valid<I: Resource>(resource: &I, request: &I::Request) -> bool
+where
+    I::Request: 'static,
+{
+    use smithay::reexports::wayland_protocols::wp::commit_timing::v1::server::wp_commit_timer_v1;
+    if let Some(wp_commit_timer_v1::Request::SetTimestamp { tv_nsec, .. }) =
+        (request as &dyn std::any::Any).downcast_ref::<wp_commit_timer_v1::Request>()
+        && *tv_nsec >= 1_000_000_000
+    {
+        resource.post_error(
+            wp_commit_timer_v1::Error::InvalidTimestamp,
+            "timestamp nanoseconds must be below one billion",
+        );
+        return false;
+    }
+    true
+}
+
 macro_rules! upstream_protocols {
     ($($protocol:path),* $(,)?) => {
         $(impl UpstreamProtocol for $protocol {})*
@@ -23,6 +43,8 @@ macro_rules! upstream_protocols {
 }
 
 upstream_protocols! {
+    smithay::reexports::wayland_protocols::wp::commit_timing::v1::server::wp_commit_timing_manager_v1::WpCommitTimingManagerV1,
+    smithay::reexports::wayland_protocols::wp::commit_timing::v1::server::wp_commit_timer_v1::WpCommitTimerV1,
     smithay::reexports::wayland_protocols::wp::fifo::v1::server::wp_fifo_manager_v1::WpFifoManagerV1,
     smithay::reexports::wayland_protocols::wp::fifo::v1::server::wp_fifo_v1::WpFifoV1,
     smithay::reexports::wayland_protocols::wp::pointer_warp::v1::server::wp_pointer_warp_v1::WpPointerWarpV1,
@@ -139,7 +161,8 @@ macro_rules! delegate_upstream_protocols {
                 display: &smithay::reexports::wayland_server::DisplayHandle,
                 init: &mut smithay::reexports::wayland_server::DataInit<'_, Self>,
             ) {
-                if !crate::upstream_protocols::dialog_request_is_live(resource) {
+                if !crate::upstream_protocols::dialog_request_is_live(resource)
+                    || !crate::upstream_protocols::commit_timestamp_is_valid(resource, &request) {
                     return;
                 }
                 $(if !$guard(state, client, resource, &request, display) {

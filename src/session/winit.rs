@@ -301,6 +301,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         idle_notifier_state,
         idle_service: None,
         presentation_state,
+        commit_timing: super::commit_timing::Policy::new(event_loop.handle()),
         drm_syncobj_state: None,
         session_lock,
         start_time: Instant::now(),

@@ -9,6 +9,10 @@ mod fifo_state;
 mod fifo_tests;
 #[path = "../src/wayland/surface_scale.rs"]
 mod surface_scale;
+#[path = "../src/wayland/commit_timing.rs"]
+mod timing_state;
+#[path = "support/commit_timing.rs"]
+mod timing_tests;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
 
@@ -71,6 +75,9 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct Observations {
+    timing_actions: Vec<timing_tests::Action>,
+    timing_destroyed_clients: Vec<smithay::reexports::wayland_server::Client>,
+    timing_deadline: Option<Duration>,
     fifo_commits: Vec<WlSurface>,
     fifo_actions: Vec<fifo_tests::Action>,
     fifo_snapshots: HashMap<usize, usize>,
@@ -90,6 +97,7 @@ struct Observations {
 }
 
 struct Server {
+    timing: timing_state::State,
     fifo: fifo_state::State,
     fifo_frames: HashMap<usize, Vec<fifo_state::FrameBarrier>>,
     fifo_now: Duration,
@@ -123,6 +131,23 @@ impl CompositorHandler for Server {
         client: &'a smithay::reexports::wayland_server::Client,
     ) -> &'a CompositorClientState {
         &client.get_data::<ClientData>().unwrap().0
+    }
+    fn new_surface(&mut self, surface: &WlSurface) {
+        smithay::wayland::compositor::add_pre_commit_hook::<Self, _>(
+            surface,
+            |server, _, surface| {
+                server.timing.prepare(surface, server.fifo_now);
+            },
+        );
+    }
+    fn destroyed(&mut self, surface: &WlSurface) {
+        if let Some(client) = self.timing.destroyed(surface) {
+            self.observations
+                .lock()
+                .unwrap()
+                .timing_destroyed_clients
+                .push(client);
+        }
     }
     fn commit(&mut self, surface: &WlSurface) {
         self.fifo.committed(surface, self.fifo_now);
@@ -327,6 +352,8 @@ impl Fixture {
         let mut dh = display.handle();
         let compositor = CompositorState::new_v6::<Server>(&dh);
         let _fifo = smithay::wayland::fifo::FifoManagerState::new::<Server>(&dh);
+        let _timing =
+            smithay::wayland::commit_timing::CommitTimingManagerState::unmanaged::<Server>(&dh);
         let _fractional =
             smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Server>(&dh);
         let _pixels = SinglePixelBufferState::new::<Server>(&dh);
@@ -339,6 +366,7 @@ impl Fixture {
             .unwrap();
         let observations = Arc::new(Mutex::new(Observations::default()));
         let mut server = Server {
+            timing: timing_state::State::default(),
             fifo: fifo_state::State::default(),
             fifo_frames: HashMap::new(),
             fifo_now: Duration::ZERO,
@@ -378,6 +406,7 @@ impl Fixture {
                     surface_scale::send_tree(&surface, &output);
                 }
                 fifo_tests::dispatch_actions(&mut server, &error_display);
+                timing_tests::dispatch_actions(&mut server, &error_display);
                 display.flush_clients().unwrap();
                 thread::sleep(Duration::from_millis(1));
             }

@@ -1,6 +1,7 @@
 pub mod background_effect;
 pub mod buffer_readiness;
 pub(crate) mod clipboard_helper;
+pub mod commit_timing;
 pub mod compositor;
 pub mod decoration;
 pub mod display_scale;
@@ -223,6 +224,7 @@ pub struct WaylandState {
     pub compositor_state: CompositorState,
     pub fifo: fifo::State,
     _fifo_manager: smithay::wayland::fifo::FifoManagerState,
+    _commit_timing_manager: smithay::wayland::commit_timing::CommitTimingManagerState,
     pub dmabuf_state: DmabufState,
     pub dmabuf_global: Option<DmabufGlobal>,
     pub xdg_shell_state: XdgShellState,
@@ -328,6 +330,7 @@ impl WaylandState {
         display_handle: DisplayHandle,
         compositor_state: CompositorState,
         fifo_manager: smithay::wayland::fifo::FifoManagerState,
+        commit_timing_manager: smithay::wayland::commit_timing::CommitTimingManagerState,
         dmabuf_state: DmabufState,
         dmabuf_global: Option<DmabufGlobal>,
         xdg_shell_state: XdgShellState,
@@ -370,6 +373,7 @@ impl WaylandState {
             compositor_state,
             fifo: fifo::State::default(),
             _fifo_manager: fifo_manager,
+            _commit_timing_manager: commit_timing_manager,
             dmabuf_state,
             dmabuf_global,
             xdg_shell_state,

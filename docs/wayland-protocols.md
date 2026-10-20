@@ -23,7 +23,7 @@ hidden rendering. Destroyed surfaces and disconnected clients are pruned.
 
 This enables FIFO presentation for clients that use it; it does not promise
 higher FPS, lower latency, reduced memory usage, or changes to other clients.
-Commit-timing support is separate work.
+Commit timing can add an independent absolute eligibility constraint.
 
 The protocol regression tests run with:
 
@@ -40,6 +40,49 @@ frame snapshots across output handoff and the no-output fallback. Physical
 TTY presentation, mixed-refresh monitors, DPMS and hotplug still require
 native-session checks; nested EGL timing is not hardware presentation proof.
 No new configuration or permission grant is needed to use FIFO.
+
+Halley advertises `wp_commit_timing_manager_v1` version 1 (`commit-timing-v1`)
+on native and nested backends. Clients can attach an absolute timestamp to a
+surface commit using the same `CLOCK_MONOTONIC` domain as presentation feedback.
+Future content becomes eligible at its deadline; past and zero timestamps add
+no wait. Updates retain surface commit order, including untimed commits behind
+a future one. Actual rendering and presentation continue through each output's
+existing frame clock, so eligibility does not promise exact physical display
+timing or a measured reduction in latency.
+
+One session event source tracks the earliest pending deadline. It is replaced
+when an earlier deadline arrives and removed when no timed work remains. Very
+distant timestamps retain their full unsigned seconds range and use bounded
+rearming without overflowing the event loop clock or becoming eligible early.
+Nanoseconds outside `0..1_000_000_000` produce a protocol error. Duplicate
+pending timestamps and requests on destroyed surfaces follow protocol errors.
+Destroying the timer object preserves its already submitted constraints.
+
+Timing barriers remain independent of FIFO and implicit/explicit acquire
+fences. The FIFO fallback cannot release a future timing constraint. Timing
+also applies to synchronized subsurfaces: both the parent transaction and the
+child's deadline must be ready. Destroying a timed child drops its orphaned
+timing wait; client transactions resume after surface-tree cleanup, so a live
+parent cannot stay blocked.
+
+Deadlines belong to commits rather than outputs. Transferring a window,
+changing refresh rates, DPMS, output removal, or session lock does not reset
+or bypass them. Deadlines still expire while no output is rendering; existing
+visibility and frame-callback rules continue to throttle hidden clients. Client
+or surface destruction removes pending work. If a deadline source cannot be
+registered, affected clients receive a server error rather than an early
+update or an indefinite live wait. No configuration change is required.
+
+```sh
+cargo test -p halley --test client_compatibility_protocol timing_tests --locked
+cargo test -p halley --test xwayland_disconnect timing_nested --locked -- --ignored --test-threads=1
+```
+
+Socket tests check exact eligibility, past and maximum timestamps, commit order,
+FIFO/acquire interactions, destruction, and synchronized child transactions.
+The nested tests exercise real event-loop deadlines, output redraw, independent
+clients, a collapsed-surface unmap, and lock. Physical TTY presentation,
+mixed-refresh transfer, DPMS, and hotplug remain manual hardware checks.
 
 Halley advertises `wp_pointer_warp_v1` version 1 (`pointer-warp-v1`) on native
 and nested backends. A client can request a surface-local cursor position
