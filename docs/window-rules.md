@@ -43,6 +43,18 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
   only; opacity never enables blur implicitly.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.
+- `game true` preserves fullscreen state and client size when explicit
+  navigation parks the presentation; a direct click resumes fullscreen.
+  `game false` forces ordinary application behavior: navigation exits fullscreen
+  and returning leaves the window restored. Omit it for automatic detection
+  through Wayland game content hints, Steam game window/launch IDs, or a matching
+  desktop entry's `Game` category (desktop ID or `StartupWMClass`). Unknown
+  applications use ordinary behavior. Desktop entries mixing `Game` with
+  another main category, such as `Network` or `Utility`, are ambiguous and do
+  not identify launcher windows as games. Detection does not infer games from
+  XWayland, titles, fullscreen, or pointer grabs. Desktop metadata loads in the
+  background at startup and configuration reload; launch IDs are read only from
+  the window's own process. Rules take precedence over all automatic hints.
 
 Placement values are:
 
@@ -66,7 +78,8 @@ The old `overlap-policy` field is accepted only as a migration aid and has no
 runtime effect; new configurations should omit it.
 
 Live reload re-resolves visual fields such as opacity and blur for mapped
-windows. Initial size and placement remain initial-map decisions.
+windows, and updates game policy for the next navigation. Initial size and
+placement remain initial-map decisions.
 
 Blur activation is entirely rule-driven: `effects.blur` configures quality and
 whether compositor-owned overlays may blur, but has no global enable switch.

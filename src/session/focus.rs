@@ -37,7 +37,6 @@ pub(crate) fn focus_window<D: SessionDriver>(
     window: &Window,
     serial: Serial,
 ) {
-    resume_fullscreen_presentation(session, window, true);
     focus_window_with_raise(
         session,
         window,
@@ -53,7 +52,7 @@ pub(crate) fn focus_window_from_pointer<D: SessionDriver>(
     window: &Window,
     serial: Serial,
 ) {
-    resume_fullscreen_presentation(session, window, false);
+    resume_fullscreen_presentation(session, window);
     focus_window_with_raise(
         session,
         window,
@@ -80,21 +79,11 @@ pub(crate) fn focus_window_after_close<D: SessionDriver>(
     );
 }
 
-fn resume_fullscreen_presentation<D: SessionDriver>(
-    session: &mut Session<D>,
-    window: &Window,
-    explicit_focus: bool,
-) {
+fn resume_fullscreen_presentation<D: SessionDriver>(session: &mut Session<D>, window: &Window) {
     let Some(surface) = window.wl_surface() else {
         return;
     };
-    let output_name = if explicit_focus {
-        session
-            .fullscreen
-            .resume_presentation_on_explicit_focus(surface.as_ref())
-    } else {
-        session.fullscreen.resume_presentation(surface.as_ref())
-    };
+    let output_name = session.fullscreen.resume_presentation(surface.as_ref());
     let Some(output_name) = output_name else {
         return;
     };

@@ -481,6 +481,7 @@ rules:
   #   height 520
   #   opacity 0.90
   #   blur true
+  #   game false  # Optional override; omit for automatic game detection.
   #   spawn-placement "cursor"
   #   cluster-participation "float"
   # end

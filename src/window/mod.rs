@@ -1,4 +1,5 @@
 pub(crate) mod dialog;
+pub(crate) mod games;
 pub(crate) mod recovery;
 pub(crate) mod routing;
 pub(crate) mod rules;

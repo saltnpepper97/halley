@@ -68,6 +68,9 @@ struct FullscreenWindow {
     /// the client's fullscreen protocol and geometry. Only a direct click on
     /// this surface resumes immersive presentation.
     presentation_paused: bool,
+    /// An ordinary app is exiting after explicit navigation. Keep its resize
+    /// transition alive without retaining ownership of the output camera.
+    navigation_released: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -236,45 +239,44 @@ impl FullscreenManager {
         }
     }
 
-    /// Parks a fullscreen presentation when explicit navigation selects a
-    /// different window on the same output. Protocol fullscreen and client
-    /// geometry remain intact; only output-camera and top-layer ownership are
-    /// released so the Field can move to the selected window.
-    pub(crate) fn pause_presentation_on_output_except(
-        &mut self,
+    pub(crate) fn navigation_candidates(
+        &self,
         output: &str,
         selected: &WlSurface,
-    ) -> bool {
-        let mut changed = false;
-        for (surface, entry) in &mut self.windows {
-            if surface != selected
-                && entry.target_output == output
-                && entry.origin != FullscreenOrigin::Maximize
-                && entry.desired
-                && entry.active
-                && !entry.presentation_paused
-            {
-                entry.presentation_paused = true;
-                changed = true;
-            }
+        departing: Option<&WlSurface>,
+    ) -> Vec<WlSurface> {
+        self.windows
+            .iter()
+            .filter(|(surface, entry)| {
+                *surface != selected
+                    && (entry.target_output == output || departing == Some(*surface))
+                    && entry.origin != FullscreenOrigin::Maximize
+                    && entry.desired
+                    && !entry.presentation_paused
+            })
+            .map(|(surface, _)| surface.clone())
+            .collect()
+    }
+
+    /// Park only identified games, preserving protocol state and client size.
+    pub(crate) fn pause_presentation(&mut self, surface: &WlSurface) {
+        if let Some(entry) = self.windows.get_mut(surface) {
+            entry.presentation_paused = true;
         }
-        changed
+    }
+
+    pub(crate) fn release_output_for_navigation(&mut self, surface: &WlSurface) {
+        if let Some(entry) = self.windows.get_mut(surface)
+            && !entry.desired
+        {
+            entry.navigation_released = true;
+        }
     }
 
     /// Resumes any parked fullscreen presentation after direct pointer
     /// activation.
     pub(crate) fn resume_presentation(&mut self, surface: &WlSurface) -> Option<String> {
         self.resume_presentation_if(surface, |_| true)
-    }
-
-    /// Explicit keyboard/navigation focus resumes native Wayland fullscreen
-    /// clients such as browser video. External/XWayland fullscreen retains the
-    /// game-oriented click-only resume policy.
-    pub(crate) fn resume_presentation_on_explicit_focus(
-        &mut self,
-        surface: &WlSurface,
-    ) -> Option<String> {
-        self.resume_presentation_if(surface, resumes_on_explicit_focus)
     }
 
     pub(crate) fn is_presentation_paused(&self, surface: &WlSurface) -> bool {
@@ -475,6 +477,7 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
+                navigation_released: false,
             });
         let now = crate::frame_clock::monotonic_now();
         let visual_before = entry.desired;
@@ -733,6 +736,7 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
+                navigation_released: false,
             });
         super::set_window_output(&window, &target);
         // X11 fullscreen changes presentation geometry, not stacking. Using
@@ -854,6 +858,7 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
+                navigation_released: false,
             });
         entry.origin = origin;
         entry.target_output = target_name;
@@ -1730,10 +1735,6 @@ pub struct FullscreenCleanup {
     pub finished_surfaces: Vec<WlSurface>,
 }
 
-fn resumes_on_explicit_focus(entry: &FullscreenWindow) -> bool {
-    entry.native.is_some()
-}
-
 fn animations_enabled(animations: &Animations) -> bool {
     animations.enabled && animations.fullscreen.enabled
 }
@@ -1903,6 +1904,7 @@ fn native_protocol_origin(entry: &FullscreenWindow) -> FullscreenOrigin {
 }
 
 fn request_native_owner(entry: &mut FullscreenWindow, origin: FullscreenOrigin) {
+    entry.navigation_released = false;
     let native = entry
         .native
         .get_or_insert_with(NativeFullscreenState::default);
@@ -2082,7 +2084,7 @@ fn committed_xdg_window_size(surface: &WlSurface) -> Option<Size<i32, Logical>> 
 }
 
 fn entry_owns_output_presentation(entry: &FullscreenWindow) -> bool {
-    !entry.presentation_paused
+    !entry.presentation_paused && !entry.navigation_released
 }
 
 fn entry_presents_immersive(entry: &FullscreenWindow, output: &str) -> bool {
@@ -2223,6 +2225,7 @@ fn settle_external_fullscreen(
     target_output: &str,
     fullscreen_size: Size<i32, Logical>,
 ) {
+    entry.navigation_released = false;
     entry.desired = true;
     entry.active = true;
     entry.presented = true;
@@ -2240,6 +2243,9 @@ fn begin_external_transaction(
     presentation: ExternalPresentationKind,
     now: Duration,
 ) -> ExternalTransactionRequest {
+    if desired {
+        entry.navigation_released = false;
+    }
     if entry.desired == desired {
         return ExternalTransactionRequest::NoChange;
     }
@@ -2511,6 +2517,7 @@ mod tests {
             restore_kind: FullscreenRestoreKind::Windowed,
             preserve_stack: false,
             presentation_paused: false,
+            navigation_released: false,
         }
     }
 
@@ -2956,13 +2963,17 @@ mod tests {
     }
 
     #[test]
-    fn explicit_focus_resumes_native_video_but_not_external_games() {
-        let native = test_entry(true);
-        assert!(resumes_on_explicit_focus(&native));
+    fn navigation_exit_releases_output_while_retaining_the_visual_handoff() {
+        let mut entry = test_entry(true);
+        release_all_native_owners(&mut entry);
+        entry.navigation_released = true;
+        assert!(!entry_owns_output_presentation(&entry));
+        assert!(!entry.presentation_paused);
+        assert!(entry_owns_presentation(&entry));
+        assert!(fullscreen_presentation(&entry, Duration::ZERO).is_some());
 
-        let mut external = test_entry(true);
-        external.native = None;
-        assert!(!resumes_on_explicit_focus(&external));
+        request_native_owner(&mut entry, FullscreenOrigin::Client);
+        assert!(entry_owns_output_presentation(&entry));
     }
 
     #[test]

@@ -992,6 +992,26 @@ fn set_record_fullscreen<D: SessionDriver>(
     record: crate::nodes::NodeRecord,
     entering: bool,
 ) {
+    set_record_fullscreen_with_release(session, record, entering, false);
+}
+
+/// Navigation exits both client and compositor fullscreen ownership. This is
+/// distinct from Mod+F, which releases only compositor ownership.
+pub(crate) fn leave_fullscreen_for_navigation<D: SessionDriver>(
+    session: &mut Session<D>,
+    record: crate::nodes::NodeRecord,
+) {
+    let surface = record.surface.clone();
+    set_record_fullscreen_with_release(session, record, false, true);
+    session.fullscreen.release_output_for_navigation(&surface);
+}
+
+fn set_record_fullscreen_with_release<D: SessionDriver>(
+    session: &mut Session<D>,
+    record: crate::nodes::NodeRecord,
+    entering: bool,
+    release_all: bool,
+) {
     let focused = record.surface;
     let window = record.window;
     let output_name =
@@ -1034,9 +1054,10 @@ fn set_record_fullscreen<D: SessionDriver>(
         );
     }
     if let Some(toplevel) = window.toplevel() {
-        if session
-            .fullscreen
-            .compositor_request_changes_visual(&focused, entering)
+        if release_all
+            || session
+                .fullscreen
+                .compositor_request_changes_visual(&focused, entering)
         {
             let textures = &mut session.render.fullscreen_textures;
             let capture = session.driver.with_renderer(|renderer| {
@@ -1056,6 +1077,9 @@ fn set_record_fullscreen<D: SessionDriver>(
                 toplevel,
                 field_handoff.is_some(),
             );
+        } else if release_all {
+            session.fullscreen.unrequest(&session.wayland, toplevel);
+            session.fullscreen.discard_snapshot_requests(&focused);
         } else {
             session
                 .fullscreen

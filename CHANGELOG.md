@@ -67,12 +67,20 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Exit fullscreen for ordinary applications when Alt+Tab, Apogee, or explicit
+  centered navigation selects another window. Restore normal placement and
+  release overlapping client/compositor fullscreen ownership, including browser
+  video. Keep the parked fullscreen behavior for identified games across both
+  Wayland and XWayland, with automatic game hints and optional `game true/false`
+  window-rule overrides. Previewing or cancelling navigation leaves fullscreen
+  intact, and maximize keeps its existing behavior.
 - Preserve opaque XRGB client pixels in rounded windows. Correct the Smithay
   shader-definition markers so unused XRGB bytes are ignored rather than blended
   as alpha, preventing desktop colours from washing out window content.
 - Keep Firefox client-side corners square in settled fullscreen while retaining
-  windowed corner policy, and configure startup-maximized windows at their
-  target size rather than first showing the ordinary placement size.
+  windowed corner policy. Give startup maximize requests a bounded windowed
+  fallback, honor explicit initial-size rules, and defer the initial configure
+  until the client's first surface commit.
 - Reuse fullscreen captures while the rendered surface tree remains unchanged;
   invalidate them for child, viewport, buffer, and geometry updates. Do not
   require opaque-region hints as evidence that a resized buffer is painted.
