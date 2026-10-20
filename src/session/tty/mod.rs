@@ -629,9 +629,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     if let Err(err) = super::install_overlay_timer(&event_loop.handle()) {
         eventline::warn!("overlays: failed to start lifecycle timer: {err}");
     }
-    if let Err(err) = super::install_frame_callback_fallback_timer(&event_loop.handle()) {
-        eventline::warn!("frame-callback: failed to start fallback timer: {err}");
-    }
+    super::install_frame_callback_fallback_timer(&event_loop.handle())
+        .expect("failed to start frame-callback and FIFO progress timer");
 
     // Queue every output's first frame through the same state machine used
     // for all later redraws.
@@ -925,6 +924,7 @@ fn complete_vblank(
     }
 
     if let Some(mut submission) = submission {
+        super::release_fifo_barriers(app, std::mem::take(&mut submission.fifo_barriers));
         if let Some(generation) = submission.session_lock_generation {
             app.session_lock.presented(output, generation);
         }
@@ -1447,6 +1447,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
                 clear: CLEAR_COLOR,
             },
             desktop: DesktopContext {
+                fifo: &app.wayland.fifo,
                 session_lock: &app.session_lock,
                 space: &app.wayland.space,
                 focused: app.wayland.focused_window.as_ref(),
@@ -1562,11 +1563,13 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
         return;
     }
 
+    let scene_ready = outcome.element_states().is_some();
+    super::schedule_fifo_barriers(app, loop_handle, output, outcome.fifo_barriers);
     queue_estimated_vblank_timer(
         app,
         output,
         frame_demand.keep_redrawing,
-        outcome.element_states().is_some(),
+        scene_ready,
         loop_handle,
     );
 }

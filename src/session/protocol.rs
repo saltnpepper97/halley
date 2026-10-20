@@ -261,6 +261,9 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
+        self.wayland
+            .fifo
+            .committed(surface, crate::frame_clock::monotonic_now());
         crate::cursor::snapshot::prepare_commit(&self.cursor, surface);
         wayland::compositor::prepare_commit::<Self>(surface);
         let root = wayland::compositor::root_surface(surface);
@@ -699,6 +702,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
     }
 
     fn destroyed(&mut self, surface: &WlSurface) {
+        self.wayland.fifo.destroyed(surface);
         crate::wayland::session_lock::surface_destroyed(self, surface);
         super::touch::cancel_surface(self, surface);
         super::gesture::cancel_surface(self, surface);

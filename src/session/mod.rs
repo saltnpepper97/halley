@@ -457,12 +457,63 @@ fn install_frame_callback_fallback_timer<D: SessionDriver>(
         .insert_source(
             Timer::from_duration(Duration::from_secs(1)),
             |_, _, session| {
+                let barriers = session
+                    .wayland
+                    .fifo
+                    .take_stalled(crate::frame_clock::monotonic_now());
+                release_fifo_barriers(session, barriers);
                 send_fallback_frame_callbacks(session);
                 TimeoutAction::ToDuration(Duration::from_secs(1))
             },
         )
         .map(|_| ())
         .map_err(Into::into)
+}
+
+pub(crate) fn release_fifo_barriers<D: SessionDriver>(
+    session: &mut Session<D>,
+    barriers: Vec<wayland::fifo::FrameBarrier>,
+) {
+    use smithay::wayland::compositor::CompositorHandler;
+    let clients = wayland::fifo::signal(barriers);
+    let display = session.wayland.display_handle.clone();
+    for client in clients {
+        session
+            .client_compositor_state(&client)
+            .blocker_cleared(session, &display);
+    }
+}
+
+/// Nested EGL has no per-frame page-flip callback. Unchanged native frames
+/// likewise have no DRM submission. Give their captured barriers one output
+/// refresh opportunity, independently of client frame-callback requests.
+pub(crate) fn schedule_fifo_barriers<D: SessionDriver>(
+    session: &mut Session<D>,
+    handle: &LoopHandle<'_, Session<D>>,
+    output: &smithay::output::Output,
+    barriers: Vec<wayland::fifo::FrameBarrier>,
+) {
+    if barriers.is_empty() {
+        return;
+    }
+    let refresh = output
+        .current_mode()
+        .filter(|mode| mode.refresh > 0)
+        .map(|mode| Duration::from_secs_f64(1000.0 / f64::from(mode.refresh)))
+        .unwrap_or(Duration::from_secs_f64(1.0 / 60.0));
+    // Retain a copy only until registration succeeds, so an unavailable
+    // timer cannot leave the client stuck. Early release is permitted to
+    // preserve forward progress; acquire-fence blockers remain independent.
+    let fallback = barriers.clone();
+    if handle
+        .insert_source(Timer::from_duration(refresh), move |_, _, session| {
+            release_fifo_barriers(session, barriers.clone());
+            TimeoutAction::Drop
+        })
+        .is_err()
+    {
+        release_fifo_barriers(session, fallback);
+    }
 }
 
 fn send_fallback_frame_callbacks<D: SessionDriver>(session: &mut Session<D>) {

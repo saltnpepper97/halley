@@ -81,6 +81,7 @@ mod tests {
         DeferredFrame {
             sync,
             submission: FrameSubmission {
+                fifo_barriers: Vec::new(),
                 target_presentation_time: Duration::from_millis(42),
                 presentation_feedback: OutputPresentationFeedback::new(&output),
                 session_lock_generation: Some(7),

@@ -7,6 +7,7 @@ pub mod display_scale;
 pub mod dmabuf;
 pub mod dnd;
 pub mod ext_workspace;
+pub mod fifo;
 pub mod focus;
 pub mod foreign_toplevel;
 pub mod frame_callbacks;
@@ -220,6 +221,8 @@ pub struct WaylandState {
     pub ime_clients: ime_clients::ImeClients,
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
+    pub fifo: fifo::State,
+    _fifo_manager: smithay::wayland::fifo::FifoManagerState,
     pub dmabuf_state: DmabufState,
     pub dmabuf_global: Option<DmabufGlobal>,
     pub xdg_shell_state: XdgShellState,
@@ -324,6 +327,7 @@ impl WaylandState {
     pub fn new(
         display_handle: DisplayHandle,
         compositor_state: CompositorState,
+        fifo_manager: smithay::wayland::fifo::FifoManagerState,
         dmabuf_state: DmabufState,
         dmabuf_global: Option<DmabufGlobal>,
         xdg_shell_state: XdgShellState,
@@ -364,6 +368,8 @@ impl WaylandState {
         Self {
             display_handle,
             compositor_state,
+            fifo: fifo::State::default(),
+            _fifo_manager: fifo_manager,
             dmabuf_state,
             dmabuf_global,
             xdg_shell_state,

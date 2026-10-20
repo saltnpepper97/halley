@@ -415,9 +415,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     if let Err(err) = super::install_overlay_timer(&event_loop.handle()) {
         eventline::warn!("overlays: failed to start lifecycle timer: {err}");
     }
-    if let Err(err) = super::install_frame_callback_fallback_timer(&event_loop.handle()) {
-        eventline::warn!("frame-callback: failed to start fallback timer: {err}");
-    }
+    super::install_frame_callback_fallback_timer(&event_loop.handle())
+        .expect("failed to start frame-callback and FIFO progress timer");
 
     event_loop
         .handle()
@@ -589,6 +588,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             clear: render::CLEAR_COLOR,
                         },
                         desktop: DesktopContext {
+                            fifo: &app.wayland.fifo,
                             session_lock: &app.session_lock,
                             space: &app.wayland.space,
                             focused: app.wayland.focused_window.as_ref(),
@@ -639,6 +639,12 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 );
                 let (submitted, element_states) = match outcome {
                     Ok(outcome) if outcome.status() == backend::RenderStatus::Submitted => {
+                        super::schedule_fifo_barriers(
+                            app,
+                            &app.driver.loop_handle.clone(),
+                            &output,
+                            outcome.fifo_barriers.clone(),
+                        );
                         if let Some(generation) = app.session_lock.frame_generation() {
                             app.session_lock.presented(&output, generation);
                         }

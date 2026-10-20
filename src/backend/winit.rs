@@ -176,6 +176,7 @@ impl Renderable for WinitBackend {
             .space
             .output_geometry(output)
             .ok_or_else(|| format!("winit output {:?} is not mapped", output.name()))?;
+        let fifo = request.desktop.fifo;
         let space = request.desktop.space;
         let session_lock = request.desktop.session_lock;
         let clear = if request.desktop.session_lock.active() {
@@ -270,9 +271,10 @@ impl Renderable for WinitBackend {
             smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind::Vsync,
         );
 
-        Ok(RenderOutcome::new(
-            RenderStatus::Submitted,
-            Some(element_states),
-        ))
+        let fifo_barriers = fifo.snapshot(&element_states);
+        Ok(
+            RenderOutcome::new(RenderStatus::Submitted, Some(element_states))
+                .with_fifo(fifo_barriers),
+        )
     }
 }

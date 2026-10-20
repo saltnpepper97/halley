@@ -3,6 +3,10 @@
 mod buffer_readiness;
 #[path = "../src/wayland/clipboard_helper.rs"]
 mod clipboard_helper;
+#[path = "../src/wayland/fifo.rs"]
+mod fifo_state;
+#[path = "support/fifo.rs"]
+mod fifo_tests;
 #[path = "../src/wayland/surface_scale.rs"]
 mod surface_scale;
 #[path = "../src/wayland/dispatch.rs"]
@@ -67,6 +71,9 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct Observations {
+    fifo_commits: Vec<WlSurface>,
+    fifo_actions: Vec<fifo_tests::Action>,
+    fifo_snapshots: HashMap<usize, usize>,
     buffer_errors: Vec<(
         smithay::reexports::wayland_server::Client,
         smithay::reexports::wayland_server::backend::protocol::ProtocolError,
@@ -83,6 +90,9 @@ struct Observations {
 }
 
 struct Server {
+    fifo: fifo_state::State,
+    fifo_frames: HashMap<usize, Vec<fifo_state::FrameBarrier>>,
+    fifo_now: Duration,
     compositor: CompositorState,
     observations: Arc<Mutex<Observations>>,
     shell: XdgShellState,
@@ -115,6 +125,12 @@ impl CompositorHandler for Server {
         &client.get_data::<ClientData>().unwrap().0
     }
     fn commit(&mut self, surface: &WlSurface) {
+        self.fifo.committed(surface, self.fifo_now);
+        self.observations
+            .lock()
+            .unwrap()
+            .fifo_commits
+            .push(surface.clone());
         with_states(surface, |states| {
             let content_type = *states
                 .cached_state
@@ -310,6 +326,7 @@ impl Fixture {
         let mut display = Display::<Server>::new().unwrap();
         let mut dh = display.handle();
         let compositor = CompositorState::new_v6::<Server>(&dh);
+        let _fifo = smithay::wayland::fifo::FifoManagerState::new::<Server>(&dh);
         let _fractional =
             smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Server>(&dh);
         let _pixels = SinglePixelBufferState::new::<Server>(&dh);
@@ -322,6 +339,9 @@ impl Fixture {
             .unwrap();
         let observations = Arc::new(Mutex::new(Observations::default()));
         let mut server = Server {
+            fifo: fifo_state::State::default(),
+            fifo_frames: HashMap::new(),
+            fifo_now: Duration::ZERO,
             compositor,
             observations: observations.clone(),
             shell,
@@ -357,6 +377,7 @@ impl Fixture {
                     );
                     surface_scale::send_tree(&surface, &output);
                 }
+                fifo_tests::dispatch_actions(&mut server, &error_display);
                 display.flush_clients().unwrap();
                 thread::sleep(Duration::from_millis(1));
             }

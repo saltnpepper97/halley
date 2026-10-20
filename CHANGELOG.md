@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Support `fifo-v1` frame-pacing barriers on native and nested backends.
+  Release barriers with their rendered frame's progress, preserve independent
+  GPU synchronization, and keep hidden or suspended surfaces progressing.
+- Add a pinned Nix flake, development shell, overlay, and NixOS session module,
+  including compositor, companion tools, portal integration, and configuration
+  guidance. Lift remains separately packaged.
+- Add Gaussian and box backdrop blur methods alongside the existing default
+  Dual Kawase method, with live configuration reload and shared output scratch
+  textures. Preserve existing blur activation, clipping, and region behavior.
+- Capture explicit output, node, and region targets directly through the CLI
+  and SDK without opening the selection overlay. Retain the selected output
+  across rendering and layout changes; saved captures show the usual preview
+  notification unless `--silent` is requested.
 - Choose a movement distance with `halleyctl node move DIRECTION --distance UNITS`,
   `node-move DIRECTION UNITS` keybindings, or `Client::move_node_by`. Explicit
   distances move along the requested axis and stop at landmark obstructions
@@ -43,6 +56,16 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep Firefox client-side corners square in settled fullscreen while retaining
+  windowed corner policy, and configure startup-maximized windows at their
+  target size rather than first showing the ordinary placement size.
+- Reuse fullscreen captures while the rendered surface tree remains unchanged;
+  invalidate them for child, viewport, buffer, and geometry updates. Do not
+  require opaque-region hints as evidence that a resized buffer is painted.
+- Finalize portal DMA-BUF negotiation with bounded MemFd recovery, and cancel
+  a pending source chooser when its session closes so later captures can start.
+- Preserve configured Ctrl+Alt function-key shortcuts with extra modifiers;
+  only the unmodified VT-switch combination is reserved for TTY switching.
 - Accept fractional display-scale requests from output-management tools using
   the same range and rounding as monitor configuration. Retain complete
   transaction validation and the nested backend's host-controlled settings.

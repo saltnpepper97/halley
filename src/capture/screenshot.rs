@@ -143,6 +143,7 @@ fn save_region_inner<D: SessionDriver>(
                             clear: render::CLEAR_COLOR,
                         },
                         desktop: DesktopContext {
+                            fifo: &wayland.fifo,
                             session_lock,
                             space: &wayland.space,
                             focused: wayland.focused_window.as_ref(),
@@ -400,6 +401,7 @@ where
                     clear: render::CLEAR_COLOR,
                 },
                 desktop: DesktopContext {
+                    fifo: &wayland.fifo,
                     session_lock,
                     space: &wayland.space,
                     focused: wayland.focused_window.as_ref(),
