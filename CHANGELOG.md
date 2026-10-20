@@ -67,6 +67,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep the shrinking fullscreen window attached to its live Field destination
+  while Alt+Tab or Apogee pans toward another window, preventing a final jump
+  from the old screen position when the fullscreen return finishes.
 - Exit fullscreen for ordinary applications when Alt+Tab, Apogee, or explicit
   centered navigation selects another window. Restore normal placement and
   release overlapping client/compositor fullscreen ownership, including browser

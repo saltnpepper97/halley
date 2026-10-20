@@ -1833,9 +1833,11 @@ fn fullscreen_presentation(
             .presentation_windowed
             .or_else(|| entry.restore.as_ref().map(|restore| restore.geometry)),
         // presentation_output is an already-projected output-local handoff
-        // source. A parked surface must instead project its restore geometry
-        // through the live Field camera on every frame.
-        windowed_output_rect: if entry.presentation_paused {
+        // source. Once navigation releases output ownership, the Field camera
+        // moves independently. Project the restore geometry through that live
+        // camera throughout the exit, so its final frame meets the live window
+        // instead of shrinking toward the old screen position then jumping.
+        windowed_output_rect: if entry.presentation_paused || entry.navigation_released {
             None
         } else {
             entry.presentation_output
@@ -2965,15 +2967,27 @@ mod tests {
     #[test]
     fn navigation_exit_releases_output_while_retaining_the_visual_handoff() {
         let mut entry = test_entry(true);
+        let saved_output = Rectangle::new((120, 80).into(), (800, 600).into());
+        entry.presentation_output = Some(saved_output);
         release_all_native_owners(&mut entry);
         entry.navigation_released = true;
         assert!(!entry_owns_output_presentation(&entry));
         assert!(!entry.presentation_paused);
         assert!(entry_owns_presentation(&entry));
-        assert!(fullscreen_presentation(&entry, Duration::ZERO).is_some());
+        let presentation = fullscreen_presentation(&entry, Duration::ZERO).unwrap();
+        assert_eq!(presentation.windowed_output_rect, None);
+        // Keep the saved endpoint for later reversals, but do not use its
+        // obsolete projection while the navigation camera is moving.
+        assert_eq!(entry.presentation_output, Some(saved_output));
 
         request_native_owner(&mut entry, FullscreenOrigin::Client);
         assert!(entry_owns_output_presentation(&entry));
+        assert_eq!(
+            fullscreen_presentation(&entry, Duration::ZERO)
+                .unwrap()
+                .windowed_output_rect,
+            Some(saved_output)
+        );
     }
 
     #[test]
