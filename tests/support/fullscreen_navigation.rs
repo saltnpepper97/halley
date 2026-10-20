@@ -6,6 +6,168 @@ use wayland_protocols::wp::content_type::v1::client::{
 delegate_noop!(NativeState: ignore content_manager::WpContentTypeManagerV1);
 delegate_noop!(NativeState: ignore content::WpContentTypeV1);
 
+struct RealTerminal(Child);
+
+impl Drop for RealTerminal {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn terminal(fixture: &Fixture, title: &str, background: &str) -> RealTerminal {
+    let socket = fs::read_dir(&fixture.path)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("wayland-")
+                && path.extension().is_none()
+        })
+        .unwrap();
+    RealTerminal(Command::new("kitty").args([
+        "--config", "NONE", "--title", title,
+        "--override", "linux_display_server=wayland",
+        "--override", "initial_window_width=480",
+        "--override", "initial_window_height=300",
+        "--override", "remember_window_size=no",
+        "--override", "cursor_blink_interval=0",
+        "--override", &format!("background={background}"),
+        "/bin/sh", "-c", "printf 'Real terminal fullscreen navigation\\n\\nWatch the window edges return to the Field.\\n'; read -r answer",
+    ]).env("WAYLAND_DISPLAY", socket).env("XDG_RUNTIME_DIR", &fixture.path)
+        .env_remove("DISPLAY").env_remove("WAYLAND_SOCKET")
+        .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap())
+}
+
+fn terminal_bounds(pixels: &[u8], width: usize) -> [i32; 4] {
+    let mut bounds = [i32::MAX, i32::MAX, 0, 0];
+    let mut count = 0;
+    for (index, pixel) in pixels.chunks_exact(4).enumerate() {
+        // Kitty's actual background, excluding its text and the other window.
+        if pixel[0].abs_diff(105) < 8 && pixel[1].abs_diff(55) < 8 && pixel[2].abs_diff(156) < 8 {
+            let x = (index % width) as i32;
+            let y = (index / width) as i32;
+            bounds = [
+                bounds[0].min(x),
+                bounds[1].min(y),
+                bounds[2].max(x),
+                bounds[3].max(y),
+            ];
+            count += 1;
+        }
+    }
+    assert!(
+        count > 1000,
+        "real terminal background missing: {count} pixels"
+    );
+    bounds
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop, XWayland and Kitty; measures real rendered fullscreen return motion"]
+fn nearby_navigation_returns_real_terminal_without_a_cleanup_jump() {
+    let mut fixture = Fixture::with_config(
+        "stacking",
+        r#"
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 1800
+    curve "linear"
+  end
+end
+"#,
+    );
+    let _source = terminal(&fixture, "Fullscreen motion source", "#9c3769");
+    let source = fixture.node("Fullscreen motion source");
+    let _destination = terminal(&fixture, "Fullscreen motion destination", "#203040");
+    let destination = fixture.node("Fullscreen motion destination");
+    fixture.ack(Request::Node(NodeRequest::MoveBy {
+        direction: halley_ipc::NodeMoveDirection::Right,
+        distance: 260,
+        selector: Some(NodeSelector::Id(destination.id)),
+        output: None,
+    }));
+    request_native_focus(&mut fixture, source.id);
+    let (mut queue, mut state) = native_connection(&fixture);
+    let _manager: foreign_manager::ZwlrForeignToplevelManagerV1 =
+        state.registry.as_ref().unwrap().bind(
+            state.globals["zwlr_foreign_toplevel_manager_v1"],
+            3,
+            &queue.handle(),
+            (),
+        );
+    let handle = wait_for("real terminal foreign toplevel", || {
+        queue.roundtrip(&mut state).unwrap();
+        state
+            .foreign_titles
+            .get("Fullscreen motion source")
+            .cloned()
+    });
+    thread::sleep(Duration::from_millis(600));
+    handle.set_fullscreen(None);
+    queue.roundtrip(&mut state).unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let (pixels, width) = capture_frame_pixels(&mut fixture);
+    let bounds = terminal_bounds(&pixels, width);
+    assert!(
+        bounds[2] - bounds[0] > 1000,
+        "source must really be fullscreen: {bounds:?}"
+    );
+    request_native_focus(&mut fixture, destination.id);
+    let start = Instant::now();
+    let mut samples = Vec::new();
+    while start.elapsed() < Duration::from_millis(2200) {
+        let (mut pixels, width) = capture_frame_pixels(&mut fixture);
+        let bounds = terminal_bounds(&pixels, width);
+        samples.push((start.elapsed().as_millis(), bounds));
+        if let Ok(path) = std::env::var("HALLEY_NAVIGATION_ARTIFACTS") {
+            let path = PathBuf::from(path);
+            fs::create_dir_all(&path).unwrap();
+            for pixel in pixels.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            image::save_buffer(
+                path.join(format!("motion-{:04}.png", samples.len())),
+                &pixels,
+                width as u32,
+                (pixels.len() / 4 / width) as u32,
+                image::ColorType::Rgba8,
+            )
+            .unwrap();
+        }
+        thread::sleep(Duration::from_millis(30));
+    }
+    eprintln!("real terminal navigation bounds: {samples:?}");
+    let worst = samples
+        .windows(2)
+        .map(|pair| {
+            let gap = pair[1].0 - pair[0].0;
+            let jump = pair[0]
+                .1
+                .into_iter()
+                .zip(pair[1].1)
+                .map(|(a, b)| a.abs_diff(b))
+                .max()
+                .unwrap();
+            (jump, gap)
+        })
+        .max()
+        .unwrap();
+    assert!(
+        worst.0 <= 65 + worst.1 as u32 / 2,
+        "fullscreen return jumped between consecutive frames: {worst:?}; samples: {samples:?}"
+    );
+    let last = samples.last().unwrap().1;
+    assert!((last[2] - last[0] - source.width as i32).abs() <= 3);
+}
+
 #[test]
 #[ignore = "requires a Wayland desktop and XWayland; tests fullscreen navigation in isolated sessions"]
 fn native_fullscreen_navigation_restores_apps_and_preserves_games() {
