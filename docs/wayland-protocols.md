@@ -321,6 +321,44 @@ only after the renderer fence signals. Invalid, disabled-output, destroyed, or
 session-lock capture requests fail rather than exposing stale or protected
 content.
 
+Halley advertises `ext_output_image_capture_source_manager_v1` and
+`ext_image_copy_capture_manager_v1` version 1 on both backends, visible only to
+clients with the existing [screen-capture grant](security.md#sensitive-wayland-protocols).
+Output sources support XRGB8888 SHM buffers at the output's transformed native
+pixel dimensions, including fractional display scaling. The image is already
+upright, so frame metadata reports the normal transform. Embedded cursor
+composition follows the session's `paint_cursors` option.
+
+Each capture initializes the entire buffer and reports full-frame damage;
+client buffer-damage hints do not restrict the copy. A static desktop's first
+frame completes without waiting for a content change. Exact dimensions and the
+advertised format are required; bounded offsets and padded strides are accepted.
+Constraints are resent when the output mode, scale, or transform changes.
+Clients must destroy each frame object before creating the next one. Session
+and manager destruction leave existing frames usable; frame destruction cancels
+its copy. Destroyed buffers fail safely. Lock, source destruction, output loss,
+logical disable, power-off, and seat pause permanently stop affected sessions.
+After resuming, clients need a new session.
+
+This first implementation advertises no DMA-BUF formats or toplevel-source
+global. Unsupported buffer types fail with `buffer_constraints`; a cursor-only
+session's derived capture session is stopped. Capture uses the existing composed
+output renderer and a CPU SHM readback, so this adds client compatibility rather
+than promising faster recording or reduced memory use. Existing wlr-screencopy
+and portal capture keep their current paths.
+
+```sh
+cargo test -p halley --test image_copy_capture_protocol --locked
+cargo test -p halley --test xwayland_disconnect image_copy_nested --locked -- --ignored --test-threads=1
+```
+
+The socket tests cover validation, padded SHM copies, constraint updates, and
+object lifetimes. Nested tests require a running Wayland desktop, XWayland,
+and Kitty. They compare a real terminal's captures with the portal path at
+1.0, 1.25, 1.5, and 2.0 display scales, exercise legacy screencopy alongside
+modern sessions, and check a visible SHM cursor, grants, and session lock.
+Native TTY transform, DPMS, hotplug, and VT pause still need hardware checks.
+
 These globals are intended for shells, tools, and latency-sensitive clients.
 They are independent: data-control, idle notification/inhibition, presentation
 timing, output control, capture, and blur do not require one another, and

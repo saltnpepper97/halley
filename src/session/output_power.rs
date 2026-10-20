@@ -19,6 +19,7 @@ impl<D: SessionDriver> Session<D> {
             })
             .collect();
         self.wayland.wlr_output_power_state.sync(outputs);
+        self.sync_image_capture();
         // Include partial hardware success, IPC, and input wake transitions.
         crate::wayland::session_lock::confirm_unlit_outputs(self);
     }

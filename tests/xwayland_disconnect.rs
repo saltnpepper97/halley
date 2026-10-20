@@ -35,6 +35,10 @@ use x11rb::wrapper::ConnectionExt as _;
 
 #[path = "support/fifo_nested.rs"]
 mod fifo_nested;
+#[path = "support/image_copy_client.rs"]
+mod image_copy_client;
+#[path = "support/image_copy_nested.rs"]
+mod image_copy_nested;
 #[path = "support/output_management.rs"]
 mod output_management;
 #[path = "support/pointer_warp.rs"]
@@ -67,6 +71,10 @@ impl Fixture {
     }
 
     fn with_config(layout: &str, extra: &str) -> Self {
+        Self::with_capture_config(layout, extra, false)
+    }
+
+    fn with_capture_config(layout: &str, extra: &str, capture: bool) -> Self {
         let host_runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         let host_display = PathBuf::from(std::env::var_os("WAYLAND_DISPLAY").unwrap());
         let host_display = if host_display.is_absolute() {
@@ -98,6 +106,14 @@ impl Fixture {
             .env("XDG_RUNTIME_DIR", &path)
             .env("XDG_STATE_HOME", path.join("state"))
             .env("XDG_CONFIG_HOME", path.join("config"))
+            .env(
+                "HALLEY_ALLOW_SCREEN_CAPTURE",
+                if capture {
+                    std::env::current_exe().unwrap()
+                } else {
+                    PathBuf::new()
+                },
+            )
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_SOCKET")
             .stdout(Stdio::from(log.try_clone().unwrap()))

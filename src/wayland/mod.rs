@@ -7,6 +7,7 @@ pub mod decoration;
 pub mod display_scale;
 pub mod dmabuf;
 pub mod dnd;
+pub mod ext_image_copy_capture;
 pub mod ext_workspace;
 pub mod fifo;
 pub mod focus;
@@ -259,6 +260,7 @@ pub struct WaylandState {
     pub wlr_gamma_control_state: wlr_gamma_control::State,
     pub wlr_output_power_state: wlr_output_power::State,
     pub wlr_screencopy_state: wlr_screencopy::State,
+    pub ext_image_copy_capture_state: ext_image_copy_capture::State,
     pub(crate) idle_inhibitors: HashMap<WlSurface, usize>,
     output_globals: HashMap<String, GlobalId>,
     /// Clipboard (ctrl+c/ctrl+v) and drag-and-drop. Smithay owns the actual
@@ -361,6 +363,7 @@ impl WaylandState {
         wlr_gamma_control_state: wlr_gamma_control::State,
         wlr_output_power_state: wlr_output_power::State,
         wlr_screencopy_state: wlr_screencopy::State,
+        ext_image_copy_capture_state: ext_image_copy_capture::State,
         output_globals: HashMap<String, GlobalId>,
         data_device_state: DataDeviceState,
         primary_selection_state: PrimarySelectionState,
@@ -405,6 +408,7 @@ impl WaylandState {
             wlr_gamma_control_state,
             wlr_output_power_state,
             wlr_screencopy_state,
+            ext_image_copy_capture_state,
             idle_inhibitors: HashMap::new(),
             output_globals,
             data_device_state,
@@ -439,6 +443,7 @@ impl WaylandState {
     }
 
     pub fn disable_output_global<D: 'static>(&mut self, output: &Output) {
+        self.ext_image_copy_capture_state.stop_output(output);
         if let Some(global) = self.output_globals.remove(&output.name()) {
             self.display_handle.disable_global::<D>(global);
         }

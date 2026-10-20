@@ -109,6 +109,9 @@ pub trait OutputDriver: crate::ipc::OutputInfoSource + 'static {
     fn output_power(&self, _output: &Output) -> Option<bool> {
         None
     }
+    fn capture_output_available(&self, output: &Output) -> bool {
+        self.output_requires_lock_frame(output)
+    }
     fn output_requires_lock_frame(&self, _output: &Output) -> bool {
         true
     }
@@ -289,6 +292,12 @@ impl<D: SessionDriver> Session<D> {
                 },
             ),
             crate::wayland::wlr_screencopy::State::new::<Self>(&display_handle),
+            crate::wayland::ext_image_copy_capture::State::new::<Self>(&display_handle, |client| {
+                crate::wayland::permissions::allowed(
+                    client,
+                    crate::wayland::permissions::Capability::Capture,
+                )
+            }),
             std::collections::HashMap::new(),
             DataDeviceState::new::<Self>(&display_handle),
             primary_selection_state,
