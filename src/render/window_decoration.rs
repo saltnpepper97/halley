@@ -20,6 +20,10 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transfo
 
 const JOIN_OVERLAP_PX: f32 = 0.75;
 
+#[cfg(test)]
+#[path = "window_decoration/pixel_tests.rs"]
+mod pixel_tests;
+
 /// Namespaces that let several decoration parts share one window's identity.
 ///
 /// A window's surface already has a stable `Id`, so its chrome does not need a
@@ -163,7 +167,7 @@ fn border_damage(
 }
 
 const SURFACE_SHADER: &str = r#"
-//_DEFINES
+//_DEFINES_
 #if defined(EXTERNAL)
 #extension GL_OES_EGL_image_external : require
 uniform samplerExternalOES tex;
@@ -222,7 +226,7 @@ void main() {
 
 const BORDER_SHADER: &str = r#"
 precision highp float;
-//_DEFINES
+//_DEFINES_
 
 varying vec2 v_coords;
 uniform sampler2D tex;

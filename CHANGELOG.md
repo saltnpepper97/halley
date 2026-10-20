@@ -67,6 +67,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Preserve opaque XRGB client pixels in rounded windows. Correct the Smithay
+  shader-definition markers so unused XRGB bytes are ignored rather than blended
+  as alpha, preventing desktop colours from washing out window content.
 - Keep Firefox client-side corners square in settled fullscreen while retaining
   windowed corner policy, and configure startup-maximized windows at their
   target size rather than first showing the ordinary placement size.
