@@ -1677,6 +1677,7 @@ fn on_estimated_vblank_timer(app: &mut TtyApp, output: &Output) {
 }
 
 fn suspend_redraw_state(app: &mut TtyApp, loop_handle: &LoopHandle<'_, TtyApp>) {
+    app.wayland.ext_image_copy_capture_state.stop_all();
     let now = crate::frame_clock::monotonic_now();
     for state in app.driver.output_frames.values_mut() {
         for token in state.suspend(now) {

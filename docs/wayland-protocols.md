@@ -353,7 +353,10 @@ cargo test -p halley --test xwayland_disconnect image_copy_nested --locked -- --
 ```
 
 The socket tests cover validation, padded SHM copies, constraint updates, and
-object lifetimes. Nested tests exercise the actual capture renderer and grants.
+object lifetimes. Nested tests require a running Wayland desktop, XWayland,
+and Kitty. They compare a real terminal's captures with the portal path at
+1.0, 1.25, 1.5, and 2.0 display scales, exercise legacy screencopy alongside
+modern sessions, and check a visible SHM cursor, grants, and session lock.
 Native TTY transform, DPMS, hotplug, and VT pause still need hardware checks.
 
 These globals are intended for shells, tools, and latency-sensitive clients.

@@ -8,8 +8,8 @@ All notable changes to this project will be documented in this file.
 - Support authorized output capture through `ext-image-capture-source-v1` and
   `ext-image-copy-capture-v1` on native and nested backends. Copy native-size
   XRGB8888 SHM buffers with optional embedded cursors and full-frame damage,
-  update constraints with the output, and stop capture on lock or source/output
-  loss. Reuse existing capture grants; DMA-BUF and cursor-only sessions are
+  update constraints with the output, and stop capture on lock, suspend, or
+  source/output loss. Reuse existing capture grants; DMA-BUF and cursor-only sessions are
   outside this first slice.
 - Honor `commit-timing-v1` timestamps on native and nested backends using the
   presentation clock. Keep future commits blocked until their monotonic

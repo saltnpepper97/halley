@@ -198,15 +198,13 @@ impl SessionData {
             .unwrap()
             .as_ref()
             .and_then(|r| r.upgrade().ok())
-        {
-            if resource
+            && resource
                 .data::<Arc<FrameData>>()
                 .unwrap()
                 .captured
                 .load(Ordering::Acquire)
-            {
-                fail(&resource, frame::FailureReason::Stopped);
-            }
+        {
+            fail(&resource, frame::FailureReason::Stopped);
         }
     }
 }

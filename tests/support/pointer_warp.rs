@@ -12,7 +12,7 @@ use wayland_protocols::wp::pointer_warp::v1::client::wp_pointer_warp_v1 as warp;
 
 #[derive(Default)]
 pub(super) struct Observations {
-    enter: Option<(wl_surface::WlSurface, u32)>,
+    pub(super) enter: Option<(wl_surface::WlSurface, u32)>,
     position: Option<(f64, f64)>,
     motions: usize,
     locked: bool,

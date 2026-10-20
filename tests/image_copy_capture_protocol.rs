@@ -138,6 +138,8 @@ impl Fixture {
             },
         );
         output.create_global::<Server>(&dh);
+        let _pixels =
+            smithay::wayland::single_pixel_buffer::SinglePixelBufferState::new::<Server>(&dh);
         let compositor = smithay::wayland::compositor::CompositorState::new_v6::<Server>(&dh);
         let capture =
             capture::State::new::<Server>(&dh, |c: &Client| c.get_data::<Data>().unwrap().0);
@@ -488,4 +490,39 @@ fn invalid_options_are_a_protocol_error() {
         0usize,
     );
     f.error(1, "ext_image_copy_capture_manager_v1");
+}
+
+#[test]
+fn non_shm_buffers_fail_with_buffer_constraints() {
+    use wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1;
+    let mut f = Fixture::new(true);
+    let (_, _, session) = f.session();
+    let pixels: wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1 =
+        f.client.registry.bind(
+            f.client.state.globals["wp_single_pixel_buffer_manager_v1"],
+            1,
+            &f.client.queue.handle(),
+            (),
+        );
+    let buffer = pixels.create_u32_rgba_buffer(0, 0, 0, u32::MAX, &f.client.queue.handle(), ());
+    let frame = f.client.frame(&session);
+    frame.attach_buffer(&buffer);
+    frame.capture();
+    f.finish(0);
+    assert_eq!(f.client.state.frames[0].failures, [1]);
+}
+#[test]
+fn stopped_session_leaves_uncaptured_frame_quiet_until_capture() {
+    let mut f = Fixture::new(true);
+    let (_, source, session) = f.session();
+    let frame = f.client.frame(&session);
+    source.destroy();
+    f.client.sync();
+    assert!(f.client.state.frames[0].failures.is_empty());
+    let (buffer, _) = f.client.buffer(3, 2, 12, 0, Format::Xrgb8888);
+    frame.attach_buffer(&buffer);
+    frame.capture();
+    f.finish(0);
+    assert_eq!(f.client.state.frames[0].failures, [2]);
+    assert_eq!(f.client.state.sessions[0].stopped, 1);
 }

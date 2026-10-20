@@ -41,6 +41,8 @@ pub struct ClientState {
     pub globals: HashMap<String, u32>,
     pub sessions: Vec<SessionEvents>,
     pub frames: Vec<FrameEvents>,
+    pub legacy_buffer: Option<(u32, u32, u32)>,
+    pub legacy_ready: usize,
 }
 impl Dispatch<wl_registry::WlRegistry, ()> for ClientState {
     fn event(
@@ -247,3 +249,35 @@ use wayland_protocols::ext::session_lock::v1::client::{
 };
 delegate_noop!(ClientState: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
 delegate_noop!(ClientState: ignore ext_session_lock_v1::ExtSessionLockV1);
+
+use wayland_protocols_wlr::screencopy::v1::client::{
+    zwlr_screencopy_frame_v1 as legacy_frame, zwlr_screencopy_manager_v1 as legacy_manager,
+};
+delegate_noop!(ClientState: ignore legacy_manager::ZwlrScreencopyManagerV1);
+impl Dispatch<legacy_frame::ZwlrScreencopyFrameV1, ()> for ClientState {
+    fn event(
+        state: &mut Self,
+        _: &legacy_frame::ZwlrScreencopyFrameV1,
+        event: legacy_frame::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            legacy_frame::Event::Buffer {
+                format,
+                width,
+                height,
+                stride,
+            } => {
+                assert_eq!(u32::from(format), 1);
+                state.legacy_buffer = Some((width, height, stride));
+            }
+            legacy_frame::Event::Ready { .. } => state.legacy_ready += 1,
+            legacy_frame::Event::Failed => panic!("legacy screencopy failed"),
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(ClientState: ignore wayland_protocols::wp::single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1);
