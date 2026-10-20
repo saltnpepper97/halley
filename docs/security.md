@@ -34,11 +34,16 @@ for each capability you intend to grant:
 
 | Environment variable | Capability | Example trusted tool |
 | --- | --- | --- |
-| `HALLEY_ALLOW_SCREEN_CAPTURE` | Direct wlr-screencopy capture | `/usr/bin/grim` |
+| `HALLEY_ALLOW_SCREEN_CAPTURE` | Direct wlr-screencopy and ext image-copy capture | `/usr/bin/grim` |
 | `HALLEY_ALLOW_CLIPBOARD_CONTROL` | Clipboard/primary-selection monitoring | `/usr/bin/wl-paste` |
 | `HALLEY_ALLOW_VIRTUAL_KEYBOARD` | Synthetic keyboard input | `/usr/bin/wtype` |
 | `HALLEY_ALLOW_INPUT_METHOD` | IME registration and keyboard grabs | `/usr/bin/fcitx5` |
 | `HALLEY_ALLOW_OUTPUT_POWER` | Native display DPMS control and observation | `/usr/bin/wlopm` |
+
+The capture grant controls visibility of `zwlr_screencopy_manager_v1`,
+`ext_image_copy_capture_manager_v1`, and
+`ext_output_image_capture_source_manager_v1`. The ext protocols use the same
+executable identity checks and do not grant a new client capture access.
 
 For example: `HALLEY_ALLOW_INPUT_METHOD=/usr/bin/fcitx5 halley`.
 For standard output power tools, approve the installed executable with

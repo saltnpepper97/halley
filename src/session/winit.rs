@@ -660,6 +660,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 };
                 if let Some(element_states) = element_states {
                     app.update_idle_inhibit_visibility(&output, &element_states);
+                    app.service_image_capture(&output);
                 }
                 if submitted {
                     app.service_screencopy(&output);

@@ -303,6 +303,7 @@ impl<D: SessionDriver> SessionLockHandler for Session<D> {
         }
 
         self.session_lock.active = true;
+        self.wayland.ext_image_copy_capture_state.stop_all();
         self.session_lock.owner = Some(confirmation.ext_session_lock().id());
         self.session_lock.confirmed = false;
         self.session_lock.generation = self.session_lock.generation.wrapping_add(1).max(1);

@@ -24,6 +24,7 @@ mod foreign_toplevel;
 pub(crate) mod gesture;
 pub(crate) mod input;
 pub(crate) use input::{cluster_owns_focus, show_cluster_indicator, sync_cluster_activation_focus};
+mod image_copy_capture;
 mod interaction;
 mod lifecycle;
 mod navigation;

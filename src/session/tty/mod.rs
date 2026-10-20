@@ -246,6 +246,11 @@ impl super::OutputDriver for TtyDriver {
         self.backend.output_power(output)
     }
 
+    fn capture_output_available(&self, output: &Output) -> bool {
+        self.pause_reasons
+            .can_render_output(self.backend.output_dpms_enabled(output))
+    }
+
     fn output_requires_lock_frame(&self, output: &Output) -> bool {
         self.backend.output_dpms_enabled(output)
     }
@@ -1539,6 +1544,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
     }
     if let Some(element_states) = outcome.element_states().cloned() {
         app.update_idle_inhibit_visibility(output, &element_states);
+        app.service_image_capture(output);
     }
     let vrr_active = app.driver.backend.output_vrr_active(output);
     if let Some(state) = app.driver.output_frames.get_mut(output) {
