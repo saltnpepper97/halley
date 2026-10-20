@@ -15,6 +15,7 @@ mod arrange;
 mod autostart;
 mod basics;
 pub(crate) mod closing;
+mod commit_timing;
 mod cursor;
 mod decay_notice;
 mod empty_cluster;

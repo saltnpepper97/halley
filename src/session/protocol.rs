@@ -161,6 +161,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
 
     fn new_surface(&mut self, surface: &WlSurface) {
         add_pre_commit_hook::<Self, _>(surface, |session, dh, surface| {
+            super::commit_timing::prepare(session, surface);
             let removes_buffer = with_states(surface, |states| {
                 matches!(
                     states
@@ -703,6 +704,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
 
     fn destroyed(&mut self, surface: &WlSurface) {
         self.wayland.fifo.destroyed(surface);
+        super::commit_timing::destroyed(self, surface);
         crate::wayland::session_lock::surface_destroyed(self, surface);
         super::touch::cancel_surface(self, surface);
         super::gesture::cancel_surface(self, surface);

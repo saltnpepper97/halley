@@ -145,6 +145,7 @@ pub struct Session<D: SessionDriver> {
     pub idle_notifier_state: IdleNotifierState<Self>,
     pub(crate) idle_service: Option<crate::idle_service::Service>,
     pub presentation_state: PresentationState,
+    pub(super) commit_timing: super::commit_timing::Policy<D>,
     pub drm_syncobj_state: Option<DrmSyncobjState>,
     pub session_lock: crate::wayland::session_lock::State,
     pub start_time: std::time::Instant,
@@ -233,6 +234,9 @@ impl<D: SessionDriver> Session<D> {
             display_handle.clone(),
             CompositorState::new_v6::<Self>(&display_handle),
             smithay::wayland::fifo::FifoManagerState::new::<Self>(&display_handle),
+            smithay::wayland::commit_timing::CommitTimingManagerState::unmanaged::<Self>(
+                &display_handle,
+            ),
             dmabuf_state,
             dmabuf_global,
             XdgShellState::new::<Self>(&display_handle),
