@@ -65,18 +65,18 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
 
     let socket = UnixDatagram::bind(path).unwrap();
     socket.set_nonblocking(true).unwrap();
-    let mut pressed_keys = std::collections::HashSet::new();
     handle.insert_source(Generic::new(socket, Interest::READ, Mode::Level), move |_, socket, app| {
         let mut bytes = [0; 256];
         while let Ok((size, peer)) = socket.recv_from(&mut bytes) {
             let command = std::str::from_utf8(&bytes[..size]).unwrap();
             let parts = command.split_whitespace().collect::<Vec<_>>();
-            if parts.first() == Some(&"key") {
-                assert_eq!(parts.len(), 3);
+            if matches!(parts.first(), Some(&"key") | Some(&"seat-key")) {
+                let seat_key = parts[0] == "seat-key";
+                assert_eq!(parts.len(), if seat_key { 4 } else { 3 });
                 let code = parts[1].parse().unwrap();
                 let pressed = parts[2] == "down";
-                if pressed { pressed_keys.insert(code); } else { pressed_keys.remove(&code); }
-                let event = TestKey { code, pressed, count: pressed_keys.len() as u32, time: app.start_time.elapsed().as_millis() as u32 };
+                let count = if seat_key { parts[3].parse().unwrap() } else { u32::from(pressed) };
+                let event = TestKey { code, pressed, count, time: app.start_time.elapsed().as_millis() as u32 };
                 let socket_name = app.wayland_display.clone().unwrap();
                 super::super::input::handle::<_, TestInput>(app, &InputEvent::Keyboard { event }, &socket_name);
             } else { assert_eq!(command, "state"); }
@@ -90,10 +90,17 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     "rect": super::super::presented_window_rect(app, &record.window, output, now).map(|r| [r.loc.x,r.loc.y,r.size.w,r.size.h])})
             }).collect::<Vec<_>>();
             let leds = app.seat.get_keyboard().unwrap().led_state();
+            let keyboard = app.seat.get_keyboard().unwrap();
+            let modifiers = keyboard.modifier_state();
+            let sides = app.keyboard.side_modifiers;
             let last_led_update = app.driver.keyboard_led_update.map(|leds| serde_json::json!({"caps": leds.caps, "num": leds.num, "scroll": leds.scroll}));
             let reply = serde_json::json!({"open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
                 "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
                 "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,
+                "keyboard": {"pressed": keyboard.pressed_keys().into_iter().map(|key| key.raw() - 8).collect::<Vec<_>>(),
+                    "modifiers": [modifiers.shift, modifiers.ctrl, modifiers.alt, modifiers.logo],
+                    "sides": [sides.left_shift, sides.right_shift, sides.left_ctrl, sides.right_ctrl,
+                        sides.left_alt, sides.right_alt, sides.left_super, sides.right_super]},
                 "preview": app.shell.focus_cycle.session().and_then(|s| s.preview()).map(|id| id.as_u64()),
                 "focused": app.nodes.focused().map(|id| id.as_u64()), "windows": windows});
             socket.send_to(reply.to_string().as_bytes(), peer.as_pathname().unwrap()).unwrap();
