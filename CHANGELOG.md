@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Start keyboard resizing at a moving window's visible position, matching pointer
+  resizing, instead of snapping to the movement endpoint. Preserve the settled
+  position for native Wayland and XWayland clients.
 - Preserve fullscreen for every application when Alt+Tab, Apogee, or centered
   navigation selects a window on another monitor. Filter fullscreen changes to
   the destination monitor before app/game policy; keep same-monitor ordinary-app
