@@ -460,9 +460,11 @@ fn place_node<D: crate::session::SessionDriver>(
             desired,
             scale,
             &cores,
-            super::PlacementChrome {
+            super::PlacementContext {
                 decorations: &session.settings.decorations,
                 font: &session.settings.font,
+                fullscreen: &session.fullscreen,
+                maximize: &session.maximize,
             },
         ) {
             return false;
@@ -493,9 +495,11 @@ fn place_node<D: crate::session::SessionDriver>(
             .into_iter()
             .filter_map(|(_, _, output, position, _)| (output == record.output).then_some(position))
             .collect::<Vec<_>>();
-        let chrome = super::PlacementChrome {
+        let chrome = super::PlacementContext {
             decorations: &session.settings.decorations,
             font: &session.settings.font,
+            fullscreen: &session.fullscreen,
+            maximize: &session.maximize,
         };
         let destination = if exact.is_some() {
             desired
@@ -549,9 +553,11 @@ fn place_node<D: crate::session::SessionDriver>(
             .into_iter()
             .filter_map(|(_, _, output, position, _)| (output == record.output).then_some(position))
             .collect::<Vec<_>>();
-        let chrome = super::PlacementChrome {
+        let chrome = super::PlacementContext {
             decorations: &session.settings.decorations,
             font: &session.settings.font,
+            fullscreen: &session.fullscreen,
+            maximize: &session.maximize,
         };
         let next = if exact.is_some() {
             desired

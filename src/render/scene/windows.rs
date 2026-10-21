@@ -23,6 +23,7 @@ pub(super) struct LiveWindowScene {
     pub(super) cluster_depth: Option<usize>,
     pub(super) cluster_floating: bool,
     pub(super) cluster_exclusive: bool,
+    pub(super) above_field_landmarks: bool,
 }
 
 pub(super) struct LiveWindowRenderers<'a> {
@@ -147,6 +148,7 @@ pub(super) fn live_window_elements(
             cluster_depth: None,
             cluster_floating: false,
             cluster_exclusive: false,
+            above_field_landmarks: false,
         });
     };
     let Some(window_surface) = window.wl_surface() else {
@@ -157,6 +159,7 @@ pub(super) fn live_window_elements(
             cluster_depth: None,
             cluster_floating: false,
             cluster_exclusive: false,
+            above_field_landmarks: false,
         });
     };
     let join_ready = context
@@ -189,6 +192,7 @@ pub(super) fn live_window_elements(
             cluster_depth: None,
             cluster_floating: false,
             cluster_exclusive: false,
+            above_field_landmarks: false,
         });
     };
     if visual.animated_rect.size.w == 0 || visual.animated_rect.size.h == 0 {
@@ -199,6 +203,7 @@ pub(super) fn live_window_elements(
             cluster_depth: visual.cluster_depth,
             cluster_floating: visual.cluster_floating,
             cluster_exclusive: visual.cluster_exclusive,
+            above_field_landmarks: visual.above_field_landmarks,
         });
     }
 
@@ -804,6 +809,7 @@ pub(super) fn live_window_elements(
         cluster_depth: visual.cluster_depth,
         cluster_floating: visual.cluster_floating,
         cluster_exclusive: visual.cluster_exclusive,
+        above_field_landmarks: visual.above_field_landmarks,
     })
 }
 

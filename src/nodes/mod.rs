@@ -43,9 +43,20 @@ const OUTSIDE_THRESHOLD: f32 = 0.90;
 pub const NODE_DIAMETER_PX: f32 = 51.0;
 
 #[derive(Clone, Copy)]
-struct PlacementChrome<'a> {
+struct PlacementContext<'a> {
     decorations: &'a halley_config::Decorations,
     font: &'a halley_config::Font,
+    fullscreen: &'a crate::wayland::fullscreen::FullscreenManager,
+    maximize: &'a crate::presentation::maximize::FieldMaximizeManager,
+}
+
+impl PlacementContext<'_> {
+    /// Presentation geometry is output-owned, not an obstacle in the Field.
+    /// Pending entry/exit handoffs remain excluded as well.
+    fn includes_window(self, surface: &WlSurface) -> bool {
+        !self.fullscreen.is_fullscreen_or_pending(surface)
+            && !self.maximize.is_maximized_or_pending(surface)
+    }
 }
 pub const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
 const LANDMARK_SLIDE_MS: u64 = 520;
@@ -841,7 +852,7 @@ impl NodesState {
         desired: Vec2,
         scale: f32,
         occupied_cores: &[Vec2],
-        chrome: PlacementChrome<'_>,
+        chrome: PlacementContext<'_>,
     ) -> Vec2 {
         let output = self
             .record(id)
@@ -863,7 +874,11 @@ impl NodesState {
             .records
             .values()
             .filter(|record| {
-                record.id != id && !record.collapsed && record.attached && record.output == output
+                record.id != id
+                    && !record.collapsed
+                    && record.attached
+                    && record.output == output
+                    && chrome.includes_window(&record.surface)
             })
             .map(|record| {
                 crate::titlebar::outer_rect_for_client(
@@ -890,7 +905,7 @@ impl NodesState {
         output: &str,
         scale: f32,
         occupied_cores: &[Vec2],
-        chrome: PlacementChrome<'_>,
+        chrome: PlacementContext<'_>,
     ) -> Rectangle<i32, Logical> {
         let clearance = (NODE_DIAMETER_PX * 0.5 + self.landmarks.gap_px) / scale.max(0.05);
         let mut nodes = self

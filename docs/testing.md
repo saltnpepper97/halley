@@ -41,3 +41,26 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
+
+## Fullscreen and maximize landmark stability
+
+```sh
+cargo test --locked --test xwayland_disconnect landmark_presentation \
+  -- --ignored --test-threads=1
+```
+
+These tests require a Wayland desktop and XWayland. Twelve scenarios place a
+collapsed node near a real protocol window, then verify its Field position
+through fullscreen or maximize entry, repeated surface commits, and exit.
+Coverage includes native client/compositor/overlapping fullscreen ownership,
+maximize, game rules, and X11 EWMH fullscreen/maximize with ordinary and Steam
+game classes. Native compositor fullscreen and maximize also delay the restored
+buffer after acknowledging the exit configure. Node placement commands remain
+usable underneath the presentation, and normal Field client resizing must
+still displace the nearby landmark after every scenario.
+
+Captured pixels must also show the opaque fullscreen/maximize client covering
+the node, including when the node's remembered stack slot exceeds the remaining
+live window slots. Native cases send a real client pointer-warp request into
+the covered marker area and verify the client receives the requested position
+without losing pointer focus.

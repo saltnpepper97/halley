@@ -739,7 +739,12 @@ fn node_at_pointer<D: SessionDriver>(
 ) -> Option<(halley_core::field::NodeId, Output)> {
     let position = session.pointer.position();
     let (output, geometry) = output_at_pointer(&session.wayland.space, position)?;
-    if cluster_exclusive_on_output(
+    if super::pointer::presentation_covers_field_point(
+        session,
+        &output,
+        Point::from(position),
+        crate::frame_clock::monotonic_now(),
+    ) || cluster_exclusive_on_output(
         session,
         &output,
         geometry,
@@ -762,7 +767,12 @@ fn cluster_at_pointer<D: SessionDriver>(
 ) -> Option<(halley_core::cluster::ClusterId, Output)> {
     let position = session.pointer.position();
     let (output, geometry) = output_at_pointer(&session.wayland.space, position)?;
-    if cluster_exclusive_on_output(
+    if super::pointer::presentation_covers_field_point(
+        session,
+        &output,
+        Point::from(position),
+        crate::frame_clock::monotonic_now(),
+    ) || cluster_exclusive_on_output(
         session,
         &output,
         geometry,

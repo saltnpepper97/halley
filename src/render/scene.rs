@@ -957,6 +957,11 @@ fn build_logical(
         .filter_map(|(stack_index, scene)| scene.cluster_depth.map(|_| *stack_index))
         .max();
     let mut popup_stack = Vec::new();
+    let landmark_ceiling = live_windows
+        .iter()
+        .filter(|(_, scene)| scene.above_field_landmarks)
+        .map(|(stack_index, _)| *stack_index)
+        .min();
     for (stack_index, window_scene) in &mut live_windows {
         if !window_scene.popup_elements.is_empty() {
             popup_stack.push(StackGroup {
@@ -984,6 +989,14 @@ fn build_logical(
                 .map_or(u64::MAX, |depth| depth as u64),
             elements: window_scene.elements,
         });
+    }
+    if let Some(ceiling) = landmark_ceiling {
+        // Collapsed nodes remember their old Space slot, which can now be
+        // higher than every remaining live window. Temporarily place desktop
+        // objects below presentations without changing their saved Field depth.
+        for group in stack.iter_mut().filter(|group| group.window.is_none()) {
+            group.stack_index = group.stack_index.min(ceiling);
+        }
     }
     sort_stack_groups(&mut stack);
     crate::window::stacking::sort_above_parents(request.desktop.space, &mut stack, |group| {
