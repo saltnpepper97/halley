@@ -1294,6 +1294,10 @@ impl<D: SessionDriver> SeatHandler for Session<D> {
         &mut self.seat_state
     }
 
+    fn led_state_changed(&mut self, _seat: &Seat<Self>, state: smithay::input::keyboard::LedState) {
+        self.driver.update_keyboard_leds(state);
+    }
+
     fn focus_changed(
         &mut self,
         seat: &Seat<Self>,

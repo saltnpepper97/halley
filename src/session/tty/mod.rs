@@ -259,6 +259,10 @@ impl super::OutputDriver for TtyDriver {
 impl super::SessionDriver for TtyDriver {
     const BACKEND_KIND: BackendKind = BackendKind::Tty;
 
+    fn update_keyboard_leds(&mut self, state: smithay::input::keyboard::LedState) {
+        self.physical_input.update_keyboard_leds(state);
+    }
+
     fn stop(&mut self) {
         self.loop_signal.stop();
     }
@@ -692,10 +696,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             }
             match &event {
                 smithay::backend::input::InputEvent::DeviceAdded { device } => {
-                    let first_touch = app
-                        .driver
-                        .physical_input
-                        .added(device.clone(), &app.settings.input);
+                    let leds = app
+                        .seat
+                        .get_keyboard()
+                        .expect("keyboard capability added at seat setup")
+                        .led_state();
+                    let first_touch =
+                        app.driver
+                            .physical_input
+                            .added(device.clone(), &app.settings.input, leds);
                     if first_touch && app.seat.get_touch().is_none() {
                         app.seat.add_touch();
                     }
@@ -752,6 +761,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                         // said before the switch.
                         Ok(()) => {
                             app.driver.pause_reasons.session = false;
+                            sync_keyboard_leds(app);
                             super::pointer::recover_after_session_resume(app);
                             if !app.driver.pause_reasons.any() {
                                 if let Some(outputs) = app.driver.pending_output_config.take() {
@@ -1713,6 +1723,7 @@ fn handle_system_sleep(app: &mut TtyApp, preparing: bool) {
         return;
     }
     app.driver.backend.recover_after_system_sleep();
+    sync_keyboard_leds(app);
     super::pointer::recover_after_session_resume(app);
     if let Some(outputs) = app.driver.pending_output_config.take() {
         apply_tty_output_config(app, &outputs);
@@ -1720,6 +1731,14 @@ fn handle_system_sleep(app: &mut TtyApp, preparing: bool) {
     // A delayed subscription can miss PrepareForSleep(true). In that case
     // request_redraw alone still waits for a pre-sleep flip that may be lost.
     resume_redraw_state(app);
+}
+
+fn sync_keyboard_leds(app: &mut TtyApp) {
+    if let Some(keyboard) = app.seat.get_keyboard() {
+        app.driver
+            .physical_input
+            .update_keyboard_leds(keyboard.led_state());
+    }
 }
 
 fn resume_redraw_state(app: &mut TtyApp) {
