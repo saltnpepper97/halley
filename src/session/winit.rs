@@ -22,17 +22,26 @@ use crate::wayland;
 
 use super::{Session, state::OutputDriver};
 
+#[cfg(test)]
+mod test_support;
+
 struct WinitDriver {
     backend: WinitBackend,
     loop_handle: LoopHandle<'static, App>,
     exit: bool,
     last_camera_tick: Instant,
     frame_callback_sequence: u32,
+    #[cfg(test)]
+    extra_outputs: Vec<smithay::output::Output>,
 }
 
 impl crate::ipc::OutputInfoSource for WinitDriver {
     fn output_info(&self) -> Vec<halley_ipc::OutputInfo> {
-        crate::ipc::OutputInfoSource::output_info(&self.backend)
+        #[allow(unused_mut)]
+        let mut outputs = crate::ipc::OutputInfoSource::output_info(&self.backend);
+        #[cfg(test)]
+        outputs.extend(self.extra_outputs.iter().map(test_support::output_info));
+        outputs
     }
 }
 
@@ -113,7 +122,8 @@ impl super::OutputDriver for WinitDriver {
 
     fn output_states(&self) -> Vec<super::output::OutputState> {
         let output = self.backend.output();
-        vec![super::output::OutputState {
+        #[allow(unused_mut)]
+        let mut states = vec![super::output::OutputState {
             output: output.clone(),
             enabled: true,
             mode: output
@@ -124,7 +134,10 @@ impl super::OutputDriver for WinitDriver {
             scale: output.current_scale().fractional_scale(),
             adaptive_sync: false,
             adaptive_sync_supported: false,
-        }]
+        }];
+        #[cfg(test)]
+        states.extend(self.extra_outputs.iter().map(test_support::output_state));
+        states
     }
 
     fn test_output_configuration(
@@ -260,6 +273,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         exit: false,
         last_camera_tick: Instant::now(),
         frame_callback_sequence: 0,
+        #[cfg(test)]
+        extra_outputs: Vec::new(),
     };
     let mut wayland = App::create_wayland_state(dh.clone(), &mut driver);
     wayland.ensure_output_global::<App>(driver.backend.output());
@@ -418,6 +433,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     }
     super::install_frame_callback_fallback_timer(&event_loop.handle())
         .expect("failed to start frame-callback and FIFO progress timer");
+
+    #[cfg(test)]
+    test_support::install(&mut app, &event_loop.handle());
 
     event_loop
         .handle()
@@ -876,7 +894,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 app.notify_output_management();
                 app.request_redraw();
             }
-            WinitEvent::Input(event) => super::input::handle(app, &event, &socket_name),
+            WinitEvent::Input(event) => {
+                // Isolated test sessions receive input only from their private
+                // control socket; host pointer motion must not steer the test.
+                #[cfg(test)]
+                if !app.driver.extra_outputs.is_empty() {
+                    return;
+                }
+                super::input::handle(app, &event, &socket_name);
+            }
             _ => {}
         })
         .expect("failed to insert winit event source");
