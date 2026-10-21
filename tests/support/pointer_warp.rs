@@ -97,7 +97,7 @@ fn fixture() -> Fixture {
     )
 }
 
-fn bind(
+pub(super) fn bind(
     queue: &mut EventQueue<NativeState>,
     state: &mut NativeState,
 ) -> (wl_pointer::WlPointer, warp::WpPointerWarpV1) {
@@ -129,7 +129,7 @@ fn focus(fixture: &mut Fixture, queue: &mut EventQueue<NativeState>, state: &mut
     });
 }
 
-fn request(
+pub(super) fn request(
     queue: &mut EventQueue<NativeState>,
     state: &mut NativeState,
     pointer: &wl_pointer::WlPointer,
@@ -147,7 +147,7 @@ fn request(
     queue.roundtrip(state).unwrap();
 }
 
-fn check_position(state: &NativeState, expected: (f64, f64)) {
+pub(super) fn check_position(state: &NativeState, expected: (f64, f64)) {
     let actual = state.pointer_warp.position.unwrap();
     assert!(
         (actual.0 - expected.0).abs() <= 1.0 / 256.0,

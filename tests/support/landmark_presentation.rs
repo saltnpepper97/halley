@@ -31,6 +31,29 @@ fn position(fixture: &mut Fixture, id: u64) -> (f32, f32) {
     (node.pos_x, node.pos_y)
 }
 
+fn assert_landmarks_are_below_presentation(fixture: &mut Fixture, white: bool) {
+    let (pixels, width) = capture_frame_pixels(fixture);
+    let height = pixels.len() / 4 / width;
+    let mut unexpected = Vec::new();
+    for y in 80..height - 80 {
+        for x in 80..width - 80 {
+            let pixel = &pixels[(y * width + x) * 4..][..3];
+            let client = if white {
+                pixel.iter().all(|v| *v > 250)
+            } else {
+                pixel[1] > 250 && pixel[0] < 5 && pixel[2] < 5
+            };
+            if !client && unexpected.len() < 8 {
+                unexpected.push((x, y, pixel.to_vec()));
+            }
+        }
+    }
+    assert!(
+        unexpected.is_empty(),
+        "Field elements rendered over the opaque presentation: {unexpected:?}"
+    );
+}
+
 #[test]
 #[ignore = "requires a Wayland desktop and XWayland; fullscreen/maximize landmark stability"]
 fn native_fullscreen_and_maximize_leave_nearby_landmarks_in_place() {
@@ -40,7 +63,7 @@ fn native_fullscreen_and_maximize_leave_nearby_landmarks_in_place() {
             let config = format!(
                 "animations:\n enabled false\nend\ninput:\n focus-mode \"click\"\nend\nrules:\n window-rule:\n app-id \"halley.test.presentation\"\n game {game}\n end\nend\n"
             );
-            let mut fixture = Fixture::with_config("stacking", &config);
+            let mut fixture = Fixture::with_capture_config("stacking", &config, true);
             let (mut queue, mut state) = native_window_named(
                 &fixture,
                 "Presentation owner",
@@ -146,6 +169,42 @@ fn native_fullscreen_and_maximize_leave_nearby_landmarks_in_place() {
                     assert_eq!(position(&mut fixture, landmark), home);
                 }
                 if enabled {
+                    assert_landmarks_are_below_presentation(&mut fixture, false);
+                    let (pointer, warp) = super::pointer_warp::bind(&mut queue, &mut state);
+                    fixture.ack(Request::Control(halley_ipc::ControlRequest::MonitorFocus(
+                        halley_ipc::MonitorFocusTarget::Output("winit".into()),
+                    )));
+                    wait_for("pointer enters the presentation", || {
+                        queue.roundtrip(&mut state).unwrap();
+                        state
+                            .pointer_warp
+                            .enter
+                            .as_ref()
+                            .filter(|(surface, _)| Some(surface) == state.surface.as_ref())
+                            .map(|_| ())
+                    });
+                    let current = fixture.node("Presentation owner");
+                    let covered_point = (
+                        f64::from(home.0 - current.pos_x + current.width / 2.0),
+                        f64::from(home.1 - current.pos_y + current.height / 2.0),
+                    );
+                    super::pointer_warp::request(
+                        &mut queue,
+                        &mut state,
+                        &pointer,
+                        &warp,
+                        covered_point,
+                    );
+                    queue.roundtrip(&mut state).unwrap();
+                    super::pointer_warp::check_position(&state, covered_point);
+                    assert!(
+                        state
+                            .pointer_warp
+                            .enter
+                            .as_ref()
+                            .is_some_and(|(surface, _)| Some(surface) == state.surface.as_ref()),
+                        "covered landmark intercepted the presentation's pointer focus"
+                    );
                     // All node placement forms use the same Field blockers.
                     for direction in [
                         halley_ipc::NodeMoveDirection::Left,
@@ -199,9 +258,10 @@ fn x11_fullscreen_and_maximize_leave_nearby_landmarks_in_place() {
     for game in [false, true] {
         for maximize in [false, true] {
             eprintln!("landmark stability: X11 game={game} maximize={maximize}");
-            let mut fixture = Fixture::with_config(
+            let mut fixture = Fixture::with_capture_config(
                 "stacking",
                 "animations:\n enabled false\nend\ninput:\n focus-mode \"click\"\nend\n",
+                true,
             );
             let (connection, _) = x11rb::connect(Some(&fixture.display)).unwrap();
             let xid = x11_window(&connection, "Presentation owner");
@@ -274,6 +334,9 @@ fn x11_fullscreen_and_maximize_leave_nearby_landmarks_in_place() {
                 connection.flush().unwrap();
                 thread::sleep(Duration::from_millis(50));
                 assert_eq!(position(&mut fixture, landmark), home);
+                if enabled {
+                    assert_landmarks_are_below_presentation(&mut fixture, true);
+                }
             }
             connection
                 .configure_window(

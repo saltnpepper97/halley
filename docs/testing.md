@@ -58,3 +58,9 @@ game classes. Native compositor fullscreen and maximize also delay the restored
 buffer after acknowledging the exit configure. Node placement commands remain
 usable underneath the presentation, and normal Field client resizing must
 still displace the nearby landmark after every scenario.
+
+Captured pixels must also show the opaque fullscreen/maximize client covering
+the node, including when the node's remembered stack slot exceeds the remaining
+live window slots. Native cases send a real client pointer-warp request into
+the covered marker area and verify the client receives the requested position
+without losing pointer focus.

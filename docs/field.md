@@ -44,6 +44,8 @@ windows can still overlap each other.
 Fullscreen and maximized windows are temporary presentations outside the Field
 collision policy. Entering either leaves nearby collapsed nodes and cluster
 cores in place, including while the client is completing a presentation handoff.
+Landmarks render underneath the presenting window and do not intercept input
+where it covers them; they retain their saved Field stack depth after exit.
 This applies to client-requested fullscreen (such as browser video), compositor
 fullscreen, and games. Normal Field window movement and resizing still reserve
 landmark clearance.
