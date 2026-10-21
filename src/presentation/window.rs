@@ -31,6 +31,7 @@ pub(crate) struct WindowVisualState {
     pub(crate) cluster_depth: Option<usize>,
     pub(crate) cluster_floating: bool,
     pub(crate) cluster_exclusive: bool,
+    pub(crate) above_field_landmarks: bool,
     inherited_presentation: bool,
 }
 
@@ -410,6 +411,9 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
     let mut inherited_cluster_floating = window_node
         .is_some_and(|node| clusters.is_some_and(|clusters| clusters.is_member_floating(node)));
     let mut inherited_cluster_exclusive = cluster_exclusive;
+    let mut above_field_landmarks = (fullscreen_presentation.is_some()
+        && !fullscreen.is_presentation_paused(window_surface.as_ref()))
+        || maximize_presentation.is_some();
 
     if let Some(owner_xid) = crate::wayland::window_presentation_owner(window)
         && let Some(owner) = crate::xwayland::window_for_xid(space, owner_xid)
@@ -448,6 +452,7 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
         inherited_cluster_depth = owner_visual.cluster_depth;
         inherited_cluster_floating = owner_visual.cluster_floating;
         inherited_cluster_exclusive = owner_visual.cluster_exclusive;
+        above_field_landmarks = owner_visual.above_field_landmarks;
         presentation_space = owner_visual.presentation_space;
         inherited_presentation = true;
     }
@@ -470,6 +475,7 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
         cluster_depth: inherited_cluster_depth,
         cluster_floating: inherited_cluster_floating,
         cluster_exclusive: inherited_cluster_exclusive,
+        above_field_landmarks,
         inherited_presentation,
     })
 }

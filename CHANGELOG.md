@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Render stationary landmarks below fullscreen and maximized windows even when
+  their saved stack slot is above the remaining live windows. Keep covered
+  nodes from intercepting pointer input and restore their Field depth on exit.
 - Keep nearby collapsed nodes in place when any native Wayland or XWayland
   window enters fullscreen or maximize. Exclude presentation-owned geometry
   from Field landmark placement and collision checks, including pending

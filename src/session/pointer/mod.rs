@@ -214,6 +214,69 @@ pub(super) fn route_client<D: SessionDriver>(
     )
 }
 
+/// Landmarks stay in Field space beneath temporary window presentations. Use
+/// the current rendered rectangle so exposed markers remain usable during a
+/// transition and around a maximized window's margins.
+pub(super) fn presentation_covers_field_point<D: SessionDriver>(
+    session: &Session<D>,
+    output: &smithay::output::Output,
+    position: Point<f64, Logical>,
+    now: std::time::Duration,
+) -> bool {
+    let Some(geometry) = session.wayland.space.output_geometry(output) else {
+        return false;
+    };
+    let local = position - geometry.loc.to_f64();
+    session.wayland.space.elements().any(|window| {
+        if !crate::wayland::window_is_on_output(window, output, session.driver.primary_output()) {
+            return false;
+        }
+        let Some(surface) = window.wl_surface() else {
+            return false;
+        };
+        if session
+            .fullscreen
+            .presentation(surface.as_ref(), output, now)
+            .is_none()
+            && session
+                .maximize
+                .presentation(surface.as_ref(), output, geometry, now)
+                .is_none()
+            && crate::wayland::window_presentation_owner(window).is_none()
+        {
+            return false;
+        }
+        let Some(visual) = crate::presentation::window::window_visual_state(
+            &session.wayland.space,
+            &session.cameras,
+            Some(&session.clusters),
+            Some(&session.nodes),
+            window,
+            output,
+            &session.window_animations,
+            &session.fullscreen,
+            &session.maximize,
+            &session.settings.decorations,
+            &session.settings.font,
+            now,
+        ) else {
+            return false;
+        };
+        let rect = visual.animated_rect.to_logical(1);
+        let rect = if visual.fullscreen.is_none() {
+            crate::titlebar::outer_rect_for_client(
+                window,
+                rect,
+                &session.settings.decorations,
+                &session.settings.font,
+            )
+        } else {
+            rect
+        };
+        visual.above_field_landmarks && visual.opening_alpha > 0.01 && rect.to_f64().contains(local)
+    })
+}
+
 fn route_client_at<D: SessionDriver>(
     session: &Session<D>,
     position: (f64, f64),
@@ -261,6 +324,7 @@ fn route_client_at<D: SessionDriver>(
     .is_some_and(|presentation| presentation.progress > 0.0);
     if !route.is_desktop_popup
         && !cluster_exclusive
+        && !presentation_covers_field_point(session, &route.output, Point::from(position), now)
         && session
             .nodes
             .hit_test(
