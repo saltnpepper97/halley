@@ -4,7 +4,9 @@
 `enabled` field, so an individual effect can be disabled without changing the
 others.
 
-Ordinary CLI and keyboard window movement has an independent block:
+Ordinary CLI and keyboard window movement has an independent block. Fresh
+bootstrap and both shipped examples include these settings. Existing configs
+that omit the block get the same defaults in memory without rewriting the file:
 
 ```rune
 animations:
