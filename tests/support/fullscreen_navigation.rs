@@ -6,7 +6,7 @@ use wayland_protocols::wp::content_type::v1::client::{
 delegate_noop!(NativeState: ignore content_manager::WpContentTypeManagerV1);
 delegate_noop!(NativeState: ignore content::WpContentTypeV1);
 
-struct RealTerminal(Child);
+pub(super) struct RealTerminal(Child);
 
 impl Drop for RealTerminal {
     fn drop(&mut self) {
@@ -15,7 +15,12 @@ impl Drop for RealTerminal {
     }
 }
 
-fn terminal(fixture: &Fixture, title: &str, background: &str, protocol: &str) -> RealTerminal {
+pub(super) fn terminal(
+    fixture: &Fixture,
+    title: &str,
+    background: &str,
+    protocol: &str,
+) -> RealTerminal {
     let socket = fs::read_dir(&fixture.path)
         .unwrap()
         .flatten()
@@ -42,7 +47,7 @@ fn terminal(fixture: &Fixture, title: &str, background: &str, protocol: &str) ->
         .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap())
 }
 
-fn terminal_bounds(pixels: &[u8], width: usize) -> [i32; 4] {
+pub(super) fn terminal_bounds(pixels: &[u8], width: usize) -> [i32; 4] {
     let mut bounds = [i32::MAX, i32::MAX, 0, 0];
     let mut count = 0;
     for (index, pixel) in pixels.chunks_exact(4).enumerate() {

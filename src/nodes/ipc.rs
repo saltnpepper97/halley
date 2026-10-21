@@ -147,8 +147,11 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             }) {
                 halley_ipc::Response::Ack
             } else {
-                halley_ipc::Response::Error(format!(
-                    "cannot place node {id}: position is blocked, out of range, or the node cannot move"
+                halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
+                    halley_ipc::ServerErrorKind::InvalidRequest,
+                    format!(
+                        "cannot place node {id}: position is blocked, out of range, or the node cannot move"
+                    ),
                 ))
             }
         }
@@ -434,6 +437,31 @@ fn place_node<D: crate::session::SessionDriver>(
     {
         return false;
     }
+    if let Some(desired) = exact {
+        let scale = session
+            .cameras
+            .get(&record.output)
+            .map(crate::presentation::camera::scale)
+            .unwrap_or(1.0);
+        let cores = session
+            .clusters
+            .collapsed_core_landmarks()
+            .into_iter()
+            .filter_map(|(_, _, output, position, _)| (output == record.output).then_some(position))
+            .collect::<Vec<_>>();
+        if !session.nodes.exact_position_is_free(
+            id,
+            desired,
+            scale,
+            &cores,
+            super::PlacementChrome {
+                decorations: &session.settings.decorations,
+                font: &session.settings.font,
+            },
+        ) {
+            return false;
+        }
+    }
     if record.collapsed {
         let Some(current) = session.nodes.field.node(id).map(|node| node.pos) else {
             return false;
@@ -463,7 +491,9 @@ fn place_node<D: crate::session::SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
         };
-        let destination = if explicit_distance {
+        let destination = if exact.is_some() {
+            desired
+        } else if explicit_distance {
             session.nodes.directional_landmark_position(
                 id,
                 current,
@@ -517,7 +547,9 @@ fn place_node<D: crate::session::SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
         };
-        let next = if explicit_distance {
+        let next = if exact.is_some() {
+            desired
+        } else if explicit_distance {
             session
                 .nodes
                 .directional_active_rect(
