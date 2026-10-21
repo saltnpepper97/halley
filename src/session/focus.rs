@@ -84,6 +84,13 @@ fn resume_fullscreen_presentation<D: SessionDriver>(session: &mut Session<D>, wi
         return;
     };
     let output_name = session.fullscreen.resume_presentation(surface.as_ref());
+    sync_resumed_fullscreen(session, output_name);
+}
+
+fn sync_resumed_fullscreen<D: SessionDriver>(
+    session: &mut Session<D>,
+    output_name: Option<String>,
+) {
     let Some(output_name) = output_name else {
         return;
     };
@@ -310,6 +317,19 @@ pub(super) fn update_hover<D: SessionDriver>(
         return;
     }
 
+    // Output selection is updated only after checking the physical crossing.
+    // Hover within the same output must not undo an intentional game park.
+    if let crate::input::pointer::PointerTarget::Window(window)
+    | crate::input::pointer::PointerTarget::Decoration { window, .. } = &route.target
+        && let Some(surface) = window.wl_surface()
+    {
+        let output_name = session.fullscreen.resume_presentation_on_output_return(
+            surface.as_ref(),
+            &route.output.name(),
+            session.wayland.focused_output.as_deref(),
+        );
+        sync_resumed_fullscreen(session, output_name);
+    }
     crate::wayland::focus::select_output(&mut session.wayland, &route.output);
     match &route.target {
         crate::input::pointer::PointerTarget::Window(window) => {

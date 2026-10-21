@@ -1158,7 +1158,9 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
             &session.wayland.display_handle,
             rule.game,
         ) {
-            session.fullscreen.pause_presentation(&surface);
+            session
+                .fullscreen
+                .pause_presentation_on_output(&surface, &record.output);
         } else {
             crate::session::leave_fullscreen_for_navigation(session, outgoing.clone());
         }

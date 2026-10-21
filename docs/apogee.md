@@ -83,7 +83,12 @@ their previous normal placement. This releases both client and compositor
 fullscreen, including nested browser/video fullscreen; returning leaves the app
 windowed. Identified games instead keep their fullscreen state and buffer size
 while their presentation is parked, and resume fullscreen on a direct click.
-The policy applies to fullscreen presentations on the destination output and
+Games are parked only when selecting another window on their own monitor;
+switching to a different monitor keeps the game fullscreen. In hover-focus
+mode, returning to a parked game from another monitor also resumes its
+fullscreen presentation. Hover within the same monitor keeps the click-to-resume
+policy.
+The ordinary-app exit policy applies to presentations on the destination output and
 the departing focused window, including a jump to another monitor. Other
 monitors keep their presentations. Previewing or cancelling the switcher,
 temporary focus changes, and maximize do not trigger this policy.

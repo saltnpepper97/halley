@@ -258,11 +258,17 @@ impl FullscreenManager {
             .collect()
     }
 
-    /// Park only identified games, preserving protocol state and client size.
-    pub(crate) fn pause_presentation(&mut self, surface: &WlSurface) {
-        if let Some(entry) = self.windows.get_mut(surface) {
-            entry.presentation_paused = true;
-        }
+    /// A game releases its output only when navigation selects another window
+    /// on that same output. Other monitors can be used without moving the game
+    /// back into the Field or changing its fullscreen protocol/client size.
+    pub(crate) fn pause_presentation_on_output(
+        &mut self,
+        surface: &WlSurface,
+        output: &str,
+    ) -> bool {
+        self.windows
+            .get_mut(surface)
+            .is_some_and(|entry| pause_entry_on_output(entry, output))
     }
 
     pub(crate) fn release_output_for_navigation(&mut self, surface: &WlSurface) {
@@ -277,6 +283,19 @@ impl FullscreenManager {
     /// activation.
     pub(crate) fn resume_presentation(&mut self, surface: &WlSurface) -> Option<String> {
         self.resume_presentation_if(surface, |_| true)
+    }
+
+    /// Physical hover returning from a different monitor can resume a parked
+    /// game. Same-output hover keeps the deliberate click-to-resume policy.
+    pub(crate) fn resume_presentation_on_output_return(
+        &mut self,
+        surface: &WlSurface,
+        output: &str,
+        previous_output: Option<&str>,
+    ) -> Option<String> {
+        self.resume_presentation_if(surface, |entry| {
+            resumes_on_output_return(entry, output, previous_output)
+        })
     }
 
     pub(crate) fn is_presentation_paused(&self, surface: &WlSurface) -> bool {
@@ -1739,6 +1758,26 @@ fn animations_enabled(animations: &Animations) -> bool {
     animations.enabled && animations.fullscreen.enabled
 }
 
+fn pause_entry_on_output(entry: &mut FullscreenWindow, output: &str) -> bool {
+    if entry.target_output != output
+        || entry.origin == FullscreenOrigin::Maximize
+        || !entry.desired
+        || entry.presentation_paused
+    {
+        return false;
+    }
+    entry.presentation_paused = true;
+    true
+}
+
+fn resumes_on_output_return(
+    entry: &FullscreenWindow,
+    output: &str,
+    previous_output: Option<&str>,
+) -> bool {
+    entry.target_output == output && previous_output.is_some_and(|previous| previous != output)
+}
+
 /// Whether the committed xdg states still count as the protocol fullscreen
 /// edge `handle_commit` is waiting on.
 fn protocol_commit_is_active(
@@ -2988,6 +3027,162 @@ mod tests {
                 .windowed_output_rect,
             Some(saved_output)
         );
+    }
+
+    #[test]
+    fn cross_output_navigation_preserves_game_presentation_and_protocol() {
+        for external in [false, true] {
+            let mut entry = test_entry(true);
+            if external {
+                entry.native = None;
+            }
+            let size = entry.fullscreen_size;
+            let native = entry.native;
+            assert!(!pause_entry_on_output(&mut entry, "DP-2"));
+            assert!(entry_owns_output_presentation(&entry));
+            assert!(entry_presents_immersive(&entry, "DP-1"));
+            assert!(!entry.presentation_paused);
+            assert!(entry.active && entry.desired);
+            assert_eq!(entry.fullscreen_size, size);
+            assert_eq!(entry.native, native);
+
+            assert!(pause_entry_on_output(&mut entry, "DP-1"));
+            assert!(!entry_owns_output_presentation(&entry));
+            assert!(entry.active && entry.desired);
+            assert_eq!(entry.fullscreen_size, size);
+            assert_eq!(entry.native, native);
+            assert!(!pause_entry_on_output(&mut entry, "DP-1"));
+        }
+    }
+
+    #[test]
+    fn hover_return_resumes_only_the_game_owning_the_entered_output() {
+        let entry = test_entry(true);
+        assert!(resumes_on_output_return(&entry, "DP-1", Some("DP-2")));
+        assert!(!resumes_on_output_return(&entry, "DP-1", Some("DP-1")));
+        assert!(!resumes_on_output_return(&entry, "DP-2", Some("DP-1")));
+        assert!(!resumes_on_output_return(&entry, "DP-1", None));
+    }
+
+    #[test]
+    fn two_output_navigation_and_hover_return_keep_the_fullscreen_camera_and_bounds() {
+        use smithay::output::{PhysicalProperties, Subpixel};
+        use smithay::reexports::wayland_server::protocol::wl_surface;
+        use smithay::reexports::wayland_server::{
+            Client, DataInit, Dispatch, Display, DisplayHandle,
+        };
+        use std::os::unix::net::UnixStream;
+        use std::sync::Arc;
+
+        struct State;
+        impl Dispatch<WlSurface, ()> for State {
+            fn request(
+                _: &mut Self,
+                _: &Client,
+                _: &WlSurface,
+                _: wl_surface::Request,
+                _: &(),
+                _: &DisplayHandle,
+                _: &mut DataInit<'_, Self>,
+            ) {
+            }
+        }
+        let display = Display::<State>::new().unwrap();
+        let mut handle = display.handle();
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let client = handle.insert_client(socket, Arc::new(())).unwrap();
+        let surfaces = (0..3)
+            .map(|_| {
+                client
+                    .create_resource::<WlSurface, (), State>(&handle, 1, ())
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let output = |name: &str| {
+            Output::new(
+                name.into(),
+                PhysicalProperties {
+                    size: (0, 0).into(),
+                    subpixel: Subpixel::Unknown,
+                    make: "test".into(),
+                    model: "test".into(),
+                    serial_number: "test".into(),
+                },
+            )
+        };
+        let primary = output("DP-1");
+        let secondary = output("DP-2");
+        let bounds = Rectangle::new((0, 0).into(), (2560, 1440).into());
+        let now = Duration::ZERO;
+        for external in [false, true] {
+            let mut manager = FullscreenManager::new(Animations::default());
+            let mut game = test_entry(true);
+            game.fullscreen_size = bounds.size;
+            // Reproduce KH's offset normal placement and full-size buffer.
+            let restore = Rectangle::new((253, 143).into(), (2560, 1418).into());
+            game.restore = Some(WindowedPlacement {
+                location: restore.loc,
+                geometry: restore,
+                output: Some("DP-1".into()),
+            });
+            if external {
+                game.native = None;
+            }
+            let native = game.native;
+            manager.windows.insert(surfaces[0].clone(), game);
+            let mut other_game = test_entry(true);
+            other_game.target_output = "DP-2".into();
+            manager.windows.insert(surfaces[1].clone(), other_game);
+
+            // Alt+Tab from a game on DP-1 to an ordinary window on DP-2.
+            let candidates =
+                manager.navigation_candidates("DP-2", &surfaces[2], Some(&surfaces[0]));
+            assert_eq!(candidates.len(), 2);
+            for candidate in candidates {
+                manager.pause_presentation_on_output(&candidate, "DP-2");
+            }
+            assert!(!manager.is_presentation_paused(&surfaces[0]));
+            assert!(manager.is_presentation_paused(&surfaces[1]));
+            assert!(manager.camera_frame(&primary, bounds, now).is_some());
+            assert!(manager.camera_frame(&secondary, bounds, now).is_none());
+            assert!(manager.covers_top(None, &primary, now));
+            assert!(!manager.covers_top(None, &secondary, now));
+
+            // Same-output navigation still parks; local hover cannot undo it.
+            assert!(manager.pause_presentation_on_output(&surfaces[0], "DP-1"));
+            assert!(manager.camera_frame(&primary, bounds, now).is_none());
+            assert!(
+                manager
+                    .resume_presentation_on_output_return(&surfaces[0], "DP-1", Some("DP-1"))
+                    .is_none()
+            );
+            assert!(
+                manager
+                    .resume_presentation_on_output_return(&surfaces[0], "DP-2", Some("DP-1"))
+                    .is_none()
+            );
+            assert!(manager.is_presentation_paused(&surfaces[0]));
+
+            // Returning from the other monitor restores the exact output rect,
+            // not the offset Field placement, and leaves the other game parked.
+            assert_eq!(
+                manager
+                    .resume_presentation_on_output_return(&surfaces[0], "DP-1", Some("DP-2"))
+                    .as_deref(),
+                Some("DP-1")
+            );
+            assert!(!manager.is_presentation_paused(&surfaces[0]));
+            assert!(manager.is_presentation_paused(&surfaces[1]));
+            let presentation = manager.presentation(&surfaces[0], &primary, now).unwrap();
+            assert_eq!(presentation.progress, 1.0);
+            assert_eq!(
+                presentation.client_rect(restore.to_physical(1), bounds.size.to_physical(1)),
+                bounds.to_physical(1)
+            );
+            assert!(manager.camera_frame(&primary, bounds, now).is_some());
+            assert_eq!(manager.windows[&surfaces[0]].native, native);
+            assert!(manager.windows[&surfaces[0]].desired && manager.windows[&surfaces[0]].active);
+        }
     }
 
     #[test]
