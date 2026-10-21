@@ -233,8 +233,10 @@ Contact is determined from the actual window and core bounds plus `field.gap`.
 ## Landmark non-overlap
 
 Collapsed nodes are the only landmarks. Active windows may overlap other
-active windows freely, but nodes remain clear of both nodes and active
-windows:
+active windows freely, but nodes remain clear of both nodes and ordinary Field
+windows. Fullscreen and maximized windows do not displace landmarks or block
+node placement with their enlarged presentation geometry. Ordinary Field
+movement and resizing still enforce clearance:
 
 ```rune
 field:
