@@ -1131,16 +1131,9 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
     if !record.attached {
         return false;
     }
-    let departing = session
-        .wayland
-        .focused_window
-        .as_ref()
-        .and_then(|window| window.wl_surface().map(|surface| surface.into_owned()));
-    let candidates = session.fullscreen.navigation_candidates(
-        &record.output,
-        &record.surface,
-        departing.as_ref(),
-    );
+    let candidates = session
+        .fullscreen
+        .navigation_candidates(&record.output, &record.surface);
     for surface in candidates {
         let Some(outgoing) = session
             .nodes

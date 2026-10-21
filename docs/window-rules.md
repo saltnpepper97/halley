@@ -48,8 +48,9 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
   presentation. Navigation to other monitors keeps the game fullscreen. A
   direct click resumes a parked game; in hover-focus mode, pointer re-entry
   from another monitor also resumes it. Same-monitor hover does not resume it.
-  `game false` forces ordinary application behavior: navigation exits fullscreen
-  and returning leaves the window restored. Omit it for automatic detection
+  `game false` forces ordinary application behavior: same-monitor navigation
+  exits fullscreen and returning leaves the window restored. Cross-monitor
+  navigation preserves fullscreen for every application, regardless of this rule. Omit it for automatic detection
   through Wayland game content hints, Steam game window/launch IDs, or a matching
   desktop entry's `Game` category (desktop ID or `StartupWMClass`). Unknown
   applications use ordinary behavior. Desktop entries mixing `Game` with

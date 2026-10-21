@@ -78,7 +78,7 @@ needed, then moves the pointer once to the center of its actual window,
 fullscreen, or field-maximized presentation. A collapsed selection waits for
 its restore animation before that final pointer handoff; cancellation does not
 move the pointer.
-Committing a different window exits fullscreen for ordinary apps, restoring
+Committing a different window on the same monitor exits fullscreen for ordinary apps, restoring
 their previous normal placement. This releases both client and compositor
 fullscreen, including nested browser/video fullscreen; returning leaves the app
 windowed. Identified games instead keep their fullscreen state and buffer size
@@ -88,9 +88,9 @@ switching to a different monitor keeps the game fullscreen. In hover-focus
 mode, returning to a parked game from another monitor also resumes its
 fullscreen presentation. Hover within the same monitor keeps the click-to-resume
 policy.
-The ordinary-app exit policy applies to presentations on the destination output and
-the departing focused window, including a jump to another monitor. Other
-monitors keep their presentations. Previewing or cancelling the switcher,
+Fullscreen changes apply only to presentations on the destination monitor.
+Switching to another monitor preserves the departing window's fullscreen,
+client size, and presentation for every application, including browsers and games. Previewing or cancelling the switcher,
 temporary focus changes, and maximize do not trigger this policy.
 See [window rules](window-rules.md) for game detection and overrides.
 The old five-card rail is restored: preview-hugging chip chrome, an overlaid

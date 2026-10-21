@@ -77,6 +77,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Preserve fullscreen for every application when Alt+Tab, Apogee, or centered
+  navigation selects a window on another monitor. Filter fullscreen changes to
+  the destination monitor before app/game policy; keep same-monitor ordinary-app
+  exit and game parking behavior unchanged.
 - Keep fullscreen games presenting on their own monitor when Alt+Tab or Apogee
   selects a window on another monitor. Resume a parked game when hover focus
   returns from another monitor, while retaining click-to-resume for same-monitor
