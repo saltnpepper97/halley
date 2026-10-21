@@ -44,7 +44,10 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.
 - `game true` preserves fullscreen state and client size when explicit
-  navigation parks the presentation; a direct click resumes fullscreen.
+  navigation selects another window on the same monitor and parks the
+  presentation. Navigation to other monitors keeps the game fullscreen. A
+  direct click resumes a parked game; in hover-focus mode, pointer re-entry
+  from another monitor also resumes it. Same-monitor hover does not resume it.
   `game false` forces ordinary application behavior: navigation exits fullscreen
   and returning leaves the window restored. Omit it for automatic detection
   through Wayland game content hints, Steam game window/launch IDs, or a matching

@@ -67,6 +67,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep fullscreen games presenting on their own monitor when Alt+Tab or Apogee
+  selects a window on another monitor. Resume a parked game when hover focus
+  returns from another monitor, while retaining click-to-resume for same-monitor
+  navigation. Preserve fullscreen protocol state and client size throughout.
 - Keep the shrinking fullscreen window attached to its live Field destination
   while Alt+Tab or Apogee pans toward another window, preventing a final jump
   from the old screen position when the fullscreen return finishes.
