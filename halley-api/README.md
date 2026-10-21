@@ -27,3 +27,7 @@ semantics, and integration guidance.
 For precise movement, `Client::move_node_by(direction, distance, selector, output)`
 moves up to a positive number of Field units and stops at obstructions. It requires
 `node-move-distance-v1`; the existing `move_node` method retains its behavior.
+
+`Client::move_node_to(x, y, selector, output)` requests exact Field placement and
+requires `node-move-to-v1`. Expanded-window movement follows the compositor's
+`animations.window-move` settings, including when using existing move methods.

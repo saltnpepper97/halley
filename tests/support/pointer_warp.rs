@@ -439,3 +439,54 @@ fn collapse_and_session_lock_reject_old_surface_requests() {
     // The fixture kills only its disposable compositor, so the user's
     // session never needs to be locked or unlocked by this regression.
 }
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; checks pointer coordinates during actual window motion"]
+fn window_movement_keeps_stationary_pointer_coordinates_on_the_visible_client() {
+    let mut fixture = Fixture::with_config(
+        "stacking",
+        "animations:\n window-open:\n enabled false\n end\n window-move:\n motion \"easing\"\n duration-ms 800\n curve \"linear\"\n end\nend\n",
+    );
+    let (mut queue, mut state) = native_window(&fixture);
+    let node = fixture.node("surviving native window");
+    let (pointer, warp) = bind(&mut queue, &mut state);
+    focus(&mut fixture, &mut queue, &mut state);
+    // Let explicit focus centering settle before testing a stationary pointer.
+    thread::sleep(Duration::from_millis(900));
+    focus(&mut fixture, &mut queue, &mut state);
+    request(&mut queue, &mut state, &pointer, &warp, (120.0, 80.0));
+    check_position(&state, (120.0, 80.0));
+    fixture.ack(Request::Node(NodeRequest::MoveBy {
+        direction: halley_ipc::NodeMoveDirection::Right,
+        distance: 80,
+        selector: Some(NodeSelector::Id(node.id)),
+        output: None,
+    }));
+    let started = Instant::now();
+    let mut samples = Vec::new();
+    while started.elapsed() < Duration::from_millis(1100) {
+        queue.roundtrip(&mut state).unwrap();
+        assert!(
+            state.pointer_warp.enter.is_some(),
+            "pointer left the moving visible client at {:?}, samples={samples:?}, position={:?}",
+            started.elapsed(),
+            state.pointer_warp.position
+        );
+        samples.push(state.pointer_warp.position.unwrap().0);
+        thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        samples.iter().any(|x| *x > 45.0 && *x < 115.0),
+        "no intermediate input coordinates: {samples:?}"
+    );
+    assert!(
+        (samples.last().unwrap() - 40.0).abs() <= 1.0,
+        "wrong settled pointer coordinates: {samples:?}"
+    );
+    for pair in samples.windows(2) {
+        assert!(
+            pair[1] <= pair[0] + 1.0,
+            "input transform reversed or jumped: {samples:?}"
+        );
+    }
+}

@@ -307,7 +307,9 @@ moves focus but does not pan the camera.
 `node-move` shifts the focused or most-recent Field window/collapsed node. Without
 a distance it retains the original 80-Field-unit nearest-free placement; the
 default binding is `Mod+Alt+Arrow`. Add a positive whole-number distance to move
-up to that many Field units along the requested axis, stopping at obstacles:
+up to that many Field units along the requested axis, stopping at obstacles.
+Expanded windows animate with `animations.window-move`, just like CLI movement;
+pointer dragging remains direct. Collapsed markers keep their existing slide.
 
 ```rune
 # Replace the corresponding bindings inside keybinds: for smaller movements.

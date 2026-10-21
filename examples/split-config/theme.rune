@@ -147,6 +147,14 @@ end
 animations:
   enabled true
 
+  window-move:
+    enabled true
+    motion "easing"
+    duration-ms 250
+    curve "ease-out-cubic"
+    # Or use motion "spring" with damping-ratio 1.0 and stiffness 800.0.
+  end
+
   smooth-resize:
     enabled true
     duration-ms 90

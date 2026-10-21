@@ -447,6 +447,31 @@ mod tests {
     }
 
     #[test]
+    fn exact_movement_roundtrips_without_changing_distance_encoding() {
+        assert_eq!(
+            encode(&crate::NodeRequest::MoveBy {
+                direction: crate::NodeMoveDirection::Right,
+                distance: 10,
+                selector: None,
+                output: None,
+            })
+            .unwrap(),
+            [8, 1, 10, 0, 0]
+        );
+        let request = Request::Node(crate::NodeRequest::MoveTo {
+            x: -300,
+            y: 200,
+            selector: Some(crate::NodeSelector::Id(17)),
+            output: Some("DP-2".into()),
+        });
+        let decoded = decode_request(&encode_request(&request).unwrap()).unwrap();
+        let Request::Node(expected) = request else {
+            unreachable!()
+        };
+        assert!(matches!(decoded, Request::Node(actual) if actual == expected));
+    }
+
+    #[test]
     fn direct_capture_extension_preserves_existing_request_indices() {
         // Version 23's local window request encoding must remain readable.
         let bytes = [20, 3, 1, 4, b'D', b'P', b'-', b'2'];

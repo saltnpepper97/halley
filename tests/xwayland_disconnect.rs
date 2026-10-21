@@ -47,6 +47,8 @@ mod output_management;
 mod pointer_warp;
 #[path = "support/commit_timing_nested.rs"]
 mod timing_nested;
+#[path = "support/window_movement.rs"]
+mod window_movement;
 
 struct Fixture {
     path: PathBuf,

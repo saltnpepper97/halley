@@ -684,6 +684,33 @@ fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
             config.get::<u64>("animations.arrange.duration-ms").unwrap(),
             360
         );
+        assert!(
+            config
+                .get::<bool>("animations.window-move.enabled")
+                .unwrap()
+        );
+        assert_eq!(
+            config
+                .get::<String>("animations.window-move.motion")
+                .unwrap(),
+            "easing"
+        );
+        assert_eq!(
+            config
+                .get::<u32>("animations.window-move.duration-ms")
+                .unwrap(),
+            250
+        );
+        assert_eq!(
+            config
+                .get::<String>("animations.window-move.curve")
+                .unwrap(),
+            "ease-out-cubic"
+        );
+        assert_eq!(
+            runtime.animations.window_move,
+            halley_config::WindowMoveAnimation::default()
+        );
         assert_eq!(config.get::<f32>("apogee.background-dim").unwrap(), 0.85);
         assert_eq!(runtime.decay.outside_delay_seconds, 600);
         assert_eq!(runtime.decay.inside_delay_seconds, 5400);
@@ -748,6 +775,16 @@ fn omitted_recent_options_use_defaults_without_backfilling_the_file() {
     assert_eq!(runtime.overlays.notifications.offset_y, 0);
     assert!(runtime.animations.window_open.custom_shader.is_none());
     assert!(runtime.animations.window_close.custom_shader.is_none());
+    assert_eq!(
+        runtime.animations.window_move,
+        halley_config::WindowMoveAnimation {
+            enabled: true,
+            motion: halley_config::AnimationMotion::Easing(halley_config::EasingMotion {
+                duration_ms: 250,
+                curve: halley_config::AnimationCurve::EaseOutCubic,
+            }),
+        }
+    );
     assert_eq!(runtime.decay.outside_delay_seconds, 180);
     assert_eq!(runtime.decay.inside_delay_seconds, 1800);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);

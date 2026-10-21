@@ -31,6 +31,12 @@ pub enum NodeCommand {
         selector: Option<NodeSelector>,
         output: Option<String>,
     },
+    MoveTo {
+        x: i32,
+        y: i32,
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
     Move {
         direction: NodeMoveDirection,
         distance: Option<u32>,
@@ -82,13 +88,40 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
             })
         }
         "move" => {
+            if args.get(1).map(String::as_str) == Some("to") {
+                let coordinate = |index: usize| -> Result<i32, String> {
+                    args.get(index)
+                        .and_then(|value| value.parse().ok())
+                        .ok_or_else(|| {
+                            "node move to requires X Y as signed 32-bit whole Field coordinates"
+                                .into()
+                        })
+                };
+                let x = coordinate(2)?;
+                let y = coordinate(3)?;
+                let (selector, output, json) = parse_flags(&args[4..], true)?;
+                if json {
+                    return Err("--json is supported only by node list and node info".into());
+                }
+                return Ok(Action::Node {
+                    request: NodeCommand::MoveTo {
+                        x,
+                        y,
+                        selector,
+                        output,
+                    },
+                    output: NodeOutput::Ack,
+                });
+            }
             let direction = match args.get(1).map(String::as_str) {
                 Some("left") => NodeMoveDirection::Left,
                 Some("right") => NodeMoveDirection::Right,
                 Some("up") => NodeMoveDirection::Up,
                 Some("down") => NodeMoveDirection::Down,
                 Some(other) => return Err(format!("unknown node move direction {other:?}")),
-                None => return Err("node move requires left, right, up, or down".to_string()),
+                None => {
+                    return Err("node move requires left, right, up, down, or to X Y".to_string());
+                }
             };
             let mut distance = None;
             let mut remaining = Vec::new();
@@ -191,5 +224,60 @@ pub(super) fn parse_selector(value: &str) -> Result<NodeSelector, String> {
         _ if value.starts_with("title:") => Ok(NodeSelector::Title(value[6..].to_string())),
         _ if value.starts_with("app:") => Ok(NodeSelector::App(value[4..].to_string())),
         _ => Err(format!("invalid node selector {value:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn args(input: &str) -> Vec<String> {
+        input.split_whitespace().map(str::to_owned).collect()
+    }
+    #[test]
+    fn exact_movement_accepts_negative_coordinates_and_existing_selectors() {
+        assert_eq!(
+            parse(&args("move to -300 200 app:firefox -o DP-2")).unwrap(),
+            Action::Node {
+                request: NodeCommand::MoveTo {
+                    x: -300,
+                    y: 200,
+                    selector: Some(NodeSelector::App("firefox".into())),
+                    output: Some("DP-2".into())
+                },
+                output: NodeOutput::Ack
+            }
+        );
+        assert!(matches!(
+            parse(&args("move to 0 0")).unwrap(),
+            Action::Node {
+                request: NodeCommand::MoveTo { selector: None, .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&args("move right 17 --distance 200")).unwrap(),
+            Action::Node {
+                request: NodeCommand::Move {
+                    distance: Some(200),
+                    selector: Some(NodeSelector::Id(_)),
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn exact_movement_rejects_incomplete_or_ambiguous_arguments() {
+        for input in [
+            "move to",
+            "move to 1",
+            "move to 1.5 2",
+            "move to 2147483648 0",
+            "move to 0 0 --distance 10",
+            "move to 0 0 17 18",
+            "move to 0 0 --json",
+        ] {
+            assert!(parse(&args(input)).is_err(), "{input}");
+        }
     }
 }

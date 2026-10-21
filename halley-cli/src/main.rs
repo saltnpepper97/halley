@@ -66,6 +66,14 @@ fn main() -> ExitCode {
                 NodeCommand::Close { selector, output } => {
                     client.close_node(selector, output.as_deref())?;
                 }
+                NodeCommand::MoveTo {
+                    x,
+                    y,
+                    selector,
+                    output,
+                } => {
+                    client.move_node_to(x, y, selector, output.as_deref())?;
+                }
                 NodeCommand::Move {
                     direction,
                     distance,
