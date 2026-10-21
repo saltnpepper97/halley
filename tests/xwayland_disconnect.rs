@@ -309,6 +309,8 @@ struct NativeState {
     exported_handles: Vec<String>,
     keyboard_focused: bool,
     keyboard_events: Vec<(u32, wl_keyboard::KeyState)>,
+    keyboard_keymaps: usize,
+    keyboard_modifiers: (u32, u32, u32, u32),
     viewport: Option<wp_viewport::WpViewport>,
     resize_for_configures: bool,
     configured_fullscreen: bool,
@@ -368,6 +370,16 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
                 state.keyboard_focused = state.surface.as_ref() == Some(&surface)
             }
             wl_keyboard::Event::Leave { .. } => state.keyboard_focused = false,
+            wl_keyboard::Event::Keymap { .. } => state.keyboard_keymaps += 1,
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
+                state.keyboard_modifiers = (mods_depressed, mods_latched, mods_locked, group);
+            }
             wl_keyboard::Event::Key {
                 key,
                 state: wayland_client::WEnum::Value(key_state),
