@@ -354,7 +354,14 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
             })
         })
         .unwrap_or(camera_rect);
-    let opening_rect = opening_visual.transform_rect(presentation_rect, presentation_rect);
+    let movement_rect = (cluster_rect.is_none()
+        && fullscreen_presentation.is_none()
+        && maximize_presentation.is_none())
+    .then(|| window_animations.movement_visual(window_surface.as_ref(), now, source_geometry))
+    .flatten()
+    .map(|world| output_local_or_field_rect(None, world, camera_center, output_size, view.scale))
+    .unwrap_or(presentation_rect);
+    let opening_rect = opening_visual.transform_rect(movement_rect, movement_rect);
     let mut animated_rect = window_animations
         .arrange_visual(window_surface.as_ref(), now)
         .unwrap_or(opening_rect);

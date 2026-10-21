@@ -117,6 +117,41 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 halley_ipc::Response::Error(format!("failed to move node {id}"))
             }
         }
+        halley_ipc::NodeRequest::MoveTo {
+            x,
+            y,
+            selector,
+            output,
+        } => {
+            let id = match resolve(session, selector.as_ref(), output.as_deref()) {
+                Ok(id) => id,
+                Err(error) => return halley_ipc::Response::Error(error),
+            };
+            let origin = session.nodes.record(id).and_then(|record| {
+                session
+                    .wayland
+                    .space
+                    .outputs()
+                    .find(|o| o.name() == record.output)
+                    .and_then(|o| session.wayland.space.output_geometry(o))
+                    .map(|g| g.loc)
+            });
+            let destination = origin.and_then(|origin| {
+                Some(Point::from((
+                    origin.x.checked_add(x)?,
+                    origin.y.checked_add(y)?,
+                )))
+            });
+            if destination.is_some_and(|destination| {
+                place_node(session, id, (0, 0), false, Some(destination))
+            }) {
+                halley_ipc::Response::Ack
+            } else {
+                halley_ipc::Response::Error(format!(
+                    "cannot place node {id}: position is blocked, out of range, or the node cannot move"
+                ))
+            }
+        }
         halley_ipc::NodeRequest::Close { selector, output } => {
             let id = match resolve(session, selector.as_ref(), output.as_deref()) {
                 Ok(id) => id,
@@ -367,27 +402,52 @@ fn move_node<D: crate::session::SessionDriver>(
     if distance.is_some_and(|distance| distance == 0 || distance > i32::MAX as u32) {
         return false;
     }
-    let Some(record) = session.nodes.record(id).cloned() else {
-        return false;
-    };
-    if crate::session::node_user_pinned(session, id) {
-        return false;
-    }
     let step = distance.unwrap_or(80) as i32;
-    let (dx, dy) = match direction {
+    let delta = match direction {
         halley_ipc::NodeMoveDirection::Left => (-step, 0),
         halley_ipc::NodeMoveDirection::Right => (step, 0),
         halley_ipc::NodeMoveDirection::Up => (0, -step),
         halley_ipc::NodeMoveDirection::Down => (0, step),
     };
+    place_node(session, id, delta, distance.is_some(), None)
+}
+
+fn place_node<D: crate::session::SessionDriver>(
+    session: &mut crate::session::Session<D>,
+    id: NodeId,
+    (dx, dy): (i32, i32),
+    explicit_distance: bool,
+    exact: Option<Point<i32, Logical>>,
+) -> bool {
+    let Some(record) = session.nodes.record(id).cloned() else {
+        return false;
+    };
+    if crate::session::node_user_pinned(session, id)
+        || !record.attached
+        || session.clusters.is_member(id)
+        || session.fullscreen.is_fullscreen_or_pending(&record.surface)
+        || session.maximize.contains(&record.surface)
+        || crate::input::grab::belongs_to_surface(&session.interactions.grab, &record.surface)
+        || session
+            .window_animations
+            .is_arranging(&record.surface, crate::frame_clock::monotonic_now())
+    {
+        return false;
+    }
     if record.collapsed {
         let Some(current) = session.nodes.field.node(id).map(|node| node.pos) else {
             return false;
         };
-        let desired = Vec2 {
-            x: current.x + dx as f32,
-            y: current.y + dy as f32,
-        };
+        let desired = exact.map_or(
+            Vec2 {
+                x: current.x + dx as f32,
+                y: current.y + dy as f32,
+            },
+            |point| Vec2 {
+                x: point.x as f32,
+                y: point.y as f32,
+            },
+        );
         let scale = session
             .cameras
             .get(&record.output)
@@ -403,7 +463,7 @@ fn move_node<D: crate::session::SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
         };
-        let destination = if distance.is_some() {
+        let destination = if explicit_distance {
             session.nodes.directional_landmark_position(
                 id,
                 current,
@@ -417,25 +477,31 @@ fn move_node<D: crate::session::SessionDriver>(
                 .nodes
                 .nearest_free_position(id, desired, scale, &occupied_cores, chrome)
         };
+        if exact.is_some() && destination != desired {
+            return false;
+        }
+        let now = crate::frame_clock::monotonic_now();
+        let visible = session.nodes.landmark_position(id, current, now);
         if let Some(node) = session.nodes.field.node_mut(id) {
             node.pos = destination;
         }
         // A discrete move is an explicit placement, not a reversible zoom offset.
         session.nodes.commit_zoom_home(id);
-        session.nodes.start_landmark_slide(
-            id,
-            current,
-            destination,
-            crate::frame_clock::monotonic_now(),
-        );
+        session
+            .nodes
+            .start_landmark_slide(id, visible, destination, now);
     } else {
         let Some(location) = session.wayland.space.element_location(&record.window) else {
             return false;
         };
-        let desired = Point::<i32, Logical>::from((
-            location.x.saturating_add(dx),
-            location.y.saturating_add(dy),
-        ));
+        let desired = exact.unwrap_or_else(|| {
+            Point::from((location.x.saturating_add(dx), location.y.saturating_add(dy)))
+        });
+        if desired.x.checked_add(record.geometry.size.w).is_none()
+            || desired.y.checked_add(record.geometry.size.h).is_none()
+        {
+            return false;
+        }
         let scale = session
             .cameras
             .get(&record.output)
@@ -451,7 +517,7 @@ fn move_node<D: crate::session::SessionDriver>(
             decorations: &session.settings.decorations,
             font: &session.settings.font,
         };
-        let next = if distance.is_some() {
+        let next = if explicit_distance {
             session
                 .nodes
                 .directional_active_rect(
@@ -476,11 +542,27 @@ fn move_node<D: crate::session::SessionDriver>(
                 )
                 .loc
         };
+        if exact.is_some() && next != desired {
+            return false;
+        }
         if next != location {
             session
                 .interactions
                 .field_arrange
                 .invalidate_surface(&record.surface);
+        }
+        if next != location {
+            let current = session
+                .wayland
+                .space
+                .element_geometry(&record.window)
+                .unwrap_or(record.geometry);
+            session.window_animations.move_window(
+                record.surface.clone(),
+                crate::frame_clock::monotonic_now(),
+                current,
+                Rectangle::new(next, current.size),
+            );
         }
         session.wayland.space.relocate_element(&record.window, next);
         if crate::xwayland::is_x11(&record.window) {

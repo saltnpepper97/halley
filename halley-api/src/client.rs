@@ -185,6 +185,34 @@ impl Client {
         }))
     }
 
+    /// Place the window's client top-left (or a collapsed marker's center) at
+    /// exact coordinates in its monitor's Field. Requires `node-move-to-v1`.
+    pub fn move_node_to(
+        &self,
+        x: i32,
+        y: i32,
+        selector: Option<NodeSelector>,
+        output: Option<&str>,
+    ) -> Result<()> {
+        if !self
+            .server_info
+            .capabilities
+            .iter()
+            .any(|c| c == "node-move-to-v1")
+        {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
+                "this compositor does not support exact movement; restart Halley after upgrading",
+            ));
+        }
+        self.ack(halley_ipc::Request::Node(halley_ipc::NodeRequest::MoveTo {
+            x,
+            y,
+            selector: selector.map(selector_wire),
+            output: output.map(str::to_owned),
+        }))
+    }
+
     pub fn close_node(&self, selector: Option<NodeSelector>, output: Option<&str>) -> Result<()> {
         self.ack(halley_ipc::Request::Node(halley_ipc::NodeRequest::Close {
             selector: selector.map(selector_wire),
@@ -667,6 +695,46 @@ mod capture_tests {
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Unsupported);
         drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn exact_movement_is_capability_gated_and_preserves_signed_coordinates() {
+        use std::io::Read;
+        let (client, server) = mock_client(&[], |mut stream| {
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        assert_eq!(
+            client
+                .move_node_to(-300, 200, None, None)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Unsupported
+        );
+        drop(client);
+        server.join().unwrap();
+        let (client, server) = mock_client(&["node-move-to-v1"], |mut stream| {
+            let request =
+                halley_ipc::decode_request(&halley_ipc::read_frame(&mut stream).unwrap()).unwrap();
+            assert!(
+                matches!(request, halley_ipc::Request::Node(halley_ipc::NodeRequest::MoveTo {
+                x: -300, y: 200, selector: Some(halley_ipc::NodeSelector::Id(17)), output: Some(ref output),
+            }) if output == "DP-2")
+            );
+            halley_ipc::write_frame(
+                &mut stream,
+                &halley_ipc::encode_response(&halley_ipc::Response::Ack).unwrap(),
+            )
+            .unwrap();
+        });
+        client
+            .move_node_to(
+                -300,
+                200,
+                Some(NodeSelector::Id(NodeId::new(17))),
+                Some("DP-2"),
+            )
+            .unwrap();
         server.join().unwrap();
     }
 

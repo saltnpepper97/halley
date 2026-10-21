@@ -1849,6 +1849,31 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
     pointer::reconcile_state(session);
 }
 
+/// Hand pointer interaction the position actually on screen, instead of the
+/// already committed movement endpoint. No animation follows an active drag.
+fn settle_window_movement<D: SessionDriver>(
+    session: &mut Session<D>,
+    window: &smithay::desktop::Window,
+) {
+    let Some(surface) = window.wl_surface() else {
+        return;
+    };
+    let Some(current) = session.wayland.space.element_geometry(window) else {
+        return;
+    };
+    let now = crate::frame_clock::monotonic_now();
+    let visible = session
+        .window_animations
+        .movement_visual(surface.as_ref(), now, current);
+    session.window_animations.cancel_move(surface.as_ref());
+    if let Some(visible) = visible {
+        session.wayland.space.relocate_element(window, visible.loc);
+        if crate::xwayland::is_x11(window) {
+            crate::xwayland::configure_window(session, window, visible);
+        }
+    }
+}
+
 pub(crate) fn begin_window_resize<D: SessionDriver>(
     session: &mut Session<D>,
     window: &smithay::desktop::Window,
@@ -1873,6 +1898,7 @@ pub(crate) fn begin_window_resize<D: SessionDriver>(
     {
         return false;
     }
+    settle_window_movement(session, window);
     let Some(start_rect) = session.wayland.space.element_geometry(window) else {
         return false;
     };
@@ -2152,6 +2178,7 @@ fn begin_pointer_move_active<D: SessionDriver>(
         x: pointer_world.x,
         y: pointer_world.y,
     };
+    settle_window_movement(session, window);
     let Some(window_location) = session.wayland.space.element_location(window) else {
         return false;
     };

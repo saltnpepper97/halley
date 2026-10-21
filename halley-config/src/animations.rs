@@ -296,6 +296,25 @@ impl Default for MaximizeAnimation {
     }
 }
 
+/// Ordinary programmatic Field movement; pointer dragging stays direct.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowMoveAnimation {
+    pub enabled: bool,
+    pub motion: AnimationMotion,
+}
+
+impl Default for WindowMoveAnimation {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            motion: AnimationMotion::Easing(EasingMotion {
+                duration_ms: 250,
+                curve: AnimationCurve::EaseOutCubic,
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArrangeAnimation {
     pub enabled: bool,
@@ -338,6 +357,7 @@ pub struct Animations {
     pub enabled: bool,
     pub window_open: WindowOpenAnimation,
     pub window_close: WindowCloseAnimation,
+    pub window_move: WindowMoveAnimation,
     pub fullscreen: FullscreenAnimation,
     pub maximize: MaximizeAnimation,
     pub arrange: ArrangeAnimation,
@@ -352,6 +372,7 @@ impl Default for Animations {
             enabled: true,
             window_open: WindowOpenAnimation::default(),
             window_close: WindowCloseAnimation::default(),
+            window_move: WindowMoveAnimation::default(),
             fullscreen: FullscreenAnimation::default(),
             maximize: MaximizeAnimation::default(),
             arrange: ArrangeAnimation::default(),
@@ -446,6 +467,24 @@ pub fn parse_animations(config: &RuneConfig) -> Animations {
             MaximizeAnimation {
                 enabled: config.get_or("animations.maximize.enabled", defaults.maximize.enabled),
                 motion: AnimationMotion::parse(config, "animations.maximize", configured_easing),
+            }
+        },
+        window_move: {
+            let configured_easing = AnimationMotion::Easing(EasingMotion {
+                duration_ms: config.get_or("animations.window-move.duration-ms", 250),
+                curve: config
+                    .get_optional::<String>("animations.window-move.curve")
+                    .ok()
+                    .flatten()
+                    .and_then(|curve| AnimationCurve::parse(&curve))
+                    .unwrap_or(AnimationCurve::EaseOutCubic),
+            });
+            WindowMoveAnimation {
+                enabled: config.get_or(
+                    "animations.window-move.enabled",
+                    defaults.window_move.enabled,
+                ),
+                motion: AnimationMotion::parse(config, "animations.window-move", configured_easing),
             }
         },
         arrange: {
@@ -579,6 +618,31 @@ mod tests {
     }
 
     #[test]
+    fn window_movement_supports_easing_spring_and_zero_duration() {
+        for duration in [0, 900] {
+            let config = RuneConfig::from_str(&format!("animations:\n  window-move:\n    enabled false\n    duration-ms {duration}\n    curve \"linear\"\n  end\nend\n")).unwrap();
+            assert_eq!(
+                parse_animations(&config).window_move,
+                WindowMoveAnimation {
+                    enabled: false,
+                    motion: AnimationMotion::Easing(EasingMotion {
+                        duration_ms: duration,
+                        curve: AnimationCurve::Linear
+                    })
+                }
+            );
+        }
+        let config = RuneConfig::from_str("animations:\n  window-move:\n    motion \"spring\"\n    damping-ratio 0.8\n    stiffness 950.0\n  end\nend\n").unwrap();
+        assert_eq!(
+            parse_animations(&config).window_move.motion,
+            AnimationMotion::Spring(SpringMotion {
+                damping_ratio: 0.8,
+                stiffness: 950.0
+            })
+        );
+    }
+
+    #[test]
     fn parses_window_open_animation() {
         let config = RuneConfig::from_str(
             r#"
@@ -609,6 +673,7 @@ end
                     custom_shader: None,
                 },
                 window_close: WindowCloseAnimation::default(),
+                window_move: WindowMoveAnimation::default(),
                 fullscreen: FullscreenAnimation::default(),
                 maximize: MaximizeAnimation::default(),
                 arrange: ArrangeAnimation::default(),

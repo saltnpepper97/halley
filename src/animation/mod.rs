@@ -12,6 +12,7 @@ const MAX_OVERSHOOT_SCALE: f64 = 1.08;
 pub(crate) mod close;
 mod launch;
 mod motion;
+mod movement;
 
 pub(crate) use motion::MotionTimeline;
 
@@ -370,6 +371,7 @@ pub struct WindowAnimations {
     config: Animations,
     opening: HashMap<WlSurface, WindowOpenTimeline>,
     arranging: HashMap<WlSurface, ArrangeTimeline>,
+    moving: HashMap<WlSurface, movement::MoveTimeline>,
 }
 
 impl WindowAnimations {
@@ -378,6 +380,7 @@ impl WindowAnimations {
             config,
             opening: HashMap::new(),
             arranging: HashMap::new(),
+            moving: HashMap::new(),
         }
     }
 
@@ -436,6 +439,7 @@ impl WindowAnimations {
         current_bounds: Rectangle<i32, Physical>,
         target_bounds: Rectangle<i32, Physical>,
     ) -> bool {
+        self.moving.remove(&surface);
         let config = self.config.arrange;
         if !self.config.enabled || !config.enabled || current_bounds == target_bounds {
             self.arranging.remove(&surface);
@@ -511,10 +515,13 @@ impl WindowAnimations {
     }
 
     pub fn is_animating(&self, surface: &WlSurface, now: Duration) -> bool {
-        self.is_opening(surface, now) || self.is_arranging(surface, now)
+        self.is_opening(surface, now)
+            || self.is_arranging(surface, now)
+            || self.is_moving(surface, now)
     }
 
     pub fn remove(&mut self, surface: &WlSurface) {
+        self.moving.remove(surface);
         self.opening.remove(surface);
         self.arranging.remove(surface);
     }
@@ -526,10 +533,12 @@ impl WindowAnimations {
     pub fn cleanup(&mut self, now: Duration) -> bool {
         self.opening
             .retain(|_, timeline| !timeline.is_finished_at(now));
+        let moving_before = self.moving.len();
+        self.moving.retain(|_, timeline| !timeline.finished(now));
         let arranging_before = self.arranging.len();
         self.arranging
             .retain(|_, timeline| !timeline.is_finished_at(now));
-        self.arranging.len() != arranging_before
+        self.arranging.len() != arranging_before || self.moving.len() != moving_before
     }
 }
 

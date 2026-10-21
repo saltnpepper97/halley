@@ -683,13 +683,21 @@ end
 # Animation settings are reloaded for future motion. Existing window-open and
 # window-close animations keep the parameters with which they started.
 animations:
-  # Master switch for window-open, window-close, fullscreen, maximize, smooth
-  # resize, node, and cluster animations.
+  # Master switch for window-open, window-close, window-move, fullscreen,
+  # maximize, arrange, smooth resize, node, and cluster animations.
   enabled true
 
+  # CLI and keyboard Field movement. Pointer dragging remains direct.
+  window-move:
+    enabled true
+    motion "easing"
+    duration-ms 250
+    curve "ease-out-cubic"
+    # Or use motion "spring" with damping-ratio 1.0 and stiffness 800.0.
+  end
+
   # Low-pass filtering for pointer-driven window resize. Lower durations hug
-  # the pointer more tightly; higher values feel softer. Release stops at the
-  # currently presented size instead of continuing after the pointer lets go.
+  # the pointer more tightly; release stops at the currently presented size.
   smooth-resize:
     enabled true
     duration-ms 90

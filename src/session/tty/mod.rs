@@ -1312,6 +1312,9 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
             && window.wl_surface().is_some_and(|surface| {
                 app.window_animations
                     .is_arranging(surface.as_ref(), target_presentation_time)
+                    || app
+                        .window_animations
+                        .is_moving(surface.as_ref(), target_presentation_time)
             })
     });
     let presentation_workspace = crate::presentation::active_workspace_on_output(

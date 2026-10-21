@@ -89,6 +89,7 @@ Usage:
   halleyctl node info [SELECTOR] [-o OUTPUT] [--json]
   halleyctl node focus [SELECTOR] [-o OUTPUT]
   halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT] [--distance UNITS]
+  halleyctl node move to X Y [SELECTOR] [-o OUTPUT]
   halleyctl node collapse [SELECTOR] [-o OUTPUT]
   halleyctl node restore [SELECTOR] [-o OUTPUT]
   halleyctl node toggle [SELECTOR] [-o OUTPUT]
@@ -102,7 +103,11 @@ Movement:
   With --distance: move up to UNITS along the axis, stopping at obstacles.
   UNITS must be a whole number in 1..=2147483647; --distance=UNITS also works.
   Field units are logical coordinates at native zoom, not physical pixels.
+  to X Y: exact Field placement; rejects positions blocked by landmarks.
+  X/Y are the client top-left, or a collapsed marker's center. Negative values work.
   Expanded windows may overlap each other; pinned objects cannot move.
+  Window movement uses animations.window-move; no animation flag is needed.
+  Fullscreen, maximized, clustered, or currently grabbed windows cannot move.
 
 Markers:
   * focused node
