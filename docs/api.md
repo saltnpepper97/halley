@@ -49,7 +49,7 @@ The version-1 semantic API includes:
 | --- | --- |
 | Server | handshake, version and capability discovery, quit request |
 | Outputs | list output modes, logical placement, and display scale; set DPMS state |
-| Nodes | list, inspect, focus, move (default or explicit distance), close, collapse, restore, and toggle |
+| Nodes | list, inspect, focus, move (default, explicit distance, or exact position), close, collapse, restore, and toggle |
 | Clusters | list, inspect, open, activate a slot, cycle layout, finalize a draft |
 | Bearings | query visibility; show, hide, or toggle |
 | Capture | interactive menu/selection; immediate output, node-ID, or rectangle screenshots |
@@ -83,8 +83,22 @@ camera zoom affect screen distance, not the requested Field distance. Explicit
 movement does not jump sideways or tunnel through obstructions; expanded windows
 may overlap each other. A blocked move succeeds without displacement; pinned
 objects reject movement. Existing selectors and output filters apply unchanged.
-The additive extension keeps public API version 1. Private IPC version 26 appends
-the distance request and preserves existing node request encodings.
+`Client::move_node_to(x, y, selector, output)` requests exact placement of the
+client top-left (or collapsed marker center) relative to the selected window's
+monitor Field origin. Signed coordinates allow negative positions. Blocked or
+unrepresentable targets fail without relocating the node. It checks the optional
+`node-move-to-v1` capability before sending a request, returning `Unsupported`
+when absent. The existing selector/default/output-filter rules still apply.
+
+Ordinary expanded-window movement follows `animations.window-move`; the API
+acknowledges the committed destination, while the compositor presents the motion.
+Repeated movement retargets from the visible position. Pinned, detached,
+fullscreen, maximized, clustered, grabbed, or actively arranging windows reject
+movement. Collapsed markers retain node animation behavior.
+
+The additive extensions keep public API version 1. Private IPC version 27 appends
+the exact-position request after version 26's distance request, preserving their
+existing encodings. Rebuild companion tools with the compositor.
 
 ## Screenshots and automation
 

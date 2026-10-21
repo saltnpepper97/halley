@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Animate ordinary CLI and keyboard window movement with independent
+  `animations.window-move` easing or spring settings. Retarget repeated commands
+  from the visible position, retain spring velocity, and hand pointer drags the
+  current presented position. Keep rendering and mouse hit regions together
+  through camera pan and zoom; collapsed markers keep their existing slide.
+- Support exact Field placement with `halleyctl node move to X Y [SELECTOR]
+  [-o OUTPUT]` and `Client::move_node_to`. Accept signed coordinates relative to
+  the window's monitor Field origin and reject blocked destinations. Preserve
+  directional syntax and distance behavior; advertise `node-move-to-v1` and
+  append the request in private IPC version 27, keeping public API version 1.
 - Support authorized output capture through `ext-image-capture-source-v1` and
   `ext-image-copy-capture-v1` on native and nested backends. Copy native-size
   XRGB8888 SHM buffers with optional embedded cursors and full-frame damage,

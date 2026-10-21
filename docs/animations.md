@@ -4,6 +4,34 @@
 `enabled` field, so an individual effect can be disabled without changing the
 others.
 
+Ordinary CLI and keyboard window movement has an independent block:
+
+```rune
+animations:
+  window-move:
+    enabled true
+    motion "easing"
+    duration-ms 250
+    curve "ease-out-cubic"
+  end
+end
+```
+
+The existing `halleyctl node move DIRECTION` commands use this automatically;
+no animation flag is needed. `node move to X Y` uses it for exact placement.
+Repeated commands retarget from the currently presented position; spring motion
+also retains velocity. Motion lives in Field coordinates, so it follows camera
+panning and zoom. Contents, shadows, decorations, popups and mouse hit regions
+use the same moving presentation. Pointer move/resize takes over from the
+current visible position and then tracks the pointer directly.
+
+Use `motion "spring"` with `damping-ratio` and `stiffness` for a spring response,
+just like fullscreen below. Disabling `animations.enabled`, disabling
+`window-move.enabled`, or choosing an easing duration of zero makes new moves
+immediate. Reloaded settings apply to subsequent moves. Collapsed node markers
+retain their existing node slide; arrange, fullscreen, maximize and cluster
+transitions keep their own animation settings.
+
 Interactive pointer resize has its own `animations.smooth-resize` block. It is
 enabled by default with a 90 ms response duration: lower values track the
 pointer more tightly, while higher values soften rapid changes. Halley advances

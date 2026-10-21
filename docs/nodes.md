@@ -252,7 +252,8 @@ end
 Collapse starts at the window center and slides to the nearest legal location.
 A new or restored active window keeps its placement and relocates blocking
 nodes. An interactively dragged window is authoritative and pushes unpinned
-nodes; `halleyctl node move` remains a discrete legal-placement operation.
+nodes; `halleyctl node move` chooses a legal destination and animates expanded windows
+using `animations.window-move`.
 Marker collision is screen-constant across camera zoom. As zoom-out grows a
 marker's footprint in Field space, unpinned ordinary nodes and collapsed
 cluster cores reflow together around each other and stationary active windows.
@@ -315,6 +316,7 @@ halleyctl node list [--output OUTPUT] [--json]
 halleyctl node info [SELECTOR] [--output OUTPUT] [--json]
 halleyctl node focus [SELECTOR] [--output OUTPUT]
 halleyctl node move left|right|up|down [SELECTOR] [--output OUTPUT] [--distance UNITS]
+halleyctl node move to X Y [SELECTOR] [--output OUTPUT]
 halleyctl node collapse [SELECTOR] [--output OUTPUT]
 halleyctl node restore [SELECTOR] [--output OUTPUT]
 halleyctl node toggle [SELECTOR] [--output OUTPUT]
@@ -355,6 +357,26 @@ zoom and output scaling affect the apparent screen distance, while the Field
 distance stays constant. Movement also stops at representable coordinate limits.
 The optional distance requires a compositor advertising `node-move-distance-v1`;
 restart Halley after installing the update if the CLI reports it as unsupported.
+
+`halleyctl node move to X Y [SELECTOR] [-o OUTPUT]` places a window's client
+top-left (or a collapsed marker's center) at exact coordinates relative to its
+monitor's Field origin. Signed whole-number coordinates, including negative
+values, are accepted. Camera pan/zoom does not change their meaning. A blocked
+or unrepresentable position fails without moving anything; expanded windows may
+overlap other expanded windows. This is exact endpoint placement, rather than
+the swept collision behavior of directional `--distance` movement.
+
+```sh
+halleyctl node move to 300 200
+halleyctl node move to -300 200 app:firefox -o DP-1
+```
+
+Exact placement requires `node-move-to-v1`. All expanded-window moves use
+`animations.window-move`; the CLI needs no smoothness flag. Repeated commands
+retarget from the visible position. Collapsed markers keep their existing slide.
+Pinned, detached, fullscreen, maximized, clustered or currently grabbed windows
+reject movement. An active arrange transition must finish before moving a
+participant. Other windows keep their own animation settings.
 
 `collapse` and
 `restore` explicitly set the selected node state
