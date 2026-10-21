@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Synchronize Caps Lock, Num Lock and XKB-defined Scroll Lock indicators across
+  physical keyboards. Initialize indicators on keyboard hotplug and restore
+  them after VT activation, system resume and keymap reload. Advertise restored
+  Num Lock modifiers to clients after a keymap change.
 - Render stationary landmarks below fullscreen and maximized windows even when
   their saved stack slot is above the remaining live windows. Keep covered
   nodes from intercepting pointer input and restore their Field depth on exit.

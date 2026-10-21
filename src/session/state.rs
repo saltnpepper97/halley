@@ -121,6 +121,8 @@ pub trait OutputDriver: crate::ipc::OutputInfoSource + 'static {
 pub trait SessionDriver: RenderDriver + OutputDriver + 'static {
     const BACKEND_KIND: crate::input::keybinds::BackendKind;
     fn stop(&mut self);
+    /// Nested backends leave physical keyboard indicators to their host.
+    fn update_keyboard_leds(&mut self, _state: smithay::input::keyboard::LedState) {}
 }
 
 /// Backend-independent compositor state.

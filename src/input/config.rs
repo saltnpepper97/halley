@@ -67,8 +67,11 @@ where
             if modifiers.num_lock != num_lock {
                 modifiers.num_lock = num_lock;
                 keyboard.set_modifier_state(modifiers);
+                keyboard.advertise_modifier_state(session);
             }
         }
+        // set_modifier_state updates XKB LEDs but has no SeatHandler callback.
+        session.driver.update_keyboard_leds(keyboard.led_state());
     }
 
     if requested.repeat_rate != session.settings.input.repeat_rate

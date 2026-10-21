@@ -1,9 +1,12 @@
+mod keyboard_leds;
 mod settings;
 
 use halley_config::DeviceKind;
 use smithay::reexports::input::{Device, DeviceCapability};
 
+use keyboard_leds::KeyboardLeds;
 use settings::{DeviceDefaults, apply};
+use smithay::input::keyboard::LedState;
 
 struct ManagedDevice {
     device: Device,
@@ -18,12 +21,21 @@ struct ManagedDevice {
 pub struct PhysicalInputDevices {
     devices: Vec<ManagedDevice>,
     touch_count: usize,
+    keyboards: KeyboardLeds,
 }
 
 impl PhysicalInputDevices {
     /// Adds and configures one physical device. Returns `true` only when the
     /// first touchscreen appears and the session should advertise wl_touch.
-    pub fn added(&mut self, mut device: Device, input: &halley_config::Input) -> bool {
+    pub fn added(
+        &mut self,
+        mut device: Device,
+        input: &halley_config::Input,
+        leds: LedState,
+    ) -> bool {
+        if device.has_capability(DeviceCapability::Keyboard) {
+            self.keyboards.added(device.clone(), leds);
+        }
         let Some(kind) = classify(&device) else {
             return false;
         };
@@ -45,6 +57,7 @@ impl PhysicalInputDevices {
     /// Removes one device. Returns `true` only when the final touchscreen
     /// disappears and the session should remove wl_touch.
     pub fn removed(&mut self, device: &Device) -> bool {
+        self.keyboards.removed(device);
         let before = self.touch_count;
         self.devices.retain(|candidate| {
             if candidate.device == *device {
@@ -63,6 +76,10 @@ impl PhysicalInputDevices {
         for managed in &mut self.devices {
             apply(&mut managed.device, managed.kind, &managed.defaults, input);
         }
+    }
+
+    pub fn update_keyboard_leds(&mut self, state: LedState) {
+        self.keyboards.update(state);
     }
 }
 

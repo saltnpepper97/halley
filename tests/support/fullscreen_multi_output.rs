@@ -5,9 +5,9 @@ use serde_json::Value;
 use std::os::unix::net::UnixDatagram;
 use x11rb::protocol::xproto::{ClientMessageEvent, EventMask};
 
-struct Input(UnixDatagram);
+pub(super) struct Input(UnixDatagram);
 impl Input {
-    fn new(fixture: &Fixture) -> Self {
+    pub(super) fn new(fixture: &Fixture) -> Self {
         let socket = UnixDatagram::bind(fixture.path.join("input-client.sock")).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -21,10 +21,10 @@ impl Input {
         let size = self.0.recv(&mut bytes).unwrap();
         serde_json::from_slice(&bytes[..size]).unwrap()
     }
-    fn state(&self) -> Value {
+    pub(super) fn state(&self) -> Value {
         self.command("state")
     }
-    fn key(&self, code: u32, pressed: bool) -> Value {
+    pub(super) fn key(&self, code: u32, pressed: bool) -> Value {
         self.command(&format!(
             "key {code} {}",
             if pressed { "down" } else { "up" }

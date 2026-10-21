@@ -89,7 +89,11 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     "camera": app.fullscreen.camera_frame(output, geometry, now).is_some(),
                     "rect": super::super::presented_window_rect(app, &record.window, output, now).map(|r| [r.loc.x,r.loc.y,r.size.w,r.size.h])})
             }).collect::<Vec<_>>();
+            let leds = app.seat.get_keyboard().unwrap().led_state();
+            let last_led_update = app.driver.keyboard_led_update.map(|leds| serde_json::json!({"caps": leds.caps, "num": leds.num, "scroll": leds.scroll}));
             let reply = serde_json::json!({"open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
+                "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
+                "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,
                 "preview": app.shell.focus_cycle.session().and_then(|s| s.preview()).map(|id| id.as_u64()),
                 "focused": app.nodes.focused().map(|id| id.as_u64()), "windows": windows});
             socket.send_to(reply.to_string().as_bytes(), peer.as_pathname().unwrap()).unwrap();
