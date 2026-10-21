@@ -86,3 +86,27 @@ the laptop and an external keyboard, attach another keyboard while a lock is
 enabled, and verify indicators after VT switching, suspend/resume and a keyboard
 layout reload. No new configuration is required. These checks do not establish
 game-specific Caps Lock behavior under Wine or Proton.
+
+## Overlapping physical keyboard keys
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect multi_keyboard \
+  -- --ignored --test-threads=1
+```
+
+The private server can model libinput's per-key holder counts and applies the
+same first-press/final-release filter as the native backend. Tests observe real
+Wayland key events and compositor state for both sides of Shift, Ctrl, Alt and
+Super, an ordinary letter, overlapping Alt+Tab and lock keys. Multiple keyboards
+holding the same key must produce one logical press and one final release;
+partial releases must preserve sided modifiers and keep the switcher open.
+An XWayland client also verifies that letters retain Shift after a partial
+release and lose it after the final release. Ordinary winit input retains the
+host's existing keyboard stream. These nested checks model holder counts;
+they do not operate host keyboards.
+
+For physical validation after starting the installed native compositor, hold
+the same Shift key on two keyboards, release either one, and type a letter. It
+must remain shifted until both release. Repeat with Ctrl and an ordinary key,
+and check that releasing one of two held Alt keys does not commit Alt+Tab.

@@ -6,7 +6,20 @@ use smithay::reexports::input::{Device, DeviceCapability};
 
 use keyboard_leds::KeyboardLeds;
 use settings::{DeviceDefaults, apply};
+use smithay::backend::input::KeyState;
 use smithay::input::keyboard::LedState;
+
+/// Libinput counts holders of this key across the seat after each event.
+/// Only the first press and final release change the logical keyboard state.
+/// Filter before shortcuts, repeats and side-modifier bookkeeping as well as
+/// Smithay input: its physical source represents all of these keyboards.
+/// Do not apply this to winit, whose count is the total of all held keys.
+pub fn seat_key_is_transition(state: KeyState, count: u32) -> bool {
+    matches!(
+        (state, count),
+        (KeyState::Pressed, 1) | (KeyState::Released, 0)
+    )
+}
 
 struct ManagedDevice {
     device: Device,

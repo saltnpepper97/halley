@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep keys held until the last physical keyboard releases them. Ignore extra
+  presses and partial releases before modifier, repeat and shortcut handling,
+  preventing lost Shift/Ctrl/Alt/Super state and premature Alt+Tab commits.
 - Synchronize Caps Lock, Num Lock and XKB-defined Scroll Lock indicators across
   physical keyboards. Initialize indicators on keyboard hotplug and restore
   them after VT activation, system resume and keymap reload. Advertise restored

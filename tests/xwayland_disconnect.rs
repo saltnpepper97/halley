@@ -47,6 +47,8 @@ mod image_copy_nested;
 mod keyboard_leds;
 #[path = "support/landmark_presentation.rs"]
 mod landmark_presentation;
+#[path = "support/multi_keyboard.rs"]
+mod multi_keyboard;
 #[path = "support/output_management.rs"]
 mod output_management;
 #[path = "support/pointer_warp.rs"]
@@ -306,6 +308,7 @@ struct NativeState {
     toplevel: Option<xdg_toplevel::XdgToplevel>,
     exported_handles: Vec<String>,
     keyboard_focused: bool,
+    keyboard_events: Vec<(u32, wl_keyboard::KeyState)>,
     viewport: Option<wp_viewport::WpViewport>,
     resize_for_configures: bool,
     configured_fullscreen: bool,
@@ -365,6 +368,13 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
                 state.keyboard_focused = state.surface.as_ref() == Some(&surface)
             }
             wl_keyboard::Event::Leave { .. } => state.keyboard_focused = false,
+            wl_keyboard::Event::Key {
+                key,
+                state: wayland_client::WEnum::Value(key_state),
+                ..
+            } => {
+                state.keyboard_events.push((key, key_state));
+            }
             _ => {}
         }
     }

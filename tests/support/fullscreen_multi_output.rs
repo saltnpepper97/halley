@@ -30,6 +30,12 @@ impl Input {
             if pressed { "down" } else { "up" }
         ))
     }
+    pub(super) fn seat_key(&self, code: u32, pressed: bool, count: u32) -> Value {
+        self.command(&format!(
+            "seat-key {code} {} {count}",
+            if pressed { "down" } else { "up" }
+        ))
+    }
     fn preview(&self, id: u64) {
         self.key(56, true); // Left Alt
         for _ in 0..8 {
