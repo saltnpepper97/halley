@@ -78,7 +78,11 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 let count = if seat_key { parts[3].parse().unwrap() } else { u32::from(pressed) };
                 let event = TestKey { code, pressed, count, time: app.start_time.elapsed().as_millis() as u32 };
                 let socket_name = app.wayland_display.clone().unwrap();
-                super::super::input::handle::<_, TestInput>(app, &InputEvent::Keyboard { event }, &socket_name);
+                // Winit has one host keyboard stream. Explicit seat-key events
+                // instead model the native backend's libinput holder count.
+                if !seat_key || crate::input::devices::seat_key_is_transition(event.state(), event.count()) {
+                    super::super::input::handle::<_, TestInput>(app, &InputEvent::Keyboard { event }, &socket_name);
+                }
             } else { assert_eq!(command, "state"); }
             let now = crate::frame_clock::monotonic_now();
             let windows = app.nodes.records().map(|record| {

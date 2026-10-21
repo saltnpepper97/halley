@@ -651,6 +651,12 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         .handle()
         .insert_source(libinput_backend, move |event, _, app| {
             if let smithay::backend::input::InputEvent::Keyboard { event } = &event {
+                if !crate::input::devices::seat_key_is_transition(
+                    event.state(),
+                    event.seat_key_count(),
+                ) {
+                    return;
+                }
                 let modifiers = app
                     .seat
                     .get_keyboard()
