@@ -33,6 +33,10 @@ struct WinitDriver {
     frame_callback_sequence: u32,
     #[cfg(test)]
     extra_outputs: Vec<smithay::output::Output>,
+    #[cfg(test)]
+    keyboard_led_update: Option<smithay::input::keyboard::LedState>,
+    #[cfg(test)]
+    keyboard_led_update_count: u32,
 }
 
 impl crate::ipc::OutputInfoSource for WinitDriver {
@@ -179,6 +183,12 @@ impl super::OutputDriver for WinitDriver {
 impl super::SessionDriver for WinitDriver {
     const BACKEND_KIND: BackendKind = BackendKind::Winit;
 
+    #[cfg(test)]
+    fn update_keyboard_leds(&mut self, state: smithay::input::keyboard::LedState) {
+        self.keyboard_led_update = Some(state);
+        self.keyboard_led_update_count += 1;
+    }
+
     fn stop(&mut self) {
         self.exit = true;
     }
@@ -275,6 +285,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         frame_callback_sequence: 0,
         #[cfg(test)]
         extra_outputs: Vec::new(),
+        #[cfg(test)]
+        keyboard_led_update: None,
+        #[cfg(test)]
+        keyboard_led_update_count: 0,
     };
     let mut wayland = App::create_wayland_state(dh.clone(), &mut driver);
     wayland.ensure_output_global::<App>(driver.backend.output());

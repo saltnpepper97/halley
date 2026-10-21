@@ -64,3 +64,25 @@ the node, including when the node's remembered stack slot exceeds the remaining
 live window slots. Native cases send a real client pointer-warp request into
 the covered marker area and verify the client receives the requested position
 without losing pointer focus.
+
+## Keyboard lock indicators
+
+```sh
+cargo test --locked keyboard_leds
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect keyboard_leds \
+  -- --ignored --test-threads=1
+```
+
+Build the private nested server as described above. Unit tests exercise LED
+broadcasts to multiple keyboard sinks, hotplug initialization, duplicate-device
+notifications, removal and reconnect. The nested test sends raw lock and
+ordinary key events through production input handling and observes the backend
+LED callback, including a keymap reload while Num Lock remains enabled. Its
+backend records indicator changes without writing to host keyboards.
+
+Physical validation requires a native Halley session: check lock indicators on
+the laptop and an external keyboard, attach another keyboard while a lock is
+enabled, and verify indicators after VT switching, suspend/resume and a keyboard
+layout reload. No new configuration is required. These checks do not establish
+game-specific Caps Lock behavior under Wine or Proton.

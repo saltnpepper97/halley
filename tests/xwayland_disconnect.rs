@@ -43,6 +43,8 @@ mod fullscreen_navigation;
 mod image_copy_client;
 #[path = "support/image_copy_nested.rs"]
 mod image_copy_nested;
+#[path = "support/keyboard_leds.rs"]
+mod keyboard_leds;
 #[path = "support/landmark_presentation.rs"]
 mod landmark_presentation;
 #[path = "support/output_management.rs"]
