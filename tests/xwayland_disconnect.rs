@@ -118,7 +118,7 @@ impl Fixture {
         let log = File::create(path.join("console.log")).unwrap();
         let binary = if two_outputs {
             std::env::var_os("HALLEY_TEST_WINIT_SERVER").expect(
-                "build the unit-test server and set HALLEY_TEST_WINIT_SERVER; see docs/testing.md",
+                "build nested_fullscreen_server and set HALLEY_TEST_WINIT_SERVER; see docs/testing.md",
             )
         } else {
             std::env::var_os("HALLEY_TEST_BINARY")

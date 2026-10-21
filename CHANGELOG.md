@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add isolated two-output Alt+Tab integration tests covering native and XWayland
+  apps and game windows, client/compositor/overlapping fullscreen ownership,
+  preview cancellation, cross-monitor commit and return, and same-monitor
+  controls. Verify client state, camera ownership, presented bounds and captured
+  fullscreen pixels through the production keyboard and switcher paths.
 - Animate ordinary CLI and keyboard window movement with independent
   `animations.window-move` easing or spring settings. Retarget repeated commands
   from the visible position, retain spring velocity, and hand pointer drags the
