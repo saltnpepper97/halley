@@ -47,9 +47,11 @@ fn reconcile_landmarks_inner<D: crate::session::SessionDriver>(
             current,
             scale,
             &occupied_cores,
-            PlacementChrome {
+            PlacementContext {
                 decorations: &session.settings.decorations,
                 font: &session.settings.font,
+                fullscreen: &session.fullscreen,
+                maximize: &session.maximize,
             },
         );
         if destination == current {
@@ -78,15 +80,19 @@ fn dynamics_bodies_at_scale<D: crate::session::SessionDriver>(
     scale_override: Option<(&str, f32)>,
 ) -> Vec<dynamics::Body> {
     session.nodes.sync_from_space(&session.wayland.space);
+    let placement = PlacementContext {
+        decorations: &session.settings.decorations,
+        font: &session.settings.font,
+        fullscreen: &session.fullscreen,
+        maximize: &session.maximize,
+    };
     let mut bodies = session
         .nodes
         .records()
         .filter(|record| {
             record.attached
                 && !session.clusters.is_member(record.id)
-                && (record.collapsed
-                    || (!session.fullscreen.is_fullscreen_or_pending(&record.surface)
-                        && !session.maximize.contains(&record.surface)))
+                && (record.collapsed || placement.includes_window(&record.surface))
         })
         .filter_map(|record| {
             let node = session.nodes.field.node(record.id)?;
@@ -870,9 +876,11 @@ fn collapse_inner<D: crate::session::SessionDriver>(
         collapse_origin,
         scale,
         &occupied_cores,
-        PlacementChrome {
+        PlacementContext {
             decorations: &session.settings.decorations,
             font: &session.settings.font,
+            fullscreen: &session.fullscreen,
+            maximize: &session.maximize,
         },
     );
     if let Some(node) = session.nodes.field.node_mut(id) {

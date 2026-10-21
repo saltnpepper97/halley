@@ -211,7 +211,7 @@ impl NodesState {
         delta: (i32, i32),
         scale: f32,
         cores: &[Vec2],
-        chrome: PlacementChrome<'_>,
+        chrome: PlacementContext<'_>,
     ) -> Vec2 {
         let Some(record) = self.record(id) else {
             return current;
@@ -226,6 +226,7 @@ impl NodesState {
                     && !other.collapsed
                     && other.attached
                     && other.output == record.output
+                    && chrome.includes_window(&other.surface)
             })
             .map(|other| {
                 crate::titlebar::outer_rect_for_client(
@@ -253,7 +254,7 @@ impl NodesState {
         delta: (i32, i32),
         scale: f32,
         cores: &[Vec2],
-        chrome: PlacementChrome<'_>,
+        chrome: PlacementContext<'_>,
     ) -> Rectangle<i32, Logical> {
         let Some(record) = self.record(id) else {
             return current;
@@ -458,7 +459,7 @@ impl NodesState {
         desired: Point<i32, Logical>,
         scale: f32,
         cores: &[Vec2],
-        chrome: PlacementChrome<'_>,
+        chrome: PlacementContext<'_>,
     ) -> bool {
         let Some(record) = self.record(id) else {
             return false;
@@ -493,6 +494,7 @@ impl NodesState {
                         && other.attached
                         && !other.collapsed
                         && other.output == record.output
+                        && chrome.includes_window(&other.surface)
                 })
                 .all(|other| {
                     !super::circle_intersects_rect(

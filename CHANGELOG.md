@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep nearby collapsed nodes in place when any native Wayland or XWayland
+  window enters fullscreen or maximize. Exclude presentation-owned geometry
+  from Field landmark placement and collision checks, including pending
+  handoffs; ordinary Field window movement and resizing retain their clearance.
 - Start keyboard resizing at a moving window's visible position, matching pointer
   resizing, instead of snapping to the movement endpoint. Preserve the settled
   position for native Wayland and XWayland clients.
