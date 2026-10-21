@@ -1849,9 +1849,9 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
     pointer::reconcile_state(session);
 }
 
-/// Hand pointer interaction the position actually on screen, instead of the
-/// already committed movement endpoint. No animation follows an active drag.
-fn settle_window_movement<D: SessionDriver>(
+/// Hand an interaction the position actually on screen, instead of the already
+/// committed movement endpoint. The interaction now owns the window's geometry.
+pub(crate) fn settle_window_movement<D: SessionDriver>(
     session: &mut Session<D>,
     window: &smithay::desktop::Window,
 ) {

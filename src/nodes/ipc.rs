@@ -378,6 +378,12 @@ pub(crate) fn resize_selected_direction<D: crate::session::SessionDriver>(
     if size == current.size {
         return false;
     }
+    // Resize from the visible position, just as a pointer resize does. Changing
+    // size would otherwise invalidate the move animation and expose its endpoint.
+    crate::session::settle_window_movement(session, &record.window);
+    let Some(current) = session.wayland.space.element_geometry(&record.window) else {
+        return false;
+    };
     session
         .interactions
         .field_arrange
