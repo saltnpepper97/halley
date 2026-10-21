@@ -35,6 +35,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 #[path = "support/fifo_nested.rs"]
 mod fifo_nested;
+#[path = "support/fullscreen_multi_output.rs"]
+mod fullscreen_multi_output;
 #[path = "support/fullscreen_navigation.rs"]
 mod fullscreen_navigation;
 #[path = "support/image_copy_client.rs"]
@@ -79,6 +81,14 @@ impl Fixture {
     }
 
     fn with_capture_config(layout: &str, extra: &str, capture: bool) -> Self {
+        Self::with_backend(layout, extra, capture, false)
+    }
+
+    fn with_two_outputs(extra: &str) -> Self {
+        Self::with_backend("stacking", extra, true, true)
+    }
+
+    fn with_backend(layout: &str, extra: &str, capture: bool, two_outputs: bool) -> Self {
         let host_runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         let host_display = PathBuf::from(std::env::var_os("WAYLAND_DISPLAY").unwrap());
         let host_display = if host_display.is_absolute() {
@@ -97,15 +107,31 @@ impl Fixture {
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
+        let bindings = if two_outputs {
+            "  \"alt+tab\" \"cycle-focus\"\n"
+        } else {
+            ""
+        };
         fs::write(&config, format!(
-            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\nend\n{extra}\nscreenshot:\n  directory \"{}\"\nend\n", path.join("screenshots").display()
+            "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\n{bindings}end\n{extra}\nscreenshot:\n  directory \"{}\"\nend\n", path.join("screenshots").display()
         )).unwrap();
         let log = File::create(path.join("console.log")).unwrap();
-        let binary = std::env::var_os("HALLEY_TEST_BINARY")
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_halley").into());
-        let process = Command::new(binary)
-            .args(["--winit", "--config"])
-            .arg(config)
+        let binary = if two_outputs {
+            std::env::var_os("HALLEY_TEST_WINIT_SERVER").expect(
+                "build the unit-test server and set HALLEY_TEST_WINIT_SERVER; see docs/testing.md",
+            )
+        } else {
+            std::env::var_os("HALLEY_TEST_BINARY")
+                .unwrap_or_else(|| env!("CARGO_BIN_EXE_halley").into())
+        };
+        let mut command = Command::new(binary);
+        command.args(["--winit", "--config"]).arg(&config);
+        if two_outputs {
+            command
+                .env("HALLEY_TEST_WINIT_CONFIG", &config)
+                .env("HALLEY_TEST_WINIT_CONTROL", path.join("input.sock"));
+        }
+        let process = command
             .env("WAYLAND_DISPLAY", host_display)
             .env("XDG_RUNTIME_DIR", &path)
             .env("XDG_STATE_HOME", path.join("state"))
@@ -1669,12 +1695,22 @@ fn capture_green_chrome(fixture: &mut Fixture) -> (usize, Option<[usize; 4]>) {
 }
 
 fn capture_frame_pixels(fixture: &mut Fixture) -> (Vec<u8>, usize) {
+    capture_frame_pixels_on(fixture, None)
+}
+
+fn capture_frame_pixels_on(fixture: &mut Fixture, name: Option<&str>) -> (Vec<u8>, usize) {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::FileExt;
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
         panic!("missing outputs")
     };
-    let output = &outputs.outputs[0];
+    let output = name.map_or(&outputs.outputs[0], |name| {
+        outputs
+            .outputs
+            .iter()
+            .find(|o| o.name == name)
+            .expect("requested capture output")
+    });
     let mode = output.modes[output.current_mode.unwrap()];
     let size = mode.width as usize * mode.height as usize * 4;
     let file = File::options()

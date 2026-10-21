@@ -87,6 +87,7 @@ wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
 wayland-protocols = { version = "0.32.12", features = ["client", "staging", "unstable"] }
 wayland-protocols-misc = { version = "0.3.12", features = ["client"] }
 sha2 = "0.10"
+serde_json = "1.0"
 
 # Halley itself stays unoptimized so incremental rebuilds are fast, but the
 # dependency graph (smithay, cosmic-text, resvg, image, png) is compiled with
@@ -94,3 +95,10 @@ sha2 = "0.10"
 # at opt-level 0 they dominate the profile of a dogfooded dev session.
 [profile.dev.package."*"]
 opt-level = 3
+
+# Standalone test process so the nested window/event loop stays on the main
+# thread. `cfg(test)` keeps its two-output/input controls out of normal builds.
+[[test]]
+name = "nested_fullscreen_server"
+path = "tests/support/nested_fullscreen_server.rs"
+harness = false

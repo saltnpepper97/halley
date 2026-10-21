@@ -1112,6 +1112,7 @@ dependencies = [
  "png 0.17.16",
  "resvg 0.47.0",
  "sd-notify",
+ "serde_json",
  "sha2",
  "smithay",
  "smithay-drm-extras",
