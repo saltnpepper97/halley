@@ -1128,12 +1128,49 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
         .outputs()
         .find(|output| output.name() == record.output)
         .cloned();
-    if session
-        .fullscreen
-        .pause_presentation_on_output_except(&record.output, &record.surface)
-        && let Some(output) = selected_output.as_ref()
-    {
-        session.sync_fullscreen_camera(output, crate::frame_clock::monotonic_now());
+    if !record.attached {
+        return false;
+    }
+    let departing = session
+        .wayland
+        .focused_window
+        .as_ref()
+        .and_then(|window| window.wl_surface().map(|surface| surface.into_owned()));
+    let candidates = session.fullscreen.navigation_candidates(
+        &record.output,
+        &record.surface,
+        departing.as_ref(),
+    );
+    for surface in candidates {
+        let Some(outgoing) = session
+            .nodes
+            .id_for_surface(&surface)
+            .and_then(|id| session.nodes.record(id))
+            .cloned()
+        else {
+            continue;
+        };
+        let rule = session
+            .window_rules
+            .resolve_identity(&crate::window::rules::identity(&outgoing.window));
+        if session.window_rules.games.is_game(
+            &outgoing.window,
+            &session.wayland.display_handle,
+            rule.game,
+        ) {
+            session.fullscreen.pause_presentation(&surface);
+        } else {
+            crate::session::leave_fullscreen_for_navigation(session, outgoing.clone());
+        }
+        let output = session
+            .wayland
+            .space
+            .outputs()
+            .find(|output| output.name() == outgoing.output)
+            .cloned();
+        if let Some(output) = output {
+            session.sync_fullscreen_camera(&output, crate::frame_clock::monotonic_now());
+        }
     }
     let activated = if record.collapsed {
         restore_with_centering(

@@ -66,6 +66,7 @@ pub struct WindowRule {
     pub initial_size: Option<(u32, u32)>,
     pub opacity: Option<f32>,
     pub blur: Option<bool>,
+    pub game: Option<bool>,
     pub spawn_placement: WindowSpawnPlacement,
     pub cluster_participation: WindowClusterParticipation,
 }
@@ -190,6 +191,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "height"
                 | "opacity"
                 | "blur"
+                | "game"
                 | "overlap-policy"
                 | "overlap_policy"
                 | "spawn-placement"
@@ -249,6 +251,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     let blur = field(fields, &["blur"])
         .map(|value| boolean(value, "blur"))
         .transpose()?;
+    let game = field(fields, &["game"])
+        .map(|value| boolean(value, "game"))
+        .transpose()?;
     if let Some(value) = field(fields, &["overlap-policy", "overlap_policy"]) {
         let value = string(value, "overlap-policy")?;
         if !matches!(value.as_str(), "none" | "parent-only" | "all") {
@@ -292,6 +297,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         initial_size,
         opacity,
         blur,
+        game,
         spawn_placement,
         cluster_participation,
     })
@@ -498,6 +504,26 @@ end
         )
         .unwrap();
         assert_eq!(parse_window_rules(&config).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn game_override_is_optional_and_requires_a_boolean() {
+        for (value, expected) in [
+            ("", None),
+            ("game true", Some(true)),
+            ("game false", Some(false)),
+        ] {
+            let config = RuneConfig::from_str(&format!(
+                "rules:\n  window-rule:\n    app-id \"test\"\n    {value}\n  end\nend\n"
+            ))
+            .unwrap();
+            assert_eq!(parse_window_rules(&config).unwrap()[0].game, expected);
+        }
+        let config = RuneConfig::from_str(
+            "rules:\n  window-rule:\n    app-id \"test\"\n    game \"true\"\n  end\nend\n",
+        )
+        .unwrap();
+        assert!(parse_window_rules(&config).is_err());
     }
 
     #[test]

@@ -78,6 +78,16 @@ needed, then moves the pointer once to the center of its actual window,
 fullscreen, or field-maximized presentation. A collapsed selection waits for
 its restore animation before that final pointer handoff; cancellation does not
 move the pointer.
+Committing a different window exits fullscreen for ordinary apps, restoring
+their previous normal placement. This releases both client and compositor
+fullscreen, including nested browser/video fullscreen; returning leaves the app
+windowed. Identified games instead keep their fullscreen state and buffer size
+while their presentation is parked, and resume fullscreen on a direct click.
+The policy applies to fullscreen presentations on the destination output and
+the departing focused window, including a jump to another monitor. Other
+monitors keep their presentations. Previewing or cancelling the switcher,
+temporary focus changes, and maximize do not trigger this policy.
+See [window rules](window-rules.md) for game detection and overrides.
 The old five-card rail is restored: preview-hugging chip chrome, an overlaid
 app-icon/title band, monitor badge, and `NODE` pill. The selected preview is
 refreshed live while neighboring cards keep frozen GPU stills, avoiding a

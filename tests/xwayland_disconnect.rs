@@ -35,6 +35,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 #[path = "support/fifo_nested.rs"]
 mod fifo_nested;
+#[path = "support/fullscreen_navigation.rs"]
+mod fullscreen_navigation;
 #[path = "support/image_copy_client.rs"]
 mod image_copy_client;
 #[path = "support/image_copy_nested.rs"]
