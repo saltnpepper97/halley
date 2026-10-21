@@ -239,17 +239,19 @@ impl FullscreenManager {
         }
     }
 
+    // Navigation changes fullscreen only on the destination monitor. Filter
+    // here, before app/game policy, so leaving another monitor cannot exit or
+    // park its fullscreen presentation.
     pub(crate) fn navigation_candidates(
         &self,
         output: &str,
         selected: &WlSurface,
-        departing: Option<&WlSurface>,
     ) -> Vec<WlSurface> {
         self.windows
             .iter()
             .filter(|(surface, entry)| {
                 *surface != selected
-                    && (entry.target_output == output || departing == Some(*surface))
+                    && entry.target_output == output
                     && entry.origin != FullscreenOrigin::Maximize
                     && entry.desired
                     && !entry.presentation_paused
@@ -3114,9 +3116,22 @@ mod tests {
         let secondary = output("DP-2");
         let bounds = Rectangle::new((0, 0).into(), (2560, 1440).into());
         let now = Duration::ZERO;
-        for external in [false, true] {
+        for (external, origin, both) in [
+            (false, FullscreenOrigin::Client, false),
+            (false, FullscreenOrigin::Compositor, false),
+            (false, FullscreenOrigin::Client, true),
+            (true, FullscreenOrigin::Client, false),
+            (true, FullscreenOrigin::Compositor, false),
+        ] {
             let mut manager = FullscreenManager::new(Animations::default());
             let mut game = test_entry(true);
+            game.origin = origin;
+            game.native = Some(NativeFullscreenState {
+                client_requested: origin == FullscreenOrigin::Client || both,
+                compositor_requested: origin == FullscreenOrigin::Compositor || both,
+                protocol_desired: true,
+                protocol_active: true,
+            });
             game.fullscreen_size = bounds.size;
             // Reproduce KH's offset normal placement and full-size buffer.
             let restore = Rectangle::new((253, 143).into(), (2560, 1418).into());
@@ -3134,10 +3149,19 @@ mod tests {
             other_game.target_output = "DP-2".into();
             manager.windows.insert(surfaces[1].clone(), other_game);
 
-            // Alt+Tab from a game on DP-1 to an ordinary window on DP-2.
-            let candidates =
-                manager.navigation_candidates("DP-2", &surfaces[2], Some(&surfaces[0]));
-            assert_eq!(candidates.len(), 2);
+            // Filter the departed monitor before game detection: ordinary
+            // apps must never reach the exit-fullscreen branch either.
+            assert!(
+                manager
+                    .navigation_candidates("DP-2", &surfaces[1])
+                    .is_empty()
+            );
+            let candidates = manager.navigation_candidates("DP-2", &surfaces[2]);
+            assert_eq!(candidates, vec![surfaces[1].clone()]);
+            assert_eq!(
+                manager.navigation_candidates("DP-1", &surfaces[2]),
+                vec![surfaces[0].clone()]
+            );
             for candidate in candidates {
                 manager.pause_presentation_on_output(&candidate, "DP-2");
             }
