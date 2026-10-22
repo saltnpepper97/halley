@@ -71,27 +71,44 @@ input:
 end
 ```
 
+## Alt+Tab visibility and presentation policy
+
+This section defines the intended Alt+Tab behavior, including fullscreen and
+Field maximize. Apogee's explicit spatial selection still centers its target.
+
 `Alt+Tab` and `Alt+Shift+Tab` use the same MRU window set, including collapsed
 nodes. The center card is selected, releasing Alt commits, and Escape cancels.
 Commit focuses and raises the selected window, minimally reveals it when
-needed, then moves the pointer once to the center of its actual window,
-fullscreen, or field-maximized presentation. A collapsed selection waits for
-its restore animation before that final pointer handoff; cancellation does not
-move the pointer.
-Committing a different window on the same monitor exits fullscreen for ordinary apps, restoring
-their previous normal placement. This releases both client and compositor
-fullscreen, including nested browser/video fullscreen; returning leaves the app
-windowed. Identified games instead keep their fullscreen state and buffer size
-while their presentation is parked, and resume fullscreen on a direct click.
-Games are parked only when selecting another window on their own monitor;
-switching to a different monitor keeps the game fullscreen. In hover-focus
-mode, returning to a parked game from another monitor also resumes its
-fullscreen presentation. Hover within the same monitor keeps the click-to-resume
-policy.
-Fullscreen changes apply only to presentations on the destination monitor.
-Switching to another monitor preserves the departing window's fullscreen,
-client size, and presentation for every application, including browsers and games. Previewing or cancelling the switcher,
-temporary focus changes, and maximize do not trigger this policy.
+needed, then moves the pointer to the selected output's center. Cancellation
+does not move the pointer.
+
+The deciding factor is whether revealing the selected target requires camera
+movement, not whether focus leaves a fullscreen or maximized window:
+
+- A target whose whole decorated window fits inside its monitor's current
+  viewport is raised in place. Occlusion by another window does not count as
+  offscreen. The camera, fullscreen, and maximize stay unchanged. A window
+  exactly at the viewport edge counts as fitting; reveal padding alone must
+  not cause a pan.
+- A partially or fully offscreen target is minimally revealed. Only on that
+  destination monitor, ordinary apps exit both client and compositor fullscreen
+  (including browser/video fullscreen), and Field maximize exits so the Field
+  can pan. Identified fullscreen games keep their fullscreen state and buffer
+  size while their presentation is parked. A collapsed target uses the bounds
+  of its restored decorated window. An oversized target is centered on axes
+  where it cannot fit.
+- Selecting a fullscreen or maximized target itself preserves its presentation.
+  Switching monitors leaves presentations on the departing monitor untouched.
+  Previewing and cancelling never change presentation or camera state.
+
+This is one fixed Alt+Tab policy, with no partial-visibility setting.
+`field.close-restore-pan` controls focus succession after closing a window;
+`node.click-collapsed-pan` controls ordinary collapsed-node restoration. Neither
+overrides this Alt+Tab rule.
+
+Parked games resume fullscreen on a direct click. In hover-focus mode,
+returning to a parked game from another monitor also resumes its fullscreen
+presentation. Hover within the same monitor keeps the click-to-resume policy.
 See [window rules](window-rules.md) for game detection and overrides.
 The old five-card rail is restored: preview-hugging chip chrome, an overlaid
 app-icon/title band, monitor badge, and `NODE` pill. The selected preview is

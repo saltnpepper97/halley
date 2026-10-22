@@ -82,6 +82,11 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or
+  maximize. Reveal partially or fully offscreen targets with minimal camera
+  movement, releasing ordinary fullscreen/maximize only on the destination
+  monitor and retaining fullscreen games' park behavior. Count decorated bounds
+  and preserve exact-edge targets without adding an unnecessary padding pan.
 - Preserve resized window dimensions when a client redundantly exits fullscreen
   while already windowed. Acknowledge the request with the existing configure,
   preventing GTK4 titlebar drags, including Zathura, from restoring the initial

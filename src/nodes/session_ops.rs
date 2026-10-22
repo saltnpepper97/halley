@@ -1117,12 +1117,30 @@ pub fn pan_after_close_restore<D: crate::session::SessionDriver>(
 }
 
 /// Focus and raise a presentation-navigation target, then smoothly place its
-/// center at the output center. Apogee and Alt+Tab are explicit spatial jumps:
-/// they should land on the chosen window rather than merely reveal an edge.
+/// center at the output center. Used by explicit spatial retrieval (Apogee).
 pub fn focus_and_center_node<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
     serial: smithay::utils::Serial,
+) -> bool {
+    focus_navigation_node(session, id, serial, true)
+}
+
+/// Alt+Tab raises an onscreen target in place. Only a target needing a reveal
+/// may release presentation ownership on its output. See docs/apogee.md.
+pub fn focus_cycle_node<D: crate::session::SessionDriver>(
+    session: &mut crate::session::Session<D>,
+    id: NodeId,
+    serial: smithay::utils::Serial,
+) -> bool {
+    focus_navigation_node(session, id, serial, false)
+}
+
+fn focus_navigation_node<D: crate::session::SessionDriver>(
+    session: &mut crate::session::Session<D>,
+    id: NodeId,
+    serial: smithay::utils::Serial,
+    center: bool,
 ) -> bool {
     let Some(record) = session.nodes.record(id).cloned() else {
         return false;
@@ -1139,9 +1157,49 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
     if !record.attached {
         return false;
     }
-    let candidates = session
-        .fullscreen
-        .navigation_candidates(&record.output, &record.surface);
+    let presented = session.fullscreen.is_fullscreen_or_pending(&record.surface)
+        || session.maximize.contains(&record.surface);
+    let target_geometry = if record.collapsed {
+        centered_rect(node.pos, record.geometry.size)
+    } else {
+        session
+            .wayland
+            .space
+            .element_geometry(&record.window)
+            .unwrap_or(record.geometry)
+    };
+    let target_geometry = crate::titlebar::outer_rect_for_client(
+        &record.window,
+        target_geometry,
+        &session.settings.decorations,
+        &session.settings.font,
+    );
+    let needs_pan = !presented
+        && selected_output.as_ref().is_some_and(|output| {
+            let Some(geometry) = session.wayland.space.output_geometry(output) else {
+                return false;
+            };
+            let Some(view) = session.cameras.view(&record.output) else {
+                return false;
+            };
+            let viewport = crate::presentation::camera::world_viewport(view, geometry);
+            let delta = if viewport.contains_rect(target_geometry) {
+                Vec2 { x: 0.0, y: 0.0 }
+            } else {
+                minimal_reveal_delta(viewport, target_geometry, 24)
+            };
+            delta.x != 0.0 || delta.y != 0.0
+        });
+    if !center {
+        session.cameras.cancel_queued_field_center(&record.output);
+    }
+    let candidates = if center || needs_pan {
+        session
+            .fullscreen
+            .navigation_candidates(&record.output, &record.surface)
+    } else {
+        Vec::new()
+    };
     for surface in candidates {
         let Some(outgoing) = session
             .nodes
@@ -1175,12 +1233,41 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
             session.sync_fullscreen_camera(&output, crate::frame_clock::monotonic_now());
         }
     }
+    if !center && needs_pan {
+        let workspace = crate::presentation::workspace_for_surface(
+            &session.clusters,
+            &session.nodes,
+            &record.surface,
+        );
+        let maximized = session
+            .nodes
+            .records()
+            .filter(|outgoing| {
+                outgoing.output == record.output
+                    && outgoing.surface != record.surface
+                    && session.maximize.contains(&outgoing.surface)
+                    && crate::presentation::workspace_for_surface(
+                        &session.clusters,
+                        &session.nodes,
+                        &outgoing.surface,
+                    ) == workspace
+            })
+            .map(|outgoing| outgoing.surface.clone())
+            .collect::<Vec<_>>();
+        for surface in maximized {
+            crate::session::set_surface_field_maximized(session, &surface, false);
+        }
+    }
     let activated = if record.collapsed {
         restore_with_centering(
             session,
             id,
             serial,
-            Some(halley_config::RestoreCentering::Always),
+            Some(if center {
+                halley_config::RestoreCentering::Always
+            } else {
+                halley_config::RestoreCentering::Never
+            }),
         )
     } else if record.attached {
         crate::session::focus_window(session, &record.window, serial);
@@ -1200,13 +1287,29 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
         && let Some(output) = selected_output
         && let Some(output_geometry) = session.wayland.space.output_geometry(&output)
     {
-        let _ = session.cameras.center_field_on(
-            &record.output,
-            Vec2 {
-                x: node.pos.x - output_geometry.loc.x as f32,
-                y: node.pos.y - output_geometry.loc.y as f32,
-            },
-        );
+        if center {
+            let _ = session.cameras.center_field_on(
+                &record.output,
+                Vec2 {
+                    x: node.pos.x - output_geometry.loc.x as f32,
+                    y: node.pos.y - output_geometry.loc.y as f32,
+                },
+            );
+        } else if needs_pan && let Some(view) = session.cameras.field_restore_view(&record.output) {
+            let viewport = crate::presentation::camera::world_viewport(view, output_geometry);
+            let delta = if viewport.contains_rect(target_geometry) {
+                Vec2 { x: 0.0, y: 0.0 }
+            } else {
+                minimal_reveal_delta(viewport, target_geometry, 24)
+            };
+            session.cameras.queue_field_center(
+                &record.output,
+                Vec2 {
+                    x: view.center.x + delta.x,
+                    y: view.center.y + delta.y,
+                },
+            );
+        }
     }
     let _ = crate::session::center_pointer_on_output(session, &record.output);
     session.request_redraw();

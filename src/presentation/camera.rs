@@ -81,10 +81,12 @@ pub struct OutputCameras {
     fullscreen: HashMap<String, FullscreenCameraRestore>,
     field_maximize: HashMap<String, FieldMaximizeCameraRestore>,
     cluster_locked: HashSet<String>,
+    pending_field_center: HashMap<String, Vec2>,
 }
 
 impl OutputCameras {
     pub fn insert(&mut self, output_name: String, output_size: Size<i32, Physical>) {
+        self.pending_field_center.remove(&output_name);
         self.fullscreen.remove(&output_name);
         self.field_maximize.remove(&output_name);
         self.cluster_locked.remove(&output_name);
@@ -133,6 +135,7 @@ impl OutputCameras {
     }
 
     pub fn remove(&mut self, output_name: &str) {
+        self.pending_field_center.remove(output_name);
         self.cameras.remove(output_name);
         self.fullscreen.remove(output_name);
         self.field_maximize.remove(output_name);
@@ -219,6 +222,38 @@ impl OutputCameras {
         changed
     }
 
+    /// The Field view that will be restored after presentation exit. Reveal
+    /// destinations use this extent so restoring zoom cannot undo the reveal.
+    pub fn field_restore_view(&self, output_name: &str) -> Option<OutputView> {
+        let camera = self.cameras.get(output_name)?;
+        let (center, view_size) = if let Some(restore) = self.fullscreen.get(output_name) {
+            (restore.center, restore.view_size)
+        } else if let Some(restore) = self.field_maximize.get(output_name) {
+            (restore.center, restore.view_size)
+        } else {
+            (camera.center, camera.view_size)
+        };
+        Some(OutputView {
+            center: (center.x, center.y).into(),
+            scale: (camera.base_size.x / view_size.x.max(1.0)).min(1.0),
+        })
+    }
+
+    /// Navigation has already requested presentation exit. Maximize keeps its
+    /// camera until its exit finishes; begin the queued pan when it releases.
+    pub fn queue_field_center(&mut self, output_name: &str, center: Vec2) {
+        if self.field_maximize.contains_key(output_name) {
+            self.pending_field_center
+                .insert(output_name.to_string(), center);
+        } else {
+            self.center_field_on(output_name, center);
+        }
+    }
+
+    pub fn cancel_queued_field_center(&mut self, output_name: &str) {
+        self.pending_field_center.remove(output_name);
+    }
+
     /// The output's camera if it may tick, and whether a fullscreen exit
     /// still owns its zoom (see [`crate::input::zoom::tick_camera`]).
     pub fn get_mut_for_tick(&mut self, output_name: &str) -> Option<(&mut Camera, bool)> {
@@ -234,6 +269,7 @@ impl OutputCameras {
             fullscreen,
             field_maximize,
             cluster_locked,
+            pending_field_center: _,
         } = self;
         cameras.iter_mut().filter_map(move |(name, camera)| {
             (allows_pan(fullscreen.get(name))
@@ -500,7 +536,10 @@ impl OutputCameras {
                 };
                 camera.center = restore.center;
                 camera.view_size = restore.view_size;
-                camera.target_center = restore.center;
+                camera.target_center = self
+                    .pending_field_center
+                    .remove(output_name)
+                    .unwrap_or(restore.center);
                 camera.target_view_size = restore.view_size;
                 camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
                 camera.zoom_log_vel = 0.0;
@@ -579,6 +618,34 @@ fn camera_at_rest(output_size: Size<i32, Physical>) -> Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigation_waits_for_maximize_exit_and_preserves_restored_zoom() {
+        let mut cameras = OutputCameras::default();
+        cameras.insert("DP-1".into(), (1280, 800).into());
+        let camera = cameras.get_mut("DP-1").unwrap();
+        camera.view_size = Vec2 {
+            x: 2560.0,
+            y: 1600.0,
+        };
+        camera.target_view_size = camera.view_size;
+        let original = *camera;
+        cameras.apply_field_maximize("DP-1", Some(1.0));
+        let restore = cameras.field_restore_view("DP-1").unwrap();
+        assert_eq!(restore.scale, 0.5);
+        let destination = Vec2 {
+            x: 1700.0,
+            y: 900.0,
+        };
+        cameras.queue_field_center("DP-1", destination);
+        cameras.apply_field_maximize("DP-1", Some(0.5));
+        assert_eq!(cameras.get("DP-1").unwrap().target_center, original.center);
+        cameras.apply_field_maximize("DP-1", None);
+        let camera = cameras.get("DP-1").unwrap();
+        assert_eq!(camera.center, original.center);
+        assert_eq!(camera.target_center, destination);
+        assert_eq!(camera.view_size, original.view_size);
+    }
 
     #[test]
     fn display_scale_resize_preserves_field_location_and_zoom() {

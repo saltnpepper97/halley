@@ -42,6 +42,25 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
 
+## Alt+Tab target visibility
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect alt_tab_visibility \
+  -- --ignored --test-threads=1
+```
+
+The suite exercises raw Alt/Tab/release input with native and XWayland clients.
+Fully visible and exact-edge targets must keep their position and camera,
+retaining client/compositor/overlapping fullscreen and maximize. Partial and
+fully offscreen targets must be revealed, releasing ordinary presentation or
+parking fullscreen games. Checks cover protocol state, camera state, client
+bounds, preview cancellation and captured foreground pixels. Ordinary Field
+targets, collapsed-window restoration, and animated fullscreen/maximize exits
+are covered too. A camera regression verifies queued reveals wait for maximize
+exit and preserve the restored zoom. The canonical intended behavior is
+documented in the [Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy).
+
 ## Resizing before a client titlebar drag
 
 ```sh

@@ -101,7 +101,20 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
             let windows = app.nodes.records().map(|record| {
                 let output = app.wayland.space.outputs().find(|o| o.name() == record.output).unwrap();
                 let geometry = app.wayland.space.output_geometry(output).unwrap();
+                let view = app.cameras.view(&record.output).unwrap();
+                let viewport = crate::presentation::camera::world_viewport(view, geometry);
+                let client = app.wayland.space.element_geometry(&record.window).unwrap_or(record.geometry);
+                let outer = crate::titlebar::outer_rect_for_client(&record.window, client, &app.settings.decorations, &app.settings.font);
                 serde_json::json!({"id": record.id.as_u64(), "fullscreen": app.fullscreen.is_fullscreen_or_pending(&record.surface),
+                    "maximized": app.maximize.contains(&record.surface),
+                    "animating": app.fullscreen.is_animating_on_output(output, now)
+                        || app.maximize.is_animating_on_output(output, crate::presentation::active_workspace_on_output(&app.clusters, &record.output, now), now),
+                    "camera_settled": app.cameras.get(&record.output).is_some_and(|camera|
+                        camera.center == camera.target_center && camera.view_size == camera.target_view_size),
+                    "view": [view.center.x, view.center.y, view.scale],
+                    "viewport": [viewport.loc.x, viewport.loc.y, viewport.size.w, viewport.size.h],
+                    "client_geometry": [client.loc.x, client.loc.y, client.size.w, client.size.h],
+                    "outer_geometry": [outer.loc.x, outer.loc.y, outer.size.w, outer.size.h],
                     "paused": app.fullscreen.is_presentation_paused(&record.surface),
                     "camera": app.fullscreen.camera_frame(output, geometry, now).is_some(),
                     "rect": super::super::presented_window_rect(app, &record.window, output, now).map(|r| [r.loc.x,r.loc.y,r.size.w,r.size.h])})
