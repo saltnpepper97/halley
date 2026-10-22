@@ -287,6 +287,31 @@ fn game_mod_f_survives_a_late_client_windowed_request_and_can_still_exit() {
         let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
         (geometry.width == 360 && geometry.height == 220).then_some(())
     });
+    // Withdrawing/reusing an X11 window must not carry its old explicit
+    // presentation into a different map lifecycle (as game launchers do).
+    input.key(68, true);
+    input.key(68, false);
+    wait_for("game re-entered fullscreen before remap", || {
+        let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+        (geometry.width == width && geometry.height == height).then_some(())
+    });
+    connection.unmap_window(window).unwrap().check().unwrap();
+    wait_for("game withdrawn", || {
+        (!fixture.nodes().iter().any(|node| node.id == id)).then_some(())
+    });
+    connection.map_window(window).unwrap().check().unwrap();
+    let remapped = fixture.node("Fullscreen negotiation");
+    fullscreen(&connection, window, false);
+    wait_for("remapped game may leave client-owned fullscreen", || {
+        let state = input.state();
+        let window = state["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == remapped.id)
+            .unwrap();
+        (window["fullscreen"] == false).then_some(())
+    });
 }
 
 #[test]

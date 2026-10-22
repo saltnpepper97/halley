@@ -54,6 +54,9 @@ struct MaximizeFullscreenState {
 #[derive(Default)]
 struct MaximizeFullscreen(Mutex<MaximizeFullscreenState>);
 
+#[derive(Default)]
+struct GameFullscreenControl(Mutex<GameFullscreenControlState>);
+
 fn window_for_surface(
     wayland: &crate::wayland::WaylandState,
     nodes: &crate::nodes::NodesState,

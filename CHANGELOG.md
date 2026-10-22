@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep a game's explicit Mod+F presentation when the client sends a late
+  windowed-mode request. Continue acknowledging its protocol preference while
+  retaining fullscreen geometry until the next explicit toggle; clear this
+  override when the X11 window is withdrawn or replaced.
 - Keep positively identified XWayland games' buffers live during fullscreen
   geometry animations. Accept X11 geometry independently of a resized repaint,
   preventing a swapchain mode change from freezing a captured frame while

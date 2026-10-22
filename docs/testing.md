@@ -64,6 +64,9 @@ It drives the fullscreen keybind in both directions, checks intermediate geometr
 under a slowed timeline, and verifies that a game repaint reaches the output
 while motion is still active. Games use live client surfaces rather than resize
 snapshots; their motion still uses the configured fullscreen curve and duration.
+An ownership regression replays a late client fullscreen removal and old-size
+request after Mod+F. The game must stay fullscreen, exit on the next explicit
+toggle, accept ordinary resizing again, and drop that override on unmap/remap.
 
 ## Alt+Tab target visibility
 

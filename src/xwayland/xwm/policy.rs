@@ -26,6 +26,31 @@ impl FullscreenRequestOrigin {
     }
 }
 
+/// An explicit game presentation is independent of the game's video-mode
+/// preference. A second compositor toggle still releases it immediately.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct GameFullscreenControlState {
+    compositor_requested: bool,
+}
+
+impl GameFullscreenControlState {
+    pub(super) fn resolve(&mut self, fullscreen: bool, origin: FullscreenRequestOrigin) -> bool {
+        match origin {
+            FullscreenRequestOrigin::Compositor => {
+                self.compositor_requested = fullscreen;
+                fullscreen
+            }
+            FullscreenRequestOrigin::Maximize => {
+                self.compositor_requested = false;
+                fullscreen
+            }
+            FullscreenRequestOrigin::Initial | FullscreenRequestOrigin::Client => {
+                fullscreen || self.compositor_requested
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ExternalPresentationPolicy {
     Initial,
@@ -74,6 +99,20 @@ impl ExternalPresentationPolicy {
 mod tests {
     use super::{ExternalPresentationPolicy, FullscreenRequestOrigin};
     use crate::wayland::fullscreen::FullscreenOrigin;
+
+    #[test]
+    fn game_explicit_presentation_survives_client_chatter_until_explicit_exit() {
+        use super::GameFullscreenControlState;
+        let mut state = GameFullscreenControlState::default();
+        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
+        assert!(state.resolve(true, FullscreenRequestOrigin::Compositor));
+        assert!(state.resolve(false, FullscreenRequestOrigin::Client));
+        assert!(state.resolve(true, FullscreenRequestOrigin::Client));
+        assert!(!state.resolve(false, FullscreenRequestOrigin::Compositor));
+        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
+        assert!(state.resolve(true, FullscreenRequestOrigin::Client));
+        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
+    }
 
     #[test]
     fn external_fullscreen_origin_preserves_compositor_ownership() {

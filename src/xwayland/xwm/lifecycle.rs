@@ -49,6 +49,13 @@ pub(super) fn forget_window<D: SessionDriver>(
     session: &mut Session<D>,
     surface: &X11Surface,
 ) -> bool {
+    if let Some(control) = surface.user_data().get::<GameFullscreenControl>() {
+        *control
+            .0
+            .lock()
+            .expect("X11 game fullscreen state lock poisoned") =
+            GameFullscreenControlState::default();
+    }
     session
         .xwayland
         .forget_client_geometry_guard(surface.window_id());

@@ -54,6 +54,26 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     let Some(window) = window_for_surface(&session.wayland, &session.nodes, surface) else {
         return;
     };
+    let rule = session
+        .window_rules
+        .resolve_identity(&crate::window::rules::identity(&window));
+    let game =
+        session
+            .window_rules
+            .games
+            .is_game(&window, &session.wayland.display_handle, rule.game);
+    let client_fullscreen = fullscreen;
+    let fullscreen = if game {
+        surface
+            .user_data()
+            .get_or_insert_threadsafe(GameFullscreenControl::default)
+            .0
+            .lock()
+            .expect("X11 game fullscreen state lock poisoned")
+            .resolve(fullscreen, origin)
+    } else {
+        fullscreen
+    };
     let now = crate::frame_clock::monotonic_now();
     let opening_animation = window.wl_surface().is_some_and(|wl_surface| {
         session
@@ -133,7 +153,7 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         crate::window::raise_managed(&mut session.wayland, &window);
         session.xwayland.raise_window(&window);
     }
-    if update_client_fullscreen && let Err(err) = surface.set_fullscreen(fullscreen) {
+    if update_client_fullscreen && let Err(err) = surface.set_fullscreen(client_fullscreen) {
         eventline::warn!("xwayland: failed to update fullscreen state: {err}");
     }
     if session
@@ -163,14 +183,6 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         })
         .flatten();
     let opening = client_geometry_guarded || opening_animation;
-    let rule = session
-        .window_rules
-        .resolve_identity(&crate::window::rules::identity(&window));
-    let game =
-        session
-            .window_rules
-            .games
-            .is_game(&window, &session.wayland.display_handle, rule.game);
     let policy = ExternalPresentationPolicy::select(
         origin,
         opening,
