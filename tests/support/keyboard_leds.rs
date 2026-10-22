@@ -143,8 +143,6 @@ fn x11_lock_state_survives_keyboard_reload() {
     use x11rb::protocol::xproto::{ChangeWindowAttributesAux, EventMask, KeyButMask};
     let mut fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
     let input = Input::new(&fixture);
-    let (_native_queue, _native_client) = native_window(&fixture);
-    let native_id = fixture.node("surviving native window").id;
     let (connection, _) = x11rb::connect(Some(&fixture.display)).unwrap();
     let window = x11_window(&connection, "lock reload X11 target");
     connection
@@ -183,16 +181,44 @@ fn x11_lock_state_survives_keyboard_reload() {
         (true, true, "layout \"us\"\n variant \"intl\""),
         (false, false, "layout \"gb\""),
     ] {
-        // Establish lock state on a native client, isolating keymap reload
-        // from XWayland's separate interpretation of raw lock-key events.
-        request_native_focus(&mut fixture, native_id);
         set_locks(&input, caps, num);
         let locked = input.state()["keyboard"]["locked"].as_u64().unwrap();
-        request_native_focus(&mut fixture, id);
         assert_eq!(letter_locks(), locked, "X11 locks before reload");
         reload_keyboard(&mut fixture, &input, settings);
         indicators(&input.state(), caps, num);
         assert_eq!(letter_locks(), locked, "X11 locks after reload");
         indicators(&input.state(), caps, num);
+    }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; keyboard event order"]
+fn wayland_modifier_changes_follow_the_key_that_caused_them() {
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let input = Input::new(&fixture);
+    let (mut queue, mut client) = native_window(&fixture);
+    let _keyboard = observe_keyboard(&mut queue, &mut client);
+    for code in [42, 29, 56, 125, 58, 69] {
+        for pressed in [true, false] {
+            client.keyboard_delivery_events.clear();
+            input.key(code, pressed);
+            queue.roundtrip(&mut client).unwrap();
+            assert_eq!(
+                client.keyboard_delivery_events.first(),
+                Some(&"key"),
+                "key {code}, pressed={pressed}"
+            );
+            assert_eq!(
+                client
+                    .keyboard_delivery_events
+                    .iter()
+                    .filter(|&&event| event == "key")
+                    .count(),
+                1
+            );
+            if client.keyboard_delivery_events.contains(&"modifiers") {
+                assert_eq!(client.keyboard_delivery_events, ["key", "modifiers"]);
+            }
+        }
     }
 }
