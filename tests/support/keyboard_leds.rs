@@ -1,6 +1,12 @@
 //! Raw key events must reach the backend LED callback, including without focus.
 use super::fullscreen_multi_output::Input;
 use super::*;
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1 as virtual_manager, zwp_virtual_keyboard_v1 as virtual_keyboard,
+};
+
+delegate_noop!(NativeState: ignore virtual_manager::ZwpVirtualKeyboardManagerV1);
+delegate_noop!(NativeState: ignore virtual_keyboard::ZwpVirtualKeyboardV1);
 
 fn tap(input: &Input, code: u32) -> serde_json::Value {
     input.key(code, true);
@@ -221,4 +227,60 @@ fn wayland_modifier_changes_follow_the_key_that_caused_them() {
             }
         }
     }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; standalone virtual modifiers"]
+fn standalone_virtual_modifiers_remain_immediate_before_following_keys() {
+    use smithay::input::keyboard::xkb;
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let (mut queue, mut client) = native_window(&fixture);
+    let _keyboard = observe_keyboard(&mut queue, &mut client);
+    let handle = queue.handle();
+    let registry = client.registry.as_ref().unwrap();
+    let seat: wl_seat::WlSeat = registry.bind(client.globals["wl_seat"], 1, &handle, ());
+    let manager: virtual_manager::ZwpVirtualKeyboardManagerV1 = registry.bind(
+        client.globals["zwp_virtual_keyboard_manager_v1"],
+        1,
+        &handle,
+        (),
+    );
+    let keyboard = manager.create_virtual_keyboard(&seat, &handle, ());
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let keymap = xkb::Keymap::new_from_names(
+        &context,
+        "",
+        "pc105",
+        "us",
+        "",
+        None,
+        xkb::KEYMAP_COMPILE_NO_FLAGS,
+    )
+    .unwrap();
+    let mut keymap_text = keymap
+        .get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)
+        .into_bytes();
+    keymap_text.push(0);
+    let mut keymap_file = File::create(fixture.path.join("virtual-keymap.xkb")).unwrap();
+    keymap_file.write_all(&keymap_text).unwrap();
+    let keymap_file = File::open(fixture.path.join("virtual-keymap.xkb")).unwrap();
+    keyboard.keymap(1, keymap_file.as_fd(), keymap_text.len() as u32);
+    queue.roundtrip(&mut client).unwrap();
+    for locked in [1 << keymap.mod_get_index(xkb::MOD_NAME_CAPS), 0] {
+        client.keyboard_delivery_events.clear();
+        keyboard.modifiers(0, 0, locked, 0);
+        queue.roundtrip(&mut client).unwrap();
+        assert_eq!(client.keyboard_modifiers.2, locked);
+        assert_eq!(client.keyboard_delivery_events, ["modifiers"]);
+        client.keyboard_delivery_events.clear();
+        keyboard.key(1, 30, 1);
+        keyboard.key(2, 30, 0);
+        queue.roundtrip(&mut client).unwrap();
+        assert_eq!(client.keyboard_delivery_events, ["key", "key"]);
+        assert_eq!(client.keyboard_modifiers.2, locked);
+    }
+    keyboard.destroy();
+    queue.roundtrip(&mut client).unwrap();
 }

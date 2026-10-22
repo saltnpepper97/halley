@@ -10,6 +10,7 @@ use smithay::wayland::seat::WaylandFocus;
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::X11Surface;
 
+use crate::input::keyboard_delivery::{self, PendingModifiers};
 use crate::session::{Session, SessionDriver};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +80,16 @@ impl KeyboardFocusTarget {
             Self::X11(surface) => surface.as_ref(),
         }
     }
+
+    pub(crate) fn send_modifiers<D: SessionDriver>(
+        &self,
+        seat: &Seat<Session<D>>,
+        session: &mut Session<D>,
+        modifiers: ModifiersState,
+        serial: Serial,
+    ) {
+        self.target().modifiers(seat, session, modifiers, serial);
+    }
 }
 
 impl From<WlSurface> for KeyboardFocusTarget {
@@ -130,10 +141,12 @@ impl<D: SessionDriver> KeyboardTarget<Session<D>> for KeyboardFocusTarget {
         keys: Vec<KeysymHandle<'_>>,
         serial: Serial,
     ) {
+        keyboard_delivery::flush(session);
         self.target().enter(seat, session, keys, serial);
     }
 
     fn leave(&self, seat: &Seat<Session<D>>, session: &mut Session<D>, serial: Serial) {
+        keyboard_delivery::flush(session);
         self.target().leave(seat, session, serial);
     }
 
@@ -146,7 +159,21 @@ impl<D: SessionDriver> KeyboardTarget<Session<D>> for KeyboardFocusTarget {
         serial: Serial,
         time: InputTime,
     ) {
+        // The pinned Smithay input path calls modifiers before key. Match the
+        // same target and serial so only this key's update follows it; other
+        // modifier changes must be visible before the key instead.
+        let after = session.keyboard.delivery.take().and_then(|pending| {
+            if pending.target == *self && pending.serial == serial {
+                Some(pending)
+            } else {
+                pending.send(session);
+                None
+            }
+        });
         self.target().key(seat, session, key, state, serial, time);
+        if let Some(pending) = after {
+            pending.send(session);
+        }
     }
 
     fn modifiers(
@@ -156,6 +183,15 @@ impl<D: SessionDriver> KeyboardTarget<Session<D>> for KeyboardFocusTarget {
         modifiers: ModifiersState,
         serial: Serial,
     ) {
-        self.target().modifiers(seat, session, modifiers, serial);
+        if session.keyboard.delivery.active() {
+            keyboard_delivery::flush(session);
+            session.keyboard.delivery.defer(PendingModifiers {
+                target: self.clone(),
+                state: modifiers,
+                serial,
+            });
+        } else {
+            self.send_modifiers(seat, session, modifiers, serial);
+        }
     }
 }

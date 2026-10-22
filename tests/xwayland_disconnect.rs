@@ -135,7 +135,11 @@ impl Fixture {
         if two_outputs {
             command
                 .env("HALLEY_TEST_WINIT_CONFIG", &config)
-                .env("HALLEY_TEST_WINIT_CONTROL", path.join("input.sock"));
+                .env("HALLEY_TEST_WINIT_CONTROL", path.join("input.sock"))
+                .env(
+                    "HALLEY_ALLOW_VIRTUAL_KEYBOARD",
+                    std::env::current_exe().unwrap(),
+                );
         }
         let process = command
             .env("WAYLAND_DISPLAY", host_display)

@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Deliver a physical key before its resulting modifier update, following
+  Wayland event order. Keep Caps Lock and Num Lock consistent in XWayland
+  clients while preserving independent virtual-keyboard modifier requests,
+  focus changes and keyboard configuration reloads.
 - Preserve Caps Lock alongside Num Lock when keyboard layout, variant, model or
   options change. Restore client modifiers and backend indicators after reload,
   including when no window has keyboard focus.
