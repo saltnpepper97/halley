@@ -1,6 +1,12 @@
 //! Raw key events must reach the backend LED callback, including without focus.
 use super::fullscreen_multi_output::Input;
 use super::*;
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1 as virtual_manager, zwp_virtual_keyboard_v1 as virtual_keyboard,
+};
+
+delegate_noop!(NativeState: ignore virtual_manager::ZwpVirtualKeyboardManagerV1);
+delegate_noop!(NativeState: ignore virtual_keyboard::ZwpVirtualKeyboardV1);
 
 fn tap(input: &Input, code: u32) -> serde_json::Value {
     input.key(code, true);
@@ -143,8 +149,6 @@ fn x11_lock_state_survives_keyboard_reload() {
     use x11rb::protocol::xproto::{ChangeWindowAttributesAux, EventMask, KeyButMask};
     let mut fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
     let input = Input::new(&fixture);
-    let (_native_queue, _native_client) = native_window(&fixture);
-    let native_id = fixture.node("surviving native window").id;
     let (connection, _) = x11rb::connect(Some(&fixture.display)).unwrap();
     let window = x11_window(&connection, "lock reload X11 target");
     connection
@@ -183,16 +187,100 @@ fn x11_lock_state_survives_keyboard_reload() {
         (true, true, "layout \"us\"\n variant \"intl\""),
         (false, false, "layout \"gb\""),
     ] {
-        // Establish lock state on a native client, isolating keymap reload
-        // from XWayland's separate interpretation of raw lock-key events.
-        request_native_focus(&mut fixture, native_id);
         set_locks(&input, caps, num);
         let locked = input.state()["keyboard"]["locked"].as_u64().unwrap();
-        request_native_focus(&mut fixture, id);
         assert_eq!(letter_locks(), locked, "X11 locks before reload");
         reload_keyboard(&mut fixture, &input, settings);
         indicators(&input.state(), caps, num);
         assert_eq!(letter_locks(), locked, "X11 locks after reload");
         indicators(&input.state(), caps, num);
     }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; keyboard event order"]
+fn wayland_modifier_changes_follow_the_key_that_caused_them() {
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let input = Input::new(&fixture);
+    let (mut queue, mut client) = native_window(&fixture);
+    let _keyboard = observe_keyboard(&mut queue, &mut client);
+    for code in [42, 29, 56, 125, 58, 69] {
+        for pressed in [true, false] {
+            client.keyboard_delivery_events.clear();
+            input.key(code, pressed);
+            queue.roundtrip(&mut client).unwrap();
+            assert_eq!(
+                client.keyboard_delivery_events.first(),
+                Some(&"key"),
+                "key {code}, pressed={pressed}"
+            );
+            assert_eq!(
+                client
+                    .keyboard_delivery_events
+                    .iter()
+                    .filter(|&&event| event == "key")
+                    .count(),
+                1
+            );
+            if client.keyboard_delivery_events.contains(&"modifiers") {
+                assert_eq!(client.keyboard_delivery_events, ["key", "modifiers"]);
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; standalone virtual modifiers"]
+fn standalone_virtual_modifiers_remain_immediate_before_following_keys() {
+    use smithay::input::keyboard::xkb;
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let (mut queue, mut client) = native_window(&fixture);
+    let _keyboard = observe_keyboard(&mut queue, &mut client);
+    let handle = queue.handle();
+    let registry = client.registry.as_ref().unwrap();
+    let seat: wl_seat::WlSeat = registry.bind(client.globals["wl_seat"], 1, &handle, ());
+    let manager: virtual_manager::ZwpVirtualKeyboardManagerV1 = registry.bind(
+        client.globals["zwp_virtual_keyboard_manager_v1"],
+        1,
+        &handle,
+        (),
+    );
+    let keyboard = manager.create_virtual_keyboard(&seat, &handle, ());
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let keymap = xkb::Keymap::new_from_names(
+        &context,
+        "",
+        "pc105",
+        "us",
+        "",
+        None,
+        xkb::KEYMAP_COMPILE_NO_FLAGS,
+    )
+    .unwrap();
+    let mut keymap_text = keymap
+        .get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)
+        .into_bytes();
+    keymap_text.push(0);
+    let mut keymap_file = File::create(fixture.path.join("virtual-keymap.xkb")).unwrap();
+    keymap_file.write_all(&keymap_text).unwrap();
+    let keymap_file = File::open(fixture.path.join("virtual-keymap.xkb")).unwrap();
+    keyboard.keymap(1, keymap_file.as_fd(), keymap_text.len() as u32);
+    queue.roundtrip(&mut client).unwrap();
+    for locked in [1 << keymap.mod_get_index(xkb::MOD_NAME_CAPS), 0] {
+        client.keyboard_delivery_events.clear();
+        keyboard.modifiers(0, 0, locked, 0);
+        queue.roundtrip(&mut client).unwrap();
+        assert_eq!(client.keyboard_modifiers.2, locked);
+        assert_eq!(client.keyboard_delivery_events, ["modifiers"]);
+        client.keyboard_delivery_events.clear();
+        keyboard.key(1, 30, 1);
+        keyboard.key(2, 30, 0);
+        queue.roundtrip(&mut client).unwrap();
+        assert_eq!(client.keyboard_delivery_events, ["key", "key"]);
+        assert_eq!(client.keyboard_modifiers.2, locked);
+    }
+    keyboard.destroy();
+    queue.roundtrip(&mut client).unwrap();
 }

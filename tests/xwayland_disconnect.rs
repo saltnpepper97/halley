@@ -135,7 +135,11 @@ impl Fixture {
         if two_outputs {
             command
                 .env("HALLEY_TEST_WINIT_CONFIG", &config)
-                .env("HALLEY_TEST_WINIT_CONTROL", path.join("input.sock"));
+                .env("HALLEY_TEST_WINIT_CONTROL", path.join("input.sock"))
+                .env(
+                    "HALLEY_ALLOW_VIRTUAL_KEYBOARD",
+                    std::env::current_exe().unwrap(),
+                );
         }
         let process = command
             .env("WAYLAND_DISPLAY", host_display)
@@ -311,6 +315,7 @@ struct NativeState {
     keyboard_events: Vec<(u32, wl_keyboard::KeyState)>,
     keyboard_keymaps: usize,
     keyboard_modifiers: (u32, u32, u32, u32),
+    keyboard_delivery_events: Vec<&'static str>,
     viewport: Option<wp_viewport::WpViewport>,
     resize_for_configures: bool,
     configured_fullscreen: bool,
@@ -378,6 +383,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
                 group,
                 ..
             } => {
+                state.keyboard_delivery_events.push("modifiers");
                 state.keyboard_modifiers = (mods_depressed, mods_latched, mods_locked, group);
             }
             wl_keyboard::Event::Key {
@@ -385,6 +391,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for NativeState {
                 state: wayland_client::WEnum::Value(key_state),
                 ..
             } => {
+                state.keyboard_delivery_events.push("key");
                 state.keyboard_events.push((key, key_state));
             }
             _ => {}

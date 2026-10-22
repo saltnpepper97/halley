@@ -2,6 +2,7 @@ pub mod config;
 pub mod devices;
 pub mod grab;
 pub mod keybinds;
+pub(crate) mod keyboard_delivery;
 pub mod pointer;
 pub mod zoom;
 
@@ -347,11 +348,8 @@ pub fn process_pointer_binding(
     PointerBindingResult::Action(action)
 }
 
-/// The resolved bind table plus the configured terminal command - nothing
-/// else. Used to own a fake `Seat`/`KeyboardHandle` purely to match
-/// keybinds, back when there was no real Wayland client to focus or forward
-/// to; now that real clients exist, matching happens directly on the real
-/// `Seat<App>`/`Seat<TtyApp>` each app already owns, so this is just data.
+/// Resolved bindings, terminal selection and per-seat input delivery policy.
+/// Smithay's real seat owns the live keymap, pressed keys and client focus.
 pub struct Keyboard {
     pub binds: Vec<ResolvedBind>,
     /// The configured mod key, already remapped for this backend (matches
@@ -361,6 +359,7 @@ pub struct Keyboard {
     /// closure (pointer events don't carry modifier state directly).
     pub effective_mod: ModifierKey,
     pub side_modifiers: SideModifiers,
+    pub(crate) delivery: keyboard_delivery::Delivery,
     /// Resolved once at startup from Halley's built-in terminal priority list.
     terminal_command: Option<String>,
 }
@@ -379,6 +378,7 @@ impl Keyboard {
             binds,
             effective_mod,
             side_modifiers: SideModifiers::default(),
+            delivery: keyboard_delivery::Delivery::default(),
             terminal_command,
         }
     }
@@ -390,8 +390,10 @@ impl Keyboard {
         path: Option<&std::ffi::OsStr>,
     ) {
         let side_modifiers = self.side_modifiers;
+        let delivery = std::mem::take(&mut self.delivery);
         *self = Self::from_config(keybinds, backend, path);
         self.side_modifiers = side_modifiers;
+        self.delivery = delivery;
     }
 
     /// The command `Action::OpenTerminal` should launch, if one of Halley's

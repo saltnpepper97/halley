@@ -125,6 +125,7 @@ pub(super) fn handle<D, B>(
         .expect("keyboard capability added at seat setup");
     let bindings_enabled = bindings_enabled(session);
     let mut forwarded_non_modifier_press = false;
+    session.keyboard.delivery.begin();
     let action = keyboard.input::<KeyboardOutcome, _>(
         session,
         keycode,
@@ -373,6 +374,7 @@ pub(super) fn handle<D, B>(
             }
         },
     );
+    crate::input::keyboard_delivery::finish(session);
     if forwarded_non_modifier_press {
         close_blooms_for_typing_away(session);
     }
