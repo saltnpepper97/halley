@@ -1064,6 +1064,9 @@ impl FullscreenManager {
         if pending.presentation != ExternalPresentationKind::LiveAnimated {
             return;
         }
+        if pending.geometry == geometry {
+            return;
+        }
         pending.geometry = geometry;
         pending.geometry_acknowledged = false;
         if let Some(restore) = entry.restore.as_mut() {
@@ -1071,6 +1074,10 @@ impl FullscreenManager {
             restore.geometry = geometry;
         }
         entry.presentation_windowed = Some(geometry);
+        // The retained projection describes the old windowed size. Project
+        // the negotiated endpoint through the live camera during this exit.
+        entry.presentation_output = None;
+        entry.restore_presentation_output = None;
     }
 
     /// X11 ConfigureRequest must not replace an in-flight presentation target

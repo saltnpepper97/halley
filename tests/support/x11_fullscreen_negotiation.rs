@@ -508,6 +508,64 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
 }
 
 #[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; smooth negotiated game exit"]
+fn game_windowed_size_burst_retargets_the_smooth_exit_endpoint() {
+    let (mut fixture, connection, window, _, _) = setup_with_config(
+        false,
+        r#"
+rules:
+  window-rule:
+    title "Fullscreen negotiation"
+    game true
+  end
+end
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 1000
+    curve "linear"
+  end
+end
+"#,
+    );
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    let id = fixture.node("Fullscreen negotiation").id;
+    let presented = || {
+        input.state()["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    thread::sleep(Duration::from_millis(1100));
+    fullscreen(&connection, window, false);
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
+        .unwrap()
+        .check()
+        .unwrap();
+    wait_for("negotiated game windowed size", || {
+        let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+        (geometry.width == 360 && geometry.height == 220).then_some(())
+    });
+    thread::sleep(Duration::from_millis(850));
+    let state = presented();
+    let width = state["rect"][2].as_f64().unwrap();
+    assert_eq!(state["animating"], true, "{state}");
+    assert!(width >= 360.0 && width < 550.0, "{state}");
+    thread::sleep(Duration::from_millis(250));
+    let state = presented();
+    assert_eq!(state["animating"], false, "{state}");
+    assert_eq!(state["rect"][2], 360, "{state}");
+    assert_eq!(state["rect"][3], 220, "{state}");
+}
+
+#[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; fullscreen ConfigureRequest"]
 fn fullscreen_keeps_its_geometry_when_a_client_requests_an_old_video_mode() {
     let (_fixture, connection, window, width, height) = setup(false);
