@@ -35,7 +35,15 @@ fn fullscreen(connection: &RustConnection, window: u32, enabled: bool) {
 }
 
 fn setup(initial_fullscreen: bool) -> (Fixture, RustConnection, u32, u16, u16) {
-    let mut fixture = Fixture::with_two_outputs("input:\n focus-mode \"click\"\nend\n");
+    setup_with_config(initial_fullscreen, "")
+}
+
+fn setup_with_config(
+    initial_fullscreen: bool,
+    extra: &str,
+) -> (Fixture, RustConnection, u32, u16, u16) {
+    let mut fixture =
+        Fixture::with_two_outputs(&format!("input:\n focus-mode \"click\"\nend\n{extra}"));
     let (connection, _) = x11rb::connect(Some(&fixture.display)).unwrap();
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
         panic!()
@@ -107,6 +115,110 @@ fn setup(initial_fullscreen: bool) -> (Fixture, RustConnection, u32, u16, u16) {
     });
     thread::sleep(Duration::from_millis(700));
     (fixture, connection, window, width, height)
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; animated live game fullscreen"]
+fn game_fullscreen_keeps_live_frames_during_smooth_geometry_changes() {
+    for game in [true, false] {
+        let extra = format!(
+            r#"
+rules:
+  window-rule:
+    title "Fullscreen negotiation"
+    game {game}
+  end
+end
+animations:
+  window-open:
+    enabled false
+  end
+  fullscreen:
+    motion "easing"
+    duration-ms 1000
+    curve "linear"
+  end
+end
+"#
+        );
+        let (mut fixture, connection, window, width, height) = setup_with_config(false, &extra);
+        let input = fullscreen_multi_output::Input::new(&fixture);
+        let id = fixture.node("Fullscreen negotiation").id;
+        let observed = |snapshot: &serde_json::Value| {
+            snapshot["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|state| state["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        // Finish setup's client-owned entry, then use the actual keybind path
+        // for both directions. A rule override is the same positive game
+        // classification used by SteamAppId and steam_app_* windows.
+        thread::sleep(Duration::from_millis(1100));
+        for enabled in [false, true] {
+            input.key(68, true); // F10
+            let state = observed(&input.key(68, false));
+            if game {
+                assert_eq!(
+                    state["fullscreen_snapshot"], false,
+                    "game frames must stay live during geometry motion: {state}"
+                );
+            } else {
+                assert_eq!(
+                    state["fullscreen_snapshot"], true,
+                    "ordinary X11 windows must retain their existing crossfade: {state}"
+                );
+            }
+            wait_for("fullscreen configure accepted", || {
+                let state = observed(&input.state());
+                (!state["fullscreen_configure_pending"].as_bool().unwrap()).then_some(())
+            });
+            thread::sleep(Duration::from_millis(150));
+            let state = observed(&input.state());
+            let rect = state["rect"].as_array().unwrap();
+            let animated_width = rect[2].as_f64().unwrap();
+            assert!(
+                animated_width > 240.0 && animated_width < f64::from(width),
+                "fullscreen must still animate its geometry: {state}"
+            );
+            let gc = connection.generate_id().unwrap();
+            connection
+                .create_gc(gc, window, &CreateGCAux::new().foreground(0x0000ff00))
+                .unwrap();
+            connection
+                .poly_fill_rectangle(
+                    window,
+                    gc,
+                    &[Rectangle {
+                        x: 0,
+                        y: 0,
+                        width,
+                        height,
+                    }],
+                )
+                .unwrap();
+            connection.free_gc(gc).unwrap();
+            connection.flush().unwrap();
+            if game {
+                wait_for("live game repaint inside the animated geometry", || {
+                    let state = observed(&input.state());
+                    let rect = state["rect"].as_array().unwrap();
+                    let x = (rect[0].as_i64().unwrap() + rect[2].as_i64().unwrap() / 2) as usize;
+                    let y = (rect[1].as_i64().unwrap() + rect[3].as_i64().unwrap() / 2) as usize;
+                    let (pixels, stride) = capture_frame_pixels_on(&mut fixture, Some("winit"));
+                    let pixel = &pixels[(y * stride + x) * 4..][..3];
+                    (pixel[1] > 240 && pixel[0] < 10 && pixel[2] < 10).then_some(())
+                });
+            }
+            thread::sleep(Duration::from_millis(1100));
+            let state = observed(&input.state());
+            assert_eq!(state["fullscreen_snapshot"], false);
+            assert_eq!(state["fullscreen"], enabled);
+            assert_eq!(state["animating"], false);
+        }
+    }
 }
 
 #[test]
