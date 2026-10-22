@@ -70,6 +70,10 @@ toggle, accept ordinary resizing again, and drop that override on unmap/remap.
 It also checks that the advertised fullscreen bit agrees with the presentation,
 repeated mode requests each receive state and geometry replies, and fullscreen
 frame extents do not reserve space for an invisible server titlebar.
+The hover-focus regression crosses onto another output and models a game's
+focus-loss fullscreen removal, with an ordinary-app control and a focused game
+mode-change check. The initial-fullscreen regression checks centered windowed
+restoration and that later ordinary resizes stop following the restore center.
 
 ## Alt+Tab target visibility
 

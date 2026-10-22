@@ -475,6 +475,27 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
                     let centered = placement.centered(geometry.size);
                     self.wayland.space.relocate_element(&window, centered.loc);
                 }
+                let restoring = self
+                    .xwayland
+                    .client_geometry_guards
+                    .get(&surface.window_id())
+                    .and_then(|guard| guard.restore_placement(now));
+                if !fullscreen
+                    && !grabbed
+                    && !window
+                        .wl_surface()
+                        .is_some_and(|surface| self.maximize.contains(surface.as_ref()))
+                    && let Some(placement) = restoring
+                {
+                    let chrome = crate::titlebar::WindowChrome::for_window(
+                        &window,
+                        &self.settings.decorations,
+                        &self.settings.font,
+                    );
+                    let outer = chrome.outer_rect(Rectangle::from_size(geometry.size));
+                    let centered = chrome.client_rect(placement.centered(outer.size));
+                    self.wayland.space.relocate_element(&window, centered.loc);
+                }
                 // Managed X geometry is in root-desktop coordinates; `Space`
                 // is in Halley's Field coordinates.  The request path applies
                 // accepted source placement explicitly, so ConfigureNotify

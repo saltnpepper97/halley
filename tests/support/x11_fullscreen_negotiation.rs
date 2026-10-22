@@ -223,7 +223,7 @@ fn initial_fullscreen_game_centers_its_first_windowed_video_mode() {
         .iter()
         .find(|w| w["id"] == id)
         .unwrap();
-    let rect = observed["rect"].as_array().unwrap();
+    let rect = observed["outer_geometry"].as_array().unwrap();
     let center = (
         rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() / 2.0,
         rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() / 2.0,
@@ -233,6 +233,33 @@ fn initial_fullscreen_game_centers_its_first_windowed_video_mode() {
             && (center.1 - f64::from(height) / 2.0).abs() < 1.0,
         "first windowed mode lost its center: {snapshot}"
     );
+    let previous = observed["client_geometry"].as_array().unwrap();
+    let location = [previous[0].clone(), previous[1].clone()];
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(600).height(380))
+        .unwrap()
+        .check()
+        .unwrap();
+    wait_for("later ordinary resize keeps its placement", || {
+        let state = input.state();
+        let geometry = state["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap()["client_geometry"]
+            .as_array()
+            .unwrap();
+        if geometry[2] != 600 || geometry[3] != 380 {
+            return None;
+        }
+        assert_eq!(
+            [geometry[0].clone(), geometry[1].clone()],
+            location,
+            "restore centering outlived the mode-change quiet period"
+        );
+        Some(())
+    });
 }
 
 #[test]

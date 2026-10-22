@@ -62,6 +62,20 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             .window_rules
             .games
             .is_game(&window, &session.wayland.display_handle, rule.game);
+    // Exclusive games can answer a cross-monitor hover focus change with an
+    // unset request. Keep that monitor's presentation while another monitor
+    // is in use; a focused mode change and explicit compositor exit still work.
+    let remote_focus_exit = game
+        && !fullscreen
+        && origin == FullscreenRequestOrigin::Client
+        && session.fullscreen.external_desired_matches(&window, true)
+        && window.wl_surface().is_some_and(|surface| {
+            session.wayland.focused_window.as_ref() != Some(surface.as_ref())
+        })
+        && crate::wayland::focus::selected_output(&session.wayland).is_some_and(|output| {
+            crate::wayland::window_output_name(&window).as_deref() != Some(output.name().as_str())
+        });
+    let fullscreen = fullscreen || remote_focus_exit;
     let fullscreen = if game {
         surface
             .user_data()
@@ -154,6 +168,29 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     } else {
         cluster_restore
     };
+    if game
+        && !fullscreen
+        && origin != FullscreenRequestOrigin::Maximize
+        && cluster_restore.is_none()
+        && session.fullscreen.external_desired_matches(&window, true)
+        && let Some(restore) =
+            session
+                .fullscreen
+                .external_target_geometry(&session.wayland, &window, false)
+    {
+        // A game's first windowed video mode can arrive after its fullscreen
+        // unset. Preserve the restored frame's center across that resize burst,
+        // rather than anchoring the new size to the old fullscreen top-left.
+        let outer = crate::titlebar::outer_rect_for_client(
+            &window,
+            restore,
+            &session.settings.decorations,
+            &session.settings.font,
+        );
+        session
+            .xwayland
+            .arm_client_restore_geometry_guard(surface.window_id(), now, outer);
+    }
     if !fullscreen && let Some(restore) = cluster_restore.as_ref() {
         session.fullscreen.override_restore_from_cluster(
             window

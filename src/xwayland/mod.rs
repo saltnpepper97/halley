@@ -377,6 +377,19 @@ impl<D: SessionDriver> State<D> {
             .is_some_and(|guard| guard.is_active(now))
     }
 
+    pub(crate) fn arm_client_restore_geometry_guard(
+        &mut self,
+        xid: u32,
+        now: std::time::Duration,
+        outer: Rectangle<i32, Logical>,
+    ) {
+        self.arm_client_geometry_guard(xid, now);
+        self.client_geometry_guards
+            .get_mut(&xid)
+            .expect("geometry guard was armed above")
+            .set_restore_center(outer);
+    }
+
     pub(crate) fn client_geometry_guarded_for_window(
         &self,
         window: &Window,

@@ -11,12 +11,14 @@ pub(super) const CLIENT_GEOMETRY_QUIET_PERIOD: Duration = Duration::from_millis(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ClientGeometryGuard {
     quiet_until: Duration,
+    restore_center: Option<OpeningPlacement>,
 }
 
 impl ClientGeometryGuard {
     pub(super) fn arm(now: Duration) -> Self {
         Self {
             quiet_until: now.saturating_add(CLIENT_GEOMETRY_QUIET_PERIOD),
+            restore_center: None,
         }
     }
 
@@ -26,6 +28,14 @@ impl ClientGeometryGuard {
 
     pub(super) fn quiet_until(self) -> Duration {
         self.quiet_until
+    }
+
+    pub(super) fn set_restore_center(&mut self, outer: Rectangle<i32, Logical>) {
+        self.restore_center = Some(OpeningPlacement::new(outer, outer.size));
+    }
+
+    pub(super) fn restore_placement(self, now: Duration) -> Option<OpeningPlacement> {
+        self.is_active(now).then_some(self.restore_center).flatten()
     }
 }
 
