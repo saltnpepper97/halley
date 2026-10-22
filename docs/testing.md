@@ -42,6 +42,28 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
 
+## Resizing before a client titlebar drag
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect resize_drag \
+  -- --ignored --test-threads=1
+```
+
+Build the private server as described above. The real-application test requires
+GTK4 Zathura and a PDF plugin. It opens a generated PDF with isolated config,
+data and cache directories, resizes through real F8/F9 keybindings and a raw
+pointer corner drag, then drags the client-side titlebar after each resize.
+The client must keep the resized dimensions through move activation, release
+and delayed buffer commits. Test-only motion/button commands use production
+pointer routing and grab handling; host pointer input stays isolated.
+
+A protocol client also checks the required configure acknowledgement for a
+redundant `unset_fullscreen`, both after a resize commit and while a newer
+resize configure is still unacknowledged, and verifies that maximize is
+preserved. Neither request may replace the current size with the client's
+unconstrained preferred size.
+
 ## Fullscreen and maximize landmark stability
 
 ```sh

@@ -142,6 +142,9 @@ fn zathura_keyboard_and_corner_resize_survive_titlebar_drag() {
     let initial = rect(&input, id);
     input.key(66, true); // F8: resize-window-right through production key handling.
     input.key(66, false);
+    wait_for("Zathura accepts horizontal keyboard resize", || {
+        (rect(&input, id)[2] > initial[2]).then_some(())
+    });
     input.key(67, true); // F9: resize-window-down.
     input.key(67, false);
     let resized = wait_for("Zathura accepts keyboard resizing", || {
@@ -166,7 +169,7 @@ fn zathura_keyboard_and_corner_resize_survive_titlebar_drag() {
 #[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; redundant unset_fullscreen"]
 fn windowed_unfullscreen_ack_preserves_latest_requested_size() {
-    let mut fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
     let input = Input::new(&fixture);
     let (mut queue, mut client) = native_window(&fixture);
     client.resize_for_configures = true;
@@ -198,4 +201,19 @@ fn windowed_unfullscreen_ack_preserves_latest_requested_size() {
         },
     );
     assert_eq!(client.configured_size, (resized.0, resized.1 + 80));
+    client.toplevel.as_ref().unwrap().set_maximized();
+    wait_for("maximize configure", || {
+        queue.roundtrip(&mut client).unwrap();
+        client.configured_maximized.then_some(())
+    });
+    let maximized = client.configured_size;
+    let count = client.configure_count;
+    client.toplevel.as_ref().unwrap().unset_fullscreen();
+    wait_for("redundant fullscreen exit preserves maximize", || {
+        queue.roundtrip(&mut client).unwrap();
+        (client.configure_count > count).then_some(())
+    });
+    assert!(client.configured_maximized);
+    assert!(!client.configured_fullscreen);
+    assert_eq!(client.configured_size, maximized);
 }

@@ -556,6 +556,13 @@ impl FullscreenManager {
     /// Applies an xdg_toplevel `unset_fullscreen` request without allowing it
     /// to release a presentation which was explicitly selected by Mod+F.
     pub fn unrequest_client(&mut self, wayland: &WaylandState, toplevel: &ToplevelSurface) {
+        if !self.windows.contains_key(toplevel.wl_surface()) {
+            // Toolkits may unset fullscreen before a title-bar move even on
+            // an ordinary window. Acknowledge without replacing its current
+            // or pending resize target with an unconstrained (0, 0) size.
+            send_required_configure(toplevel);
+            return;
+        }
         let nested = self
             .windows
             .get_mut(toplevel.wl_surface())
