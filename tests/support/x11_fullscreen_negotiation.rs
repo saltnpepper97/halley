@@ -43,8 +43,16 @@ fn setup_with_config(
     initial_fullscreen: bool,
     extra: &str,
 ) -> (Fixture, RustConnection, u32, u16, u16) {
+    setup_with_focus(initial_fullscreen, extra, "click")
+}
+
+fn setup_with_focus(
+    initial_fullscreen: bool,
+    extra: &str,
+    focus: &str,
+) -> (Fixture, RustConnection, u32, u16, u16) {
     let mut fixture =
-        Fixture::with_two_outputs(&format!("input:\n focus-mode \"click\"\nend\n{extra}"));
+        Fixture::with_two_outputs(&format!("input:\n focus-mode \"{focus}\"\nend\n{extra}"));
     let (connection, _) = x11rb::connect(Some(&fixture.display)).unwrap();
     let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
         panic!()
@@ -116,6 +124,115 @@ fn setup_with_config(
     });
     thread::sleep(Duration::from_millis(700));
     (fixture, connection, window, width, height)
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; game focus-loss mode request"]
+fn game_fullscreen_hover_to_another_monitor_keeps_the_game_presented() {
+    for game in [false, true] {
+        let extra = format!(
+            "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game {game}\n end\nend\n"
+        );
+        let (mut fixture, connection, window, width, height) =
+            setup_with_focus(false, &extra, "hover");
+        let source = fixture.node("Fullscreen negotiation");
+        let (_queue, _state) = native_window_named(
+            &fixture,
+            "Remote focus",
+            "halley.test.remote",
+            [0, 0, u32::MAX, u32::MAX],
+        );
+        let remote = fixture.node("Remote focus");
+        fullscreen_multi_output::place(&mut fixture, remote.id, true);
+        let input = fullscreen_multi_output::Input::new(&fixture);
+        input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
+        wait_for("source hover focus", || {
+            (input.state()["focused"] == source.id).then_some(())
+        });
+        let snapshot = input.state();
+        let rect = snapshot["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == remote.id)
+            .unwrap()["rect"]
+            .as_array()
+            .unwrap();
+        input.motion(
+            f64::from(width) + rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() / 2.0,
+            rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() / 2.0,
+        );
+        wait_for("remote hover focus", || {
+            (input.state()["focused"] == remote.id).then_some(())
+        });
+        // Model a game's video-mode reaction to losing focus. The other
+        // monitor remains usable without releasing the game's presentation.
+        fullscreen(&connection, window, false);
+        thread::sleep(Duration::from_millis(120));
+        let snapshot = input.state();
+        let observed = snapshot["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == source.id)
+            .unwrap();
+        assert_eq!(observed["fullscreen"], game, "game={game}: {snapshot}");
+        if game {
+            assert_eq!(observed["rect"], serde_json::json!([0, 0, width, height]));
+            input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
+            wait_for("game regains hover focus", || {
+                (input.state()["focused"] == source.id).then_some(())
+            });
+            fullscreen(&connection, window, false);
+            wait_for("focused game may choose windowed mode", || {
+                let snapshot = input.state();
+                snapshot["windows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|w| w["id"] == source.id)
+                    .filter(|w| w["fullscreen"] == false)
+                    .map(|_| ())
+            });
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; initial fullscreen restore placement"]
+fn initial_fullscreen_game_centers_its_first_windowed_video_mode() {
+    let extra = "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game true\n end\nend\n";
+    let (mut fixture, connection, window, width, height) = setup_with_config(true, extra);
+    let id = fixture.node("Fullscreen negotiation").id;
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    fullscreen(&connection, window, false);
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(640).height(400))
+        .unwrap()
+        .check()
+        .unwrap();
+    wait_for("first windowed video mode accepted", || {
+        let g = connection.get_geometry(window).unwrap().reply().unwrap();
+        (g.width == 640 && g.height == 400).then_some(())
+    });
+    thread::sleep(Duration::from_millis(350));
+    let snapshot = input.state();
+    let observed = snapshot["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == id)
+        .unwrap();
+    let rect = observed["rect"].as_array().unwrap();
+    let center = (
+        rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() / 2.0,
+        rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() / 2.0,
+    );
+    assert!(
+        (center.0 - f64::from(width) / 2.0).abs() < 1.0
+            && (center.1 - f64::from(height) / 2.0).abs() < 1.0,
+        "first windowed mode lost its center: {snapshot}"
+    );
 }
 
 #[test]
