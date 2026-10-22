@@ -53,6 +53,8 @@ mod multi_keyboard;
 mod output_management;
 #[path = "support/pointer_warp.rs"]
 mod pointer_warp;
+#[path = "support/resize_drag.rs"]
+mod resize_drag;
 #[path = "support/commit_timing_nested.rs"]
 mod timing_nested;
 #[path = "support/window_movement.rs"]
@@ -114,7 +116,7 @@ impl Fixture {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
         let bindings = if two_outputs {
-            "  \"alt+tab\" \"cycle-focus\"\n"
+            "  \"alt+tab\" \"cycle-focus\"\n  \"F8\" \"resize-window-right\"\n  \"F9\" \"resize-window-down\"\n"
         } else {
             ""
         };
