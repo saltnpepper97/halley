@@ -1042,6 +1042,37 @@ impl FullscreenManager {
             .is_some_and(|surface| desired_matches(self.windows.get(surface.as_ref()), fullscreen))
     }
 
+    /// A game can send its windowed size before X11 reports the restore
+    /// configure. Accept that size as the exit endpoint, keeping one transaction.
+    pub(crate) fn negotiate_external_windowed_geometry(
+        &mut self,
+        window: &Window,
+        geometry: Rectangle<i32, Logical>,
+    ) {
+        let Some(surface) = window.wl_surface() else {
+            return;
+        };
+        let Some(entry) = self.windows.get_mut(surface.as_ref()) else {
+            return;
+        };
+        if entry.desired {
+            return;
+        }
+        let Some(pending) = entry.external_pending.as_mut() else {
+            return;
+        };
+        if pending.presentation != ExternalPresentationKind::LiveAnimated {
+            return;
+        }
+        pending.geometry = geometry;
+        pending.geometry_acknowledged = false;
+        if let Some(restore) = entry.restore.as_mut() {
+            restore.location += geometry.loc - restore.geometry.loc;
+            restore.geometry = geometry;
+        }
+        entry.presentation_windowed = Some(geometry);
+    }
+
     /// X11 ConfigureRequest must not replace an in-flight presentation target
     /// or resize a settled fullscreen client behind the presentation manager.
     pub(crate) fn external_configure_geometry(

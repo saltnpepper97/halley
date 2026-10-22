@@ -49,13 +49,6 @@ pub(super) fn forget_window<D: SessionDriver>(
     session: &mut Session<D>,
     surface: &X11Surface,
 ) -> bool {
-    if let Some(control) = surface.user_data().get::<GameFullscreenControl>() {
-        *control
-            .0
-            .lock()
-            .expect("X11 game fullscreen state lock poisoned") =
-            GameFullscreenControlState::default();
-    }
     session
         .xwayland
         .forget_client_geometry_guard(surface.window_id());
@@ -322,6 +315,24 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
         // ConfigureNotify for the final compositor-owned geometry.
         let presentation_geometry = window_for_surface(&self.wayland, &self.nodes, &surface)
             .and_then(|window| {
+                let mut requested =
+                    super::configure::requested_geometry(&surface, x, y, width, height);
+                if let Some(placement) = self
+                    .xwayland
+                    .client_geometry_guards
+                    .get(&surface.window_id())
+                    .and_then(|guard| guard.restore_placement(crate::frame_clock::monotonic_now()))
+                {
+                    let chrome = crate::titlebar::WindowChrome::for_window(
+                        &window,
+                        &self.settings.decorations,
+                        &self.settings.font,
+                    );
+                    let outer = chrome.outer_rect(Rectangle::from_size(requested.size));
+                    requested = chrome.client_rect(placement.centered(outer.size));
+                }
+                self.fullscreen
+                    .negotiate_external_windowed_geometry(&window, requested);
                 self.fullscreen
                     .external_configure_geometry(&self.wayland, &window)
             });

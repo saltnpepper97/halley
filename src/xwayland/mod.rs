@@ -248,7 +248,7 @@ impl<D: SessionDriver> State<D> {
         if surface.is_override_redirect() {
             return;
         }
-        let extents = if xwm::game_fullscreen(surface) {
+        let extents = if surface.is_fullscreen() {
             (0, 0, 0, 0)
         } else {
             crate::titlebar::frame_extents(window, decorations, font)

@@ -26,43 +26,6 @@ impl FullscreenRequestOrigin {
     }
 }
 
-/// An explicit game presentation is independent of the game's video-mode
-/// preference. Both explicit entry and exit survive client mode replies until
-/// the next compositor toggle or the window's withdrawal.
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) struct GameFullscreenControlState {
-    compositor_requested: Option<bool>,
-    fullscreen: bool,
-}
-
-impl GameFullscreenControlState {
-    pub(super) fn resolve(&mut self, fullscreen: bool, origin: FullscreenRequestOrigin) -> bool {
-        let resolved = match origin {
-            FullscreenRequestOrigin::Compositor => {
-                self.compositor_requested = Some(fullscreen);
-                fullscreen
-            }
-            FullscreenRequestOrigin::Maximize => {
-                self.compositor_requested = None;
-                fullscreen
-            }
-            FullscreenRequestOrigin::Initial | FullscreenRequestOrigin::Client => {
-                self.compositor_requested.unwrap_or(fullscreen)
-            }
-        };
-        self.fullscreen = resolved && origin != FullscreenRequestOrigin::Maximize;
-        resolved
-    }
-
-    pub(super) fn fullscreen(self) -> bool {
-        self.fullscreen
-    }
-
-    pub(super) fn preserve_startup_fullscreen(&mut self) {
-        self.fullscreen = true;
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ExternalPresentationPolicy {
     Initial,
@@ -111,25 +74,6 @@ impl ExternalPresentationPolicy {
 mod tests {
     use super::{ExternalPresentationPolicy, FullscreenRequestOrigin};
     use crate::wayland::fullscreen::FullscreenOrigin;
-
-    #[test]
-    fn game_explicit_presentation_survives_client_chatter_until_explicit_exit() {
-        use super::GameFullscreenControlState;
-        let mut state = GameFullscreenControlState::default();
-        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
-        assert!(state.resolve(true, FullscreenRequestOrigin::Compositor));
-        assert!(state.resolve(false, FullscreenRequestOrigin::Client));
-        assert!(state.resolve(true, FullscreenRequestOrigin::Client));
-        assert!(!state.resolve(false, FullscreenRequestOrigin::Compositor));
-        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
-        assert!(!state.resolve(true, FullscreenRequestOrigin::Client));
-        assert!(!state.resolve(true, FullscreenRequestOrigin::Initial));
-        assert!(state.resolve(true, FullscreenRequestOrigin::Compositor));
-        // A new map lifecycle starts without either explicit override.
-        state = GameFullscreenControlState::default();
-        assert!(state.resolve(true, FullscreenRequestOrigin::Client));
-        assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
-    }
 
     #[test]
     fn external_fullscreen_origin_preserves_compositor_ownership() {

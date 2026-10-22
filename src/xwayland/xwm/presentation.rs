@@ -76,24 +76,6 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             crate::wayland::window_output_name(&window).as_deref() != Some(output.name().as_str())
         });
     let fullscreen = fullscreen || remote_focus_exit;
-    let fullscreen = if game {
-        surface
-            .user_data()
-            .get_or_insert_threadsafe(GameFullscreenControl::default)
-            .0
-            .lock()
-            .expect("X11 game fullscreen state lock poisoned")
-            .resolve(fullscreen, origin)
-    } else {
-        if let Some(control) = surface.user_data().get::<GameFullscreenControl>() {
-            *control
-                .0
-                .lock()
-                .expect("X11 game fullscreen state lock poisoned") =
-                GameFullscreenControlState::default();
-        }
-        fullscreen
-    };
     let now = crate::frame_clock::monotonic_now();
     let opening_animation = window.wl_surface().is_some_and(|wl_surface| {
         session
@@ -108,16 +90,6 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         && opening_animation
         && session.fullscreen.external_desired_matches(&window, true)
     {
-        if game {
-            surface
-                .user_data()
-                .get::<GameFullscreenControl>()
-                .expect("game fullscreen control was initialized above")
-                .0
-                .lock()
-                .expect("X11 game fullscreen state lock poisoned")
-                .preserve_startup_fullscreen();
-        }
         if !surface.is_fullscreen()
             && let Err(err) = surface.set_fullscreen(true)
         {

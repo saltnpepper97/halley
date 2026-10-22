@@ -54,22 +54,6 @@ struct MaximizeFullscreenState {
 #[derive(Default)]
 struct MaximizeFullscreen(Mutex<MaximizeFullscreenState>);
 
-#[derive(Default)]
-struct GameFullscreenControl(Mutex<GameFullscreenControlState>);
-
-pub(super) fn game_fullscreen(surface: &X11Surface) -> bool {
-    surface
-        .user_data()
-        .get::<GameFullscreenControl>()
-        .is_some_and(|control| {
-            control
-                .0
-                .lock()
-                .expect("X11 game fullscreen state lock poisoned")
-                .fullscreen()
-        })
-}
-
 fn window_for_surface(
     wayland: &crate::wayland::WaylandState,
     nodes: &crate::nodes::NodesState,
