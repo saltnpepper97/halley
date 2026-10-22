@@ -61,6 +61,8 @@ mod resize_drag;
 mod timing_nested;
 #[path = "support/window_movement.rs"]
 mod window_movement;
+#[path = "support/x11_fullscreen_negotiation.rs"]
+mod x11_fullscreen_negotiation;
 
 struct Fixture {
     path: PathBuf,
