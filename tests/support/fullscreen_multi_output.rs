@@ -45,7 +45,7 @@ impl Input {
             if pressed { "down" } else { "up" }
         ))
     }
-    fn preview(&self, id: u64) {
+    pub(super) fn preview(&self, id: u64) {
         self.key(56, true); // Left Alt
         for _ in 0..8 {
             self.key(15, true); // Tab
@@ -62,13 +62,13 @@ impl Input {
             (!self.state()["active"].as_bool().unwrap()).then_some(())
         });
     }
-    fn cancel(&self) {
+    pub(super) fn cancel(&self) {
         self.key(1, true); // Escape while Alt is held
         self.key(1, false);
         self.key(56, false);
         self.closed();
     }
-    fn commit(&self, id: u64) {
+    pub(super) fn commit(&self, id: u64) {
         let reply = self.key(56, false); // The real Alt-release commit path.
         assert_eq!(
             reply["focused"], id,

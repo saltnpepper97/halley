@@ -101,7 +101,12 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
             let windows = app.nodes.records().map(|record| {
                 let output = app.wayland.space.outputs().find(|o| o.name() == record.output).unwrap();
                 let geometry = app.wayland.space.output_geometry(output).unwrap();
+                let view = app.cameras.view(&record.output).unwrap();
+                let viewport = crate::presentation::camera::world_viewport(view, geometry);
                 serde_json::json!({"id": record.id.as_u64(), "fullscreen": app.fullscreen.is_fullscreen_or_pending(&record.surface),
+                    "maximized": app.maximize.contains(&record.surface),
+                    "view": [view.center.x, view.center.y, view.scale],
+                    "viewport": [viewport.loc.x, viewport.loc.y, viewport.size.w, viewport.size.h],
                     "paused": app.fullscreen.is_presentation_paused(&record.surface),
                     "camera": app.fullscreen.camera_frame(output, geometry, now).is_some(),
                     "rect": super::super::presented_window_rect(app, &record.window, output, now).map(|r| [r.loc.x,r.loc.y,r.size.w,r.size.h])})
