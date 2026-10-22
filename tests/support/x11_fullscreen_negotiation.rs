@@ -1,6 +1,7 @@
 use super::*;
 use x11rb::protocol::xproto::{
-    ChangeGCAux, ClientMessageEvent, ConfigureWindowAux, CreateGCAux, EventMask, Rectangle,
+    ChangeGCAux, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux, CreateGCAux,
+    EventMask, Rectangle,
 };
 
 fn fullscreen(connection: &RustConnection, window: u32, enabled: bool) {
@@ -265,6 +266,79 @@ fn game_mod_f_survives_a_late_client_windowed_request_and_can_still_exit() {
     );
     let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
     assert_eq!((geometry.width, geometry.height), (width, height));
+    let net_state = connection
+        .intern_atom(false, b"_NET_WM_STATE")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let full = connection
+        .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let advertised = connection
+        .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+        .unwrap()
+        .reply()
+        .unwrap();
+    assert!(
+        advertised.value32().unwrap().any(|atom| atom == full),
+        "explicit fullscreen must remain fullscreen to Wine as well as to the renderer"
+    );
+    // Wine waits for replies even when its video-mode change does not alter
+    // compositor-owned geometry. Repeated requests must each complete, rather
+    // than leaving the Win32 client rectangle at its preceding size.
+    connection
+        .change_window_attributes(
+            window,
+            &ChangeWindowAttributesAux::new()
+                .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
+        )
+        .unwrap()
+        .check()
+        .unwrap();
+    for requested in [false, false, true] {
+        while connection.poll_for_event().unwrap().is_some() {}
+        fullscreen(&connection, window, requested);
+        let (mut state_reply, mut geometry_reply) = (false, false);
+        wait_for(
+            "game mode request receives state and geometry replies",
+            || {
+                while let Some(event) = connection.poll_for_event().unwrap() {
+                    match event {
+                        x11rb::protocol::Event::PropertyNotify(event) => {
+                            state_reply |= event.window == window && event.atom == net_state;
+                        }
+                        x11rb::protocol::Event::ConfigureNotify(event) => {
+                            geometry_reply |= event.window == window
+                                && event.response_type & 0x80 != 0
+                                && (event.width, event.height) == (width, height);
+                        }
+                        _ => {}
+                    }
+                }
+                (state_reply && geometry_reply).then_some(())
+            },
+        );
+    }
+    let extents = connection
+        .intern_atom(false, b"_NET_FRAME_EXTENTS")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let frame = connection
+        .get_property(false, window, extents, AtomEnum::CARDINAL, 0, 4)
+        .unwrap()
+        .reply()
+        .unwrap();
+    assert_eq!(
+        frame.value32().unwrap().collect::<Vec<_>>(),
+        vec![0; 4],
+        "fullscreen games must not reserve an invisible server titlebar"
+    );
     // A second explicit toggle must release the override normally.
     input.key(68, true);
     input.key(68, false);
