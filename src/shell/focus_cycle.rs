@@ -309,7 +309,7 @@ pub fn commit<D: crate::session::SessionDriver>(
     };
     // The shared focus path commits keyboard/X focus before releasing the old
     // pointer constraint, then centers the pointer on the selected output.
-    let _ = crate::nodes::focus_and_center_node(session, target, serial);
+    let _ = crate::nodes::focus_cycle_node(session, target, serial);
     session.request_redraw();
     true
 }

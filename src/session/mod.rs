@@ -1468,6 +1468,9 @@ fn toggle_field_maximize<D: SessionDriver>(
     );
     let now = crate::frame_clock::monotonic_now();
     let entering = !session.maximize.contains(&record.surface);
+    if entering {
+        session.cameras.cancel_queued_field_center(&output_name);
+    }
     let workspace = presentation_workspace_for_surface(session, &record.surface);
     // A maximize entry owns the original windowed placement for its entire
     // lifetime, including an in-flight unmaximize/re-maximize reversal. The

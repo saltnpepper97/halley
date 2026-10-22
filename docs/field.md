@@ -109,11 +109,14 @@ Field maximize is separate from fullscreen:
   screenshots, and screencasts. xdg-popup constraints use that inverse, not
   the parked field camera, so menus stay on the pointer.
 
-Each output has an independent maximize session. Selecting a different window
+Each output has an independent maximize session. Maximizing a different window
 on the same output retargets without restoring and reapplying the camera.
 Mod+left drag ends field maximize and continues with the same cursor-relative
 grab point. Resize is blocked while maximized. Collapsing, minimizing, closing,
 unmapping, or entering fullscreen ends field maximize cleanly.
+Alt+Tab preserves maximize when its selected target already fits onscreen and
+exits it only for a reveal that needs panning; see the canonical
+[Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy).
 
 An active cluster workspace is the exception to the normal visible-stack rule:
 maximizing a cluster member gives that member an exclusive presentation above

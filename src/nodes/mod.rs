@@ -29,9 +29,9 @@ use session_ops::{
     centered_rect, landmark_reveal_delta, minimal_reveal_delta, physics_frame_delta,
 };
 pub use session_ops::{
-    close, close_focused_on_output, collapse, focus_and_center_node, focus_or_reveal_node,
-    pan_after_close_restore, reconcile_landmarks, restore, restore_for_close, reveal_cluster_core,
-    reveal_collapsed_node, tick_decay, toggle_focused_on_output,
+    close, close_focused_on_output, collapse, focus_and_center_node, focus_cycle_node,
+    focus_or_reveal_node, pan_after_close_restore, reconcile_landmarks, restore, restore_for_close,
+    reveal_cluster_core, reveal_collapsed_node, tick_decay, toggle_focused_on_output,
 };
 pub(crate) use session_ops::{
     displace_landmarks_for_new_window, move_cluster_core_rigid, move_grabbed_body_rigid,

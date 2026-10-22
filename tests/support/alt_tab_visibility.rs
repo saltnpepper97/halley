@@ -25,6 +25,11 @@ fn native_alt_tab_preserves_visible_presentations_and_reveals_offscreen_targets(
     for visibility in ["visible", "partial", "outside"] {
         scenario(false, true, "client", visibility);
     }
+    for owner in ["client", "maximize"] {
+        for visibility in ["collapsed-visible", "collapsed-partial"] {
+            scenario(false, false, owner, visibility);
+        }
+    }
 }
 
 #[test]
@@ -41,9 +46,23 @@ fn x11_alt_tab_preserves_visible_presentations_and_reveals_offscreen_targets() {
 }
 
 fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
+    scenario_with_animations(x11, game, owner, visibility, false);
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; animated Alt+Tab exits"]
+fn animated_alt_tab_reveal_finishes_after_presentation_exit() {
+    for owner in ["client", "maximize"] {
+        for visibility in ["visible", "partial", "outside"] {
+            scenario_with_animations(false, false, owner, visibility, true);
+        }
+    }
+}
+
+fn scenario_with_animations(x11: bool, game: bool, owner: &str, visibility: &str, animated: bool) {
     eprintln!("Alt+Tab visibility: x11={x11} game={game} owner={owner} target={visibility}");
     let config = format!(
-        "animations:\n enabled false\nend\ninput:\n focus-mode \"click\"\nend\nrules:\n window-rule:\n app-id \"halley.test.visibility\"\n game {game}\n end\nend\n"
+        "animations:\n enabled {animated}\n window-open:\n enabled false\n end\n window-move:\n enabled false\n end\nend\ninput:\n focus-mode \"click\"\nend\nrules:\n window-rule:\n app-id \"halley.test.visibility\"\n game {game}\n end\nend\n"
     );
     let mut fixture = Fixture::with_two_outputs(&config);
     let input = Input::new(&fixture);
@@ -86,6 +105,14 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
         [u32::MAX, 0, 0, u32::MAX],
     );
     let target = fixture.node("Visibility target");
+    let collapsed = visibility.starts_with("collapsed-");
+    let visibility = visibility.strip_prefix("collapsed-").unwrap_or(visibility);
+    if collapsed {
+        fixture.ack(Request::Node(NodeRequest::Collapse {
+            selector: Some(NodeSelector::Id(target.id)),
+            output: None,
+        }));
+    }
     assert_eq!(source.output, target.output);
     request_native_focus(&mut fixture, source.id);
     if let Some((connection, source)) = &xsource {
@@ -158,7 +185,8 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
         } else {
             snapshot["fullscreen"] == true && snapshot["rect"][2].as_i64().unwrap() > 1000
         };
-        ready.then_some(())
+        (ready && snapshot["animating"] == false && snapshot["camera_settled"] == true)
+            .then_some(())
     });
     // Let configure/commit finish before measuring the camera and window bounds.
     for _ in 0..3 {
@@ -169,16 +197,26 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
     let viewport: [i32; 4] =
         std::array::from_fn(|i| before["viewport"][i].as_i64().unwrap() as i32);
     let target_width = target.width as i32;
+    let target_snapshot = window(&input, target.id);
+    let decorated_right = target_snapshot["outer_geometry"][0].as_i64().unwrap()
+        + target_snapshot["outer_geometry"][2].as_i64().unwrap()
+        - target_snapshot["client_geometry"][0].as_i64().unwrap();
     let x = match visibility {
         "visible" => viewport[0] + 90,
-        "edge" => viewport[0] + viewport[2] - target_width,
+        "edge" => viewport[0] + viewport[2] - decorated_right as i32,
         "partial" => viewport[0] + viewport[2] - target_width / 2,
         "outside" => viewport[0] + viewport[2] + 80,
         _ => unreachable!(),
     };
     fixture.ack(Request::Node(NodeRequest::MoveTo {
-        x,
-        y: viewport[1] + 120,
+        x: x + if collapsed { target_width / 2 } else { 0 },
+        y: viewport[1]
+            + 120
+            + if collapsed {
+                target.height as i32 / 2
+            } else {
+                0
+            },
         selector: Some(NodeSelector::Id(target.id)),
         output: None,
     }));
@@ -204,6 +242,9 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
         {
             return None;
         }
+        if current["animating"] == true || current["camera_settled"] == false {
+            return None;
+        }
         let selected = window(&input, target.id);
         let rect: [i64; 4] = std::array::from_fn(|i| selected["rect"][i].as_i64().unwrap());
         let fits = rect[0] >= 0
@@ -218,10 +259,12 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
                 current["view"], before["view"],
                 "visible target moved the camera"
             );
-            assert_eq!(
-                selected["rect"], target_before["rect"],
-                "visible target was centered"
-            );
+            if !collapsed {
+                assert_eq!(
+                    selected["rect"], target_before["rect"],
+                    "visible target was centered"
+                );
+            }
         }
         Some(())
     });
@@ -235,11 +278,49 @@ fn scenario(x11: bool, game: bool, owner: &str, visibility: &str) {
             owner == "maximize" && !needs_pan
         );
     }
+    if let Some((connection, source)) = &xsource {
+        let atom = |name: &[u8]| {
+            connection
+                .intern_atom(false, name)
+                .unwrap()
+                .reply()
+                .unwrap()
+                .atom
+        };
+        let property = connection
+            .get_property(
+                false,
+                *source,
+                atom(b"_NET_WM_STATE"),
+                AtomEnum::ATOM,
+                0,
+                32,
+            )
+            .unwrap()
+            .reply()
+            .unwrap();
+        let flags = property.value32().unwrap().collect::<Vec<_>>();
+        assert_eq!(
+            flags.contains(&atom(b"_NET_WM_STATE_FULLSCREEN")),
+            owner == "client" && (!needs_pan || game)
+        );
+        for name in [
+            b"_NET_WM_STATE_MAXIMIZED_HORZ",
+            b"_NET_WM_STATE_MAXIMIZED_VERT",
+        ] {
+            assert_eq!(
+                flags.contains(&atom(name)),
+                owner == "maximize" && !needs_pan
+            );
+        }
+    }
     // State alone cannot prove the raised target is visible above the presentation.
     let selected = window(&input, target.id);
     let (pixels, width) = capture_frame_pixels(&mut fixture);
-    let x = selected["rect"][0].as_i64().unwrap() as usize + target_width as usize / 2;
-    let y = selected["rect"][1].as_i64().unwrap() as usize + target.height as usize / 2;
+    let x = selected["rect"][0].as_i64().unwrap() as usize
+        + selected["rect"][2].as_i64().unwrap() as usize / 2;
+    let y = selected["rect"][1].as_i64().unwrap() as usize
+        + selected["rect"][3].as_i64().unwrap() as usize / 2;
     let pixel = &pixels[(y * width + x) * 4..][..3];
     assert!(
         pixel[2] > 240 && pixel[0] < 15 && pixel[1] < 15,

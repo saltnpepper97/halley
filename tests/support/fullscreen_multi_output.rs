@@ -340,7 +340,22 @@ fn scenario(x11_source: bool, game: bool, owner: &str, second: bool) {
         full_size
     ));
     assert_fullscreen_pixels(&mut fixture, &output_name, x11_source);
-    // Same-monitor control prevents preserving everything from passing the test.
+    // The same-monitor control must require a pan. Visible targets now raise
+    // without releasing presentation ownership (covered by alt_tab_visibility).
+    let snapshot = input.state();
+    let selected = snapshot["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|window| window["id"] == local.id)
+        .unwrap();
+    let viewport = &selected["viewport"];
+    fixture.ack(Request::Node(NodeRequest::MoveTo {
+        x: (viewport[0].as_i64().unwrap() + viewport[2].as_i64().unwrap() + 80) as i32,
+        y: viewport[1].as_i64().unwrap() as i32 + 120,
+        selector: Some(NodeSelector::Id(local.id)),
+        output: None,
+    }));
     input.preview(local.id);
     input.commit(local.id);
     let expected_size = if game {

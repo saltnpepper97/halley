@@ -334,12 +334,13 @@ Field `resize-window` uses `left`/`up` to
 shrink and `right`/`down` to grow, sharing `Mod+Ctrl+Arrow` with scoped tile
 swapping. `monitor focus DP-1` targets an exact connector name. `Alt+Tab` and
 `Alt+Shift+Tab` open and navigate the focus carousel; releasing Alt commits,
-focuses and raises the selected window, and moves the pointer to its final
-presentation center. A collapsed target restores first and receives one
-pointer warp after its opening transition. Escape cancels without changing
-focus or pointer position. `Mod+O` opens or closes
-the multi-monitor Apogee overview. Apogee stops trapping keys as soon as its
-close transition begins.
+focuses and raises the selected window, and moves the pointer to the selected
+output's center. A collapsed target restores in that action. Escape cancels
+without changing focus or pointer position. `Mod+O` opens or closes the
+multi-monitor Apogee overview. Apogee stops trapping keys as soon as its close
+transition begins.
+The [Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy)
+defines when retrieval pans and releases fullscreen or maximize.
 
 The five retrieval layers are meant to be used together, and they are described
 in the same order everywhere: `Mod+Arrow` walks to the nearest window or node
