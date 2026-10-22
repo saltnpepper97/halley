@@ -448,6 +448,14 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
             (presented()["fullscreen"] == false).then_some(())
         });
         fullscreen(&connection, window, true);
+        if game {
+            // Exclusive games can reassert their unchanged mode after a WM
+            // exit. A real display-menu edge must still supersede Mod+F.
+            thread::sleep(Duration::from_millis(100));
+            assert_eq!(presented()["fullscreen"], false);
+            fullscreen(&connection, window, false);
+            fullscreen(&connection, window, true);
+        }
         wait_for("client may enter fullscreen after compositor exit", || {
             (presented()["fullscreen"] == true).then_some(())
         });
