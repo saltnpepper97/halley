@@ -222,6 +222,74 @@ end
 }
 
 #[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; game fullscreen ownership"]
+fn game_mod_f_survives_a_late_client_windowed_request_and_can_still_exit() {
+    let extra = "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game true\n end\nend\n";
+    let (mut fixture, connection, window, width, height) = setup_with_config(false, extra);
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    let id = fixture.node("Fullscreen negotiation").id;
+    // Exit the initial client-owned fullscreen, then explicitly enter Mod+F.
+    for expected in [false, true] {
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("explicit fullscreen keybind settled", || {
+            let state = input.state();
+            let window = state["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|w| w["id"] == id)
+                .unwrap();
+            (window["fullscreen"] == expected).then_some(())
+        });
+    }
+    // Wine may deliver an older windowed video-mode response after Mod+F,
+    // including a ConfigureRequest for the old window size.
+    fullscreen(&connection, window, false);
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(320).height(200))
+        .unwrap()
+        .check()
+        .unwrap();
+    thread::sleep(Duration::from_millis(150));
+    let state = input.state();
+    let observed = state["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == id)
+        .unwrap();
+    assert_eq!(
+        observed["fullscreen"], true,
+        "client chatter undid explicit fullscreen: {observed}"
+    );
+    let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+    assert_eq!((geometry.width, geometry.height), (width, height));
+    // A second explicit toggle must release the override normally.
+    input.key(68, true);
+    input.key(68, false);
+    wait_for("explicit exit releases game fullscreen", || {
+        let state = input.state();
+        let window = state["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap();
+        (window["fullscreen"] == false).then_some(())
+    });
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
+        .unwrap()
+        .check()
+        .unwrap();
+    wait_for("game window resizes after explicit exit", || {
+        let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+        (geometry.width == 360 && geometry.height == 220).then_some(())
+    });
+}
+
+#[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; fullscreen ConfigureRequest"]
 fn fullscreen_keeps_its_geometry_when_a_client_requests_an_old_video_mode() {
     let (_fixture, connection, window, width, height) = setup(false);
