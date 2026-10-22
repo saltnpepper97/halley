@@ -107,7 +107,9 @@ existing [game rules](window-rules.md), without title-specific fullscreen policy
 
 Mod+F controls Halley's presentation independently of the game's saved display
 setting. An explicit Mod+F presentation lasts until the next toggle or window
-withdrawal. When the game owns fullscreen, display menu changes can leave
+withdrawal; it does not save the game's startup mode. To launch fullscreen,
+save Fullscreen or Borderless Fullscreen in the game's own display settings.
+When the game owns fullscreen, display menu changes can leave
 fullscreen while it is focused. A focus-loss exit request while another monitor is in use keeps the game
 presented on its own monitor.
 Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).
