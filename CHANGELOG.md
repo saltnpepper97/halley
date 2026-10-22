@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Preserve resized window dimensions when a client redundantly exits fullscreen
+  while already windowed. Acknowledge the request with the existing configure,
+  preventing GTK4 titlebar drags, including Zathura, from restoring the initial
+  size after keyboard or corner resizing. Keep pending resize targets intact.
 - Deliver a physical key before its resulting modifier update, following
   Wayland event order. Keep Caps Lock and Num Lock consistent in XWayland
   clients while preserving independent virtual-keyboard modifier requests,

@@ -36,6 +36,15 @@ impl Input {
             if pressed { "down" } else { "up" }
         ))
     }
+    pub(super) fn motion(&self, x: f64, y: f64) -> Value {
+        self.command(&format!("motion {x} {y}"))
+    }
+    pub(super) fn button(&self, code: u32, pressed: bool) -> Value {
+        self.command(&format!(
+            "button {code} {}",
+            if pressed { "down" } else { "up" }
+        ))
+    }
     fn preview(&self, id: u64) {
         self.key(56, true); // Left Alt
         for _ in 0..8 {

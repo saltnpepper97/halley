@@ -4,7 +4,8 @@
 use super::*;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use smithay::backend::input::{
-    Event, InputBackend, InputEvent, InputTime, KeyState, KeyboardKeyEvent, Keycode, UnusedEvent,
+    ButtonState, Event, InputBackend, InputEvent, InputTime, KeyState, KeyboardKeyEvent, Keycode,
+    PointerButtonEvent, PointerMotionEvent, UnusedEvent,
 };
 use smithay::backend::winit::WinitVirtualDevice;
 use smithay::output::{Mode as OutputMode, Output, PhysicalProperties, Subpixel};
@@ -83,6 +84,18 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 if !seat_key || crate::input::devices::seat_key_is_transition(event.state(), event.count()) {
                     super::super::input::handle::<_, TestInput>(app, &InputEvent::Keyboard { event }, &socket_name);
                 }
+            } else if parts.first() == Some(&"motion") {
+                assert_eq!(parts.len(), 3);
+                let target = (parts[1].parse::<f64>().unwrap(), parts[2].parse::<f64>().unwrap());
+                let current = app.pointer.position();
+                let event = TestMotion { dx: target.0 - current.0, dy: target.1 - current.1, time: app.start_time.elapsed().as_millis() as u32 };
+                let socket_name = app.wayland_display.clone().unwrap();
+                super::super::input::handle::<_, TestInput>(app, &InputEvent::PointerMotion { event }, &socket_name);
+            } else if parts.first() == Some(&"button") {
+                assert_eq!(parts.len(), 3);
+                let event = TestButton { code: parts[1].parse().unwrap(), pressed: parts[2] == "down", time: app.start_time.elapsed().as_millis() as u32 };
+                let socket_name = app.wayland_display.clone().unwrap();
+                super::super::input::handle::<_, TestInput>(app, &InputEvent::PointerButton { event }, &socket_name);
             } else { assert_eq!(command, "state"); }
             let now = crate::frame_clock::monotonic_now();
             let windows = app.nodes.records().map(|record| {
@@ -107,7 +120,10 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     "sides": [sides.left_shift, sides.right_shift, sides.left_ctrl, sides.right_ctrl,
                         sides.left_alt, sides.right_alt, sides.left_super, sides.right_super]},
                 "preview": app.shell.focus_cycle.session().and_then(|s| s.preview()).map(|id| id.as_u64()),
-                "focused": app.nodes.focused().map(|id| id.as_u64()), "windows": windows});
+                "focused": app.nodes.focused().map(|id| id.as_u64()), "windows": windows,
+                "pointer": app.pointer.position(), "moving": matches!(app.interactions.grab, crate::input::grab::Grab::MoveWindow { .. }),
+                "pending_move": matches!(app.interactions.grab, crate::input::grab::Grab::PendingWindowMove(_)),
+                "resizing": matches!(app.interactions.grab, crate::input::grab::Grab::ResizeWindow(_))});
             socket.send_to(reply.to_string().as_bytes(), peer.as_pathname().unwrap()).unwrap();
         }
         Ok(PostAction::Continue)
@@ -116,6 +132,60 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
 
 #[derive(Debug)]
 struct TestInput;
+#[derive(Debug)]
+struct TestMotion {
+    dx: f64,
+    dy: f64,
+    time: u32,
+}
+impl Event<TestInput> for TestMotion {
+    fn time(&self) -> InputTime {
+        InputTime::from_millis(self.time)
+    }
+    fn device(&self) -> WinitVirtualDevice {
+        WinitVirtualDevice
+    }
+}
+impl PointerMotionEvent<TestInput> for TestMotion {
+    fn delta_x(&self) -> f64 {
+        self.dx
+    }
+    fn delta_y(&self) -> f64 {
+        self.dy
+    }
+    fn delta_x_unaccel(&self) -> f64 {
+        self.dx
+    }
+    fn delta_y_unaccel(&self) -> f64 {
+        self.dy
+    }
+}
+#[derive(Debug)]
+struct TestButton {
+    code: u32,
+    pressed: bool,
+    time: u32,
+}
+impl Event<TestInput> for TestButton {
+    fn time(&self) -> InputTime {
+        InputTime::from_millis(self.time)
+    }
+    fn device(&self) -> WinitVirtualDevice {
+        WinitVirtualDevice
+    }
+}
+impl PointerButtonEvent<TestInput> for TestButton {
+    fn button_code(&self) -> u32 {
+        self.code
+    }
+    fn state(&self) -> ButtonState {
+        if self.pressed {
+            ButtonState::Pressed
+        } else {
+            ButtonState::Released
+        }
+    }
+}
 #[derive(Debug)]
 struct TestKey {
     code: u32,
@@ -150,8 +220,8 @@ impl InputBackend for TestInput {
     type Device = WinitVirtualDevice;
     type KeyboardKeyEvent = TestKey;
     type PointerAxisEvent = UnusedEvent;
-    type PointerButtonEvent = UnusedEvent;
-    type PointerMotionEvent = UnusedEvent;
+    type PointerButtonEvent = TestButton;
+    type PointerMotionEvent = TestMotion;
     type PointerMotionAbsoluteEvent = UnusedEvent;
     type GestureSwipeBeginEvent = UnusedEvent;
     type GestureSwipeUpdateEvent = UnusedEvent;
