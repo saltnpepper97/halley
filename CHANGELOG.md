@@ -82,23 +82,13 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
-- Retain XWayland games' fullscreen presentation when they request windowed
-  mode after focus moves to another monitor. Focused mode changes and explicit
-  compositor exits still work. Keep the restored frame centered through the
-  first windowed-size negotiation, including games launched already fullscreen.
-- Keep a game's explicit Mod+F presentation when the client sends a late
-  windowed-mode request. Keep EWMH fullscreen state and frame extents consistent
-  with the accepted geometry, and reply to repeated mode requests even when
-  geometry is unchanged, so Wine does not retain a smaller client area with
-  black borders. Clear this override on the next explicit toggle or withdrawal.
-- Keep positively identified XWayland games' buffers live during fullscreen
-  geometry animations. Accept X11 geometry independently of a resized repaint,
-  preventing a swapchain mode change from freezing a captured frame while
-  preserving the configured easing or spring motion and ordinary app crossfades.
-- Keep XWayland fullscreen geometry authoritative when clients request a video
-  mode resize, including during a pending fullscreen or restore transaction.
-  Settle fullscreen state changes directly when the live buffer already has
-  the target size, avoiding a captured frame waiting for an unnecessary repaint.
+- Stabilize XWayland fullscreen and game mode changes. Keep client state,
+  geometry, and frame extents consistent; acknowledge unchanged targets; and
+  retain live game frames through the configured fullscreen animation. Preserve
+  explicit Mod+F ownership and games on other monitors, and keep windowed mode
+  changes centered on the restored frame. This addresses stuck snapshots,
+  persistent black margins, and corner-anchored restores without game-specific
+  rules or new settings.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or
   maximize. Reveal partially or fully offscreen targets with minimal camera
   movement, releasing ordinary fullscreen/maximize only on the destination

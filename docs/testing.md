@@ -50,30 +50,20 @@ HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
   -- --ignored --test-threads=1
 ```
 
-The tests send real X11 resize and repeated fullscreen requests, including an
-off/on sequence on an initially fullscreen window. Check that fullscreen keeps
-the output size, windowed client resizing still works after exit, and same-size
-state changes retire their pending transaction and snapshot without client
-painting. Subsequent partial red and green repaints must reach captured output
-pixels. The X11 client uses server-rendered pixels; Vulkan swapchains and actual
-game video-mode menus require separate live testing after restarting into the
-installed compositor.
+The suite uses real X11 requests, raw key/pointer events, and captured pixels.
+Game rules and ordinary-app controls cover:
 
-The live-game regression uses a positive `game` rule and an ordinary-app control.
-It drives the fullscreen keybind in both directions, checks intermediate geometry
-under a slowed timeline, and verifies that a game repaint reaches the output
-while motion is still active. Games use live client surfaces rather than resize
-snapshots; their motion still uses the configured fullscreen curve and duration.
-An ownership regression replays a late client fullscreen removal and old-size
-request after Mod+F. The game must stay fullscreen, exit on the next explicit
-toggle, accept ordinary resizing again, and drop that override on unmap/remap.
-It also checks that the advertised fullscreen bit agrees with the presentation,
-repeated mode requests each receive state and geometry replies, and fullscreen
-frame extents do not reserve space for an invisible server titlebar.
-The hover-focus regression crosses onto another output and models a game's
-focus-loss fullscreen removal, with an ordinary-app control and a focused game
-mode-change check. The initial-fullscreen regression checks centered windowed
-restoration and that later ordinary resizes stop following the restore center.
+- Output-sized fullscreen geometry, same-size transitions, and partial repaints.
+- Smooth fullscreen motion with live game frames and ordinary-app crossfades.
+- Mod+F ownership, consistent EWMH state/frame extents, repeated mode replies,
+  and cleanup when an XID is unmapped and reused.
+- Cross-monitor hover focus followed by a game fullscreen-exit request, plus
+  focused mode changes and ordinary-app behavior.
+- Centered placement of the first windowed frame and expiry of restore centering.
+
+These clients use server-rendered pixels. Vulkan swapchains, launcher handoffs,
+focus-loss reactions, and actual game display menus still require live testing
+in the installed compositor. See the [XWayland fullscreen policy](xwayland.md#fullscreen-and-game-mode-changes).
 
 ## Alt+Tab target visibility
 

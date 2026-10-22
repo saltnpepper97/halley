@@ -471,6 +471,8 @@ an explicit client background-effect request is still honored.
 For X11 windows, entering or leaving fullscreen preserves the window's current
 stack slot; a window already above the fullscreen target stays above until the
 user explicitly raises the fullscreen window.
+See [XWayland fullscreen and game mode changes](xwayland.md#fullscreen-and-game-mode-changes)
+for game display settings, monitor focus, and windowed restoration.
 
 Inside an active cluster workspace, field maximize and fullscreen temporarily
 promote only the selected member above the desktop and cover every sibling,
