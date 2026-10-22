@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Preserve Caps Lock alongside Num Lock when keyboard layout, variant, model or
+  options change. Restore client modifiers and backend indicators after reload,
+  including when no window has keyboard focus.
 - Keep keys held until the last physical keyboard releases them. Ignore extra
   presses and partial releases before modifier, repeat and shortcut handling,
   preventing lost Shift/Ctrl/Alt/Super state and premature Alt+Tab commits.

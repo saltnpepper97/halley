@@ -52,7 +52,7 @@ where
     let mut applied = requested.clone();
 
     if requested.keyboard != session.settings.input.keyboard {
-        let num_lock = keyboard.modifier_state().num_lock;
+        let previous_modifiers = keyboard.modifier_state();
         if keyboard
             .set_xkb_config(session, xkb_config(&requested.keyboard))
             .is_err()
@@ -64,8 +64,11 @@ where
             applied.keyboard = session.settings.input.keyboard.clone();
         } else {
             let mut modifiers = keyboard.modifier_state();
-            if modifiers.num_lock != num_lock {
-                modifiers.num_lock = num_lock;
+            if modifiers.caps_lock != previous_modifiers.caps_lock
+                || modifiers.num_lock != previous_modifiers.num_lock
+            {
+                modifiers.caps_lock = previous_modifiers.caps_lock;
+                modifiers.num_lock = previous_modifiers.num_lock;
                 keyboard.set_modifier_state(modifiers);
                 keyboard.advertise_modifier_state(session);
             }

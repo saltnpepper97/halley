@@ -102,6 +102,7 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
                 "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,
                 "keyboard": {"pressed": keyboard.pressed_keys().into_iter().map(|key| key.raw() - 8).collect::<Vec<_>>(),
+                    "locks": [modifiers.caps_lock, modifiers.num_lock], "locked": modifiers.serialized.locked,
                     "modifiers": [modifiers.shift, modifiers.ctrl, modifiers.alt, modifiers.logo],
                     "sides": [sides.left_shift, sides.right_shift, sides.left_ctrl, sides.right_ctrl,
                         sides.left_alt, sides.right_alt, sides.left_super, sides.right_super]},

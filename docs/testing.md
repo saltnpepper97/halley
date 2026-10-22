@@ -78,8 +78,14 @@ Build the private nested server as described above. Unit tests exercise LED
 broadcasts to multiple keyboard sinks, hotplug initialization, duplicate-device
 notifications, removal and reconnect. The nested test sends raw lock and
 ordinary key events through production input handling and observes the backend
-LED callback, including a keymap reload while Num Lock remains enabled. Its
-backend records indicator changes without writing to host keyboards.
+LED callback, including a keymap reload while Caps Lock and Num Lock remain
+enabled without a focused window. Focused-client tests cover all four lock
+combinations through layout, variant and option changes, held Shift, rejected
+XKB layouts, Wayland modifier events and XWayland key-event flags. The XWayland
+reload test establishes locks while a native client is focused, then verifies
+that switching to X11 and reloading preserves them; raw X11 lock-key handling
+is a separate check. The backend records indicators without writing to host
+keyboards.
 
 Physical validation requires a native Halley session: check lock indicators on
 the laptop and an external keyboard, attach another keyboard while a lock is
