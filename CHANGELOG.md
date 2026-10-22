@@ -85,8 +85,8 @@ All notable changes to this project will be documented in this file.
 - Stabilize XWayland fullscreen and game mode changes. Keep client state,
   geometry, and frame extents consistent; acknowledge unchanged targets; and
   retain live game frames through the configured fullscreen animation. Preserve
-  explicit Mod+F ownership and games on other monitors, and keep windowed mode
-  changes centered on the restored frame. This addresses stuck snapshots,
+  explicit Mod+F entry and exit, retain games on other monitors, and center
+  windowed mode changes on the restored frame. This addresses stuck snapshots,
   persistent black margins, and corner-anchored restores without game-specific
   rules or new settings.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or

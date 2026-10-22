@@ -27,10 +27,11 @@ impl FullscreenRequestOrigin {
 }
 
 /// An explicit game presentation is independent of the game's video-mode
-/// preference. A second compositor toggle still releases it immediately.
+/// preference. Both explicit entry and exit survive client mode replies until
+/// the next compositor toggle or the window's withdrawal.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct GameFullscreenControlState {
-    compositor_requested: bool,
+    compositor_requested: Option<bool>,
     fullscreen: bool,
 }
 
@@ -38,15 +39,15 @@ impl GameFullscreenControlState {
     pub(super) fn resolve(&mut self, fullscreen: bool, origin: FullscreenRequestOrigin) -> bool {
         let resolved = match origin {
             FullscreenRequestOrigin::Compositor => {
-                self.compositor_requested = fullscreen;
+                self.compositor_requested = Some(fullscreen);
                 fullscreen
             }
             FullscreenRequestOrigin::Maximize => {
-                self.compositor_requested = false;
+                self.compositor_requested = None;
                 fullscreen
             }
             FullscreenRequestOrigin::Initial | FullscreenRequestOrigin::Client => {
-                fullscreen || self.compositor_requested
+                self.compositor_requested.unwrap_or(fullscreen)
             }
         };
         self.fullscreen = resolved && origin != FullscreenRequestOrigin::Maximize;
@@ -121,6 +122,11 @@ mod tests {
         assert!(state.resolve(true, FullscreenRequestOrigin::Client));
         assert!(!state.resolve(false, FullscreenRequestOrigin::Compositor));
         assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
+        assert!(!state.resolve(true, FullscreenRequestOrigin::Client));
+        assert!(!state.resolve(true, FullscreenRequestOrigin::Initial));
+        assert!(state.resolve(true, FullscreenRequestOrigin::Compositor));
+        // A new map lifecycle starts without either explicit override.
+        state = GameFullscreenControlState::default();
         assert!(state.resolve(true, FullscreenRequestOrigin::Client));
         assert!(!state.resolve(false, FullscreenRequestOrigin::Client));
     }

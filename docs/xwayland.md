@@ -106,9 +106,10 @@ animation. Ordinary apps retain their buffer crossfade. Game detection uses the
 existing [game rules](window-rules.md), without title-specific fullscreen policy.
 
 Mod+F controls Halley's presentation independently of the game's saved display
-setting. An explicit Mod+F presentation lasts until the next toggle or window
-withdrawal; it does not save the game's startup mode. To launch fullscreen,
-save Fullscreen or Borderless Fullscreen in the game's own display settings.
+setting. An explicit Mod+F choice, fullscreen or windowed, lasts until the next
+toggle or window withdrawal; it does not save the game's startup mode. To launch
+fullscreen, save Fullscreen or Borderless Fullscreen in the game's own display
+settings.
 When the game owns fullscreen, display menu changes can leave
 fullscreen while it is focused. A focus-loss exit request while another monitor is in use keeps the game
 presented on its own monitor.
