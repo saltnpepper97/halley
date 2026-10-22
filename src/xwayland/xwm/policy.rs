@@ -31,11 +31,12 @@ impl FullscreenRequestOrigin {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct GameFullscreenControlState {
     compositor_requested: bool,
+    fullscreen: bool,
 }
 
 impl GameFullscreenControlState {
     pub(super) fn resolve(&mut self, fullscreen: bool, origin: FullscreenRequestOrigin) -> bool {
-        match origin {
+        let resolved = match origin {
             FullscreenRequestOrigin::Compositor => {
                 self.compositor_requested = fullscreen;
                 fullscreen
@@ -47,7 +48,17 @@ impl GameFullscreenControlState {
             FullscreenRequestOrigin::Initial | FullscreenRequestOrigin::Client => {
                 fullscreen || self.compositor_requested
             }
-        }
+        };
+        self.fullscreen = resolved && origin != FullscreenRequestOrigin::Maximize;
+        resolved
+    }
+
+    pub(super) fn fullscreen(self) -> bool {
+        self.fullscreen
+    }
+
+    pub(super) fn preserve_startup_fullscreen(&mut self) {
+        self.fullscreen = true;
     }
 }
 

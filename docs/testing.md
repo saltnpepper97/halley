@@ -67,6 +67,9 @@ snapshots; their motion still uses the configured fullscreen curve and duration.
 An ownership regression replays a late client fullscreen removal and old-size
 request after Mod+F. The game must stay fullscreen, exit on the next explicit
 toggle, accept ordinary resizing again, and drop that override on unmap/remap.
+It also checks that the advertised fullscreen bit agrees with the presentation,
+repeated mode requests each receive state and geometry replies, and fullscreen
+frame extents do not reserve space for an invisible server titlebar.
 
 ## Alt+Tab target visibility
 

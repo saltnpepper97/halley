@@ -248,7 +248,11 @@ impl<D: SessionDriver> State<D> {
         if surface.is_override_redirect() {
             return;
         }
-        let extents = crate::titlebar::frame_extents(window, decorations, font);
+        let extents = if xwm::game_fullscreen(surface) {
+            (0, 0, 0, 0)
+        } else {
+            crate::titlebar::frame_extents(window, decorations, font)
+        };
         if let Err(err) = control.set_frame_extents(surface.window_id(), extents) {
             eventline::warn!(
                 "xwayland: failed to publish frame extents xid={}: {err}",

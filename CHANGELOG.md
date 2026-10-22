@@ -83,9 +83,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Keep a game's explicit Mod+F presentation when the client sends a late
-  windowed-mode request. Continue acknowledging its protocol preference while
-  retaining fullscreen geometry until the next explicit toggle; clear this
-  override when the X11 window is withdrawn or replaced.
+  windowed-mode request. Keep EWMH fullscreen state and frame extents consistent
+  with the accepted geometry, and reply to repeated mode requests even when
+  geometry is unchanged, so Wine does not retain a smaller client area with
+  black borders. Clear this override on the next explicit toggle or withdrawal.
 - Keep positively identified XWayland games' buffers live during fullscreen
   geometry animations. Accept X11 geometry independently of a resized repaint,
   preventing a swapchain mode change from freezing a captured frame while

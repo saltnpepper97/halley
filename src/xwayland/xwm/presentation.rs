@@ -62,7 +62,6 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             .window_rules
             .games
             .is_game(&window, &session.wayland.display_handle, rule.game);
-    let client_fullscreen = fullscreen;
     let fullscreen = if game {
         surface
             .user_data()
@@ -72,6 +71,13 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             .expect("X11 game fullscreen state lock poisoned")
             .resolve(fullscreen, origin)
     } else {
+        if let Some(control) = surface.user_data().get::<GameFullscreenControl>() {
+            *control
+                .0
+                .lock()
+                .expect("X11 game fullscreen state lock poisoned") =
+                GameFullscreenControlState::default();
+        }
         fullscreen
     };
     let now = crate::frame_clock::monotonic_now();
@@ -88,6 +94,16 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         && opening_animation
         && session.fullscreen.external_desired_matches(&window, true)
     {
+        if game {
+            surface
+                .user_data()
+                .get::<GameFullscreenControl>()
+                .expect("game fullscreen control was initialized above")
+                .0
+                .lock()
+                .expect("X11 game fullscreen state lock poisoned")
+                .preserve_startup_fullscreen();
+        }
         if !surface.is_fullscreen()
             && let Err(err) = surface.set_fullscreen(true)
         {
@@ -153,13 +169,37 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         crate::window::raise_managed(&mut session.wayland, &window);
         session.xwayland.raise_window(&window);
     }
-    if update_client_fullscreen && let Err(err) = surface.set_fullscreen(client_fullscreen) {
+    let state_changed = surface.is_fullscreen() != fullscreen;
+    if update_client_fullscreen && let Err(err) = surface.set_fullscreen(fullscreen) {
         eventline::warn!("xwayland: failed to update fullscreen state: {err}");
+    }
+    if game {
+        session.xwayland.sync_frame_extents(
+            &window,
+            &session.settings.decorations,
+            &session.settings.font,
+        );
     }
     if session
         .fullscreen
         .external_desired_matches(&window, fullscreen)
     {
+        if game && origin == FullscreenRequestOrigin::Client {
+            if !state_changed
+                && let Some(control) = session.xwayland.control.as_ref()
+                && let Err(err) = control.acknowledge_fullscreen(surface.window_id(), fullscreen)
+            {
+                eventline::warn!("xwayland: failed to acknowledge game fullscreen state: {err}");
+            }
+            // Reply at the accepted target without beginning another visual
+            // transaction or restarting its smooth geometry timeline.
+            let geometry = session
+                .fullscreen
+                .external_configure_geometry(&session.wayland, &window);
+            if let Err(err) = surface.configure(geometry) {
+                eventline::warn!("xwayland: failed to acknowledge game fullscreen geometry: {err}");
+            }
+        }
         eventline::debug!(
             "xwayland: coalesced fullscreen request xid={} fullscreen={fullscreen} \
              origin={origin:?}",

@@ -181,6 +181,47 @@ impl X11Control {
         self.frame_extents.borrow_mut().remove(&window);
     }
 
+    /// A rejected or coalesced game mode request still needs a state reply.
+    /// Smithay deduplicates unchanged EWMH writes; Wine can otherwise keep
+    /// waiting with its preceding Win32 client rectangle. Preserve the other
+    /// state atoms while explicitly acknowledging the accepted fullscreen bit.
+    pub fn acknowledge_fullscreen(
+        &self,
+        window: Window,
+        fullscreen: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let property = self
+            .connection
+            .get_property(
+                false,
+                window,
+                self.atoms._NET_WM_STATE,
+                AtomEnum::ATOM,
+                0,
+                1024,
+            )?
+            .reply()?;
+        let mut state = property
+            .value32()
+            .into_iter()
+            .flatten()
+            .filter(|atom| *atom != self.atoms._NET_WM_STATE_FULLSCREEN)
+            .collect::<Vec<_>>();
+        if fullscreen {
+            state.push(self.atoms._NET_WM_STATE_FULLSCREEN);
+        }
+        self.connection
+            .change_property32(
+                PropMode::REPLACE,
+                window,
+                self.atoms._NET_WM_STATE,
+                AtomEnum::ATOM,
+                &state,
+            )?
+            .check()?;
+        Ok(())
+    }
+
     pub fn set_wm_state(&self, window: Window, state: IcccmState) -> Result<(), Box<dyn Error>> {
         self.connection
             .change_property32(
