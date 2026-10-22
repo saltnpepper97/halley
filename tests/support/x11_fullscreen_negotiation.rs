@@ -496,6 +496,33 @@ fn game_mod_f_survives_a_late_client_windowed_request_and_can_still_exit() {
             .unwrap();
         (window["fullscreen"] == false).then_some(())
     });
+    // A game saved in exclusive fullscreen can immediately reassert its
+    // video mode after Mod+F. Explicit exit must win in both directions;
+    // otherwise each key press starts another resize/off/on cycle.
+    for requested in [true, true, false] {
+        fullscreen(&connection, window, requested);
+        thread::sleep(Duration::from_millis(100));
+        let state = input.state();
+        let observed = state["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap();
+        assert_eq!(
+            observed["fullscreen"], false,
+            "client video-mode reply undid explicit exit: {observed}"
+        );
+        let advertised = connection
+            .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+            .unwrap()
+            .reply()
+            .unwrap();
+        assert!(
+            !advertised.value32().unwrap().any(|atom| atom == full),
+            "the client must see the accepted windowed state too"
+        );
+    }
     connection
         .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
         .unwrap()
