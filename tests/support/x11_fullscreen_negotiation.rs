@@ -367,196 +367,144 @@ end
 }
 
 #[test]
-#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; game fullscreen ownership"]
-fn game_mod_f_survives_a_late_client_windowed_request_and_can_still_exit() {
-    let extra = "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game true\n end\nend\n";
-    let (mut fixture, connection, window, width, height) = setup_with_config(false, extra);
-    let input = fullscreen_multi_output::Input::new(&fixture);
-    let id = fixture.node("Fullscreen negotiation").id;
-    // Exit the initial client-owned fullscreen, then explicitly enter Mod+F.
-    for expected in [false, true] {
-        input.key(68, true);
-        input.key(68, false);
-        wait_for("explicit fullscreen keybind settled", || {
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; client mode changes after Mod+F"]
+fn game_mode_requests_work_after_compositor_fullscreen_changes() {
+    for game in [false, true] {
+        let extra = format!(
+            "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game {game}\n end\nend\n"
+        );
+        let (mut fixture, connection, window, width, height) = setup_with_config(false, &extra);
+        let input = fullscreen_multi_output::Input::new(&fixture);
+        let id = fixture.node("Fullscreen negotiation").id;
+        let atom = |name: &[u8]| {
+            connection
+                .intern_atom(false, name)
+                .unwrap()
+                .reply()
+                .unwrap()
+                .atom
+        };
+        let net_state = atom(b"_NET_WM_STATE");
+        let full = atom(b"_NET_WM_STATE_FULLSCREEN");
+        let extents = atom(b"_NET_FRAME_EXTENTS");
+        let presented = || {
             let state = input.state();
-            let window = state["windows"]
+            state["windows"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .find(|w| w["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        // Begin in client fullscreen, then exercise both compositor edges.
+        for expected in [false, true] {
+            input.key(68, true);
+            input.key(68, false);
+            wait_for("compositor fullscreen change", || {
+                (presented()["fullscreen"] == expected).then_some(())
+            });
+        }
+        // The game's display menu must still be able to choose windowed,
+        // borderless-sized, and fullscreen modes after either Mod+F choice.
+        for enabled in [false, true, false] {
+            fullscreen(&connection, window, enabled);
+            if !enabled {
+                connection
+                    .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
+                    .unwrap()
+                    .check()
+                    .unwrap();
+            }
+            wait_for("client mode supersedes previous Mod+F choice", || {
+                let observed = presented();
+                let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+                let size = if enabled { (width, height) } else { (360, 220) };
+                (observed["fullscreen"] == enabled && (geometry.width, geometry.height) == size)
+                    .then_some(())
+            });
+            let state = connection
+                .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+                .unwrap()
+                .reply()
                 .unwrap();
-            (window["fullscreen"] == expected).then_some(())
+            assert_eq!(state.value32().unwrap().any(|a| a == full), enabled);
+            if game && enabled {
+                let frame = connection
+                    .get_property(false, window, extents, AtomEnum::CARDINAL, 0, 4)
+                    .unwrap()
+                    .reply()
+                    .unwrap();
+                assert_eq!(frame.value32().unwrap().collect::<Vec<_>>(), vec![0; 4]);
+            }
+        }
+        fullscreen(&connection, window, true);
+        wait_for("client fullscreen before compositor exit", || {
+            (presented()["fullscreen"] == true).then_some(())
+        });
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("explicit fullscreen exit", || {
+            (presented()["fullscreen"] == false).then_some(())
+        });
+        fullscreen(&connection, window, true);
+        wait_for("client may enter fullscreen after compositor exit", || {
+            (presented()["fullscreen"] == true).then_some(())
+        });
+        // Duplicate requests still get state and geometry replies without
+        // creating another presentation transaction.
+        connection
+            .change_window_attributes(
+                window,
+                &ChangeWindowAttributesAux::new()
+                    .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
+            )
+            .unwrap()
+            .check()
+            .unwrap();
+        for _ in 0..2 {
+            while connection.poll_for_event().unwrap().is_some() {}
+            fullscreen(&connection, window, true);
+            if game {
+                let (mut state_reply, mut geometry_reply) = (false, false);
+                wait_for(
+                    "unchanged game mode gets state and geometry replies",
+                    || {
+                        while let Some(event) = connection.poll_for_event().unwrap() {
+                            match event {
+                                x11rb::protocol::Event::PropertyNotify(event) => {
+                                    state_reply |= event.window == window && event.atom == net_state
+                                }
+                                x11rb::protocol::Event::ConfigureNotify(event) => {
+                                    geometry_reply |= event.window == window
+                                        && event.response_type & 0x80 != 0
+                                        && (event.width, event.height) == (width, height)
+                                }
+                                _ => {}
+                            }
+                        }
+                        (state_reply && geometry_reply).then_some(())
+                    },
+                );
+            }
+        }
+        connection.unmap_window(window).unwrap().check().unwrap();
+        wait_for("game withdrawn", || {
+            (!fixture.nodes().iter().any(|n| n.id == id)).then_some(())
+        });
+        connection.map_window(window).unwrap().check().unwrap();
+        fixture.node("Fullscreen negotiation");
+        fullscreen(&connection, window, false);
+        wait_for("remapped client can leave fullscreen", || {
+            let state = input.state();
+            state["windows"]
+                .as_array()
+                .unwrap()
+                .first()
+                .filter(|w| w["fullscreen"] == false)
+                .map(|_| ())
         });
     }
-    // Wine may deliver an older windowed video-mode response after Mod+F,
-    // including a ConfigureRequest for the old window size.
-    fullscreen(&connection, window, false);
-    connection
-        .configure_window(window, &ConfigureWindowAux::new().width(320).height(200))
-        .unwrap()
-        .check()
-        .unwrap();
-    thread::sleep(Duration::from_millis(150));
-    let state = input.state();
-    let observed = state["windows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|w| w["id"] == id)
-        .unwrap();
-    assert_eq!(
-        observed["fullscreen"], true,
-        "client chatter undid explicit fullscreen: {observed}"
-    );
-    let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-    assert_eq!((geometry.width, geometry.height), (width, height));
-    let net_state = connection
-        .intern_atom(false, b"_NET_WM_STATE")
-        .unwrap()
-        .reply()
-        .unwrap()
-        .atom;
-    let full = connection
-        .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
-        .unwrap()
-        .reply()
-        .unwrap()
-        .atom;
-    let advertised = connection
-        .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
-        .unwrap()
-        .reply()
-        .unwrap();
-    assert!(
-        advertised.value32().unwrap().any(|atom| atom == full),
-        "explicit fullscreen must remain fullscreen to Wine as well as to the renderer"
-    );
-    // Wine waits for replies even when its video-mode change does not alter
-    // compositor-owned geometry. Repeated requests must each complete, rather
-    // than leaving the Win32 client rectangle at its preceding size.
-    connection
-        .change_window_attributes(
-            window,
-            &ChangeWindowAttributesAux::new()
-                .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
-        )
-        .unwrap()
-        .check()
-        .unwrap();
-    for requested in [false, false, true] {
-        while connection.poll_for_event().unwrap().is_some() {}
-        fullscreen(&connection, window, requested);
-        let (mut state_reply, mut geometry_reply) = (false, false);
-        wait_for(
-            "game mode request receives state and geometry replies",
-            || {
-                while let Some(event) = connection.poll_for_event().unwrap() {
-                    match event {
-                        x11rb::protocol::Event::PropertyNotify(event) => {
-                            state_reply |= event.window == window && event.atom == net_state;
-                        }
-                        x11rb::protocol::Event::ConfigureNotify(event) => {
-                            geometry_reply |= event.window == window
-                                && event.response_type & 0x80 != 0
-                                && (event.width, event.height) == (width, height);
-                        }
-                        _ => {}
-                    }
-                }
-                (state_reply && geometry_reply).then_some(())
-            },
-        );
-    }
-    let extents = connection
-        .intern_atom(false, b"_NET_FRAME_EXTENTS")
-        .unwrap()
-        .reply()
-        .unwrap()
-        .atom;
-    let frame = connection
-        .get_property(false, window, extents, AtomEnum::CARDINAL, 0, 4)
-        .unwrap()
-        .reply()
-        .unwrap();
-    assert_eq!(
-        frame.value32().unwrap().collect::<Vec<_>>(),
-        vec![0; 4],
-        "fullscreen games must not reserve an invisible server titlebar"
-    );
-    // A second explicit toggle must release the override normally.
-    input.key(68, true);
-    input.key(68, false);
-    wait_for("explicit exit releases game fullscreen", || {
-        let state = input.state();
-        let window = state["windows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|w| w["id"] == id)
-            .unwrap();
-        (window["fullscreen"] == false).then_some(())
-    });
-    // A game saved in exclusive fullscreen can immediately reassert its
-    // video mode after Mod+F. Explicit exit must win in both directions;
-    // otherwise each key press starts another resize/off/on cycle.
-    for requested in [true, true, false] {
-        fullscreen(&connection, window, requested);
-        thread::sleep(Duration::from_millis(100));
-        let state = input.state();
-        let observed = state["windows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|w| w["id"] == id)
-            .unwrap();
-        assert_eq!(
-            observed["fullscreen"], false,
-            "client video-mode reply undid explicit exit: {observed}"
-        );
-        let advertised = connection
-            .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
-            .unwrap()
-            .reply()
-            .unwrap();
-        assert!(
-            !advertised.value32().unwrap().any(|atom| atom == full),
-            "the client must see the accepted windowed state too"
-        );
-    }
-    connection
-        .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
-        .unwrap()
-        .check()
-        .unwrap();
-    wait_for("game window resizes after explicit exit", || {
-        let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-        (geometry.width == 360 && geometry.height == 220).then_some(())
-    });
-    // Withdrawing/reusing an X11 window must not carry its old explicit
-    // presentation into a different map lifecycle (as game launchers do).
-    input.key(68, true);
-    input.key(68, false);
-    wait_for("game re-entered fullscreen before remap", || {
-        let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-        (geometry.width == width && geometry.height == height).then_some(())
-    });
-    connection.unmap_window(window).unwrap().check().unwrap();
-    wait_for("game withdrawn", || {
-        (!fixture.nodes().iter().any(|node| node.id == id)).then_some(())
-    });
-    connection.map_window(window).unwrap().check().unwrap();
-    let remapped = fixture.node("Fullscreen negotiation");
-    fullscreen(&connection, window, false);
-    wait_for("remapped game may leave client-owned fullscreen", || {
-        let state = input.state();
-        let window = state["windows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|w| w["id"] == remapped.id)
-            .unwrap();
-        (window["fullscreen"] == false).then_some(())
-    });
 }
 
 #[test]
