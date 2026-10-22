@@ -105,19 +105,19 @@ Detected games use live frames during the configured fullscreen easing or spring
 animation. Ordinary apps retain their buffer crossfade. Game detection uses the
 existing [game rules](window-rules.md), without title-specific fullscreen policy.
 
-Mod+F controls Halley's presentation independently of the game's saved display
-setting. An explicit Mod+F choice, fullscreen or windowed, lasts until the next
-toggle or window withdrawal; it does not save the game's startup mode. To launch
-fullscreen, save Fullscreen or Borderless Fullscreen in the game's own display
-settings.
-When the game owns fullscreen, display menu changes can leave
-fullscreen while it is focused. A focus-loss exit request while another monitor is in use keeps the game
-presented on its own monitor.
+The game owns its saved display mode. Fullscreen requests receive accepted state
+and geometry replies; later display-menu changes are not blocked by a persistent
+compositor override. To launch fullscreen, save Fullscreen or Borderless
+Fullscreen in the game's own display settings. A focus-loss exit request while
+another monitor is in use keeps the game presented on its own monitor.
+An exclusive-fullscreen client can reassert fullscreen after a compositor resize;
+use its Windowed setting to change the client's mode.
 Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).
 
 Leaving fullscreen restores the previous window position. A game's first
 windowed-size negotiation keeps that frame's center, including when it launched
 already fullscreen; later ordinary moves and resizes use normal Field placement.
+Windowed-size requests arriving during exit update the same animation endpoint.
 Cluster-managed windows return to their cluster layout.
 
 ## Advertised EWMH subset
