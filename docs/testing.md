@@ -42,6 +42,23 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
 
+## X11 fullscreen video-mode changes
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect x11_fullscreen_negotiation \
+  -- --ignored --test-threads=1
+```
+
+The tests send real X11 resize and repeated fullscreen requests, including an
+off/on sequence on an initially fullscreen window. Check that fullscreen keeps
+the output size, windowed client resizing still works after exit, and same-size
+state changes retire their pending transaction and snapshot without client
+painting. Subsequent partial red and green repaints must reach captured output
+pixels. The X11 client uses server-rendered pixels; Vulkan swapchains and actual
+game video-mode menus require separate live testing after restarting into the
+installed compositor.
+
 ## Alt+Tab target visibility
 
 ```sh

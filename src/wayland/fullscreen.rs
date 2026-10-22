@@ -1026,6 +1026,47 @@ impl FullscreenManager {
             .is_some_and(|surface| desired_matches(self.windows.get(surface.as_ref()), fullscreen))
     }
 
+    /// X11 ConfigureRequest must not replace an in-flight presentation target
+    /// or resize a settled fullscreen client behind the presentation manager.
+    pub(crate) fn external_configure_geometry(
+        &self,
+        wayland: &WaylandState,
+        window: &Window,
+    ) -> Option<Rectangle<i32, Logical>> {
+        let surface = window.wl_surface()?;
+        let entry = self.windows.get(surface.as_ref())?;
+        if let Some(pending) = entry.external_pending {
+            return Some(pending.geometry);
+        }
+        entry
+            .desired
+            .then(|| self.external_target_geometry(wayland, window, true))
+            .flatten()
+    }
+
+    /// The geometry a new X11 fullscreen request will configure. A state-only
+    /// change with a matching live buffer does not need a resize snapshot.
+    pub(crate) fn external_target_geometry(
+        &self,
+        wayland: &WaylandState,
+        window: &Window,
+        fullscreen: bool,
+    ) -> Option<Rectangle<i32, Logical>> {
+        if fullscreen {
+            let output = super::window_output_name(window)
+                .and_then(|name| output_by_name(wayland, &name))
+                .or_else(|| super::focus::selected_output(wayland).cloned())?;
+            wayland.space.output_geometry(&output)
+        } else {
+            let surface = window.wl_surface()?;
+            self.windows
+                .get(surface.as_ref())?
+                .restore
+                .as_ref()
+                .map(|restore| restore.geometry)
+        }
+    }
+
     pub(crate) fn update_external_windowed_placement(
         &mut self,
         wayland: &WaylandState,

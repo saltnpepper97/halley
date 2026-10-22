@@ -171,7 +171,24 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     if policy == ExternalPresentationPolicy::Opening {
         preserve_opening_center(session, surface, &window);
     }
+    // Games can toggle fullscreen off/on while retaining their swapchain.
+    // X11 has no xdg-style state acknowledgement, and an unchanged buffer
+    // need never receive full damage again. Waiting for a resized repaint in
+    // that case leaves the outgoing snapshot displayed indefinitely.
+    let state_only = session
+        .fullscreen
+        .external_target_geometry(&session.wayland, &window, fullscreen)
+        .is_some_and(|target| {
+            window.wl_surface().is_some_and(|surface| {
+                smithay::backend::renderer::utils::with_renderer_surface_state(
+                    surface.as_ref(),
+                    |state| state.surface_size() == Some(target.size),
+                )
+                .unwrap_or(false)
+            })
+        });
     let animate = policy == ExternalPresentationPolicy::Animated
+        && !state_only
         && capture_fullscreen_snapshot(session, &window, fullscreen);
     if policy == ExternalPresentationPolicy::Opening {
         request_opening_fullscreen(session, surface, &window, fullscreen, origin);
@@ -208,12 +225,17 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             }
         }
     } else {
-        let reason = policy.name();
+        let reason = if state_only {
+            "state-only"
+        } else {
+            policy.name()
+        };
         eventline::debug!(
             "xwayland: fullscreen policy xid={} fullscreen={fullscreen} \
              origin={origin:?} policy={reason}",
             surface.window_id(),
         );
+        remove_fullscreen_snapshot(session, &window);
         settle_external_immediately(session, surface, &window, fullscreen, origin);
     }
     if fullscreen && let Some(wl_surface) = window.wl_surface() {

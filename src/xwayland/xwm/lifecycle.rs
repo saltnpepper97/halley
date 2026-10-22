@@ -313,7 +313,13 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
         // coordinates are honored by `requested_geometry`; denied coordinates
         // and reorder requests still receive Smithay's synthetic
         // ConfigureNotify for the final compositor-owned geometry.
-        let geometry = super::configure::requested_geometry(&surface, x, y, width, height);
+        let presentation_geometry = window_for_surface(&self.wayland, &self.nodes, &surface)
+            .and_then(|window| {
+                self.fullscreen
+                    .external_configure_geometry(&self.wayland, &window)
+            });
+        let geometry = presentation_geometry
+            .unwrap_or_else(|| super::configure::requested_geometry(&surface, x, y, width, height));
         crate::session::trace::x11_event(
             self,
             &surface,
@@ -323,7 +329,8 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
                 surface.last_configure(),
             ),
         );
-        if surface.is_transient_for().is_some()
+        if presentation_geometry.is_none()
+            && surface.is_transient_for().is_some()
             && (x.is_some() || y.is_some())
             && let Some(window) = window_for_surface(&self.wayland, &self.nodes, &surface)
             && let Some(location) = super::presentation::source_element_location_from_root_screen(

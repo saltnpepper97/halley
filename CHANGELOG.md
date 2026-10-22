@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep XWayland fullscreen geometry authoritative when clients request a video
+  mode resize, including during a pending fullscreen or restore transaction.
+  Settle fullscreen state changes directly when the live buffer already has
+  the target size, avoiding a captured frame waiting for an unnecessary repaint.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or
   maximize. Reveal partially or fully offscreen targets with minimal camera
   movement, releasing ordinary fullscreen/maximize only on the destination
