@@ -32,11 +32,19 @@ pub(super) enum ExternalPresentationPolicy {
     Opening,
     Confined,
     Animated,
+    LiveAnimated,
 }
 
 impl ExternalPresentationPolicy {
-    pub(super) fn select(origin: FullscreenRequestOrigin, opening: bool, confined: bool) -> Self {
-        if confined {
+    pub(super) fn select(
+        origin: FullscreenRequestOrigin,
+        opening: bool,
+        confined: bool,
+        game: bool,
+    ) -> Self {
+        if game && !opening && origin != FullscreenRequestOrigin::Initial {
+            Self::LiveAnimated
+        } else if confined {
             Self::Confined
         } else if origin == FullscreenRequestOrigin::Initial {
             Self::Initial
@@ -57,6 +65,7 @@ impl ExternalPresentationPolicy {
             Self::Opening => "opening",
             Self::Confined => "confined",
             Self::Animated => "animated",
+            Self::LiveAnimated => "live-animated",
         }
     }
 }
@@ -95,11 +104,21 @@ mod tests {
     #[test]
     fn initial_fullscreen_always_uses_the_direct_settle() {
         assert_eq!(
-            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Initial, false, false),
+            ExternalPresentationPolicy::select(
+                FullscreenRequestOrigin::Initial,
+                false,
+                false,
+                false
+            ),
             ExternalPresentationPolicy::Initial
         );
         assert_eq!(
-            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Initial, true, false),
+            ExternalPresentationPolicy::select(
+                FullscreenRequestOrigin::Initial,
+                true,
+                false,
+                false
+            ),
             ExternalPresentationPolicy::Initial
         );
     }
@@ -107,11 +126,16 @@ mod tests {
     #[test]
     fn client_fullscreen_settles_under_the_existing_window_open_animation() {
         assert_eq!(
-            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Client, true, false),
+            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Client, true, false, false),
             ExternalPresentationPolicy::Initial
         );
         assert_eq!(
-            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Compositor, true, false),
+            ExternalPresentationPolicy::select(
+                FullscreenRequestOrigin::Compositor,
+                true,
+                false,
+                false
+            ),
             ExternalPresentationPolicy::Opening
         );
     }
@@ -124,7 +148,7 @@ mod tests {
             FullscreenRequestOrigin::Compositor,
         ] {
             assert_eq!(
-                ExternalPresentationPolicy::select(origin, true, true),
+                ExternalPresentationPolicy::select(origin, true, true, false),
                 ExternalPresentationPolicy::Confined
             );
         }
@@ -137,7 +161,7 @@ mod tests {
             FullscreenRequestOrigin::Compositor,
         ] {
             assert_eq!(
-                ExternalPresentationPolicy::select(origin, false, false),
+                ExternalPresentationPolicy::select(origin, false, false, false),
                 ExternalPresentationPolicy::Animated
             );
         }
@@ -146,8 +170,41 @@ mod tests {
     #[test]
     fn compositor_fullscreen_exit_uses_the_animated_snapshot_path() {
         assert_eq!(
-            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Compositor, false, false),
+            ExternalPresentationPolicy::select(
+                FullscreenRequestOrigin::Compositor,
+                false,
+                false,
+                false
+            ),
             ExternalPresentationPolicy::Animated
+        );
+    }
+
+    #[test]
+    fn settled_games_keep_geometry_motion_with_live_buffers_even_when_confined() {
+        for origin in [
+            FullscreenRequestOrigin::Client,
+            FullscreenRequestOrigin::Compositor,
+        ] {
+            for confined in [false, true] {
+                assert_eq!(
+                    ExternalPresentationPolicy::select(origin, false, confined, true),
+                    ExternalPresentationPolicy::LiveAnimated
+                );
+            }
+        }
+        assert_eq!(
+            ExternalPresentationPolicy::select(
+                FullscreenRequestOrigin::Initial,
+                false,
+                false,
+                true
+            ),
+            ExternalPresentationPolicy::Initial
+        );
+        assert_eq!(
+            ExternalPresentationPolicy::select(FullscreenRequestOrigin::Client, true, false, true),
+            ExternalPresentationPolicy::Initial
         );
     }
 }

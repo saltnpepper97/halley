@@ -59,6 +59,12 @@ pixels. The X11 client uses server-rendered pixels; Vulkan swapchains and actual
 game video-mode menus require separate live testing after restarting into the
 installed compositor.
 
+The live-game regression uses a positive `game` rule and an ordinary-app control.
+It drives the fullscreen keybind in both directions, checks intermediate geometry
+under a slowed timeline, and verifies that a game repaint reaches the output
+while motion is still active. Games use live client surfaces rather than resize
+snapshots; their motion still uses the configured fullscreen curve and duration.
+
 ## Alt+Tab target visibility
 
 ```sh

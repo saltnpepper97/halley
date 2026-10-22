@@ -163,10 +163,19 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         })
         .flatten();
     let opening = client_geometry_guarded || opening_animation;
+    let rule = session
+        .window_rules
+        .resolve_identity(&crate::window::rules::identity(&window));
+    let game =
+        session
+            .window_rules
+            .games
+            .is_game(&window, &session.wayland.display_handle, rule.game);
     let policy = ExternalPresentationPolicy::select(
         origin,
         opening,
         crate::session::has_active_pointer_confinement(session),
+        game,
     );
     if policy == ExternalPresentationPolicy::Opening {
         preserve_opening_center(session, surface, &window);
@@ -187,20 +196,28 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
                 .unwrap_or(false)
             })
         });
-    let animate = policy == ExternalPresentationPolicy::Animated
-        && !state_only
-        && capture_fullscreen_snapshot(session, &window, fullscreen);
+    let live_buffers = policy == ExternalPresentationPolicy::LiveAnimated;
+    let animate = !state_only
+        && (live_buffers
+            || (policy == ExternalPresentationPolicy::Animated
+                && capture_fullscreen_snapshot(session, &window, fullscreen)));
     if policy == ExternalPresentationPolicy::Opening {
         request_opening_fullscreen(session, surface, &window, fullscreen, origin);
     } else if animate {
+        if live_buffers {
+            remove_fullscreen_snapshot(session, &window);
+        }
         let request = if fullscreen {
             session.fullscreen.request_external_animated(
                 &mut session.wayland,
                 &window,
                 origin.presentation_origin(),
+                live_buffers,
             )
         } else {
-            session.fullscreen.unrequest_external_animated(&window)
+            session
+                .fullscreen
+                .unrequest_external_animated(&window, live_buffers)
         };
         match request {
             Some(ExternalTransactionRequest::Configure(geometry)) => {
@@ -211,8 +228,9 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
                 } else {
                     eventline::debug!(
                         "xwayland: fullscreen policy xid={} fullscreen={fullscreen} \
-                         origin={origin:?} policy=animated",
+                         origin={origin:?} policy={}",
                         surface.window_id(),
+                        policy.name(),
                     );
                 }
             }

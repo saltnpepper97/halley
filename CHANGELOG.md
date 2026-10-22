@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep positively identified XWayland games' buffers live during fullscreen
+  geometry animations. Accept X11 geometry independently of a resized repaint,
+  preventing a swapchain mode change from freezing a captured frame while
+  preserving the configured easing or spring motion and ordinary app crossfades.
 - Keep XWayland fullscreen geometry authoritative when clients request a video
   mode resize, including during a pending fullscreen or restore transaction.
   Settle fullscreen state changes directly when the live buffer already has

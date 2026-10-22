@@ -165,6 +165,9 @@ impl NativeFullscreenState {
 enum ExternalPresentationKind {
     Opening,
     Animated,
+    /// Keep client buffers live while the compositor animates geometry. Game
+    /// swapchains must not wait on a captured endpoint or full-buffer damage.
+    LiveAnimated,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -801,11 +804,16 @@ impl FullscreenManager {
         wayland: &mut WaylandState,
         window: &Window,
         origin: FullscreenOrigin,
+        live_buffers: bool,
     ) -> Option<ExternalTransactionRequest> {
         self.request_external_transaction(
             wayland,
             window,
-            ExternalPresentationKind::Animated,
+            if live_buffers {
+                ExternalPresentationKind::LiveAnimated
+            } else {
+                ExternalPresentationKind::Animated
+            },
             None,
             origin,
         )
@@ -907,8 +915,16 @@ impl FullscreenManager {
     pub(crate) fn unrequest_external_animated(
         &mut self,
         window: &Window,
+        live_buffers: bool,
     ) -> Option<ExternalTransactionRequest> {
-        self.unrequest_external_transaction(window, ExternalPresentationKind::Animated)
+        self.unrequest_external_transaction(
+            window,
+            if live_buffers {
+                ExternalPresentationKind::LiveAnimated
+            } else {
+                ExternalPresentationKind::Animated
+            },
+        )
     }
 
     pub(crate) fn unrequest_external_opening(
@@ -2346,7 +2362,7 @@ fn begin_external_transaction(
         geometry,
         presentation,
         geometry_acknowledged: false,
-        surface_committed: presentation == ExternalPresentationKind::Opening,
+        surface_committed: presentation != ExternalPresentationKind::Animated,
     });
     ExternalTransactionRequest::Configure(geometry)
 }
@@ -2409,7 +2425,7 @@ fn settle_external_transaction(
             entry.presented = fullscreen;
             entry.transition = None;
         }
-        ExternalPresentationKind::Animated => {
+        ExternalPresentationKind::Animated | ExternalPresentationKind::LiveAnimated => {
             settle_visual_commit(entry, animations, now, fullscreen);
         }
     }
@@ -3720,6 +3736,33 @@ mod tests {
         assert!(!desired_matches(Some(&entry), false));
         assert!(!desired_matches(None, true));
         assert_eq!(entry.external_pending, pending);
+    }
+
+    #[test]
+    fn live_external_geometry_animates_without_waiting_for_a_resized_buffer() {
+        let animations = Animations::default();
+        let mut entry = test_entry(false);
+        let target = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        begin_external_transaction(
+            &mut entry,
+            true,
+            target,
+            ExternalPresentationKind::LiveAnimated,
+            Duration::ZERO,
+        );
+        assert_eq!(
+            acknowledge_external_geometry(&mut entry, target, &animations, Duration::ZERO),
+            ExternalConfigureResult::Settled {
+                fullscreen: true,
+                animated: true
+            }
+        );
+        assert!(entry.external_pending.is_none());
+        let transition = entry
+            .transition
+            .expect("live fullscreen keeps its geometry timeline");
+        let halfway = transition.value_at(Duration::from_millis(50));
+        assert!(halfway > 0.0 && halfway < 1.0);
     }
 
     #[test]
