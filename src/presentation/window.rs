@@ -493,6 +493,7 @@ pub struct WindowPresentation {
     root_origin: Point<f64, Logical>,
     visual_geometry: Rectangle<i32, Logical>,
     hit_geometry: Rectangle<i32, Logical>,
+    decoration_scale: f32,
     cluster_depth: Option<usize>,
 }
 
@@ -560,14 +561,26 @@ impl WindowPresentation {
         let visual_geometry = global_geometry(visual.animated_rect);
         let hit_geometry = global_geometry(hit_rect);
 
+        let decoration_scale = visual.zoom_scale
+            * if window_animations.is_arranging(&root, now) && visual.presentation_rect.size.h > 0 {
+                visual.animated_rect.size.h as f32 / visual.presentation_rect.size.h as f32
+            } else {
+                1.0
+            };
+
         Some(Self {
             root,
             source_geometry,
             root_origin,
             visual_geometry,
             hit_geometry,
+            decoration_scale,
             cluster_depth: visual.cluster_depth,
         })
+    }
+
+    pub fn decoration_scale(&self) -> f32 {
+        self.decoration_scale
     }
 
     #[allow(clippy::too_many_arguments)]

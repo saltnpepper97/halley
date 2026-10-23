@@ -972,6 +972,18 @@ pub(crate) fn activate_titlebar_control<D: SessionDriver>(
         }
         crate::titlebar::Control::Maximize => {
             if let Some(surface) = target.window.wl_surface() {
+                if session
+                    .fullscreen
+                    .has_windowed_presentation(surface.as_ref())
+                {
+                    session.fullscreen.resume_external_presentation(
+                        surface.as_ref(),
+                        crate::frame_clock::monotonic_now(),
+                    );
+                    pointer::reconcile_state(session);
+                    session.request_redraw();
+                    return;
+                }
                 let maximized = session.maximize.contains(surface.as_ref());
                 let _ = set_surface_field_maximized(session, surface.as_ref(), !maximized);
             }
@@ -1930,7 +1942,15 @@ pub(crate) fn begin_window_resize<D: SessionDriver>(
         return false;
     }
     settle_window_movement(session, window);
-    let Some(start_rect) = session.wayland.space.element_geometry(window) else {
+    let Some(start_rect) = surface
+        .as_ref()
+        .and_then(|surface| {
+            session
+                .fullscreen
+                .windowed_presentation_geometry(surface.as_ref())
+        })
+        .or_else(|| session.wayland.space.element_geometry(window))
+    else {
         return false;
     };
     focus::focus_window_from_pointer(session, window, serial);
@@ -2045,6 +2065,9 @@ fn begin_pending_pointer_move<D: SessionDriver>(
             session
                 .fullscreen
                 .is_fullscreen_or_pending(surface.as_ref())
+                && !session
+                    .fullscreen
+                    .has_windowed_presentation(surface.as_ref())
         })
     {
         return false;
@@ -2138,6 +2161,9 @@ fn begin_pointer_move_active<D: SessionDriver>(
             session
                 .fullscreen
                 .is_fullscreen_or_pending(surface.as_ref())
+                && !session
+                    .fullscreen
+                    .has_windowed_presentation(surface.as_ref())
         })
     {
         return false;

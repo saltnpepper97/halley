@@ -203,12 +203,12 @@ fn capture_window_inner<D: SessionDriver>(
         return false;
     };
     let focused = session.wayland.focused_window.as_ref() == Some(&surface);
-    let chrome_visible =
-        !session.fullscreen.suppresses_chrome(&surface) && !crate::xwayland::is_fullscreen(window);
+    let chrome_visible = !session.fullscreen.suppresses_window_chrome(window);
     let maximized = session.maximize.contains(&surface);
     let server_titlebar = chrome_visible
-        && crate::titlebar::WindowChrome::for_window(
+        && crate::titlebar::WindowChrome::for_visible_presentation(
             window,
+            chrome_visible,
             &session.settings.decorations,
             &session.settings.font,
         )
@@ -380,7 +380,12 @@ fn closing_destination(
         1.0
     };
     let decoration_scale = visual.zoom_scale * opening_scale_y.max(0.0);
-    let chrome = crate::titlebar::WindowChrome::for_window(window, decorations, font);
+    let chrome = crate::titlebar::WindowChrome::for_visible_presentation(
+        window,
+        chrome_visible,
+        decorations,
+        font,
+    );
     let border_width =
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
     if chrome.has_server_titlebar() {

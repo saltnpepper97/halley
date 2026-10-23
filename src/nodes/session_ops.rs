@@ -810,14 +810,19 @@ fn collapse_inner<D: crate::session::SessionDriver>(
     };
     if record.collapsed
         || !record.attached
-        || session.fullscreen.is_fullscreen_or_pending(&record.surface)
+        || (session.fullscreen.is_fullscreen_or_pending(&record.surface)
+            && (decay
+                || !session
+                    .fullscreen
+                    .has_windowed_presentation(&record.surface)))
     {
         return false;
     }
     let maximize_restore = session.maximize.restore(&record.surface);
-    let Some(geometry) = maximize_restore
-        .as_ref()
-        .map(|restore| restore.geometry)
+    let Some(geometry) = session
+        .fullscreen
+        .windowed_presentation_geometry(&record.surface)
+        .or_else(|| maximize_restore.as_ref().map(|restore| restore.geometry))
         .or_else(|| session.wayland.space.element_geometry(&record.window))
     else {
         return false;
@@ -990,6 +995,9 @@ fn restore_with_centering<D: crate::session::SessionDriver>(
         .wayland
         .space
         .map_element(record.window.clone(), location, true);
+    session
+        .fullscreen
+        .configure_windowed_presentation(&record.surface, Rectangle::new(location, size));
     crate::xwayland::set_hidden(&record.window, false);
     session.xwayland.set_window_normal(&record.window);
     // A collapsed window is not in the space, so a decoration reload while it

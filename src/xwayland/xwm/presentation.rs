@@ -866,6 +866,14 @@ pub(crate) fn configure_window<D: SessionDriver>(
     window: &Window,
     geometry: Rectangle<i32, Logical>,
 ) {
+    if window.wl_surface().is_some_and(|surface| {
+        session
+            .fullscreen
+            .configure_windowed_presentation(surface.as_ref(), geometry)
+    }) {
+        session.request_redraw();
+        return;
+    }
     let Some(surface) = window.x11_surface() else {
         return;
     };

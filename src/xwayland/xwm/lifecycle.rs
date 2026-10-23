@@ -659,15 +659,21 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
     }
 
     fn minimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        let changed = window_for_surface(&self.wayland, &self.nodes, &surface)
+        let accepted = window_for_surface(&self.wayland, &self.nodes, &surface)
             .and_then(|window| {
                 window
                     .wl_surface()
                     .map(|wl_surface| wl_surface.into_owned())
             })
             .and_then(|wl_surface| self.nodes.id_for_surface(&wl_surface))
-            .is_some_and(|id| crate::nodes::collapse(self, id, SERIAL_COUNTER.next_serial()));
-        if !changed {
+            .is_some_and(|id| {
+                // The client can echo IconicState after the WM minimizes it.
+                // It remains accepted; rejecting the duplicate would publish
+                // NormalState and can make Wine remap the fullscreen window.
+                self.nodes.record(id).is_some_and(|record| record.collapsed)
+                    || crate::nodes::collapse(self, id, SERIAL_COUNTER.next_serial())
+            });
+        if !accepted {
             // Keep both EWMH and ICCCM state truthful when a minimize cannot
             // be honored (for example, while fullscreen owns the window).
             // Some clients stop presenting as soon as they send

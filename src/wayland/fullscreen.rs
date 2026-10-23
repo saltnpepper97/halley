@@ -1559,6 +1559,61 @@ impl FullscreenManager {
             .is_some_and(fullscreen_entry_suppresses_chrome)
     }
 
+    pub(crate) fn has_windowed_presentation(&self, surface: &WlSurface) -> bool {
+        self.windows
+            .get(surface)
+            .is_some_and(|entry| entry.presentation_paused_by_user)
+    }
+
+    pub(crate) fn windowed_presentation_geometry(
+        &self,
+        surface: &WlSurface,
+    ) -> Option<Rectangle<i32, Logical>> {
+        let entry = self.windows.get(surface)?;
+        entry
+            .presentation_paused_by_user
+            .then(|| entry.restore.as_ref().map(|restore| restore.geometry))
+            .flatten()
+    }
+
+    pub(crate) fn configure_windowed_presentation(
+        &mut self,
+        surface: &WlSurface,
+        geometry: Rectangle<i32, Logical>,
+    ) -> bool {
+        let Some(entry) = self
+            .windows
+            .get_mut(surface)
+            .filter(|entry| entry.presentation_paused_by_user)
+        else {
+            return false;
+        };
+        finish_external_transition(entry);
+        if let Some(restore) = entry.restore.as_mut() {
+            restore.location = geometry.loc;
+            restore.geometry = geometry;
+        }
+        entry.presentation_windowed = Some(geometry);
+        entry.presentation_output = None;
+        entry.restore_presentation_output = None;
+        true
+    }
+
+    /// Protocol fullscreen remains a backstop during X11 mode negotiation,
+    /// except when the compositor deliberately presents that client windowed.
+    pub(crate) fn suppresses_window_chrome(&self, window: &Window) -> bool {
+        if window
+            .wl_surface()
+            .is_some_and(|surface| self.has_windowed_presentation(surface.as_ref()))
+        {
+            return false;
+        }
+        window
+            .wl_surface()
+            .is_some_and(|surface| self.suppresses_chrome(surface.as_ref()))
+            || crate::xwayland::is_fullscreen(window)
+    }
+
     /// Share the existing motion timeline so chrome has no separate delay,
     /// redraw timer, or geometry animation and becomes fully visible at rest.
     pub(crate) fn chrome_alpha(&self, surface: &WlSurface, now: Duration) -> f32 {
@@ -2068,7 +2123,9 @@ fn fullscreen_origin_allows_global_blur(origin: FullscreenOrigin) -> bool {
 }
 
 fn fullscreen_entry_suppresses_chrome(entry: &FullscreenWindow) -> bool {
-    entry.desired && entry.origin != FullscreenOrigin::Maximize
+    entry.desired
+        && !entry.presentation_paused_by_user
+        && entry.origin != FullscreenOrigin::Maximize
 }
 
 fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: Duration) -> f32 {

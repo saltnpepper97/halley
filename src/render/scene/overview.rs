@@ -69,7 +69,12 @@ fn push_live_preview(
     }
 
     let native_client = Rectangle::<i32, Physical>::from_size(geometry.size.to_physical(1));
-    let chrome = crate::titlebar::WindowChrome::for_window(window, decorations, font);
+    let chrome = crate::titlebar::WindowChrome::for_visible_presentation(
+        window,
+        chrome_visible,
+        decorations,
+        font,
+    );
     let native_outer = if chrome_visible {
         chrome
             .outer_rect(Rectangle::<i32, Logical>::from_size(geometry.size))
@@ -1123,10 +1128,7 @@ fn preview_chrome_visible(
     window: &smithay::desktop::Window,
     fullscreen: &crate::wayland::fullscreen::FullscreenManager,
 ) -> bool {
-    !crate::xwayland::is_fullscreen(window)
-        && window
-            .wl_surface()
-            .is_none_or(|surface| !fullscreen.suppresses_chrome(surface.as_ref()))
+    !fullscreen.suppresses_window_chrome(window)
 }
 
 fn preview_outer_size(
@@ -1137,7 +1139,14 @@ fn preview_outer_size(
     chrome_visible: bool,
 ) -> smithay::utils::Size<i32, Logical> {
     if chrome_visible {
-        crate::titlebar::outer_size_for_client(window, client, decorations, font)
+        crate::titlebar::WindowChrome::for_visible_presentation(
+            window,
+            chrome_visible,
+            decorations,
+            font,
+        )
+        .outer_rect(Rectangle::from_size(client))
+        .size
     } else {
         client
     }
@@ -1153,8 +1162,14 @@ fn preview_outer_rect(
     if !chrome_visible {
         return client;
     }
-    crate::titlebar::outer_rect_for_client(window, client.to_logical(1), decorations, font)
-        .to_physical(1)
+    crate::titlebar::WindowChrome::for_visible_presentation(
+        window,
+        chrome_visible,
+        decorations,
+        font,
+    )
+    .outer_rect(client.to_logical(1))
+    .to_physical(1)
 }
 
 fn preview_visual_outer_rect(
@@ -1173,7 +1188,12 @@ fn preview_visual_outer_rect(
         1.0
     };
     let decoration_scale = visual.zoom_scale * opening_scale_y.max(0.0);
-    let chrome = crate::titlebar::WindowChrome::for_window(window, decorations, font);
+    let chrome = crate::titlebar::WindowChrome::for_visible_presentation(
+        window,
+        chrome_visible,
+        decorations,
+        font,
+    );
     let titlebar_height = crate::render::window_decoration::scaled_metric(
         crate::titlebar::effective_height(&decorations.titlebars, font.size),
         decoration_scale,

@@ -477,7 +477,12 @@ fn capture_decorated_inner(
 
     let client_size = window.geometry().size;
     let native_client = Rectangle::<i32, Logical>::from_size(client_size);
-    let chrome = crate::titlebar::WindowChrome::for_window(window, decorations, font);
+    let chrome = crate::titlebar::WindowChrome::for_visible_presentation(
+        window,
+        chrome_visible,
+        decorations,
+        font,
+    );
     let native_outer = chrome.outer_rect(native_client);
     let content = Rectangle::<i32, Physical>::new(
         (-native_outer.loc.x, -native_outer.loc.y).into(),

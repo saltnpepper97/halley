@@ -709,3 +709,210 @@ fn fullscreen_off_on_with_the_same_buffer_does_not_freeze_partial_repaints() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; decorated game presentation"]
+fn shrunken_fullscreen_game_has_rounded_interactive_window_frame() {
+    let (mut fixture, connection, window, width, height) = setup_with_config(
+        false,
+        r##"
+animations:
+ enabled false
+end
+rules:
+ window-rule:
+  title "Fullscreen negotiation"
+  game true
+ end
+end
+decorations:
+ border:
+  size 0
+  radius 20
+ end
+ resize-using-border true
+ titlebars:
+  enabled true
+  height 32
+  radius 20
+  colour-focused "#00ff00"
+  colour-unfocused "#00ff00"
+  show-title false
+  show-icons false
+  show-buttons true
+ end
+end
+"##,
+    );
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    let id = fixture.node("Fullscreen negotiation").id;
+    let atom = |name: &[u8]| {
+        connection
+            .intern_atom(false, name)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom
+    };
+    let delete = atom(b"WM_DELETE_WINDOW");
+    connection
+        .change_property32(
+            x11rb::protocol::xproto::PropMode::REPLACE,
+            window,
+            atom(b"WM_PROTOCOLS"),
+            AtomEnum::ATOM,
+            &[delete],
+        )
+        .unwrap()
+        .check()
+        .unwrap();
+    let presented = || {
+        input.state()["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    let rect = || {
+        let s = presented();
+        let r = s["rect"].as_array().unwrap();
+        (
+            r[0].as_i64().unwrap() as i32,
+            r[1].as_i64().unwrap() as i32,
+            r[2].as_i64().unwrap() as i32,
+            r[3].as_i64().unwrap() as i32,
+        )
+    };
+    let click = |x: i32, y: i32| {
+        input.motion(f64::from(x), f64::from(y));
+        input.button(272, true);
+        input.button(272, false);
+    };
+    input.key(68, true);
+    input.key(68, false);
+    wait_for("game presented windowed", || {
+        (presented()["paused"] == true).then_some(())
+    });
+    let (x, y, w, h) = rect();
+    wait_for("server titlebar and rounded live client", || {
+        let (pixels, stride) = capture_frame_pixels_on(&mut fixture, Some("winit"));
+        let pixel = |px: i32, py: i32| &pixels[(py as usize * stride + px as usize) * 4..][..3];
+        let title = pixel(x + 25, y - 16);
+        let center = pixel(x + w / 2, y + h / 2);
+        let corner = pixel(x + w - 2, y + h - 2);
+        (title[1] > 220
+            && title[0] < 40
+            && title[2] < 40
+            && center.iter().all(|v| *v > 240)
+            && corner.iter().all(|v| *v < 180))
+        .then_some(())
+    });
+    // Dragging and resizing manipulate the presentation, preserving the
+    // client's fullscreen state and output-sized swapchain throughout.
+    input.motion(f64::from(x + 40), f64::from(y - 16));
+    input.button(272, true);
+    input.motion(f64::from(x + 130), f64::from(y + 34));
+    input.button(272, false);
+    wait_for("titlebar drag and release", || {
+        let r = rect();
+        (r.0 == x + 90 && r.1 == y + 50 && input.state()["moving"] == false).then_some(())
+    });
+    let (x, y, w, h) = rect();
+    input.motion(f64::from(x + w - 1), f64::from(y + h - 1));
+    input.button(272, true);
+    input.motion(f64::from(x + w + 39), f64::from(y + h + 29));
+    input.button(272, false);
+    wait_for("frame resize", || {
+        let r = rect();
+        (r.2 == w + 40 && r.3 == h + 30).then_some(())
+    });
+    let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+    assert_eq!((geometry.width, geometry.height), (width, height));
+    assert!(
+        connection
+            .get_property(
+                false,
+                window,
+                atom(b"_NET_WM_STATE"),
+                AtomEnum::ATOM,
+                0,
+                1024
+            )
+            .unwrap()
+            .reply()
+            .unwrap()
+            .value32()
+            .unwrap()
+            .any(|a| a == atom(b"_NET_WM_STATE_FULLSCREEN"))
+    );
+    let (x, y, _, _) = rect();
+    click(x + 40, y - 16);
+    click(x + 40, y - 16);
+    wait_for(
+        "double-click restores the immersive game presentation",
+        || (presented()["paused"] == false).then_some(()),
+    );
+    input.key(68, true);
+    input.key(68, false);
+    let (x, y, w, _) = rect();
+    click(x + w - 48, y - 16); // Maximize restores the immersive game presentation.
+    wait_for("maximize game presentation", || {
+        (presented()["paused"] == false).then_some(())
+    });
+    input.key(68, true);
+    input.key(68, false);
+    let (x, y, w, _) = rect();
+    click(x + w - 80, y - 16);
+    wait_for("minimize from the server frame", || {
+        let state = connection
+            .get_property(false, window, atom(b"WM_STATE"), atom(b"WM_STATE"), 0, 2)
+            .unwrap()
+            .reply()
+            .unwrap();
+        (state.value32().and_then(|mut v| v.next()) == Some(3)).then_some(())
+    });
+    // A client may repeat the iconify request after observing the WM's own
+    // minimize. This is still the accepted state, not a failed new operation.
+    connection
+        .send_event(
+            false,
+            connection.setup().roots[0].root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            ClientMessageEvent::new(32, window, atom(b"WM_CHANGE_STATE"), [3, 0, 0, 0, 0]),
+        )
+        .unwrap();
+    connection.flush().unwrap();
+    thread::sleep(Duration::from_millis(200));
+    let wm_state = connection
+        .get_property(false, window, atom(b"WM_STATE"), atom(b"WM_STATE"), 0, 2)
+        .unwrap()
+        .reply()
+        .unwrap();
+    assert_eq!(
+        wm_state.value32().unwrap().next(),
+        Some(3),
+        "repeated minimize must remain iconic"
+    );
+    fixture.ack(Request::Node(NodeRequest::Restore {
+        selector: Some(NodeSelector::Id(id)),
+        output: None,
+    }));
+    let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+    assert_eq!((geometry.width, geometry.height), (width, height));
+    assert_eq!(presented()["paused"], true);
+    let (x, y, w, _) = rect();
+    click(x + w - 16, y - 16);
+    wait_for("close from the server frame", || {
+        while let Some(event) = connection.poll_for_event().unwrap() {
+            if let x11rb::protocol::Event::ClientMessage(event) = event
+                && event.window == window
+                && event.data.as_data32()[0] == delete
+            {
+                return Some(());
+            }
+        }
+        None
+    });
+}
