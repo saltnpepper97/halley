@@ -64,6 +64,8 @@ Game rules and ordinary-app controls cover:
   client's fullscreen state and buffer size remain intact. Minimize/restore
   must also hide and remap the actual X11 frame. A repeated client
   minimize request must preserve IconicState instead of restoring NormalState.
+  Client unmap/remap while minimized must retain the same node and presentation;
+  restore also works when the client remains unmapped.
 - Windowed-size requests sent immediately with fullscreen exit.
 - Cross-monitor hover focus followed by a game fullscreen-exit request, plus
   focused mode changes and ordinary-app behavior.

@@ -95,7 +95,8 @@ All notable changes to this project will be documented in this file.
   persistent black margins, and corner-anchored restores without game-specific
   rules or new settings.
 - Hide minimized X11 frames and preserve their window identity and fullscreen
-  presentation when XWayland replaces the underlying surface on restore.
+  presentation when XWayland replaces the underlying surface on restore. Keep
+  minimized windows minimized through client unmap/remap cycles.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or
   maximize. Reveal partially or fully offscreen targets with minimal camera
   movement, releasing ordinary fullscreen/maximize only on the destination

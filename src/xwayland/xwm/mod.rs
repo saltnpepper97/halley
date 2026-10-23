@@ -81,6 +81,21 @@ fn window_for_surface(
         })
 }
 
+fn node_for_surface(
+    nodes: &crate::nodes::NodesState,
+    surface: &X11Surface,
+) -> Option<halley_core::field::NodeId> {
+    nodes
+        .records()
+        .find(|record| {
+            record
+                .window
+                .x11_surface()
+                .is_some_and(|candidate| same_surface(candidate, surface))
+        })
+        .map(|record| record.id)
+}
+
 fn same_surface(left: &X11Surface, right: &X11Surface) -> bool {
     // Smithay's PartialEq intentionally stops matching after destruction.
     // Clones still share this allocation, including during teardown and XID reuse.
@@ -233,7 +248,12 @@ pub(super) fn surface_associated<D: SessionDriver>(
         session.window_rules.forget(&previous);
         session.window_rules.track_window(&window);
         session.render.fullscreen_textures.remove(&previous);
-        if session.wayland.focused_window.as_ref() == Some(&previous) {
+        let restored_focus = session
+            .nodes
+            .focused()
+            .and_then(|id| session.nodes.record(id))
+            .is_some_and(|record| record.window == window && !record.collapsed);
+        if session.wayland.focused_window.as_ref() == Some(&previous) || restored_focus {
             crate::session::focus_window(session, &window, SERIAL_COUNTER.next_serial());
         }
         crate::session::pointer::refresh_desktop_client_focus(

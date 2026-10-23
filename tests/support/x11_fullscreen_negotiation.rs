@@ -905,6 +905,12 @@ end
         Some(3),
         "repeated minimize must remain iconic"
     );
+    // Wine can unmap/remap the same XID while acknowledging iconification.
+    // That is still this minimized window, not a new fullscreen launch.
+    connection.unmap_window(window).unwrap().check().unwrap();
+    connection.map_window(window).unwrap().check().unwrap();
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(presented()["rect"], serde_json::Value::Null);
     fixture.ack(Request::Node(NodeRequest::Restore {
         selector: Some(NodeSelector::Id(id)),
         output: None,
@@ -919,6 +925,35 @@ end
             == x11rb::protocol::xproto::MapState::VIEWABLE)
             .then_some(())
     });
+    wait_for("restored presentation is associated", || {
+        presented()["rect"].is_array().then_some(())
+    });
+    let (x, y, w, _) = rect();
+    click(x + w - 80, y - 16);
+    wait_for("second minimize", || {
+        presented()["rect"].is_null().then_some(())
+    });
+    connection.unmap_window(window).unwrap().check().unwrap();
+    thread::sleep(Duration::from_millis(200));
+    assert!(presented()["rect"].is_null());
+    fixture.ack(Request::Node(NodeRequest::Restore {
+        selector: Some(NodeSelector::Id(id)),
+        output: None,
+    }));
+    wait_for(
+        "restore requests a fresh map when the client is unmapped",
+        || {
+            (connection
+                .get_window_attributes(window)
+                .unwrap()
+                .reply()
+                .unwrap()
+                .map_state
+                == x11rb::protocol::xproto::MapState::VIEWABLE
+                && presented()["rect"].is_array())
+            .then_some(())
+        },
+    );
     let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
     assert_eq!((geometry.width, geometry.height), (width, height));
     assert_eq!(presented()["paused"], true);

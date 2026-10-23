@@ -78,7 +78,17 @@ pub(super) fn forget_window<D: SessionDriver>(
         "close-handoff",
         format_args!("active_before_unmap={close_active}"),
     );
-    if let Some(wl_surface) = window.wl_surface().map(|surface| surface.into_owned()) {
+    let tracked_surface = window
+        .wl_surface()
+        .map(|surface| surface.into_owned())
+        .or_else(|| {
+            session
+                .nodes
+                .records()
+                .find(|record| record.window == window)
+                .map(|record| record.surface.clone())
+        });
+    if let Some(wl_surface) = tracked_surface {
         session.window_rules.forget(&wl_surface);
         let preparation = crate::session::prepare_window_unmap(session, &wl_surface);
         session.wayland.space.unmap_elem(&window);
@@ -147,23 +157,32 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
                 surface.is_mapped(),
             ),
         );
-        if window_for_surface(&self.wayland, &self.nodes, &surface).is_some()
-            || self
-                .xwayland
-                .pending_windows
-                .contains_key(&surface.window_id())
-        {
-            eventline::debug!(
-                "xwayland: ignored duplicate map request xid={}",
-                surface.window_id()
-            );
-            // The window stays managed, so `WM_STATE` must read Normal even if
-            // an earlier withdrawal cleared it. Re-asserting is idempotent and
-            // costs one property write on a path that is already rare.
-            if self.xwayland.managed_states.state(surface.window_id()) != WindowState::Normal {
+        if let Some(window) = window_for_surface(&self.wayland, &self.nodes, &surface) {
+            // An iconic client can unmap/remap its XID without becoming a new
+            // application window. Recreate its XWM frame but retain its node,
+            // minimized state, and compositor presentation.
+            if surface.wl_surface().is_none()
+                && let Err(err) = surface.set_mapped(true)
+            {
+                eventline::warn!("xwayland: failed to remap managed frame: {err}");
+            }
+            let collapsed = node_for_surface(&self.nodes, &surface)
+                .and_then(|id| self.nodes.record(id))
+                .is_some_and(|record| record.collapsed);
+            if collapsed {
+                self.xwayland.set_window_iconic(&window);
+            } else {
                 self.xwayland
                     .transition_surface(&surface, WindowState::Normal);
             }
+            self.request_redraw();
+            return;
+        }
+        if self
+            .xwayland
+            .pending_windows
+            .contains_key(&surface.window_id())
+        {
             return;
         }
         let initial_size = surface.geometry().size;
@@ -239,6 +258,18 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
             "unmapped",
             format_args!("geometry={:?}", surface.last_configure()),
         );
+        if node_for_surface(&self.nodes, &surface)
+            .and_then(|id| self.nodes.record(id))
+            .is_some_and(|record| record.collapsed)
+        {
+            // This is an already accepted iconification. Smithay has retired
+            // the XWM frame, but the client window still exists. DestroyNotify
+            // remains the final lifetime boundary for this minimized window.
+            self.xwayland
+                .transition_surface(&surface, WindowState::Iconic);
+            self.request_redraw();
+            return;
+        }
         cancel_pending_override_redirect(self, surface.window_id());
         self.xwayland
             .override_redirect_placements
@@ -659,20 +690,13 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
     }
 
     fn minimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        let accepted = window_for_surface(&self.wayland, &self.nodes, &surface)
-            .and_then(|window| {
-                window
-                    .wl_surface()
-                    .map(|wl_surface| wl_surface.into_owned())
-            })
-            .and_then(|wl_surface| self.nodes.id_for_surface(&wl_surface))
-            .is_some_and(|id| {
-                // The client can echo IconicState after the WM minimizes it.
-                // It remains accepted; rejecting the duplicate would publish
-                // NormalState and can make Wine remap the fullscreen window.
-                self.nodes.record(id).is_some_and(|record| record.collapsed)
-                    || crate::nodes::collapse(self, id, SERIAL_COUNTER.next_serial())
-            });
+        let accepted = node_for_surface(&self.nodes, &surface).is_some_and(|id| {
+            // The client can echo IconicState after the WM minimizes it.
+            // It remains accepted; rejecting the duplicate would publish
+            // NormalState and can make Wine remap the fullscreen window.
+            self.nodes.record(id).is_some_and(|record| record.collapsed)
+                || crate::nodes::collapse(self, id, SERIAL_COUNTER.next_serial())
+        });
         if !accepted {
             // Keep both EWMH and ICCCM state truthful when a minimize cannot
             // be honored (for example, while fullscreen owns the window).
@@ -690,14 +714,7 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
     }
 
     fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        if let Some(id) = window_for_surface(&self.wayland, &self.nodes, &surface)
-            .and_then(|window| {
-                window
-                    .wl_surface()
-                    .map(|wl_surface| wl_surface.into_owned())
-            })
-            .and_then(|wl_surface| self.nodes.id_for_surface(&wl_surface))
-        {
+        if let Some(id) = node_for_surface(&self.nodes, &surface) {
             let _ = crate::nodes::restore(self, id, SERIAL_COUNTER.next_serial());
         }
         self.request_redraw();

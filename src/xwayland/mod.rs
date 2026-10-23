@@ -344,15 +344,20 @@ impl<D: SessionDriver> State<D> {
         if visible {
             // Only the WM's own connection can map a root child without
             // redirecting the operation back into MapRequest handling.
-            if let Err(err) = surface.set_mapped(true) {
-                eventline::warn!("xwayland: failed to restore minimized frame: {err}");
+            if surface.mapped_window_id().is_some() {
+                if let Err(err) = surface.set_mapped(true) {
+                    eventline::warn!("xwayland: failed to restore minimized frame: {err}");
+                }
+            } else if let Some(control) = self.control.as_ref()
+                && let Err(err) = control.request_client_map(surface.window_id())
+            {
+                eventline::warn!("xwayland: failed to request minimized client map: {err}");
             }
         } else if let (Some(control), Some(frame)) =
             (self.control.as_ref(), surface.mapped_window_id())
+            && let Err(err) = control.hide_frame(frame)
         {
-            if let Err(err) = control.hide_frame(frame) {
-                eventline::warn!("xwayland: failed to hide minimized frame: {err}");
-            }
+            eventline::warn!("xwayland: failed to hide minimized frame: {err}");
         }
         self.transition_surface(
             surface,
