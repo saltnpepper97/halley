@@ -980,3 +980,65 @@ end
         None
     });
 }
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; conventional game fullscreen exit"]
+fn game_mod_f_negotiates_windowed_state_and_keeps_client_modes_authoritative() {
+    let extra = "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game true\n end\nend\n";
+    let (fixture, connection, window, width, height) = setup_with_config(false, extra);
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    let full = connection
+        .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let net_state = connection
+        .intern_atom(false, b"_NET_WM_STATE")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let protocol_fullscreen = || {
+        connection
+            .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .value32()
+            .unwrap()
+            .any(|atom| atom == full)
+    };
+    for size in [(240, 160), (360, 220)] {
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("Mod+F negotiates a real windowed client", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (!protocol_fullscreen() && (geometry.width, geometry.height) == size).then_some(())
+        });
+        // A fresh client fullscreen request is authoritative, rather than
+        // being rejected to enforce a persistent compositor override.
+        fullscreen(&connection, window, true);
+        wait_for("client fullscreen after compositor exit", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (protocol_fullscreen() && (geometry.width, geometry.height) == (width, height))
+                .then_some(())
+        });
+        fullscreen(&connection, window, false);
+        connection
+            .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
+            .unwrap()
+            .check()
+            .unwrap();
+        wait_for("game chooses its own windowed size", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (!protocol_fullscreen() && (geometry.width, geometry.height) == (360, 220))
+                .then_some(())
+        });
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("Mod+F enters fullscreen again", || {
+            protocol_fullscreen().then_some(())
+        });
+    }
+}

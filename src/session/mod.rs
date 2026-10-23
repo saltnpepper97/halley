@@ -995,34 +995,6 @@ fn toggle_focused_fullscreen<D: SessionDriver>(session: &mut Session<D>, output:
     let Some(record) = focused_window_record(session, output) else {
         return;
     };
-    let rule = session
-        .window_rules
-        .resolve_identity(&crate::window::rules::identity(&record.window));
-    if record.window.x11_surface().is_some()
-        && session.window_rules.games.is_game(
-            &record.window,
-            &session.wayland.display_handle,
-            rule.game,
-        )
-        && session
-            .fullscreen
-            .toggle_external_presentation(&record.surface, crate::frame_clock::monotonic_now())
-    {
-        cancel_grab_for_surface(session, &record.surface);
-        session.render.fullscreen_textures.remove(&record.surface);
-        let output = session
-            .wayland
-            .space
-            .outputs()
-            .find(|output| output.name() == record.output)
-            .cloned();
-        if let Some(output) = output {
-            session.sync_fullscreen_camera(&output, crate::frame_clock::monotonic_now());
-        }
-        pointer::reconcile_state(session);
-        session.request_redraw();
-        return;
-    }
     let entering = !session.fullscreen.is_fullscreen_or_pending(&record.surface);
     set_record_fullscreen(session, record, entering);
 }
