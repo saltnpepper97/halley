@@ -222,13 +222,13 @@ impl X11Control {
         Ok(())
     }
 
-    /// Hide the XWM-owned frame as well as the compositor presentation. A
-    /// viewable X11 window with IconicState can cause Wine to remap itself.
+    /// Route a client map through the XWM when iconification retired its frame.
     pub fn request_client_map(&self, window: Window) -> Result<(), Box<dyn Error>> {
         self.connection.map_window(window)?.check()?;
         Ok(())
     }
 
+    /// Hide the XWM frame as well as the compositor presentation.
     pub fn hide_frame(&self, frame: Window) -> Result<(), Box<dyn Error>> {
         self.connection.unmap_window(frame)?.check()?;
         Ok(())
