@@ -86,7 +86,10 @@ All notable changes to this project will be documented in this file.
   geometry, and frame extents consistent; acknowledge unchanged targets; and
   retain live game frames through the configured fullscreen animation. Honor
   game-menu mode changes after compositor toggles. Mod+F shrinks fullscreen
-  X11 games' presentation without renegotiating their display mode. Retain games
+  X11 games' presentation without renegotiating their display mode, with the
+  configured rounded frame and working titlebar, move, resize, and minimize
+  controls when presented windowed. Keep repeated X11 minimize requests iconic.
+  Retain games
   on other monitors, and accept windowed sizes during exit while centering them
   on the restored frame. This addresses stuck snapshots,
   persistent black margins, and corner-anchored restores without game-specific

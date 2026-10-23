@@ -107,8 +107,11 @@ existing [game rules](window-rules.md), without title-specific fullscreen policy
 
 The game owns its display mode. Once an X11 game is fullscreen, Mod+F smoothly
 shrinks or restores its live presentation without changing its fullscreen
-protocol state or buffer size. Clicking the shrunken game keeps that choice;
-Mod+F restores it. This avoids fighting an exclusive-fullscreen game's mode
+protocol state or buffer size. The windowed presentation uses the configured
+rounded frame and server titlebar. Dragging and resizing adjust that presentation;
+minimize and close work through the titlebar, and maximize or a titlebar double-click
+restores fullscreen. Clicking the game itself keeps it windowed; Mod+F also
+restores fullscreen. This avoids fighting an exclusive-fullscreen game's mode
 negotiation. The game's own display-menu requests remain authoritative: Windowed
 leaves fullscreen normally, and a fullscreen request restores the presentation.
 Mod+F does not save the game's startup mode; use its own display settings for that.

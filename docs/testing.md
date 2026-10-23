@@ -59,6 +59,10 @@ Game rules and ordinary-app controls cover:
   state/frame extents, and cleanup when an XID is unmapped and reused.
 - Mod+F presentation changes keep game protocol state and client size intact;
   clicks preserve the shrunken presentation and client requests still take effect.
+- Rounded game-presentation pixels and server titlebars; drag/release, border
+  resize, maximize, titlebar double-click, minimize/restore, and close, while the
+  client's fullscreen state and buffer size remain intact. A repeated client
+  minimize request must preserve IconicState instead of restoring NormalState.
 - Windowed-size requests sent immediately with fullscreen exit.
 - Cross-monitor hover focus followed by a game fullscreen-exit request, plus
   focused mode changes and ordinary-app behavior.
