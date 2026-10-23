@@ -1936,6 +1936,21 @@ impl FullscreenManager {
         }
     }
 
+    pub(crate) fn reassociate_external_surface(
+        &mut self,
+        previous: &WlSurface,
+        surface: &WlSurface,
+    ) {
+        if self
+            .windows
+            .get(previous)
+            .is_some_and(|entry| entry.native.is_none())
+            && let Some(entry) = self.windows.remove(previous)
+        {
+            self.windows.insert(surface.clone(), entry);
+        }
+    }
+
     pub fn remove(&mut self, surface: &WlSurface) {
         self.windows.remove(surface);
     }

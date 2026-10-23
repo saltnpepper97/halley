@@ -61,7 +61,8 @@ Game rules and ordinary-app controls cover:
   clicks preserve the shrunken presentation and client requests still take effect.
 - Rounded game-presentation pixels and server titlebars; drag/release, border
   resize, maximize, titlebar double-click, minimize/restore, and close, while the
-  client's fullscreen state and buffer size remain intact. A repeated client
+  client's fullscreen state and buffer size remain intact. Minimize/restore
+  must also hide and remap the actual X11 frame. A repeated client
   minimize request must preserve IconicState instead of restoring NormalState.
 - Windowed-size requests sent immediately with fullscreen exit.
 - Cross-monitor hover focus followed by a game fullscreen-exit request, plus

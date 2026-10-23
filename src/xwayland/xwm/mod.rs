@@ -222,6 +222,26 @@ pub(super) fn surface_associated<D: SessionDriver>(
     wl_surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     surface: X11Surface,
 ) {
+    if let Some(window) = window_for_surface(&session.wayland, &session.nodes, &surface)
+        && let Some(previous) = session
+            .nodes
+            .reassociate_window_surface(&window, &wl_surface)
+    {
+        session
+            .fullscreen
+            .reassociate_external_surface(&previous, &wl_surface);
+        session.window_rules.forget(&previous);
+        session.window_rules.track_window(&window);
+        session.render.fullscreen_textures.remove(&previous);
+        if session.wayland.focused_window.as_ref() == Some(&previous) {
+            crate::session::focus_window(session, &window, SERIAL_COUNTER.next_serial());
+        }
+        crate::session::pointer::refresh_desktop_client_focus(
+            session,
+            session.start_time.elapsed().as_millis() as u32,
+        );
+        session.request_redraw();
+    }
     consider_map(session, surface.window_id(), Some(&wl_surface));
 }
 

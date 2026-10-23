@@ -330,15 +330,38 @@ impl<D: SessionDriver> State<D> {
     }
 
     pub fn set_window_iconic(&mut self, window: &Window) {
-        if let Some(surface) = window.x11_surface() {
-            self.transition_surface(surface, xwm::WindowState::Iconic);
-        }
+        self.set_window_visibility(window, false);
     }
 
     pub fn set_window_normal(&mut self, window: &Window) {
-        if let Some(surface) = window.x11_surface() {
-            self.transition_surface(surface, xwm::WindowState::Normal);
+        self.set_window_visibility(window, true);
+    }
+
+    fn set_window_visibility(&mut self, window: &Window, visible: bool) {
+        let Some(surface) = window.x11_surface() else {
+            return;
+        };
+        if visible {
+            // Only the WM's own connection can map a root child without
+            // redirecting the operation back into MapRequest handling.
+            if let Err(err) = surface.set_mapped(true) {
+                eventline::warn!("xwayland: failed to restore minimized frame: {err}");
+            }
+        } else if let (Some(control), Some(frame)) =
+            (self.control.as_ref(), surface.mapped_window_id())
+        {
+            if let Err(err) = control.hide_frame(frame) {
+                eventline::warn!("xwayland: failed to hide minimized frame: {err}");
+            }
         }
+        self.transition_surface(
+            surface,
+            if visible {
+                xwm::WindowState::Normal
+            } else {
+                xwm::WindowState::Iconic
+            },
+        );
     }
 
     /// Temporarily keeps cluster layout from configuring an X11 client while

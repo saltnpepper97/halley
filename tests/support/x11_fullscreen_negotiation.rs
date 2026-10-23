@@ -873,6 +873,16 @@ end
             .unwrap();
         (state.value32().and_then(|mut v| v.next()) == Some(3)).then_some(())
     });
+    assert_eq!(
+        connection
+            .get_window_attributes(window)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .map_state,
+        x11rb::protocol::xproto::MapState::UNVIEWABLE,
+        "minimize must hide the X11 frame as well as the compositor view"
+    );
     // A client may repeat the iconify request after observing the WM's own
     // minimize. This is still the accepted state, not a failed new operation.
     connection
@@ -899,6 +909,16 @@ end
         selector: Some(NodeSelector::Id(id)),
         output: None,
     }));
+    wait_for("restore remaps the X11 frame", || {
+        (connection
+            .get_window_attributes(window)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .map_state
+            == x11rb::protocol::xproto::MapState::VIEWABLE)
+            .then_some(())
+    });
     let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
     assert_eq!((geometry.width, geometry.height), (width, height));
     assert_eq!(presented()["paused"], true);
