@@ -754,6 +754,15 @@ end
             .unwrap()
             .atom
     };
+    x11rb::properties::WmSizeHints {
+        min_size: Some((i32::from(width), i32::from(height))),
+        max_size: Some((i32::from(width), i32::from(height))),
+        ..Default::default()
+    }
+    .set_normal_hints(&connection, window)
+    .unwrap()
+    .check()
+    .unwrap();
     let delete = atom(b"WM_DELETE_WINDOW");
     connection
         .change_property32(

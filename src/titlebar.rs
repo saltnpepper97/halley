@@ -537,7 +537,9 @@ fn titlebar_identity_is_excluded(app_id: Option<&str>, title: Option<&str>) -> b
 }
 
 pub fn control_enabled(window: &Window, control: Control) -> bool {
-    if control != Control::Maximize {
+    // The visible frame of a retained fullscreen client maximizes only its
+    // presentation. Fixed client-buffer hints do not restrict that toggle.
+    if control != Control::Maximize || crate::xwayland::is_fullscreen(window) {
         return true;
     }
     if let Some(toplevel) = window.toplevel() {
