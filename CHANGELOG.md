@@ -85,9 +85,10 @@ All notable changes to this project will be documented in this file.
 - Stabilize XWayland fullscreen and game mode changes. Keep client state,
   geometry, and frame extents consistent; acknowledge unchanged targets; and
   retain live game frames through the configured fullscreen animation. Honor
-  game-menu mode changes after compositor toggles, retain games on other
-  monitors, and accept windowed sizes during exit while
-  centering them on the restored frame. This addresses stuck snapshots,
+  game-menu mode changes after compositor toggles. Mod+F shrinks fullscreen
+  X11 games' presentation without renegotiating their display mode. Retain games
+  on other monitors, and accept windowed sizes during exit while centering them
+  on the restored frame. This addresses stuck snapshots,
   persistent black margins, and corner-anchored restores without game-specific
   rules or new settings.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or

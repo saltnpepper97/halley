@@ -57,6 +57,8 @@ Game rules and ordinary-app controls cover:
 - Smooth fullscreen motion with live game frames and ordinary-app crossfades.
 - Game mode changes after Mod+F, unchanged-mode replies, consistent EWMH
   state/frame extents, and cleanup when an XID is unmapped and reused.
+- Mod+F presentation changes keep game protocol state and client size intact;
+  clicks preserve the shrunken presentation and client requests still take effect.
 - Windowed-size requests sent immediately with fullscreen exit.
 - Cross-monitor hover focus followed by a game fullscreen-exit request, plus
   focused mode changes and ordinary-app behavior.

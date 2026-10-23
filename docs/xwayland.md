@@ -105,13 +105,15 @@ Detected games use live frames during the configured fullscreen easing or spring
 animation. Ordinary apps retain their buffer crossfade. Game detection uses the
 existing [game rules](window-rules.md), without title-specific fullscreen policy.
 
-The game owns its saved display mode. Fullscreen requests receive accepted state
-and geometry replies; later display-menu changes are not blocked by a persistent
-compositor override. To launch fullscreen, save Fullscreen or Borderless
-Fullscreen in the game's own display settings. A focus-loss exit request while
-another monitor is in use keeps the game presented on its own monitor.
-An exclusive-fullscreen client can reassert fullscreen after a compositor resize;
-use its Windowed setting to change the client's mode.
+The game owns its display mode. Once an X11 game is fullscreen, Mod+F smoothly
+shrinks or restores its live presentation without changing its fullscreen
+protocol state or buffer size. Clicking the shrunken game keeps that choice;
+Mod+F restores it. This avoids fighting an exclusive-fullscreen game's mode
+negotiation. The game's own display-menu requests remain authoritative: Windowed
+leaves fullscreen normally, and a fullscreen request restores the presentation.
+Mod+F does not save the game's startup mode; use its own display settings for that.
+A focus-loss exit request while another monitor is in use keeps the game
+presented on its own monitor.
 Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).
 
 Leaving fullscreen restores the previous window position. A game's first
