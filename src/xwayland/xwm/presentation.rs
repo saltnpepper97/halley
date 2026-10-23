@@ -77,6 +77,16 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         });
     let fullscreen = fullscreen || remote_focus_exit;
     let now = crate::frame_clock::monotonic_now();
+    if game
+        && !remote_focus_exit
+        && fullscreen
+        && origin == FullscreenRequestOrigin::Client
+        && let Some(surface) = window.wl_surface()
+    {
+        session
+            .fullscreen
+            .resume_external_presentation(surface.as_ref(), now);
+    }
     let opening_animation = window.wl_surface().is_some_and(|wl_surface| {
         session
             .window_animations

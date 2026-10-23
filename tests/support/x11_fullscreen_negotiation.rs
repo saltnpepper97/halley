@@ -310,6 +310,8 @@ end
                     state["fullscreen_snapshot"], false,
                     "game frames must stay live during geometry motion: {state}"
                 );
+                let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+                assert_eq!((geometry.width, geometry.height), (width, height));
             } else {
                 assert_eq!(
                     state["fullscreen_snapshot"], true,
@@ -360,7 +362,8 @@ end
             thread::sleep(Duration::from_millis(1100));
             let state = observed(&input.state());
             assert_eq!(state["fullscreen_snapshot"], false);
-            assert_eq!(state["fullscreen"], enabled);
+            assert_eq!(state["fullscreen"], game || enabled);
+            assert_eq!(state["paused"], game && !enabled);
             assert_eq!(state["animating"], false);
         }
     }
@@ -402,7 +405,10 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
             input.key(68, true);
             input.key(68, false);
             wait_for("compositor fullscreen change", || {
-                (presented()["fullscreen"] == expected).then_some(())
+                let state = presented();
+                (state["fullscreen"] == (game || expected)
+                    && state["paused"] == (game && !expected))
+                    .then_some(())
             });
         }
         // The game's display menu must still be able to choose windowed,
@@ -445,11 +451,36 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
         input.key(68, true);
         input.key(68, false);
         wait_for("explicit fullscreen exit", || {
-            (presented()["fullscreen"] == false).then_some(())
+            let state = presented();
+            (state["fullscreen"] == game && state["paused"] == game).then_some(())
         });
+        if game {
+            let state = connection
+                .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+                .unwrap()
+                .reply()
+                .unwrap();
+            assert!(state.value32().unwrap().any(|atom| atom == full));
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            assert_eq!((geometry.width, geometry.height), (width, height));
+            let state = presented();
+            let rect = state["rect"].as_array().unwrap();
+            input.motion(
+                rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() / 2.0,
+                rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() / 2.0,
+            );
+            input.button(272, true);
+            input.button(272, false);
+            assert_eq!(
+                presented()["paused"],
+                true,
+                "clicking the shrunken game must not undo Mod+F"
+            );
+        }
         fullscreen(&connection, window, true);
         wait_for("client may enter fullscreen after compositor exit", || {
-            (presented()["fullscreen"] == true).then_some(())
+            let state = presented();
+            (state["fullscreen"] == true && state["paused"] == false).then_some(())
         });
         // Duplicate requests still get state and geometry replies without
         // creating another presentation transaction.
