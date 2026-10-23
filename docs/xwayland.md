@@ -115,6 +115,9 @@ restores fullscreen. This avoids fighting an exclusive-fullscreen game's mode
 negotiation. The game's own display-menu requests remain authoritative: Windowed
 leaves fullscreen normally, and a fullscreen request restores the presentation.
 Mod+F does not save the game's startup mode; use its own display settings for that.
+Its display-menu label can therefore differ from Halley's presentation. If the
+saved windowed frame is too large, Halley fits it within the output work area,
+including configured spacing and decorations, while preserving its aspect ratio.
 A focus-loss exit request while another monitor is in use keeps the game
 presented on its own monitor.
 Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).

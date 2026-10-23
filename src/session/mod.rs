@@ -998,15 +998,18 @@ fn toggle_focused_fullscreen<D: SessionDriver>(session: &mut Session<D>, output:
     let rule = session
         .window_rules
         .resolve_identity(&crate::window::rules::identity(&record.window));
+    let windowed_geometry = fitting_game_presentation(session, &record);
     if record.window.x11_surface().is_some()
         && session.window_rules.games.is_game(
             &record.window,
             &session.wayland.display_handle,
             rule.game,
         )
-        && session
-            .fullscreen
-            .toggle_external_presentation(&record.surface, crate::frame_clock::monotonic_now())
+        && session.fullscreen.toggle_external_presentation(
+            &record.surface,
+            windowed_geometry,
+            crate::frame_clock::monotonic_now(),
+        )
     {
         cancel_grab_for_surface(session, &record.surface);
         session.render.fullscreen_textures.remove(&record.surface);
@@ -1025,6 +1028,62 @@ fn toggle_focused_fullscreen<D: SessionDriver>(session: &mut Session<D>, output:
     }
     let entering = !session.fullscreen.is_fullscreen_or_pending(&record.surface);
     set_record_fullscreen(session, record, entering);
+}
+
+/// A game can map fullscreen without ever having a smaller windowed size.
+/// Fit only an oversized restore frame; retain ordinary saved placements.
+fn fitting_game_presentation<D: SessionDriver>(
+    session: &Session<D>,
+    record: &crate::nodes::NodeRecord,
+) -> Option<Rectangle<i32, Logical>> {
+    let (restore, _) = session.fullscreen.restore_placement(&record.surface)?;
+    let output = session
+        .wayland
+        .space
+        .outputs()
+        .find(|output| output.name() == record.output)?;
+    let output_geometry = session.wayland.space.output_geometry(output)?;
+    let view = session.cameras.field_restore_view(&record.output)?;
+    let viewport = crate::presentation::camera::world_viewport(view, output_geometry);
+    let usable = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
+    let gap = session.settings.field.gap.ceil() as i32;
+    let scale = view.scale.max(f32::EPSILON);
+    let available: Rectangle<i32, Logical> = Rectangle::new(
+        (
+            viewport.loc.x + ((usable.loc.x + gap) as f32 / scale).ceil() as i32,
+            viewport.loc.y + ((usable.loc.y + gap) as f32 / scale).ceil() as i32,
+        )
+            .into(),
+        (
+            ((usable.size.w - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+            ((usable.size.h - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+        )
+            .into(),
+    );
+    let chrome = crate::titlebar::WindowChrome::from_mode(
+        crate::titlebar::DecorationMode::ServerSide,
+        &session.settings.decorations,
+        &session.settings.font,
+    );
+    let outer = chrome.outer_rect(restore);
+    if outer.size.w <= available.size.w && outer.size.h <= available.size.h {
+        return None;
+    }
+    let limit = chrome.client_rect(available);
+    let factor = (f64::from(limit.size.w) / f64::from(restore.size.w.max(1)))
+        .min(f64::from(limit.size.h) / f64::from(restore.size.h.max(1)))
+        .min(1.0);
+    let size = (
+        (f64::from(restore.size.w) * factor).floor().max(1.0) as i32,
+        (f64::from(restore.size.h) * factor).floor().max(1.0) as i32,
+    );
+    let mut fitted = chrome.outer_rect(Rectangle::from_size(size.into()));
+    fitted.loc = available.loc
+        + smithay::utils::Point::<i32, Logical>::from((
+            (available.size.w - fitted.size.w) / 2,
+            (available.size.h - fitted.size.h) / 2,
+        ));
+    Some(chrome.client_rect(fitted))
 }
 
 fn set_record_fullscreen<D: SessionDriver>(

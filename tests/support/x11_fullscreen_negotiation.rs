@@ -980,3 +980,122 @@ end
         None
     });
 }
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; output-sized game restore frame"]
+fn initially_fullscreen_game_fits_its_windowed_frame_and_accepts_client_exit() {
+    for animated in [false, true] {
+        let extra = format!(
+            r##"
+animations:
+ enabled {animated}
+ fullscreen:
+  duration-ms 200
+ end
+end
+field:
+ gap 20
+end
+rules:
+ window-rule:
+  title "Fullscreen negotiation"
+  game true
+ end
+end
+decorations:
+ border:
+  size 3
+  radius 20
+  colour-focused "#00ff00"
+ end
+ titlebars:
+  enabled true
+  height 42
+  colour-focused "#00ff00"
+  show-title false
+  show-icons false
+  show-buttons true
+ end
+end
+"##
+        );
+        let (mut fixture, connection, window, width, height) = setup_with_config(true, &extra);
+        let input = fullscreen_multi_output::Input::new(&fixture);
+        let id = fixture.node("Fullscreen negotiation").id;
+        let presented = || {
+            input.state()["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|w| w["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        let mut previous = None;
+        for _ in 0..2 {
+            input.key(68, true);
+            input.key(68, false);
+            let state = wait_for("output-sized game gets a usable windowed frame", || {
+                let state = presented();
+                (state["paused"] == true && state["animating"] == false).then_some(state)
+            });
+            let r = state["rect"].as_array().unwrap();
+            let (x, y, w, h) = (
+                r[0].as_i64().unwrap(),
+                r[1].as_i64().unwrap(),
+                r[2].as_i64().unwrap(),
+                r[3].as_i64().unwrap(),
+            );
+            assert!(x - 3 >= 20 && y - 42 >= 20, "frame origin: {state}");
+            assert!(x + w + 3 <= i64::from(width) - 20, "frame right: {state}");
+            assert!(y + h + 3 <= i64::from(height) - 20, "frame bottom: {state}");
+            assert!((w * i64::from(height) - h * i64::from(width)).abs() <= i64::from(width));
+            assert_eq!(state["fullscreen"], true);
+            assert_eq!(state["fullscreen_snapshot"], false);
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            assert_eq!((geometry.width, geometry.height), (width, height));
+            if let Some(previous) = previous.as_ref() {
+                assert_eq!(
+                    &state["rect"], previous,
+                    "repeated toggles retain the fitted frame"
+                );
+            }
+            previous = Some(state["rect"].clone());
+            wait_for("titlebar remains visible inside the output", || {
+                let (pixels, stride) = capture_frame_pixels_on(&mut fixture, Some("winit"));
+                let pixel = &pixels[((y - 21) as usize * stride + (x + 25) as usize) * 4..][..3];
+                (pixel[0] < 40 && pixel[1] > 220 && pixel[2] < 40).then_some(())
+            });
+            input.key(68, true);
+            input.key(68, false);
+            wait_for("restore immersive game presentation", || {
+                let state = presented();
+                (state["paused"] == false && state["animating"] == false).then_some(())
+            });
+        }
+        input.key(68, true);
+        input.key(68, false);
+        wait_for(
+            "game presentation windowed before its own mode change",
+            || (presented()["paused"] == true).then_some(()),
+        );
+        fullscreen(&connection, window, false);
+        connection
+            .configure_window(window, &ConfigureWindowAux::new().width(300).height(200))
+            .unwrap()
+            .check()
+            .unwrap();
+        wait_for(
+            "client Windowed mode replaces the fitted presentation",
+            || {
+                let state = presented();
+                let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+                (state["fullscreen"] == false
+                    && state["paused"] == false
+                    && state["animating"] == false
+                    && (geometry.width, geometry.height) == (300, 200))
+                    .then_some(())
+            },
+        );
+    }
+}

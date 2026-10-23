@@ -318,6 +318,7 @@ impl FullscreenManager {
     pub(crate) fn toggle_external_presentation(
         &mut self,
         surface: &WlSurface,
+        windowed_geometry: Option<Rectangle<i32, Logical>>,
         now: Duration,
     ) -> bool {
         let Some(entry) = self.windows.get_mut(surface) else {
@@ -325,6 +326,17 @@ impl FullscreenManager {
         };
         if entry.native.is_some() || !entry.desired || entry.origin == FullscreenOrigin::Maximize {
             return false;
+        }
+        if !entry.presentation_paused
+            && let Some(geometry) = windowed_geometry
+        {
+            if let Some(restore) = entry.restore.as_mut() {
+                restore.location = geometry.loc;
+                restore.geometry = geometry;
+            }
+            entry.presentation_windowed = Some(geometry);
+            entry.presentation_output = None;
+            entry.restore_presentation_output = None;
         }
         set_external_presentation_paused(entry, !entry.presentation_paused, &self.animations, now);
         true
