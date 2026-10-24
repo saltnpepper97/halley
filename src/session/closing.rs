@@ -498,6 +498,15 @@ pub(crate) fn x11_buffer_removed<D: SessionDriver>(
 }
 
 pub(crate) fn mapped<D: SessionDriver>(session: &mut Session<D>, surface: &WlSurface) {
+    if session.render.window_close_animations.is_active(surface)
+        || session.render.window_close_animations.has_pending(surface)
+    {
+        eventline::debug!(
+            "window snapshot: cancelled on map surface={surface:?} active={} pending={}",
+            session.render.window_close_animations.is_active(surface),
+            session.render.window_close_animations.has_pending(surface),
+        );
+    }
     session.render.window_close_animations.cancel(surface);
 }
 

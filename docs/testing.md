@@ -71,6 +71,13 @@ These clients use server-rendered pixels. Vulkan swapchains, launcher handoffs,
 focus-loss reactions, and actual game display menus still require live testing
 in the installed compositor. See the [XWayland fullscreen policy](xwayland.md#fullscreen-and-game-mode-changes).
 
+For intermittent minimize animation failures, the existing runtime
+`halley/halley.log` records `node collapse:` capture, target, start, and first
+render results, plus snapshot cancellations on restore. Logs rotate at 5 MiB
+and retain five backups. These diagnostics distinguish capture failure, a
+surface identity mismatch, skipped first frames, and renderer context mismatch;
+they do not establish that suspend caused the failure.
+
 ## Alt+Tab target visibility
 
 ```sh

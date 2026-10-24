@@ -834,7 +834,8 @@ fn collapse_inner<D: crate::session::SessionDriver>(
     let logical_focus =
         logical_focus_after_collapse(session.nodes.focused(), id, client_was_focused);
 
-    let _ = crate::session::closing::capture_window_for_node(session, &record.window, decay);
+    let snapshot_captured =
+        crate::session::closing::capture_window_for_node(session, &record.window, decay);
     if let Some(restore) = session.maximize.take_restore(&record.surface) {
         session.render.fullscreen_textures.remove(&restore.surface);
         crate::session::configure_field_geometry(session, &restore);
@@ -911,11 +912,23 @@ fn collapse_inner<D: crate::session::SessionDriver>(
         node_position,
         crate::frame_clock::monotonic_now(),
     );
-    session
+    let snapshot_targeted = session
         .render
         .window_close_animations
         .retarget_pending_to_node(&record.surface, node_position);
-    let _ = crate::session::closing::start(session, &record.surface);
+    let snapshot_started = crate::session::closing::start(session, &record.surface);
+    eventline::debug!(
+        "node collapse: node={id:?} x11={} decay={decay} captured={snapshot_captured} targeted={snapshot_targeted} started={snapshot_started} surface_matches={} animations={} node_animation={} duration_ms={} output={:?}",
+        record.window.x11_surface().is_some(),
+        record
+            .window
+            .wl_surface()
+            .is_some_and(|surface| surface.as_ref() == &record.surface),
+        session.settings.animations.enabled,
+        session.settings.animations.node.enabled,
+        session.settings.animations.node.collapse_duration_ms,
+        record.output,
+    );
     let focus_changed = session.nodes.focus(logical_focus, now_ms);
     if focus_changed && let Some(id) = logical_focus {
         session.record_trail_focus(id);

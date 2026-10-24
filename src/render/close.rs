@@ -57,6 +57,7 @@ struct ActiveClose {
     captured: CapturedWindow,
     timeline: CloseTimeline,
     random_seed: f32,
+    first_render: std::cell::Cell<bool>,
 }
 
 pub struct ClosingWindowRender {
@@ -151,6 +152,7 @@ impl WindowCloseAnimations {
                 timeline: CloseTimeline::new(config, now, captured.metadata.start_alpha),
                 captured,
                 random_seed: crate::animation::animation_seed(),
+                first_render: std::cell::Cell::new(true),
             },
         );
         true
@@ -254,6 +256,22 @@ impl WindowCloseAnimations {
         let active = self
             .active
             .values()
+            .inspect(|active| {
+                if active.captured.metadata.output_name == output.name()
+                    && active.captured.metadata.collapse_target.is_some()
+                    && active.first_render.replace(false)
+                {
+                    eventline::debug!(
+                        "node collapse: first render output={:?} texture_context_matches={} finished={} progress={:.3} alpha={} bounds={:?}",
+                        output.name(),
+                        active.captured.texture.context == context,
+                        active.timeline.is_finished_at(now),
+                        active.timeline.visual_at(now).linear_progress,
+                        active.captured.metadata.start_alpha,
+                        active.captured.metadata.initial_destination,
+                    );
+                }
+            })
             .filter(|active| {
                 active.captured.metadata.output_name == output.name()
                     && active.captured.texture.context == context
@@ -489,15 +507,25 @@ mod tests {
         animations.node.collapse_duration_ms = 280;
         animations.window_close.duration_ms = 1700;
         animations.window_close.custom_shader = Some("close.frag".into());
-        let collapse =
-            CloseTimeline::new(snapshot_animation(&animations, true), Duration::ZERO, 1.0);
-        let close = CloseTimeline::new(snapshot_animation(&animations, false), Duration::ZERO, 1.0);
-        assert!(!collapse.shader_pixels());
-        assert!(close.shader_pixels());
-        assert_eq!(collapse.visual_at(Duration::from_millis(140)).progress, 0.5);
-        assert!(collapse.is_finished_at(Duration::from_millis(280)));
-        assert!(!close.is_finished_at(Duration::from_millis(280)));
-        assert!(close.is_finished_at(Duration::from_millis(1700)));
+        // A newly requested collapse gets its full timeline even after a long
+        // idle or suspend interval; marker and ordinary-close timing stay separate.
+        for started_at in [Duration::ZERO, Duration::from_secs(48 * 60 * 60)] {
+            let collapse =
+                CloseTimeline::new(snapshot_animation(&animations, true), started_at, 1.0);
+            let close = CloseTimeline::new(snapshot_animation(&animations, false), started_at, 1.0);
+            assert!(!collapse.shader_pixels());
+            assert!(close.shader_pixels());
+            assert_eq!(collapse.visual_at(started_at).progress, 0.0);
+            assert_eq!(
+                collapse
+                    .visual_at(started_at + Duration::from_millis(140))
+                    .progress,
+                0.5
+            );
+            assert!(collapse.is_finished_at(started_at + Duration::from_millis(280)));
+            assert!(!close.is_finished_at(started_at + Duration::from_millis(280)));
+            assert!(close.is_finished_at(started_at + Duration::from_millis(1700)));
+        }
         assert_eq!(animations.node.duration_ms, 900);
     }
 
