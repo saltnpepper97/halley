@@ -77,16 +77,6 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         });
     let fullscreen = fullscreen || remote_focus_exit;
     let now = crate::frame_clock::monotonic_now();
-    if game
-        && !remote_focus_exit
-        && fullscreen
-        && origin == FullscreenRequestOrigin::Client
-        && let Some(surface) = window.wl_surface()
-    {
-        session
-            .fullscreen
-            .resume_external_presentation(surface.as_ref(), now);
-    }
     let opening_animation = window.wl_surface().is_some_and(|wl_surface| {
         session
             .window_animations
@@ -188,6 +178,12 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         crate::window::raise_managed(&mut session.wayland, &window);
         session.xwayland.raise_window(&window);
     }
+    let fitted_restore = (game
+        && !fullscreen
+        && origin == FullscreenRequestOrigin::Compositor
+        && cluster_restore.is_none())
+    .then(|| fitting_fullscreen_restore(session, &window))
+    .flatten();
     let state_changed = surface.is_fullscreen() != fullscreen;
     if update_client_fullscreen && let Err(err) = surface.set_fullscreen(fullscreen) {
         eventline::warn!("xwayland: failed to update fullscreen state: {err}");
@@ -255,18 +251,19 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     // X11 has no xdg-style state acknowledgement, and an unchanged buffer
     // need never receive full damage again. Waiting for a resized repaint in
     // that case leaves the outgoing snapshot displayed indefinitely.
-    let state_only = session
-        .fullscreen
-        .external_target_geometry(&session.wayland, &window, fullscreen)
-        .is_some_and(|target| {
-            window.wl_surface().is_some_and(|surface| {
-                smithay::backend::renderer::utils::with_renderer_surface_state(
-                    surface.as_ref(),
-                    |state| state.surface_size() == Some(target.size),
-                )
-                .unwrap_or(false)
-            })
-        });
+    let state_only = fitted_restore.is_none()
+        && session
+            .fullscreen
+            .external_target_geometry(&session.wayland, &window, fullscreen)
+            .is_some_and(|target| {
+                window.wl_surface().is_some_and(|surface| {
+                    smithay::backend::renderer::utils::with_renderer_surface_state(
+                        surface.as_ref(),
+                        |state| state.surface_size() == Some(target.size),
+                    )
+                    .unwrap_or(false)
+                })
+            });
     let live_buffers = policy == ExternalPresentationPolicy::LiveAnimated;
     let animate = !state_only
         && (live_buffers
@@ -292,6 +289,12 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         };
         match request {
             Some(ExternalTransactionRequest::Configure(geometry)) => {
+                let geometry = fitted_restore.unwrap_or(geometry);
+                if fitted_restore.is_some() {
+                    session
+                        .fullscreen
+                        .negotiate_external_windowed_geometry(&window, geometry);
+                }
                 if let Err(err) = surface.configure(geometry) {
                     eventline::warn!("xwayland: failed to configure animated fullscreen: {err}");
                     remove_fullscreen_snapshot(session, &window);
@@ -866,14 +869,6 @@ pub(crate) fn configure_window<D: SessionDriver>(
     window: &Window,
     geometry: Rectangle<i32, Logical>,
 ) {
-    if window.wl_surface().is_some_and(|surface| {
-        session
-            .fullscreen
-            .configure_windowed_presentation(surface.as_ref(), geometry)
-    }) {
-        session.request_redraw();
-        return;
-    }
     let Some(surface) = window.x11_surface() else {
         return;
     };
@@ -889,4 +884,62 @@ pub(crate) fn configure_window<D: SessionDriver>(
     if let Err(err) = surface.configure(Rectangle::new(current.loc, size)) {
         eventline::warn!("xwayland: failed to configure window geometry: {err}");
     }
+}
+
+/// A game can map fullscreen without ever having a smaller windowed size.
+/// Fit only oversized restores before configuring a real windowed client.
+fn fitting_fullscreen_restore<D: SessionDriver>(
+    session: &Session<D>,
+    window: &Window,
+) -> Option<Rectangle<i32, Logical>> {
+    let surface = window.wl_surface()?;
+    let (restore, _) = session.fullscreen.restore_placement(surface.as_ref())?;
+    let output_name = crate::wayland::window_output_name(window)?;
+    let output = session
+        .wayland
+        .space
+        .outputs()
+        .find(|output| output.name() == output_name)?;
+    let output_geometry = session.wayland.space.output_geometry(output)?;
+    let view = session.cameras.field_restore_view(&output_name)?;
+    let viewport = crate::presentation::camera::world_viewport(view, output_geometry);
+    let usable = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
+    let gap = session.settings.field.gap.ceil() as i32;
+    let scale = view.scale.max(f32::EPSILON);
+    let available: Rectangle<i32, Logical> = Rectangle::new(
+        (
+            viewport.loc.x + ((usable.loc.x + gap) as f32 / scale).ceil() as i32,
+            viewport.loc.y + ((usable.loc.y + gap) as f32 / scale).ceil() as i32,
+        )
+            .into(),
+        (
+            ((usable.size.w - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+            ((usable.size.h - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+        )
+            .into(),
+    );
+    let chrome = crate::titlebar::WindowChrome::for_window(
+        window,
+        &session.settings.decorations,
+        &session.settings.font,
+    );
+    let outer = chrome.outer_rect(restore);
+    if outer.size.w <= available.size.w && outer.size.h <= available.size.h {
+        return None;
+    }
+    let limit = chrome.client_rect(available);
+    let factor = (f64::from(limit.size.w) / f64::from(restore.size.w.max(1)))
+        .min(f64::from(limit.size.h) / f64::from(restore.size.h.max(1)))
+        .min(1.0);
+    let size = (
+        (f64::from(restore.size.w) * factor).floor().max(1.0) as i32,
+        (f64::from(restore.size.h) * factor).floor().max(1.0) as i32,
+    );
+    let mut fitted = chrome.outer_rect(Rectangle::from_size(size.into()));
+    fitted.loc = available.loc
+        + smithay::utils::Point::<i32, Logical>::from((
+            (available.size.w - fitted.size.w) / 2,
+            (available.size.h - fitted.size.h) / 2,
+        ));
+    Some(chrome.client_rect(fitted))
 }

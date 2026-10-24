@@ -205,12 +205,8 @@ pub(super) fn live_window_elements(
 
     let mut popup_elements = Vec::new();
     let mut elements = Vec::new();
-    let chrome = crate::titlebar::WindowChrome::for_presentation(
-        window,
-        context.fullscreen,
-        context.decorations,
-        context.font,
-    );
+    let chrome =
+        crate::titlebar::WindowChrome::for_window(window, context.decorations, context.font);
     let managed = chrome.mode != crate::titlebar::DecorationMode::Unmanaged;
     let rule_opacity = if managed {
         context.window_rules.opacity(window_surface.as_ref())

@@ -105,19 +105,16 @@ Detected games use live frames during the configured fullscreen easing or spring
 animation. Ordinary apps retain their buffer crossfade. Game detection uses the
 existing [game rules](window-rules.md), without title-specific fullscreen policy.
 
-The game owns its display mode. Once an X11 game is fullscreen, Mod+F smoothly
-shrinks or restores its live presentation without changing its fullscreen
-protocol state or buffer size. The windowed presentation uses the configured
-rounded frame and server titlebar. Dragging and resizing adjust that presentation;
-minimize and close work through the titlebar, and maximize or a titlebar double-click
-restores fullscreen. Clicking the game itself keeps it windowed; Mod+F also
-restores fullscreen. This avoids fighting an exclusive-fullscreen game's mode
-negotiation. The game's own display-menu requests remain authoritative: Windowed
-leaves fullscreen normally, and a fullscreen request restores the presentation.
-Mod+F does not save the game's startup mode; use its own display settings for that.
-Its display-menu label can therefore differ from Halley's presentation. If the
-saved windowed frame is too large, Halley fits it within the output work area,
-including configured spacing and decorations, while preserving its aspect ratio.
+Mod+F enters or leaves fullscreen through the same state-and-size negotiation as
+the game's display-menu requests. Leaving restores an ordinary managed window,
+with its requested decorations and the configured rounding. There is no separate
+scaled fullscreen buffer with special move, resize, or titlebar controls.
+If a game's saved restore frame is too large, a shortcut exit fits the actual
+window inside the work area, using configured spacing and decorations.
+
+The game still owns its saved display setting. Mod+F does not rewrite that setting,
+and a later client fullscreen request is accepted. Use the game's Windowed setting
+if an exclusive-fullscreen game keeps requesting fullscreen after a shortcut exit.
 A focus-loss exit request while another monitor is in use keeps the game
 presented on its own monitor.
 Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).

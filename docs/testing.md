@@ -57,17 +57,11 @@ Game rules and ordinary-app controls cover:
 - Smooth fullscreen motion with live game frames and ordinary-app crossfades.
 - Game mode changes after Mod+F, unchanged-mode replies, consistent EWMH
   state/frame extents, and cleanup when an XID is unmapped and reused.
-- Mod+F presentation changes keep game protocol state and client size intact;
-  clicks preserve the shrunken presentation and client requests still take effect.
-- Output-sized initial game buffers restore inside the work area with visible
-  titlebars, preserve aspect ratio, and still accept the client's Windowed mode.
-- Rounded game-presentation pixels and server titlebars; drag/release, border
-  resize, maximize, titlebar double-click, minimize/restore, and close, while the
-  client's fullscreen state and buffer size remain intact. Minimize/restore
-  must also hide and remap the actual X11 frame. A repeated client
-  minimize request must preserve IconicState instead of restoring NormalState.
-  Client unmap/remap while minimized must retain the same node and presentation;
-  restore also works when the client remains unmapped.
+- Mod+F clears the fullscreen protocol state and restores the client's windowed
+  size. Later client mode requests remain authoritative, without a persistent
+  compositor override or a separate scaled-buffer window mode.
+- Ordinary windowed game frames, titlebar close, and minimize/restore through
+  client unmap/remap cycles.
 - Windowed-size requests sent immediately with fullscreen exit.
 - Cross-monitor hover focus followed by a game fullscreen-exit request, plus
   focused mode changes and ordinary-app behavior.

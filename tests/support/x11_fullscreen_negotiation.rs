@@ -310,8 +310,6 @@ end
                     state["fullscreen_snapshot"], false,
                     "game frames must stay live during geometry motion: {state}"
                 );
-                let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-                assert_eq!((geometry.width, geometry.height), (width, height));
             } else {
                 assert_eq!(
                     state["fullscreen_snapshot"], true,
@@ -362,8 +360,8 @@ end
             thread::sleep(Duration::from_millis(1100));
             let state = observed(&input.state());
             assert_eq!(state["fullscreen_snapshot"], false);
-            assert_eq!(state["fullscreen"], game || enabled);
-            assert_eq!(state["paused"], game && !enabled);
+            assert_eq!(state["fullscreen"], enabled);
+            assert_eq!(state["paused"], false);
             assert_eq!(state["animating"], false);
         }
     }
@@ -406,9 +404,7 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
             input.key(68, false);
             wait_for("compositor fullscreen change", || {
                 let state = presented();
-                (state["fullscreen"] == (game || expected)
-                    && state["paused"] == (game && !expected))
-                    .then_some(())
+                (state["fullscreen"] == expected && state["paused"] == false).then_some(())
             });
         }
         // The game's display menu must still be able to choose windowed,
@@ -452,31 +448,8 @@ fn game_mode_requests_work_after_compositor_fullscreen_changes() {
         input.key(68, false);
         wait_for("explicit fullscreen exit", || {
             let state = presented();
-            (state["fullscreen"] == game && state["paused"] == game).then_some(())
+            (state["fullscreen"] == false && state["paused"] == false).then_some(())
         });
-        if game {
-            let state = connection
-                .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
-                .unwrap()
-                .reply()
-                .unwrap();
-            assert!(state.value32().unwrap().any(|atom| atom == full));
-            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-            assert_eq!((geometry.width, geometry.height), (width, height));
-            let state = presented();
-            let rect = state["rect"].as_array().unwrap();
-            input.motion(
-                rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() / 2.0,
-                rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() / 2.0,
-            );
-            input.button(272, true);
-            input.button(272, false);
-            assert_eq!(
-                presented()["paused"],
-                true,
-                "clicking the shrunken game must not undo Mod+F"
-            );
-        }
         fullscreen(&connection, window, true);
         wait_for("client may enter fullscreen after compositor exit", || {
             let state = presented();
@@ -711,9 +684,71 @@ fn fullscreen_off_on_with_the_same_buffer_does_not_freeze_partial_repaints() {
 }
 
 #[test]
-#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; decorated game presentation"]
-fn shrunken_fullscreen_game_has_rounded_interactive_window_frame() {
-    let (mut fixture, connection, window, width, height) = setup_with_config(
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; conventional game fullscreen exit"]
+fn game_mod_f_negotiates_windowed_state_and_keeps_client_modes_authoritative() {
+    let extra = "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game true\n end\nend\n";
+    let (fixture, connection, window, width, height) = setup_with_config(false, extra);
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    let full = connection
+        .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let net_state = connection
+        .intern_atom(false, b"_NET_WM_STATE")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let protocol_fullscreen = || {
+        connection
+            .get_property(false, window, net_state, AtomEnum::ATOM, 0, 1024)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .value32()
+            .unwrap()
+            .any(|atom| atom == full)
+    };
+    for size in [(240, 160), (360, 220)] {
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("Mod+F negotiates a real windowed client", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (!protocol_fullscreen() && (geometry.width, geometry.height) == size).then_some(())
+        });
+        // A fresh client fullscreen request is authoritative, rather than
+        // being rejected to enforce a persistent compositor override.
+        fullscreen(&connection, window, true);
+        wait_for("client fullscreen after compositor exit", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (protocol_fullscreen() && (geometry.width, geometry.height) == (width, height))
+                .then_some(())
+        });
+        fullscreen(&connection, window, false);
+        connection
+            .configure_window(window, &ConfigureWindowAux::new().width(360).height(220))
+            .unwrap()
+            .check()
+            .unwrap();
+        wait_for("game chooses its own windowed size", || {
+            let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
+            (!protocol_fullscreen() && (geometry.width, geometry.height) == (360, 220))
+                .then_some(())
+        });
+        input.key(68, true);
+        input.key(68, false);
+        wait_for("Mod+F enters fullscreen again", || {
+            protocol_fullscreen().then_some(())
+        });
+    }
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; ordinary decorated game window"]
+fn windowed_game_has_an_ordinary_frame_and_survives_minimize_remap() {
+    let (mut fixture, connection, window, _width, _height) = setup_with_config(
         false,
         r##"
 animations:
@@ -754,15 +789,6 @@ end
             .unwrap()
             .atom
     };
-    x11rb::properties::WmSizeHints {
-        min_size: Some((i32::from(width), i32::from(height))),
-        max_size: Some((i32::from(width), i32::from(height))),
-        ..Default::default()
-    }
-    .set_normal_hints(&connection, window)
-    .unwrap()
-    .check()
-    .unwrap();
     let delete = atom(b"WM_DELETE_WINDOW");
     connection
         .change_property32(
@@ -801,8 +827,8 @@ end
     };
     input.key(68, true);
     input.key(68, false);
-    wait_for("game presented windowed", || {
-        (presented()["paused"] == true).then_some(())
+    wait_for("game exits into a normal window", || {
+        (presented()["fullscreen"] == false).then_some(())
     });
     let (x, y, w, h) = rect();
     wait_for("server titlebar and rounded live client", || {
@@ -818,60 +844,8 @@ end
             && corner.iter().all(|v| *v < 180))
         .then_some(())
     });
-    // Dragging and resizing manipulate the presentation, preserving the
-    // client's fullscreen state and output-sized swapchain throughout.
-    input.motion(f64::from(x + 40), f64::from(y - 16));
-    input.button(272, true);
-    input.motion(f64::from(x + 130), f64::from(y + 34));
-    input.button(272, false);
-    wait_for("titlebar drag and release", || {
-        let r = rect();
-        (r.0 == x + 90 && r.1 == y + 50 && input.state()["moving"] == false).then_some(())
-    });
-    let (x, y, w, h) = rect();
-    input.motion(f64::from(x + w - 1), f64::from(y + h - 1));
-    input.button(272, true);
-    input.motion(f64::from(x + w + 39), f64::from(y + h + 29));
-    input.button(272, false);
-    wait_for("frame resize", || {
-        let r = rect();
-        (r.2 == w + 40 && r.3 == h + 30).then_some(())
-    });
     let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-    assert_eq!((geometry.width, geometry.height), (width, height));
-    assert!(
-        connection
-            .get_property(
-                false,
-                window,
-                atom(b"_NET_WM_STATE"),
-                AtomEnum::ATOM,
-                0,
-                1024
-            )
-            .unwrap()
-            .reply()
-            .unwrap()
-            .value32()
-            .unwrap()
-            .any(|a| a == atom(b"_NET_WM_STATE_FULLSCREEN"))
-    );
-    let (x, y, _, _) = rect();
-    click(x + 40, y - 16);
-    click(x + 40, y - 16);
-    wait_for(
-        "double-click restores the immersive game presentation",
-        || (presented()["paused"] == false).then_some(()),
-    );
-    input.key(68, true);
-    input.key(68, false);
-    let (x, y, w, _) = rect();
-    click(x + w - 48, y - 16); // Maximize restores the immersive game presentation.
-    wait_for("maximize game presentation", || {
-        (presented()["paused"] == false).then_some(())
-    });
-    input.key(68, true);
-    input.key(68, false);
+    assert_eq!((geometry.width, geometry.height), (240, 160));
     let (x, y, w, _) = rect();
     click(x + w - 80, y - 16);
     wait_for("minimize from the server frame", || {
@@ -964,8 +938,9 @@ end
         },
     );
     let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-    assert_eq!((geometry.width, geometry.height), (width, height));
-    assert_eq!(presented()["paused"], true);
+    let r = rect();
+    assert_eq!((geometry.width, geometry.height), (r.2 as u16, r.3 as u16));
+    assert_eq!(presented()["paused"], false);
     let (x, y, w, _) = rect();
     click(x + w - 16, y - 16);
     wait_for("close from the server frame", || {
@@ -982,8 +957,8 @@ end
 }
 
 #[test]
-#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; output-sized game restore frame"]
-fn initially_fullscreen_game_fits_its_windowed_frame_and_accepts_client_exit() {
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; real windowed restore from an output-sized game"]
+fn initially_fullscreen_game_restores_a_real_window_inside_the_work_area() {
     for animated in [false, true] {
         let extra = format!(
             r##"
@@ -1037,7 +1012,23 @@ end
             input.key(68, false);
             let state = wait_for("output-sized game gets a usable windowed frame", || {
                 let state = presented();
-                (state["paused"] == true && state["animating"] == false).then_some(state)
+                let g = connection.get_geometry(window).unwrap().reply().unwrap();
+                let r = state["rect"].as_array()?;
+                let (x, y, w, h) = (
+                    r[0].as_i64()?,
+                    r[1].as_i64()?,
+                    r[2].as_i64()?,
+                    r[3].as_i64()?,
+                );
+                (state["fullscreen"] == false
+                    && state["fullscreen_configure_pending"] == false
+                    && state["animating"] == false
+                    && x - 3 >= 20
+                    && y - 42 >= 20
+                    && x + w + 3 <= i64::from(width) - 20
+                    && y + h + 3 <= i64::from(height) - 20
+                    && (i64::from(g.width), i64::from(g.height)) == (w, h))
+                    .then_some(state)
             });
             let r = state["rect"].as_array().unwrap();
             let (x, y, w, h) = (
@@ -1050,10 +1041,13 @@ end
             assert!(x + w + 3 <= i64::from(width) - 20, "frame right: {state}");
             assert!(y + h + 3 <= i64::from(height) - 20, "frame bottom: {state}");
             assert!((w * i64::from(height) - h * i64::from(width)).abs() <= i64::from(width));
-            assert_eq!(state["fullscreen"], true);
+            assert_eq!(state["fullscreen"], false);
             assert_eq!(state["fullscreen_snapshot"], false);
             let geometry = connection.get_geometry(window).unwrap().reply().unwrap();
-            assert_eq!((geometry.width, geometry.height), (width, height));
+            assert_eq!(
+                (i64::from(geometry.width), i64::from(geometry.height)),
+                (w, h)
+            );
             if let Some(previous) = previous.as_ref() {
                 assert_eq!(
                     &state["rect"], previous,
@@ -1070,14 +1064,22 @@ end
             input.key(68, false);
             wait_for("restore immersive game presentation", || {
                 let state = presented();
-                (state["paused"] == false && state["animating"] == false).then_some(())
+                let g = connection.get_geometry(window).unwrap().reply().unwrap();
+                (state["fullscreen"] == true
+                    && state["fullscreen_configure_pending"] == false
+                    && state["animating"] == false
+                    && (g.width, g.height) == (width, height))
+                    .then_some(())
             });
         }
         input.key(68, true);
         input.key(68, false);
         wait_for(
             "game presentation windowed before its own mode change",
-            || (presented()["paused"] == true).then_some(()),
+            || {
+                (presented()["fullscreen"] == false && presented()["animating"] == false)
+                    .then_some(())
+            },
         );
         fullscreen(&connection, window, false);
         connection

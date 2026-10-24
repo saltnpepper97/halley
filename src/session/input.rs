@@ -2332,12 +2332,7 @@ where
             state.start_cursor,
             world,
         );
-        state.target_size = if crate::xwayland::is_x11(&state.window)
-            && !state.window.wl_surface().is_some_and(|surface| {
-                session
-                    .fullscreen
-                    .has_windowed_presentation(surface.as_ref())
-            }) {
+        state.target_size = if crate::xwayland::is_x11(&state.window) {
             crate::xwayland::constrain_window_size(&state.window, requested_size)
         } else {
             requested_size
@@ -2369,34 +2364,6 @@ where
             session.request_redraw();
             super::pointer::finish_frame(session, &pointer_handle);
             return;
-        }
-        crate::input::grab::Grab::MoveWindow { window, .. }
-            if window.wl_surface().is_some_and(|surface| {
-                session
-                    .fullscreen
-                    .has_windowed_presentation(surface.as_ref())
-            }) =>
-        {
-            let window = window.clone();
-            if motion.is_some()
-                && let Some(surface) = window.wl_surface()
-                && let Some(mut geometry) = session
-                    .fullscreen
-                    .windowed_presentation_geometry(surface.as_ref())
-            {
-                let scale = crate::wayland::window_output_name(&window)
-                    .and_then(|output| session.cameras.view(&output))
-                    .map_or(1.0, |view| view.scale)
-                    .max(0.05);
-                geometry.loc.x +=
-                    ((position_after.0 - position_before.0) / f64::from(scale)).round() as i32;
-                geometry.loc.y +=
-                    ((position_after.1 - position_before.1) / f64::from(scale)).round() as i32;
-                session
-                    .fullscreen
-                    .configure_windowed_presentation(surface.as_ref(), geometry);
-                session.request_redraw();
-            }
         }
         crate::input::grab::Grab::MoveWindow {
             id,

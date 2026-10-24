@@ -66,11 +66,8 @@ struct FullscreenWindow {
     preserve_stack: bool,
     /// Temporarily releases output-camera/top-layer ownership while retaining
     /// the client's fullscreen protocol and geometry. Navigation pauses resume
-    /// through direct activation; explicit Mod+F pauses stay until toggled.
+    /// through direct activation.
     presentation_paused: bool,
-    /// A deliberate Mod+F presentation change resumes through Mod+F or a client
-    /// mode request, rather than an ordinary click or cross-monitor hover.
-    presentation_paused_by_user: bool,
     /// An ordinary app is exiting after explicit navigation. Keep its resize
     /// transition alive without retaining ownership of the output camera.
     navigation_released: bool,
@@ -312,44 +309,6 @@ impl FullscreenManager {
             .is_some_and(|entry| entry.presentation_paused)
     }
 
-    /// Mod+F for X11 games changes only the live presentation. Resizing or
-    /// clearing their protocol fullscreen state can make Wine reassert it and
-    /// leave subsequent display-mode negotiation waiting for a reply.
-    pub(crate) fn toggle_external_presentation(
-        &mut self,
-        surface: &WlSurface,
-        windowed_geometry: Option<Rectangle<i32, Logical>>,
-        now: Duration,
-    ) -> bool {
-        let Some(entry) = self.windows.get_mut(surface) else {
-            return false;
-        };
-        if entry.native.is_some() || !entry.desired || entry.origin == FullscreenOrigin::Maximize {
-            return false;
-        }
-        if !entry.presentation_paused
-            && let Some(geometry) = windowed_geometry
-        {
-            if let Some(restore) = entry.restore.as_mut() {
-                restore.location = geometry.loc;
-                restore.geometry = geometry;
-            }
-            entry.presentation_windowed = Some(geometry);
-            entry.presentation_output = None;
-            entry.restore_presentation_output = None;
-        }
-        set_external_presentation_paused(entry, !entry.presentation_paused, &self.animations, now);
-        true
-    }
-
-    pub(crate) fn resume_external_presentation(&mut self, surface: &WlSurface, now: Duration) {
-        if let Some(entry) = self.windows.get_mut(surface)
-            && entry.presentation_paused_by_user
-        {
-            set_external_presentation_paused(entry, false, &self.animations, now);
-        }
-    }
-
     fn resume_presentation_if(
         &mut self,
         surface: &WlSurface,
@@ -357,7 +316,6 @@ impl FullscreenManager {
     ) -> Option<String> {
         let entry = self.windows.get_mut(surface)?;
         if !entry.presentation_paused
-            || entry.presentation_paused_by_user
             || entry.origin == FullscreenOrigin::Maximize
             || !allows(entry)
         {
@@ -375,7 +333,7 @@ impl FullscreenManager {
         self.windows.retain(|_, entry| {
             entry.transition = None;
             entry.snapshot_serials.clear();
-            entry.presented = entry.desired && !entry.presentation_paused_by_user;
+            entry.presented = entry.desired;
             entry.pending_motion = (if entry.presented { 1.0 } else { 0.0 }, 0.0);
             entry.active || entry.desired || entry.presented
         });
@@ -543,7 +501,6 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
-                presentation_paused_by_user: false,
                 navigation_released: false,
             });
         let now = crate::frame_clock::monotonic_now();
@@ -810,7 +767,6 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
-                presentation_paused_by_user: false,
                 navigation_released: false,
             });
         super::set_window_output(&window, &target);
@@ -938,7 +894,6 @@ impl FullscreenManager {
                 restore_kind: FullscreenRestoreKind::Windowed,
                 preserve_stack: false,
                 presentation_paused: false,
-                presentation_paused_by_user: false,
                 navigation_released: false,
             });
         entry.origin = origin;
@@ -1409,7 +1364,7 @@ impl FullscreenManager {
         Some(FullscreenCameraFrame {
             center,
             progress,
-            desired: entry.desired && !entry.presentation_paused_by_user,
+            desired: entry.desired,
             transition_active: entry.transition.is_some(),
         })
     }
@@ -1571,55 +1526,8 @@ impl FullscreenManager {
             .is_some_and(fullscreen_entry_suppresses_chrome)
     }
 
-    pub(crate) fn has_windowed_presentation(&self, surface: &WlSurface) -> bool {
-        self.windows
-            .get(surface)
-            .is_some_and(|entry| entry.presentation_paused_by_user)
-    }
-
-    pub(crate) fn windowed_presentation_geometry(
-        &self,
-        surface: &WlSurface,
-    ) -> Option<Rectangle<i32, Logical>> {
-        let entry = self.windows.get(surface)?;
-        entry
-            .presentation_paused_by_user
-            .then(|| entry.restore.as_ref().map(|restore| restore.geometry))
-            .flatten()
-    }
-
-    pub(crate) fn configure_windowed_presentation(
-        &mut self,
-        surface: &WlSurface,
-        geometry: Rectangle<i32, Logical>,
-    ) -> bool {
-        let Some(entry) = self
-            .windows
-            .get_mut(surface)
-            .filter(|entry| entry.presentation_paused_by_user)
-        else {
-            return false;
-        };
-        finish_external_transition(entry);
-        if let Some(restore) = entry.restore.as_mut() {
-            restore.location = geometry.loc;
-            restore.geometry = geometry;
-        }
-        entry.presentation_windowed = Some(geometry);
-        entry.presentation_output = None;
-        entry.restore_presentation_output = None;
-        true
-    }
-
-    /// Protocol fullscreen remains a backstop during X11 mode negotiation,
-    /// except when the compositor deliberately presents that client windowed.
+    /// Protocol fullscreen remains a backstop during X11 mode negotiation.
     pub(crate) fn suppresses_window_chrome(&self, window: &Window) -> bool {
-        if window
-            .wl_surface()
-            .is_some_and(|surface| self.has_windowed_presentation(surface.as_ref()))
-        {
-            return false;
-        }
         window
             .wl_surface()
             .is_some_and(|surface| self.suppresses_chrome(surface.as_ref()))
@@ -1932,7 +1840,7 @@ impl FullscreenManager {
                 && entry.external_pending.is_none()
             {
                 entry.transition = None;
-                entry.presented = entry.desired && !entry.presentation_paused_by_user;
+                entry.presented = entry.desired;
                 finished = true;
                 finished_surfaces.push(surface.clone());
             }
@@ -1975,35 +1883,6 @@ pub struct FullscreenCleanup {
 
 fn animations_enabled(animations: &Animations) -> bool {
     animations.enabled && animations.fullscreen.enabled
-}
-
-fn set_external_presentation_paused(
-    entry: &mut FullscreenWindow,
-    paused: bool,
-    animations: &Animations,
-    now: Duration,
-) {
-    let (current, velocity) = if entry.presentation_paused && !entry.presentation_paused_by_user {
-        (0.0, 0.0)
-    } else {
-        visual_motion_state(entry, now)
-    };
-    // The existing output-size configure remains valid. No protocol state or
-    // buffer size changes, and no snapshot endpoint is needed for live games.
-    entry.external_pending = None;
-    entry.active = entry.desired;
-    entry.presentation_paused = paused;
-    entry.presentation_paused_by_user = paused;
-    entry.presented = !paused;
-    entry.transition = animations_enabled(animations).then(|| {
-        MotionTimeline::between(
-            animations.fullscreen.motion,
-            now,
-            current,
-            if paused { 0.0 } else { 1.0 },
-            velocity,
-        )
-    });
 }
 
 fn pause_entry_on_output(entry: &mut FullscreenWindow, output: &str) -> bool {
@@ -2094,7 +1973,7 @@ fn fullscreen_presentation(
     // presents that buffer at its original Field geometry. Reporting settled
     // fullscreen progress would pin the texture to the output and make it
     // travel with the camera.
-    let progress = if entry.presentation_paused && !entry.presentation_paused_by_user {
+    let progress = if entry.presentation_paused {
         0.0
     } else {
         visual_motion_state(entry, now).0.clamp(0.0, 1.0)
@@ -2150,9 +2029,7 @@ fn fullscreen_origin_allows_global_blur(origin: FullscreenOrigin) -> bool {
 }
 
 fn fullscreen_entry_suppresses_chrome(entry: &FullscreenWindow) -> bool {
-    entry.desired
-        && !entry.presentation_paused_by_user
-        && entry.origin != FullscreenOrigin::Maximize
+    entry.desired && entry.origin != FullscreenOrigin::Maximize
 }
 
 fn fullscreen_entry_chrome_alpha(entry: &FullscreenWindow, animated: bool, now: Duration) -> f32 {
@@ -2375,9 +2252,7 @@ fn committed_xdg_window_size(surface: &WlSurface) -> Option<Size<i32, Logical>> 
 }
 
 fn entry_owns_output_presentation(entry: &FullscreenWindow) -> bool {
-    (!entry.presentation_paused
-        || (entry.presentation_paused_by_user && entry.transition.is_some()))
-        && !entry.navigation_released
+    !entry.presentation_paused && !entry.navigation_released
 }
 
 fn entry_presents_immersive(entry: &FullscreenWindow, output: &str) -> bool {
@@ -2544,7 +2419,6 @@ fn begin_external_transaction(
     }
     freeze_visual_for_configure(entry, now);
     entry.presentation_paused = false;
-    entry.presentation_paused_by_user = false;
     entry.desired = desired;
     entry.external_pending = Some(ExternalPending {
         geometry,
@@ -2626,7 +2500,7 @@ fn settle_external_transaction(
 fn finish_external_transition(entry: &mut FullscreenWindow) {
     entry.external_pending = None;
     entry.active = entry.desired;
-    entry.presented = entry.desired && !entry.presentation_paused_by_user;
+    entry.presented = entry.desired;
     entry.transition = None;
     entry.pending_motion = (if entry.presented { 1.0 } else { 0.0 }, 0.0);
 }
@@ -2812,7 +2686,6 @@ mod tests {
             restore_kind: FullscreenRestoreKind::Windowed,
             preserve_stack: false,
             presentation_paused: false,
-            presentation_paused_by_user: false,
             navigation_released: false,
         }
     }
@@ -3317,62 +3190,6 @@ mod tests {
         assert!(!resumes_on_output_return(&entry, "DP-1", Some("DP-1")));
         assert!(!resumes_on_output_return(&entry, "DP-2", Some("DP-1")));
         assert!(!resumes_on_output_return(&entry, "DP-1", None));
-    }
-
-    #[test]
-    fn explicit_game_presentation_toggle_keeps_client_mode_and_smoothly_reverses() {
-        let mut animations = Animations::default();
-        animations.fullscreen.motion =
-            halley_config::AnimationMotion::Easing(halley_config::EasingMotion {
-                duration_ms: 1000,
-                curve: halley_config::AnimationCurve::Linear,
-            });
-        let mut entry = test_entry(true);
-        let size = entry.fullscreen_size;
-        set_external_presentation_paused(&mut entry, true, &animations, Duration::ZERO);
-        assert!(entry.desired && entry.active);
-        assert_eq!(entry.fullscreen_size, size);
-        assert!(entry_owns_output_presentation(&entry));
-        assert_eq!(
-            fullscreen_presentation(&entry, Duration::ZERO)
-                .unwrap()
-                .progress,
-            1.0
-        );
-        let halfway = Duration::from_millis(500);
-        let progress = fullscreen_presentation(&entry, halfway).unwrap().progress;
-        assert!((progress - 0.5).abs() < 0.001);
-        set_external_presentation_paused(&mut entry, false, &animations, halfway);
-        assert_eq!(
-            fullscreen_presentation(&entry, halfway).unwrap().progress,
-            progress
-        );
-        assert!(entry.desired && entry.active && !entry.presentation_paused);
-
-        set_external_presentation_paused(&mut entry, true, &animations, Duration::from_secs(2));
-        // Cleanup retains the client's mode, but releases the monitor and
-        // keeps the final live picture at its windowed presentation endpoint.
-        finish_external_transition(&mut entry);
-        assert_eq!(
-            fullscreen_presentation(&entry, Duration::from_secs(4))
-                .unwrap()
-                .progress,
-            0.0
-        );
-        assert!(!entry_owns_output_presentation(&entry));
-        assert!(entry.desired && entry.active);
-        let windowed = Rectangle::new((100, 100).into(), (800, 600).into());
-        entry.restore = Some(WindowedPlacement {
-            location: windowed.loc,
-            geometry: windowed,
-            output: None,
-        });
-        begin_external_restore(
-            &mut entry,
-            ExternalPresentationKind::LiveAnimated,
-            Duration::from_secs(4),
-        );
-        assert!(!entry.desired && !entry.presentation_paused && !entry.presentation_paused_by_user);
     }
 
     #[test]

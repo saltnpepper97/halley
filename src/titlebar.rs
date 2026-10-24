@@ -44,35 +44,6 @@ pub struct WindowChrome {
 }
 
 impl WindowChrome {
-    /// A compositor-windowed game has a real server frame even while its
-    /// retained fullscreen client buffer requests no decorations.
-    pub(crate) fn for_presentation(
-        window: &Window,
-        fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-        decorations: &halley_config::Decorations,
-        font: &halley_config::Font,
-    ) -> Self {
-        Self::for_visible_presentation(
-            window,
-            !fullscreen.suppresses_window_chrome(window),
-            decorations,
-            font,
-        )
-    }
-
-    pub(crate) fn for_visible_presentation(
-        window: &Window,
-        chrome_visible: bool,
-        decorations: &halley_config::Decorations,
-        font: &halley_config::Font,
-    ) -> Self {
-        if chrome_visible && crate::xwayland::is_fullscreen(window) {
-            Self::from_mode(DecorationMode::ServerSide, decorations, font)
-        } else {
-            Self::for_window(window, decorations, font)
-        }
-    }
-
     pub fn for_window(
         window: &Window,
         decorations: &halley_config::Decorations,
@@ -537,9 +508,7 @@ fn titlebar_identity_is_excluded(app_id: Option<&str>, title: Option<&str>) -> b
 }
 
 pub fn control_enabled(window: &Window, control: Control) -> bool {
-    // The visible frame of a retained fullscreen client maximizes only its
-    // presentation. Fixed client-buffer hints do not restrict that toggle.
-    if control != Control::Maximize || crate::xwayland::is_fullscreen(window) {
+    if control != Control::Maximize {
         return true;
     }
     if let Some(toplevel) = window.toplevel() {

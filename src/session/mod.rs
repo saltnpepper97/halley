@@ -972,18 +972,6 @@ pub(crate) fn activate_titlebar_control<D: SessionDriver>(
         }
         crate::titlebar::Control::Maximize => {
             if let Some(surface) = target.window.wl_surface() {
-                if session
-                    .fullscreen
-                    .has_windowed_presentation(surface.as_ref())
-                {
-                    session.fullscreen.resume_external_presentation(
-                        surface.as_ref(),
-                        crate::frame_clock::monotonic_now(),
-                    );
-                    pointer::reconcile_state(session);
-                    session.request_redraw();
-                    return;
-                }
                 let maximized = session.maximize.contains(surface.as_ref());
                 let _ = set_surface_field_maximized(session, surface.as_ref(), !maximized);
             }
@@ -995,95 +983,8 @@ fn toggle_focused_fullscreen<D: SessionDriver>(session: &mut Session<D>, output:
     let Some(record) = focused_window_record(session, output) else {
         return;
     };
-    let rule = session
-        .window_rules
-        .resolve_identity(&crate::window::rules::identity(&record.window));
-    let windowed_geometry = fitting_game_presentation(session, &record);
-    if record.window.x11_surface().is_some()
-        && session.window_rules.games.is_game(
-            &record.window,
-            &session.wayland.display_handle,
-            rule.game,
-        )
-        && session.fullscreen.toggle_external_presentation(
-            &record.surface,
-            windowed_geometry,
-            crate::frame_clock::monotonic_now(),
-        )
-    {
-        cancel_grab_for_surface(session, &record.surface);
-        session.render.fullscreen_textures.remove(&record.surface);
-        let output = session
-            .wayland
-            .space
-            .outputs()
-            .find(|output| output.name() == record.output)
-            .cloned();
-        if let Some(output) = output {
-            session.sync_fullscreen_camera(&output, crate::frame_clock::monotonic_now());
-        }
-        pointer::reconcile_state(session);
-        session.request_redraw();
-        return;
-    }
     let entering = !session.fullscreen.is_fullscreen_or_pending(&record.surface);
     set_record_fullscreen(session, record, entering);
-}
-
-/// A game can map fullscreen without ever having a smaller windowed size.
-/// Fit only an oversized restore frame; retain ordinary saved placements.
-fn fitting_game_presentation<D: SessionDriver>(
-    session: &Session<D>,
-    record: &crate::nodes::NodeRecord,
-) -> Option<Rectangle<i32, Logical>> {
-    let (restore, _) = session.fullscreen.restore_placement(&record.surface)?;
-    let output = session
-        .wayland
-        .space
-        .outputs()
-        .find(|output| output.name() == record.output)?;
-    let output_geometry = session.wayland.space.output_geometry(output)?;
-    let view = session.cameras.field_restore_view(&record.output)?;
-    let viewport = crate::presentation::camera::world_viewport(view, output_geometry);
-    let usable = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
-    let gap = session.settings.field.gap.ceil() as i32;
-    let scale = view.scale.max(f32::EPSILON);
-    let available: Rectangle<i32, Logical> = Rectangle::new(
-        (
-            viewport.loc.x + ((usable.loc.x + gap) as f32 / scale).ceil() as i32,
-            viewport.loc.y + ((usable.loc.y + gap) as f32 / scale).ceil() as i32,
-        )
-            .into(),
-        (
-            ((usable.size.w - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
-            ((usable.size.h - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
-        )
-            .into(),
-    );
-    let chrome = crate::titlebar::WindowChrome::from_mode(
-        crate::titlebar::DecorationMode::ServerSide,
-        &session.settings.decorations,
-        &session.settings.font,
-    );
-    let outer = chrome.outer_rect(restore);
-    if outer.size.w <= available.size.w && outer.size.h <= available.size.h {
-        return None;
-    }
-    let limit = chrome.client_rect(available);
-    let factor = (f64::from(limit.size.w) / f64::from(restore.size.w.max(1)))
-        .min(f64::from(limit.size.h) / f64::from(restore.size.h.max(1)))
-        .min(1.0);
-    let size = (
-        (f64::from(restore.size.w) * factor).floor().max(1.0) as i32,
-        (f64::from(restore.size.h) * factor).floor().max(1.0) as i32,
-    );
-    let mut fitted = chrome.outer_rect(Rectangle::from_size(size.into()));
-    fitted.loc = available.loc
-        + smithay::utils::Point::<i32, Logical>::from((
-            (available.size.w - fitted.size.w) / 2,
-            (available.size.h - fitted.size.h) / 2,
-        ));
-    Some(chrome.client_rect(fitted))
 }
 
 fn set_record_fullscreen<D: SessionDriver>(
@@ -2001,15 +1902,7 @@ pub(crate) fn begin_window_resize<D: SessionDriver>(
         return false;
     }
     settle_window_movement(session, window);
-    let Some(start_rect) = surface
-        .as_ref()
-        .and_then(|surface| {
-            session
-                .fullscreen
-                .windowed_presentation_geometry(surface.as_ref())
-        })
-        .or_else(|| session.wayland.space.element_geometry(window))
-    else {
+    let Some(start_rect) = session.wayland.space.element_geometry(window) else {
         return false;
     };
     focus::focus_window_from_pointer(session, window, serial);
@@ -2124,9 +2017,6 @@ fn begin_pending_pointer_move<D: SessionDriver>(
             session
                 .fullscreen
                 .is_fullscreen_or_pending(surface.as_ref())
-                && !session
-                    .fullscreen
-                    .has_windowed_presentation(surface.as_ref())
         })
     {
         return false;
@@ -2220,9 +2110,6 @@ fn begin_pointer_move_active<D: SessionDriver>(
             session
                 .fullscreen
                 .is_fullscreen_or_pending(surface.as_ref())
-                && !session
-                    .fullscreen
-                    .has_windowed_presentation(surface.as_ref())
         })
     {
         return false;
