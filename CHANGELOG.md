@@ -82,6 +82,10 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Keep pointer-lock release hints and restored drag anchors within the output
+  layout. Confine captured cursors to the visible part of partially offscreen
+  windows, and release confinement when its effective visible region is empty.
+  Preserve relative-only input while locked and normal cursor-warp validation.
 - Transfer an unfinished fullscreen exit directly into maximize, including
   after the client has acknowledged windowed state, so the two animations
   cannot compete or delay the maximized presentation.

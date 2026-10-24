@@ -42,6 +42,25 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
 
+## Offscreen pointer capture
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect offscreen_pointer \
+  -- --ignored --test-threads=1
+```
+
+Build the private server as described above. These tests place a real client
+partially offscreen with its centre outside the output. Native pointer-lock
+release and recapture run repeatedly at normal and fractional output scales,
+checking that the compositor cursor stays on an output, the lock retains its
+anchor, and relative input continues without absolute motion. Confinement
+checks preserve its visible intersection and release a wholly hidden region.
+A real XWayland client repeatedly grabs and recentres the pointer while fresh
+client colours continue appearing in output captures. Host input remains
+isolated. Actual Minecraft capture and native DRM behaviour require separate
+testing in the installed compositor.
+
 ## X11 fullscreen video-mode changes
 
 ```sh

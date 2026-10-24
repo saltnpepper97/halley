@@ -51,6 +51,8 @@ mod keyboard_leds;
 mod landmark_presentation;
 #[path = "support/multi_keyboard.rs"]
 mod multi_keyboard;
+#[path = "support/offscreen_pointer.rs"]
+mod offscreen_pointer;
 #[path = "support/output_management.rs"]
 mod output_management;
 #[path = "support/pointer_warp.rs"]

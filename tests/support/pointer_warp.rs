@@ -14,9 +14,10 @@ use wayland_protocols::wp::pointer_warp::v1::client::wp_pointer_warp_v1 as warp;
 pub(super) struct Observations {
     pub(super) enter: Option<(wl_surface::WlSurface, u32)>,
     position: Option<(f64, f64)>,
-    motions: usize,
-    locked: bool,
-    confined: bool,
+    pub(super) motions: usize,
+    pub(super) locked: bool,
+    pub(super) confined: bool,
+    pub(super) relative_motions: usize,
 }
 
 impl Dispatch<wl_pointer::WlPointer, ()> for NativeState {
