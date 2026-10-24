@@ -25,10 +25,12 @@ struct WindowOpenTimeline {
     geometry: Option<RectTransition>,
     shader_pixels: bool,
     random_seed: f32,
+    waiting_since: Option<Duration>,
 }
 
 impl WindowOpenTimeline {
     fn visual_at(self, now: Duration, bounds: Rectangle<i32, Physical>) -> WindowOpenVisual {
+        let now = self.waiting_since.unwrap_or(now);
         let sample = self.motion.sample_at(now);
         let raw_progress = sample.value;
         let progress = raw_progress.clamp(0.0, 1.0);
@@ -70,7 +72,8 @@ impl WindowOpenTimeline {
     }
 
     fn is_finished_at(self, now: Duration) -> bool {
-        self.motion.is_finished_at(now)
+        self.waiting_since.is_none()
+            && self.motion.is_finished_at(now)
             && self
                 .geometry
                 .is_none_or(|geometry| geometry.is_finished_at(now))
@@ -410,8 +413,32 @@ impl WindowAnimations {
             geometry: None,
             shader_pixels: config.custom_shader.is_some(),
             random_seed: animation_seed(),
+            waiting_since: None,
         });
         true
+    }
+
+    /// A restored X11 frame may replace its surface and arrive after the
+    /// shortcut. Keep the initial visual until that surface has pixels.
+    pub(crate) fn defer_opening_until_commit(&mut self, surface: &WlSurface, now: Duration) {
+        if let Some(timeline) = self.opening.get_mut(surface) {
+            timeline.waiting_since = Some(now);
+        }
+    }
+
+    pub(crate) fn opening_committed(&mut self, surface: &WlSurface, now: Duration) -> bool {
+        let Some(timeline) = self.opening.get_mut(surface) else {
+            return false;
+        };
+        if timeline.waiting_since.take().is_none() {
+            return false;
+        }
+        timeline.motion = MotionTimeline::new(timeline.motion_config, now);
+        true
+    }
+
+    pub(crate) fn reassociate_opening(&mut self, previous: &WlSurface, surface: &WlSurface) {
+        reassociate_entry(&mut self.opening, previous, surface);
     }
 
     pub fn retarget(
@@ -424,6 +451,9 @@ impl WindowAnimations {
         let Some(timeline) = self.opening.get_mut(surface) else {
             return false;
         };
+        if timeline.waiting_since.is_some() {
+            return false;
+        }
         timeline.retarget(now, current_bounds, target_bounds);
         true
     }
@@ -509,9 +539,9 @@ impl WindowAnimations {
     }
 
     pub fn is_opening(&self, surface: &WlSurface, now: Duration) -> bool {
-        self.opening
-            .get(surface)
-            .is_some_and(|timeline| !timeline.is_finished_at(now))
+        self.opening.get(surface).is_some_and(|timeline| {
+            timeline.waiting_since.is_none() && !timeline.is_finished_at(now)
+        })
     }
 
     pub fn is_animating(&self, surface: &WlSurface, now: Duration) -> bool {
@@ -539,6 +569,18 @@ impl WindowAnimations {
         self.arranging
             .retain(|_, timeline| !timeline.is_finished_at(now));
         self.arranging.len() != arranging_before || self.moving.len() != moving_before
+    }
+}
+
+pub(crate) fn reassociate_entry<T>(
+    entries: &mut HashMap<WlSurface, T>,
+    previous: &WlSurface,
+    surface: &WlSurface,
+) {
+    if previous != surface
+        && let Some(entry) = entries.remove(previous)
+    {
+        entries.insert(surface.clone(), entry);
     }
 }
 
@@ -626,6 +668,7 @@ mod tests {
             geometry: None,
             shader_pixels: false,
             random_seed: 0.0,
+            waiting_since: None,
         }
     }
 
@@ -637,6 +680,113 @@ mod tests {
 
     fn rect(width: i32, height: i32) -> Rectangle<i32, Physical> {
         Rectangle::new((0, 0).into(), (width, height).into())
+    }
+
+    #[test]
+    fn restored_opening_survives_surface_replacement_and_waits_for_pixels() {
+        use smithay::reexports::wayland_server::protocol::wl_surface;
+        use smithay::reexports::wayland_server::{
+            Client, DataInit, Dispatch, Display, DisplayHandle,
+        };
+        use std::os::unix::net::UnixStream;
+        use std::sync::Arc;
+
+        struct State;
+        impl Dispatch<WlSurface, ()> for State {
+            fn request(
+                _: &mut Self,
+                _: &Client,
+                _: &WlSurface,
+                _: wl_surface::Request,
+                _: &(),
+                _: &DisplayHandle,
+                _: &mut DataInit<'_, Self>,
+            ) {
+            }
+        }
+        let display = Display::<State>::new().unwrap();
+        let mut handle = display.handle();
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let client = handle.insert_client(socket, Arc::new(())).unwrap();
+        let previous = client
+            .create_resource::<WlSurface, (), State>(&handle, 1, ())
+            .unwrap();
+        let restored = client
+            .create_resource::<WlSurface, (), State>(&handle, 1, ())
+            .unwrap();
+        let config = Animations {
+            window_open: halley_config::WindowOpenAnimation {
+                motion: AnimationMotion::Easing(EasingMotion {
+                    duration_ms: 300,
+                    curve: AnimationCurve::Linear,
+                }),
+                animation_type: WindowOpenAnimationType::CenterOut,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut animations = WindowAnimations::new(config);
+        let requested = Duration::from_secs(1);
+        let ready = Duration::from_secs(10);
+        let bounds = rect(800, 600);
+        let origin = Some(Point::from((150.0, 200.0)));
+        assert!(animations.start_with_origin(previous.clone(), requested, origin));
+        animations.defer_opening_until_commit(&previous, requested);
+        animations.cleanup(ready);
+        assert_eq!(
+            animations
+                .visual(&previous, ready, bounds)
+                .unwrap()
+                .progress(),
+            0.0
+        );
+        assert!(
+            !animations.is_animating(&previous, ready),
+            "waiting for a client must not spin frames"
+        );
+        assert!(!animations.retarget(&previous, ready, bounds, rect(1000, 800)));
+
+        animations.reassociate_opening(&previous, &restored);
+        assert!(animations.visual(&previous, ready, bounds).is_none());
+        assert_eq!(animations.opening[&restored].launch_origin, origin);
+        assert!(animations.opening_committed(&restored, ready));
+        assert!(animations.is_opening(&restored, ready));
+        assert_eq!(
+            animations
+                .visual(&restored, ready, bounds)
+                .unwrap()
+                .progress(),
+            0.0
+        );
+        let middle = ready + Duration::from_millis(150);
+        assert!(
+            !animations.opening_committed(&restored, middle),
+            "later commits must not restart the animation"
+        );
+        assert_eq!(
+            animations
+                .visual(&restored, middle, bounds)
+                .unwrap()
+                .progress(),
+            0.5
+        );
+        animations.reassociate_opening(&restored, &restored);
+        assert!(animations.is_opening(&restored, middle));
+
+        // Collapsing again cancels the restore, including one still waiting
+        // for a buffer, so another restore can start a fresh timeline.
+        animations.remove(&restored);
+        assert!(animations.start(restored.clone(), middle));
+        animations.defer_opening_until_commit(&restored, middle);
+        animations.remove(&restored);
+        assert!(!animations.opening_committed(&restored, ready + Duration::from_secs(1)));
+        assert!(animations.start(restored.clone(), middle));
+        animations.cleanup(middle + Duration::from_millis(300));
+        assert!(
+            animations
+                .visual(&restored, middle + Duration::from_millis(300), bounds)
+                .is_none()
+        );
     }
 
     #[test]
