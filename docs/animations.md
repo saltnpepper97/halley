@@ -177,6 +177,9 @@ animation. Landmark collision relocation uses the old 520ms damped slide;
 labels independently use the old back-loaded hover slide/grow/fade and request
 frames until settled.
 
+Maximizing during a fullscreen exit takes over at the current animated window
+rectangle and retains the original windowed restore placement.
+
 Field maximize uses the same motion controls and live texture crossfade as
 fullscreen. Its default remains the original 240 ms ease-in-out cubic motion:
 

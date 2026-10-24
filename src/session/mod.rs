@@ -1502,9 +1502,8 @@ fn toggle_field_maximize<D: SessionDriver>(
         })
         .unwrap_or_else(|| output_name.clone());
 
-    let handoff_output_rect = session
-        .fullscreen
-        .is_fullscreen_or_pending(&record.surface)
+    let handoff_from_fullscreen = session.fullscreen.has_presentation(&record.surface, now);
+    let handoff_output_rect = handoff_from_fullscreen
         .then(|| presented_window_rect(session, &record.window, &target_output, now))
         .flatten();
     let presentation_output = cluster_restore
@@ -1533,16 +1532,14 @@ fn toggle_field_maximize<D: SessionDriver>(
     if entering {
         displace_fullscreen_on_output(session, &output_name, &record.surface);
     }
-    // Maximizing straight out of fullscreen hands the whole travel to the
-    // maximize animation: it eases from the rect the window occupies right now
-    // down to the maximized rect. Letting fullscreen arm its own exit
+    // Maximizing out of fullscreen, including an unfinished exit, hands the
+    // whole travel to maximize: it eases from the current window rect down to
+    // the maximized rect. Letting fullscreen arm its own exit
     // transition instead would run two timelines at once, and fullscreen wins
     // in `window_visual_state`, so the shrink toward the small windowed rect is
     // what you would see until it retired and the maximize track took over
     // mid-flight.
-    let handoff_geometry = session
-        .fullscreen
-        .is_fullscreen_or_pending(&record.surface)
+    let handoff_geometry = handoff_from_fullscreen
         .then(|| {
             let geometry = session.wayland.space.element_geometry(&record.window);
             session

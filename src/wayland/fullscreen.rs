@@ -1514,6 +1514,15 @@ impl FullscreenManager {
             .is_some_and(|entry| entry.active || entry.desired)
     }
 
+    /// Presentation ownership outlives the fullscreen state while an
+    /// acknowledged exit is still animating. Other presentation modes must
+    /// retire that owner before starting their own transition.
+    pub(crate) fn has_presentation(&self, surface: &WlSurface, now: Duration) -> bool {
+        self.windows
+            .get(surface)
+            .is_some_and(|entry| fullscreen_presentation(entry, now).is_some())
+    }
+
     /// Whether compositor-owned window chrome should be omitted.
     ///
     /// Entering fullscreen removes chrome before the first animated frame.
@@ -3678,6 +3687,64 @@ mod tests {
         assert!(fullscreen_presentation_is_visible(0.5, true));
         assert!(fullscreen_presentation_is_visible(1.0, false));
         assert!(!fullscreen_presentation_is_visible(0.0, false));
+    }
+
+    #[test]
+    fn acknowledged_fullscreen_exit_remains_available_for_maximize_handoff() {
+        use smithay::reexports::wayland_server::protocol::wl_surface;
+        use smithay::reexports::wayland_server::{
+            Client, DataInit, Dispatch, Display, DisplayHandle,
+        };
+        use std::os::unix::net::UnixStream;
+        use std::sync::Arc;
+
+        struct State;
+        impl Dispatch<WlSurface, ()> for State {
+            fn request(
+                _: &mut Self,
+                _: &Client,
+                _: &WlSurface,
+                _: wl_surface::Request,
+                _: &(),
+                _: &DisplayHandle,
+                _: &mut DataInit<'_, Self>,
+            ) {
+            }
+        }
+        let display = Display::<State>::new().unwrap();
+        let mut handle = display.handle();
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let client = handle.insert_client(socket, Arc::new(())).unwrap();
+        let surface = client
+            .create_resource::<WlSurface, (), State>(&handle, 1, ())
+            .unwrap();
+        let mut animations = Animations::default();
+        animations.fullscreen.motion = AnimationMotion::Easing(EasingMotion {
+            duration_ms: 400,
+            curve: AnimationCurve::Linear,
+        });
+        let started = Duration::from_secs(1);
+        for external in [false, true] {
+            let mut manager = FullscreenManager::new(animations.clone());
+            let mut entry = test_entry(true);
+            if external {
+                entry.native = None;
+            }
+            entry.desired = false;
+            freeze_visual_for_configure(&mut entry, started);
+            settle_visual_commit(&mut entry, &animations, started, false);
+            manager.windows.insert(surface.clone(), entry);
+            assert!(!manager.is_fullscreen_or_pending(&surface));
+            for elapsed in [0, 100, 399, 400] {
+                let now = started + Duration::from_millis(elapsed);
+                assert!(
+                    manager.has_presentation(&surface, now),
+                    "maximize must retire the exit presentation, including its last frame; external={external} elapsed={elapsed}"
+                );
+            }
+            manager.cleanup(started + Duration::from_millis(400));
+            assert!(!manager.has_presentation(&surface, started + Duration::from_millis(400)));
+        }
     }
 
     #[test]

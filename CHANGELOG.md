@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Transfer an unfinished fullscreen exit directly into maximize, including
+  after the client has acknowledged windowed state, so the two animations
+  cannot compete or delay the maximized presentation.
 - Update the selected monitor before Alt+Tab changes window focus. This keeps
   fullscreen games on their own monitor when they react to cross-monitor
   keyboard navigation without physical mouse movement.
