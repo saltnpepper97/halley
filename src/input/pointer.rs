@@ -217,6 +217,28 @@ impl Pointer {
         self.position = position;
     }
 
+    /// Client hints and presentation-driven corrections must leave the
+    /// compositor cursor on a mapped output, just like physical motion.
+    pub fn set_position_on_outputs(
+        &mut self,
+        position: Point<f64, Logical>,
+        space: &Space<Window>,
+    ) -> Option<Point<f64, Logical>> {
+        if !position.x.is_finite() || !position.y.is_finite() {
+            return None;
+        }
+        let outputs: Vec<_> = space
+            .outputs()
+            .filter_map(|output| space.output_geometry(output))
+            .filter(|geometry| geometry.size.w > 0 && geometry.size.h > 0)
+            .collect();
+        if outputs.is_empty() {
+            return None;
+        }
+        self.position = clamp_to_outputs(position.into(), &outputs);
+        Some(self.position.into())
+    }
+
     /// Absolute events (winit's host window mouse, or absolute-mode tty
     /// devices like touchpads/tablets) set the position directly; relative
     /// events (a typical tty/libinput mouse) accumulate a delta. Both are
@@ -1686,5 +1708,46 @@ mod tests {
             Rectangle::new((0, 0).into(), (2560, 1440).into()),
             Rectangle::new((2560, 0).into(), (1920, 1200).into()),
         ]
+    }
+
+    #[test]
+    fn client_cursor_placement_respects_scaled_outputs_gaps_and_removed_outputs() {
+        let mut space = smithay::desktop::Space::<smithay::desktop::Window>::default();
+        let left = scaled_output("left", (1000, 750), 1.25);
+        let right = scaled_output("right", (500, 500), 1.0);
+        space.map_output(&left, (-1000, -100));
+        space.map_output(&right, (100, 50));
+        let mut pointer = super::Pointer::new((-500.0, 100.0));
+        for (requested, expected) in [
+            ((-500.25, 100.5), (-500.25, 100.5)),
+            ((-1500.0, -500.0), (-1000.0, -100.0)),
+            ((-150.0, 100.0), (-201.0, 100.0)),
+            ((900.0, 900.0), (599.0, 549.0)),
+        ] {
+            let placed = pointer
+                .set_position_on_outputs(requested.into(), &space)
+                .unwrap();
+            assert_eq!(pointer.position(), expected);
+            assert!(space.output_under(placed).next().is_some());
+        }
+        let before = pointer.position();
+        for invalid in [(f64::NAN, 0.0), (0.0, f64::INFINITY)] {
+            assert!(
+                pointer
+                    .set_position_on_outputs(invalid.into(), &space)
+                    .is_none()
+            );
+            assert_eq!(pointer.position(), before);
+        }
+        space.unmap_output(&right);
+        pointer.set_position_on_outputs((900.0, 900.0).into(), &space);
+        assert_eq!(pointer.position(), (-201.0, 499.0));
+        space.unmap_output(&left);
+        assert!(
+            pointer
+                .set_position_on_outputs((0.0, 0.0).into(), &space)
+                .is_none()
+        );
+        assert_eq!(pointer.position(), (-201.0, 499.0));
     }
 }

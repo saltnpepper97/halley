@@ -370,9 +370,15 @@ fn sync_grab_suspension<D: SessionDriver>(
             .geometry
             .presentation
             .screen_from_surface(&tracked.surface, anchor)
+        && let Some(screen) = session
+            .pointer
+            .set_position_on_outputs(screen, &session.wayland.space)
+        && let Some(local) = tracked
+            .geometry
+            .presentation
+            .surface_from_screen(&tracked.surface, screen)
     {
-        session.pointer.set_position((screen.x, screen.y));
-        pointer.set_location(tracked.geometry.origin + anchor);
+        pointer.set_location(tracked.geometry.origin + local);
     }
 }
 
@@ -512,11 +518,14 @@ fn deactivate_tracked<D: SessionDriver>(
             surface_input_region(&tracked.surface)
                 .as_ref()
                 .or(geometry.input_region.as_ref()),
+            None,
         ) && let Some(screen) = geometry
             .presentation
             .screen_from_surface(&tracked.surface, local)
         {
-            session.pointer.set_position((screen.x, screen.y));
+            session
+                .pointer
+                .set_position_on_outputs(screen, &session.wayland.space);
         }
     }
     deactivate_protocol(&tracked.surface, pointer, tracked.kind);
@@ -550,21 +559,26 @@ fn nearest_valid_point(
     surface_size: Size<i32, Logical>,
     region: Option<&RegionAttributes>,
     input_region: Option<&RegionAttributes>,
+    visible_bounds: Option<Rectangle<f64, Logical>>,
 ) -> Option<Point<f64, Logical>> {
     if surface_size.w <= 0 || surface_size.h <= 0 {
         return None;
     }
-    let bounds = Rectangle::from_size(surface_size);
-    let allowed = |point: Point<i32, Logical>| {
+    let bounds = Rectangle::from_size(surface_size).to_f64();
+    let bounds = match visible_bounds {
+        Some(visible) => bounds.intersection(visible)?,
+        None => bounds,
+    };
+    if bounds.size.w <= 0.0 || bounds.size.h <= 0.0 {
+        return None;
+    }
+    let allowed = |point: Point<f64, Logical>| {
         bounds.contains(point)
-            && region.is_none_or(|region| region.contains(point))
-            && input_region.is_none_or(|region| region.contains(point))
+            && region.is_none_or(|region| region.contains(point.to_i32_floor()))
+            && input_region.is_none_or(|region| region.contains(point.to_i32_floor()))
     };
     let rounded: Point<i32, Logical> = desired.to_i32_round();
-    if bounds.to_f64().contains(desired)
-        && region.is_none_or(|region| region.contains(desired.to_i32_floor()))
-        && input_region.is_none_or(|region| region.contains(desired.to_i32_floor()))
-    {
+    if allowed(desired) {
         return Some(desired);
     }
 
@@ -623,18 +637,50 @@ fn nearest_valid_point(
     ys.sort_unstable();
     ys.dedup();
 
+    let xs: Vec<_> = xs
+        .into_iter()
+        .map(|x| f64::from(x).clamp(bounds.loc.x, (bounds.loc.x + bounds.size.w).next_down()))
+        .collect();
+    let ys: Vec<_> = ys
+        .into_iter()
+        .map(|y| f64::from(y).clamp(bounds.loc.y, (bounds.loc.y + bounds.size.h).next_down()))
+        .collect();
     xs.into_iter()
         .flat_map(|x| ys.iter().copied().map(move |y| Point::from((x, y))))
         .filter(|point| allowed(*point))
         .min_by(|left, right| {
-            let left_dx = f64::from(left.x) - desired.x;
-            let left_dy = f64::from(left.y) - desired.y;
-            let right_dx = f64::from(right.x) - desired.x;
-            let right_dy = f64::from(right.y) - desired.y;
+            let left_dx = left.x - desired.x;
+            let left_dy = left.y - desired.y;
+            let right_dx = right.x - desired.x;
+            let right_dy = right.y - desired.y;
             (left_dx * left_dx + left_dy * left_dy)
                 .total_cmp(&(right_dx * right_dx + right_dy * right_dy))
         })
-        .map(Point::to_f64)
+}
+
+/// Clip confinement to its owner's output before projecting into shaped
+/// regions. A surface-valid point may be offscreen after a Field pan or move.
+fn visible_surface_bounds<D: SessionDriver>(
+    session: &Session<D>,
+    surface: &WlSurface,
+    presentation: &WindowPresentation,
+) -> Option<Rectangle<f64, Logical>> {
+    let output = crate::wayland::display_scale::output_for_surface(&session.wayland, surface)
+        .unwrap_or_else(|| session.driver.primary_output().clone());
+    let mut bounds = session.wayland.space.output_geometry(&output)?;
+    if bounds.size.w <= 0 || bounds.size.h <= 0 {
+        return None;
+    }
+    // Keep the far edge inside the output through both affine conversions.
+    bounds.size -= (1, 1).into();
+    let start = presentation.surface_from_screen(surface, bounds.loc.to_f64())?;
+    let end = presentation
+        .surface_from_screen(surface, (bounds.loc + bounds.size.to_point()).to_f64())?;
+    // Include the last logical pixel: Rectangle's far edge is exclusive.
+    Some(Rectangle::from_extremities(
+        start,
+        (end.x.next_up(), end.y.next_up()),
+    ))
 }
 
 fn prepare_candidate<D: SessionDriver>(
@@ -794,11 +840,14 @@ pub(super) fn reconcile<D: SessionDriver>(
             }
             ConstraintKind::Confined if !grab_suspends_candidate => {
                 let corrected = local.and_then(|local| {
+                    let visible =
+                        visible_surface_bounds(session, &candidate, &geometry.presentation)?;
                     clamp_into_constraint(
                         local,
                         geometry.surface_size,
                         geometry.region.as_ref(),
                         geometry.input_region.as_ref(),
+                        Some(visible),
                     )
                     .map(|corrected| (local, corrected))
                 });
@@ -1035,6 +1084,11 @@ pub(super) fn confined_position<D: SessionDriver>(
         constraint.surface_size,
         constraint.region.as_ref(),
         constraint.input_region.as_ref(),
+        Some(visible_surface_bounds(
+            session,
+            &constraint.surface,
+            &constraint.presentation,
+        )?),
     )?;
     if corrected == local {
         return None;
@@ -1056,22 +1110,35 @@ fn clamp_into_constraint(
     surface_size: Size<i32, Logical>,
     region: Option<&RegionAttributes>,
     input_region: Option<&RegionAttributes>,
+    visible_bounds: Option<Rectangle<f64, Logical>>,
 ) -> Option<Point<f64, Logical>> {
     if surface_size.w <= 0 || surface_size.h <= 0 {
+        return None;
+    }
+    let bounds = Rectangle::from_size(surface_size).to_f64();
+    let bounds = match visible_bounds {
+        Some(visible) => bounds.intersection(visible)?,
+        None => bounds,
+    };
+    if bounds.size.w <= 0.0 || bounds.size.h <= 0.0 {
         return None;
     }
     // `Rectangle::contains` is exclusive at the far edge, so the last
     // representable position inside the surface is just below it.
     let clamped = Point::from((
-        local.x.clamp(0.0, f64::from(surface_size.w).next_down()),
-        local.y.clamp(0.0, f64::from(surface_size.h).next_down()),
+        local
+            .x
+            .clamp(bounds.loc.x, (bounds.loc.x + bounds.size.w).next_down()),
+        local
+            .y
+            .clamp(bounds.loc.y, (bounds.loc.y + bounds.size.h).next_down()),
     ));
     if region.is_none_or(|region| region.contains(clamped.to_i32_floor()))
         && input_region.is_none_or(|region| region.contains(clamped.to_i32_floor()))
     {
         return Some(clamped);
     }
-    nearest_valid_point(local, surface_size, region, input_region)
+    nearest_valid_point(local, surface_size, region, input_region, visible_bounds)
 }
 
 pub(super) fn apply_position_hint<D: SessionDriver>(
@@ -1269,7 +1336,13 @@ mod tests {
         };
 
         assert_eq!(
-            nearest_valid_point((50.0, 50.0).into(), (100, 100).into(), Some(&region), None,),
+            nearest_valid_point(
+                (50.0, 50.0).into(),
+                (100, 100).into(),
+                Some(&region),
+                None,
+                None,
+            ),
             Some(Point::from((50.0, 60.0)))
         );
     }
@@ -1302,12 +1375,12 @@ mod tests {
 
         // Inside stays untouched, so no correction is reported upstream.
         assert_eq!(
-            clamp_into_constraint((40.5, 20.25).into(), surface, None, None),
+            clamp_into_constraint((40.5, 20.25).into(), surface, None, None, None),
             Some(Point::from((40.5, 20.25)))
         );
         // Outside on both axes is pulled back onto the surface.
         assert_eq!(
-            clamp_into_constraint((-30.0, 500.0).into(), surface, None, None),
+            clamp_into_constraint((-30.0, 500.0).into(), surface, None, None, None),
             Some(Point::from((0.0, f64::from(80).next_down())))
         );
     }
@@ -1315,7 +1388,7 @@ mod tests {
     #[test]
     fn clamping_preserves_the_tangential_component_of_an_edge_slide() {
         let surface = Size::from((100, 80));
-        let slide = clamp_into_constraint((-5.0, 33.75).into(), surface, None, None)
+        let slide = clamp_into_constraint((-5.0, 33.75).into(), surface, None, None, None)
             .expect("a positive surface size always yields a projection");
 
         assert_eq!(slide.x, 0.0);
@@ -1341,7 +1414,13 @@ mod tests {
 
         // A bounds clamp cannot describe the hole, so the projection runs.
         assert_eq!(
-            clamp_into_constraint((50.0, 50.0).into(), (100, 100).into(), Some(&region), None,),
+            clamp_into_constraint(
+                (50.0, 50.0).into(),
+                (100, 100).into(),
+                Some(&region),
+                None,
+                None,
+            ),
             Some(Point::from((50.0, 60.0)))
         );
     }
@@ -1349,7 +1428,7 @@ mod tests {
     #[test]
     fn a_degenerate_surface_has_no_valid_position() {
         assert_eq!(
-            clamp_into_constraint((5.0, 5.0).into(), (0, 40).into(), None, None),
+            clamp_into_constraint((5.0, 5.0).into(), (0, 40).into(), None, None, None),
             None
         );
     }
@@ -1375,6 +1454,7 @@ mod tests {
                 (100, 100).into(),
                 Some(&constraint),
                 Some(&input),
+                None,
             ),
             Some(Point::from((40.0, 30.0)))
         );
@@ -1384,8 +1464,89 @@ mod tests {
                 (100, 100).into(),
                 Some(&constraint),
                 Some(&input),
+                None,
             ),
             Some(Point::from((79.0, 30.0)))
+        );
+    }
+
+    #[test]
+    fn confinement_intersects_visible_fractional_bounds_without_losing_edge_sliding() {
+        let bounds = Rectangle::new((180.25, 0.0).into(), (40.5, 160.0).into());
+        let slide = clamp_into_constraint(
+            (120.0, 80.625).into(),
+            (240, 160).into(),
+            None,
+            None,
+            Some(bounds),
+        )
+        .unwrap();
+        assert_eq!(slide, Point::from((180.25, 80.625)));
+
+        let region = RegionAttributes {
+            rects: vec![
+                (
+                    RectangleKind::Add,
+                    Rectangle::new((0, 0).into(), (240, 160).into()),
+                ),
+                (
+                    RectangleKind::Subtract,
+                    Rectangle::new((175, 40).into(), (35, 80).into()),
+                ),
+            ],
+        };
+        let projected = clamp_into_constraint(
+            (120.0, 80.0).into(),
+            (240, 160).into(),
+            Some(&region),
+            None,
+            Some(bounds),
+        )
+        .unwrap();
+        assert!(bounds.contains(projected));
+        assert!(region.contains(projected.to_i32_floor()));
+    }
+
+    #[test]
+    fn offscreen_or_shaped_empty_confinement_has_no_valid_position() {
+        let empty = Rectangle::new((20.0, 0.0).into(), (0.0, 160.0).into());
+        assert_eq!(
+            clamp_into_constraint(
+                (50.0, 80.0).into(),
+                (240, 160).into(),
+                None,
+                None,
+                Some(empty)
+            ),
+            None,
+        );
+        let hidden = Rectangle::new((300.0, 0.0).into(), (40.0, 160.0).into());
+        assert_eq!(
+            clamp_into_constraint(
+                (50.0, 80.0).into(),
+                (240, 160).into(),
+                None,
+                None,
+                Some(hidden)
+            ),
+            None
+        );
+        let visible = Rectangle::new((180.0, 0.0).into(), (60.0, 160.0).into());
+        let region = RegionAttributes {
+            rects: vec![(
+                RectangleKind::Add,
+                Rectangle::new((0, 0).into(), (100, 160).into()),
+            )],
+        };
+        assert_eq!(
+            clamp_into_constraint(
+                (50.0, 80.0).into(),
+                (240, 160).into(),
+                Some(&region),
+                None,
+                Some(visible)
+            ),
+            None
         );
     }
 }
