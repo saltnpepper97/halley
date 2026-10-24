@@ -243,6 +243,16 @@ pub(super) fn surface_associated<D: SessionDriver>(
             .reassociate_window_surface(&window, &wl_surface)
     {
         session
+            .window_animations
+            .reassociate_opening(&previous, &wl_surface);
+        session
+            .opening_origins
+            .reassociate_surface(&previous, &wl_surface);
+        session
+            .render
+            .window_close_animations
+            .reassociate_surface(&previous, &wl_surface);
+        session
             .fullscreen
             .reassociate_external_surface(&previous, &wl_surface);
         session.window_rules.forget(&previous);
@@ -262,13 +272,28 @@ pub(super) fn surface_associated<D: SessionDriver>(
         );
         session.request_redraw();
     }
+    resume_opening_on_buffer(session, &wl_surface);
     consider_map(session, surface.window_id(), Some(&wl_surface));
+}
+
+fn resume_opening_on_buffer<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) {
+    if with_renderer_surface_state(surface, |state| state.buffer().is_some()).unwrap_or(false)
+        && session
+            .window_animations
+            .opening_committed(surface, crate::frame_clock::monotonic_now())
+    {
+        session.request_redraw();
+    }
 }
 
 pub(super) fn handle_commit<D: SessionDriver>(
     session: &mut Session<D>,
     surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) {
+    resume_opening_on_buffer(session, surface);
     let xid = session
         .xwayland
         .pending_windows

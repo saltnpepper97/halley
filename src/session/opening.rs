@@ -34,6 +34,11 @@ impl OpeningOrigins {
         self.active.remove(surface);
     }
 
+    pub(crate) fn reassociate_surface(&mut self, previous: &WlSurface, surface: &WlSurface) {
+        crate::animation::reassociate_entry(&mut self.pending, previous, surface);
+        crate::animation::reassociate_entry(&mut self.active, previous, surface);
+    }
+
     fn activate(
         &mut self,
         surface: &WlSurface,

@@ -125,6 +125,11 @@ already fullscreen; later ordinary moves and resizes use normal Field placement.
 Windowed-size requests arriving during exit update the same animation endpoint.
 Cluster-managed windows return to their cluster layout.
 
+Node restore animations follow the managed X11 window across replacement
+surfaces and start when its restored buffer is ready. Collapsing again cancels
+the unfinished opening animation; snapshots keep their identity across remaps
+so restoring can cancel an unfinished collapse as well.
+
 ## Advertised EWMH subset
 
 `_NET_SUPPORTED` is rewritten after Smithay initializes the XWM. It includes

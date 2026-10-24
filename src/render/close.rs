@@ -215,6 +215,20 @@ impl WindowCloseAnimations {
         self.active.remove(surface);
     }
 
+    pub(crate) fn reassociate_surface(&mut self, previous: &WlSurface, surface: &WlSurface) {
+        if previous == surface {
+            return;
+        }
+        crate::animation::reassociate_entry(&mut self.pending, previous, surface);
+        crate::animation::reassociate_entry(&mut self.active, previous, surface);
+        if self.provisional.remove(previous) {
+            self.provisional.insert(surface.clone());
+        }
+        if remove_surface(&mut self.speculative, previous) {
+            self.speculative.push(surface.clone());
+        }
+    }
+
     pub fn reload(&mut self, config: Animations) {
         self.config = config;
         if !close_enabled(&self.config) {

@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Preserve XWayland node restore animations when iconification replaces the
+  underlying surface. Start the opening timeline when the restored buffer is
+  ready, and cancel interrupted restores before collapsing again.
 - Stabilize XWayland fullscreen and game mode changes. Keep client state,
   geometry, and frame extents consistent; acknowledge unchanged targets; and
   retain live game frames through the configured fullscreen animation. Honor

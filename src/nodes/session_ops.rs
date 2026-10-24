@@ -835,6 +835,7 @@ fn collapse_inner<D: crate::session::SessionDriver>(
         logical_focus_after_collapse(session.nodes.focused(), id, client_was_focused);
 
     let _ = crate::session::closing::capture_window_for_node(session, &record.window, decay);
+    session.window_animations.remove(&record.surface);
     if let Some(restore) = session.maximize.take_restore(&record.surface) {
         session.render.fullscreen_textures.remove(&restore.surface);
         crate::session::configure_field_geometry(session, &restore);
@@ -1027,7 +1028,12 @@ fn restore_with_centering<D: crate::session::SessionDriver>(
             .cloned()
     };
     if let Some(output) = output {
-        let _ = crate::session::opening::start(session, record.surface.clone(), &output, now);
+        let started = crate::session::opening::start(session, record.surface.clone(), &output, now);
+        if started && record.window.x11_surface().is_some() {
+            session
+                .window_animations
+                .defer_opening_until_commit(&record.surface, now);
+        }
         let should_center = match centering.unwrap_or(session.nodes.config.restore_centering) {
             halley_config::RestoreCentering::Never => false,
             halley_config::RestoreCentering::Always => true,
