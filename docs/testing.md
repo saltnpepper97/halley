@@ -63,8 +63,9 @@ Game rules and ordinary-app controls cover:
 - Ordinary windowed game frames, titlebar close, and minimize/restore through
   client unmap/remap cycles.
 - Windowed-size requests sent immediately with fullscreen exit.
-- Cross-monitor hover focus followed by a game fullscreen-exit request, plus
-  focused mode changes and ordinary-app behavior.
+- Cross-monitor hover or Alt+Tab focus followed by a game fullscreen-exit
+  request, selected-monitor bookkeeping without physical mouse movement,
+  fullscreen return, focused mode changes, and ordinary-app behavior.
 - Centered placement of the first windowed frame and expiry of restore centering.
 
 These clients use server-rendered pixels. Vulkan swapchains, launcher handoffs,

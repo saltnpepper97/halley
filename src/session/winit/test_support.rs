@@ -136,6 +136,7 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                         sides.left_alt, sides.right_alt, sides.left_super, sides.right_super]},
                 "preview": app.shell.focus_cycle.session().and_then(|s| s.preview()).map(|id| id.as_u64()),
                 "focused": app.nodes.focused().map(|id| id.as_u64()), "windows": windows,
+                "selected_output": app.wayland.focused_output,
                 "pointer": app.pointer.position(), "moving": matches!(app.interactions.grab, crate::input::grab::Grab::MoveWindow { .. }),
                 "pending_move": matches!(app.interactions.grab, crate::input::grab::Grab::PendingWindowMove(_)),
                 "resizing": matches!(app.interactions.grab, crate::input::grab::Grab::ResizeWindow(_))});

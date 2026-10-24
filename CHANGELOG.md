@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Update the selected monitor before Alt+Tab changes window focus. This keeps
+  fullscreen games on their own monitor when they react to cross-monitor
+  keyboard navigation without physical mouse movement.
 - Preserve XWayland node restore animations when iconification replaces the
   underlying surface. Start the opening timeline when the restored buffer is
   ready, and cancel interrupted restores before collapsing again.

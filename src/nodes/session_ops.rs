@@ -1268,6 +1268,11 @@ fn focus_navigation_node<D: crate::session::SessionDriver>(
             crate::session::set_surface_field_maximized(session, &surface, false);
         }
     }
+    // Keyboard navigation selects the destination monitor before the old
+    // client sees focus loss. A cursor warp alone does not update that state.
+    if let Some(output) = selected_output.as_ref() {
+        crate::wayland::focus::select_output(&mut session.wayland, output);
+    }
     let activated = if record.collapsed {
         restore_with_centering(
             session,
