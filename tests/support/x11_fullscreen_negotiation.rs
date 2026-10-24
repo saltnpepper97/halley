@@ -128,27 +128,40 @@ fn setup_with_focus(
 
 #[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; game focus-loss mode request"]
-fn game_fullscreen_hover_to_another_monitor_keeps_the_game_presented() {
+fn game_fullscreen_remote_focus_keeps_the_game_presented() {
     for game in [false, true] {
-        let extra = format!(
-            "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game {game}\n end\nend\n"
-        );
-        let (mut fixture, connection, window, width, height) =
-            setup_with_focus(false, &extra, "hover");
-        let source = fixture.node("Fullscreen negotiation");
-        let (_queue, _state) = native_window_named(
-            &fixture,
-            "Remote focus",
-            "halley.test.remote",
-            [0, 0, u32::MAX, u32::MAX],
-        );
-        let remote = fixture.node("Remote focus");
-        fullscreen_multi_output::place(&mut fixture, remote.id, true);
-        let input = fullscreen_multi_output::Input::new(&fixture);
-        input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
-        wait_for("source hover focus", || {
-            (input.state()["focused"] == source.id).then_some(())
-        });
+        for keyboard in [false, true] {
+            remote_focus_scenario(game, keyboard);
+        }
+    }
+}
+
+fn remote_focus_scenario(game: bool, keyboard: bool) {
+    let extra = format!(
+        "animations:\n enabled false\nend\nrules:\n window-rule:\n title \"Fullscreen negotiation\"\n game {game}\n end\nend\n"
+    );
+    let (mut fixture, connection, window, width, height) = setup_with_focus(false, &extra, "hover");
+    let source = fixture.node("Fullscreen negotiation");
+    let (_queue, _state) = native_window_named(
+        &fixture,
+        "Remote focus",
+        "halley.test.remote",
+        [0, 0, u32::MAX, u32::MAX],
+    );
+    let remote = fixture.node("Remote focus");
+    fullscreen_multi_output::place(&mut fixture, remote.id, true);
+    let input = fullscreen_multi_output::Input::new(&fixture);
+    input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
+    wait_for("source hover focus", || {
+        (input.state()["focused"] == source.id).then_some(())
+    });
+    assert_eq!(input.state()["selected_output"], "winit");
+    if keyboard {
+        // No physical mouse motion after this point: Alt+Tab must select
+        // the new monitor before the game replies to losing focus.
+        input.preview(remote.id);
+        input.commit(remote.id);
+    } else {
         let snapshot = input.state();
         let rect = snapshot["windows"]
             .as_array()
@@ -165,36 +178,57 @@ fn game_fullscreen_hover_to_another_monitor_keeps_the_game_presented() {
         wait_for("remote hover focus", || {
             (input.state()["focused"] == remote.id).then_some(())
         });
-        // Model a game's video-mode reaction to losing focus. The other
-        // monitor remains usable without releasing the game's presentation.
-        fullscreen(&connection, window, false);
-        thread::sleep(Duration::from_millis(120));
-        let snapshot = input.state();
-        let observed = snapshot["windows"]
+    }
+    assert_eq!(
+        input.state()["selected_output"],
+        "winit-2",
+        "keyboard={keyboard}"
+    );
+    // Model a game's video-mode reaction to losing focus. The other
+    // monitor remains usable without releasing the game's presentation.
+    fullscreen(&connection, window, false);
+    thread::sleep(Duration::from_millis(120));
+    let snapshot = input.state();
+    let observed = snapshot["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == source.id)
+        .unwrap();
+    assert_eq!(observed["fullscreen"], game, "game={game}: {snapshot}");
+    if game {
+        assert_eq!(observed["rect"], serde_json::json!([0, 0, width, height]));
+        if keyboard {
+            input.preview(source.id);
+            input.commit(source.id);
+        } else {
+            input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
+        }
+        wait_for("game regains hover focus", || {
+            (input.state()["focused"] == source.id).then_some(())
+        });
+        let returned = input.state();
+        assert_eq!(returned["selected_output"], "winit");
+        let presented = returned["windows"]
             .as_array()
             .unwrap()
             .iter()
             .find(|w| w["id"] == source.id)
             .unwrap();
-        assert_eq!(observed["fullscreen"], game, "game={game}: {snapshot}");
-        if game {
-            assert_eq!(observed["rect"], serde_json::json!([0, 0, width, height]));
-            input.motion(f64::from(width) / 2.0, f64::from(height) / 2.0);
-            wait_for("game regains hover focus", || {
-                (input.state()["focused"] == source.id).then_some(())
-            });
-            fullscreen(&connection, window, false);
-            wait_for("focused game may choose windowed mode", || {
-                let snapshot = input.state();
-                snapshot["windows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|w| w["id"] == source.id)
-                    .filter(|w| w["fullscreen"] == false)
-                    .map(|_| ())
-            });
-        }
+        assert_eq!(presented["fullscreen"], true);
+        assert_eq!(presented["paused"], false);
+        assert_eq!(presented["rect"], serde_json::json!([0, 0, width, height]));
+        fullscreen(&connection, window, false);
+        wait_for("focused game may choose windowed mode", || {
+            let snapshot = input.state();
+            snapshot["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|w| w["id"] == source.id)
+                .filter(|w| w["fullscreen"] == false)
+                .map(|_| ())
+        });
     }
 }
 
