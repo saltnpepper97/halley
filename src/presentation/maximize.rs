@@ -947,18 +947,28 @@ mod tests {
     fn fullscreen_handoff_starts_the_grow_at_the_fullscreen_rect() {
         let fullscreen = Rectangle::new((0, 0).into(), (1920, 1080).into());
         let target = Rectangle::new((20, 20).into(), (1880, 1040).into());
-        let presentation = |progress| FieldMaximizePresentation {
+        let presentation = |source, progress| FieldMaximizePresentation {
             progress,
             transition_completion: progress,
             windowed_rect: Rectangle::new((100, 80).into(), (800, 600).into()),
-            windowed_output_rect: Some(fullscreen),
+            windowed_output_rect: Some(source),
             target_rect: target,
         };
 
         // The handoff source replaces the windowed rect the window restores to,
         // so the first frame is exactly where fullscreen left off rather than a
         // jump down to the small rect.
-        assert_eq!(presentation(0.0).client_rect(fullscreen), fullscreen);
-        assert_eq!(presentation(1.0).client_rect(fullscreen), target);
+        for source in [
+            fullscreen,
+            Rectangle::new((50, 40).into(), (1360, 840).into()),
+        ] {
+            // A quick fullscreen exit -> maximize also inherits the current
+            // intermediate rectangle, without waiting for the windowed size.
+            for (progress, expected) in [(0.0, source), (1.0, target)] {
+                let presentation = presentation(source, progress);
+                let windowed = presentation.windowed_output_rect.unwrap();
+                assert_eq!(presentation.client_rect(windowed), expected);
+            }
+        }
     }
 }
