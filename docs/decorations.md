@@ -93,10 +93,11 @@ and the fade scales with the configured motion duration. The titlebar, body
 borders, shadow, and pin badge remain attached to the animated client rectangle
 and share one fade. Their pointer hitboxes follow the same geometry. Fully
 invisible chrome has no pointer hitboxes.
-During fullscreen and maximize transitions, both client images fill the same
-animated rectangle and share its rounded edge. The crossfade begins when the
-new client buffer is accepted, and reduced-size images use additional texture
-samples to reduce shimmering in text and fine detail.
+Snapshot-based fullscreen and maximize transitions blend both client images
+inside the same animated rectangle and rounded edge. The blend starts when the
+new buffer is accepted; reduced-size images use extra texture samples to reduce
+shimmering. [XWayland games](xwayland.md#fullscreen-and-game-mode-changes) use live
+frames during the same geometry animation.
 After the client commits its windowed state, eligible Field pans can run during
 the remaining return animation. Panning moves its windowed destination and
 keeps the usual easing and momentum, without cancelling the animation or

@@ -65,8 +65,8 @@ struct FullscreenWindow {
     restore_kind: FullscreenRestoreKind,
     preserve_stack: bool,
     /// Temporarily releases output-camera/top-layer ownership while retaining
-    /// the client's fullscreen protocol and geometry. Only a direct click on
-    /// this surface resumes immersive presentation.
+    /// the client's fullscreen protocol and geometry. Navigation pauses resume
+    /// through direct activation.
     presentation_paused: bool,
     /// An ordinary app is exiting after explicit navigation. Keep its resize
     /// transition alive without retaining ownership of the output camera.
@@ -165,6 +165,9 @@ impl NativeFullscreenState {
 enum ExternalPresentationKind {
     Opening,
     Animated,
+    /// Keep client buffers live while the compositor animates geometry. Game
+    /// swapchains must not wait on a captured endpoint or full-buffer damage.
+    LiveAnimated,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -331,7 +334,7 @@ impl FullscreenManager {
             entry.transition = None;
             entry.snapshot_serials.clear();
             entry.presented = entry.desired;
-            entry.pending_motion = (if entry.desired { 1.0 } else { 0.0 }, 0.0);
+            entry.pending_motion = (if entry.presented { 1.0 } else { 0.0 }, 0.0);
             entry.active || entry.desired || entry.presented
         });
         true
@@ -801,11 +804,16 @@ impl FullscreenManager {
         wayland: &mut WaylandState,
         window: &Window,
         origin: FullscreenOrigin,
+        live_buffers: bool,
     ) -> Option<ExternalTransactionRequest> {
         self.request_external_transaction(
             wayland,
             window,
-            ExternalPresentationKind::Animated,
+            if live_buffers {
+                ExternalPresentationKind::LiveAnimated
+            } else {
+                ExternalPresentationKind::Animated
+            },
             None,
             origin,
         )
@@ -907,8 +915,16 @@ impl FullscreenManager {
     pub(crate) fn unrequest_external_animated(
         &mut self,
         window: &Window,
+        live_buffers: bool,
     ) -> Option<ExternalTransactionRequest> {
-        self.unrequest_external_transaction(window, ExternalPresentationKind::Animated)
+        self.unrequest_external_transaction(
+            window,
+            if live_buffers {
+                ExternalPresentationKind::LiveAnimated
+            } else {
+                ExternalPresentationKind::Animated
+            },
+        )
     }
 
     pub(crate) fn unrequest_external_opening(
@@ -1024,6 +1040,85 @@ impl FullscreenManager {
         window
             .wl_surface()
             .is_some_and(|surface| desired_matches(self.windows.get(surface.as_ref()), fullscreen))
+    }
+
+    /// A game can send its windowed size before X11 reports the restore
+    /// configure. Accept that size as the exit endpoint, keeping one transaction.
+    pub(crate) fn negotiate_external_windowed_geometry(
+        &mut self,
+        window: &Window,
+        geometry: Rectangle<i32, Logical>,
+    ) {
+        let Some(surface) = window.wl_surface() else {
+            return;
+        };
+        let Some(entry) = self.windows.get_mut(surface.as_ref()) else {
+            return;
+        };
+        if entry.desired {
+            return;
+        }
+        let Some(pending) = entry.external_pending.as_mut() else {
+            return;
+        };
+        if pending.presentation != ExternalPresentationKind::LiveAnimated {
+            return;
+        }
+        if pending.geometry == geometry {
+            return;
+        }
+        pending.geometry = geometry;
+        pending.geometry_acknowledged = false;
+        if let Some(restore) = entry.restore.as_mut() {
+            restore.location += geometry.loc - restore.geometry.loc;
+            restore.geometry = geometry;
+        }
+        entry.presentation_windowed = Some(geometry);
+        // The retained projection describes the old windowed size. Project
+        // the negotiated endpoint through the live camera during this exit.
+        entry.presentation_output = None;
+        entry.restore_presentation_output = None;
+    }
+
+    /// X11 ConfigureRequest must not replace an in-flight presentation target
+    /// or resize a settled fullscreen client behind the presentation manager.
+    pub(crate) fn external_configure_geometry(
+        &self,
+        wayland: &WaylandState,
+        window: &Window,
+    ) -> Option<Rectangle<i32, Logical>> {
+        let surface = window.wl_surface()?;
+        let entry = self.windows.get(surface.as_ref())?;
+        if let Some(pending) = entry.external_pending {
+            return Some(pending.geometry);
+        }
+        entry
+            .desired
+            .then(|| self.external_target_geometry(wayland, window, true))
+            .flatten()
+    }
+
+    /// The geometry a new X11 fullscreen request will configure. A state-only
+    /// change with a matching live buffer does not need a resize snapshot.
+    pub(crate) fn external_target_geometry(
+        &self,
+        wayland: &WaylandState,
+        window: &Window,
+        fullscreen: bool,
+    ) -> Option<Rectangle<i32, Logical>> {
+        if fullscreen {
+            let output = super::window_output_name(window)
+                .and_then(|name| output_by_name(wayland, &name))
+                .or_else(|| super::focus::selected_output(wayland).cloned())?;
+            wayland.space.output_geometry(&output)
+        } else {
+            let surface = window.wl_surface()?;
+            self.windows
+                .get(surface.as_ref())?
+                .restore
+                .as_ref()
+                .map(|restore| restore.geometry)
+        }
     }
 
     pub(crate) fn update_external_windowed_placement(
@@ -1431,6 +1526,14 @@ impl FullscreenManager {
             .is_some_and(fullscreen_entry_suppresses_chrome)
     }
 
+    /// Protocol fullscreen remains a backstop during X11 mode negotiation.
+    pub(crate) fn suppresses_window_chrome(&self, window: &Window) -> bool {
+        window
+            .wl_surface()
+            .is_some_and(|surface| self.suppresses_chrome(surface.as_ref()))
+            || crate::xwayland::is_fullscreen(window)
+    }
+
     /// Share the existing motion timeline so chrome has no separate delay,
     /// redraw timer, or geometry animation and becomes fully visible at rest.
     pub(crate) fn chrome_alpha(&self, surface: &WlSurface, now: Duration) -> f32 {
@@ -1750,6 +1853,21 @@ impl FullscreenManager {
         FullscreenCleanup {
             visual_finished: finished,
             finished_surfaces,
+        }
+    }
+
+    pub(crate) fn reassociate_external_surface(
+        &mut self,
+        previous: &WlSurface,
+        surface: &WlSurface,
+    ) {
+        if self
+            .windows
+            .get(previous)
+            .is_some_and(|entry| entry.native.is_none())
+            && let Some(entry) = self.windows.remove(previous)
+        {
+            self.windows.insert(surface.clone(), entry);
         }
     }
 
@@ -2300,12 +2418,13 @@ fn begin_external_transaction(
         return ExternalTransactionRequest::NoChange;
     }
     freeze_visual_for_configure(entry, now);
+    entry.presentation_paused = false;
     entry.desired = desired;
     entry.external_pending = Some(ExternalPending {
         geometry,
         presentation,
         geometry_acknowledged: false,
-        surface_committed: presentation == ExternalPresentationKind::Opening,
+        surface_committed: presentation != ExternalPresentationKind::Animated,
     });
     ExternalTransactionRequest::Configure(geometry)
 }
@@ -2368,7 +2487,7 @@ fn settle_external_transaction(
             entry.presented = fullscreen;
             entry.transition = None;
         }
-        ExternalPresentationKind::Animated => {
+        ExternalPresentationKind::Animated | ExternalPresentationKind::LiveAnimated => {
             settle_visual_commit(entry, animations, now, fullscreen);
         }
     }
@@ -2383,7 +2502,7 @@ fn finish_external_transition(entry: &mut FullscreenWindow) {
     entry.active = entry.desired;
     entry.presented = entry.desired;
     entry.transition = None;
-    entry.pending_motion = (if entry.desired { 1.0 } else { 0.0 }, 0.0);
+    entry.pending_motion = (if entry.presented { 1.0 } else { 0.0 }, 0.0);
 }
 
 fn relocate_external_window(
@@ -3679,6 +3798,33 @@ mod tests {
         assert!(!desired_matches(Some(&entry), false));
         assert!(!desired_matches(None, true));
         assert_eq!(entry.external_pending, pending);
+    }
+
+    #[test]
+    fn live_external_geometry_animates_without_waiting_for_a_resized_buffer() {
+        let animations = Animations::default();
+        let mut entry = test_entry(false);
+        let target = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        begin_external_transaction(
+            &mut entry,
+            true,
+            target,
+            ExternalPresentationKind::LiveAnimated,
+            Duration::ZERO,
+        );
+        assert_eq!(
+            acknowledge_external_geometry(&mut entry, target, &animations, Duration::ZERO),
+            ExternalConfigureResult::Settled {
+                fullscreen: true,
+                animated: true
+            }
+        );
+        assert!(entry.external_pending.is_none());
+        let transition = entry
+            .transition
+            .expect("live fullscreen keeps its geometry timeline");
+        let halfway = transition.value_at(Duration::from_millis(50));
+        assert!(halfway > 0.0 && halfway < 1.0);
     }
 
     #[test]

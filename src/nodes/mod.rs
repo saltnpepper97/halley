@@ -393,6 +393,26 @@ impl NodesState {
         }
     }
 
+    /// XWayland can replace a window's wl_surface when its X11 frame is
+    /// restored. The managed X11 window and its Field node are still the same.
+    pub(crate) fn reassociate_window_surface(
+        &mut self,
+        window: &Window,
+        surface: &WlSurface,
+    ) -> Option<WlSurface> {
+        let record = self
+            .records
+            .values_mut()
+            .find(|record| &record.window == window)?;
+        if record.surface == *surface {
+            return None;
+        }
+        let previous = std::mem::replace(&mut record.surface, surface.clone());
+        self.by_surface.remove(&previous);
+        self.by_surface.insert(surface.clone(), record.id);
+        Some(previous)
+    }
+
     pub fn mark_detached(&mut self, surface: &WlSurface) {
         let Some(id) = self.by_surface.get(surface).copied() else {
             return;

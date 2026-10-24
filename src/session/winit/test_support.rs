@@ -106,6 +106,8 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 let client = app.wayland.space.element_geometry(&record.window).unwrap_or(record.geometry);
                 let outer = crate::titlebar::outer_rect_for_client(&record.window, client, &app.settings.decorations, &app.settings.font);
                 serde_json::json!({"id": record.id.as_u64(), "fullscreen": app.fullscreen.is_fullscreen_or_pending(&record.surface),
+                    "fullscreen_configure_pending": app.fullscreen.awaits_external_configure(&record.surface),
+                    "fullscreen_snapshot": app.render.fullscreen_textures.awaiting_target(&record.surface),
                     "maximized": app.maximize.contains(&record.surface),
                     "animating": app.fullscreen.is_animating_on_output(output, now)
                         || app.maximize.is_animating_on_output(output, crate::presentation::active_workspace_on_output(&app.clusters, &record.output, now), now),

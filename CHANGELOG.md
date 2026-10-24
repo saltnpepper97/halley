@@ -82,6 +82,21 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Fixed
+- Stabilize XWayland fullscreen and game mode changes. Keep client state,
+  geometry, and frame extents consistent; acknowledge unchanged targets; and
+  retain live game frames through the configured fullscreen animation. Honor
+  game-menu mode changes after compositor toggles. Mod+F negotiates real
+  fullscreen and windowed state, restoring ordinary window controls, requested
+  decorations, and configured rounding. Fit oversized shortcut restores inside
+  the work area. Games retain ownership of their saved display mode and may
+  request fullscreen again. Keep repeated X11 minimize requests iconic.
+  Retain games on other monitors, and accept windowed sizes during exit while
+  centering them on the restored frame. This addresses stuck snapshots,
+  persistent black margins, and corner-anchored restores without game-specific
+  rules or new settings.
+- Hide minimized X11 frames and preserve their window identity and fullscreen
+  presentation when XWayland replaces the underlying surface on restore. Keep
+  minimized windows minimized through client unmap/remap cycles.
 - Raise fully onscreen Alt+Tab targets in place without exiting fullscreen or
   maximize. Reveal partially or fully offscreen targets with minimal camera
   movement, releasing ordinary fullscreen/maximize only on the destination

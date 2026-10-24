@@ -94,6 +94,37 @@ windows keep using the absolute root-to-Field inversion.
 Left/top interactive resize computes its anchor after hint constraint snapping,
 so a terminal-size increment cannot move the opposite edge.
 
+## Fullscreen and game mode changes
+
+X11 fullscreen keeps the accepted output geometry authoritative while the client
+changes video modes. Fullscreen games receive state and geometry replies even
+for unchanged mode requests, and advertise no space for hidden compositor chrome.
+This keeps Wine's client area consistent with the displayed window.
+
+Detected games use live frames during the configured fullscreen easing or spring
+animation. Ordinary apps retain their buffer crossfade. Game detection uses the
+existing [game rules](window-rules.md), without title-specific fullscreen policy.
+
+Mod+F enters or leaves fullscreen through the same state-and-size negotiation as
+the game's display-menu requests. Leaving restores an ordinary managed window,
+with its requested decorations and the configured rounding. There is no separate
+scaled fullscreen buffer with special move, resize, or titlebar controls.
+If a game's saved restore frame is too large, a shortcut exit fits the actual
+window inside the work area, using configured spacing and decorations.
+
+The game still owns its saved display setting. Mod+F does not rewrite that setting,
+and a later client fullscreen request is accepted. Use the game's Windowed setting
+if an exclusive-fullscreen game keeps requesting fullscreen after a shortcut exit.
+A focus-loss exit request while another monitor is in use keeps the game
+presented on its own monitor.
+Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).
+
+Leaving fullscreen restores the previous window position. A game's first
+windowed-size negotiation keeps that frame's center, including when it launched
+already fullscreen; later ordinary moves and resizes use normal Field placement.
+Windowed-size requests arriving during exit update the same animation endpoint.
+Cluster-managed windows return to their cluster layout.
+
 ## Advertised EWMH subset
 
 `_NET_SUPPORTED` is rewritten after Smithay initializes the XWM. It includes
@@ -105,9 +136,9 @@ allowed actions, and frame extents.
 compositor's scene, not in a reparented X frame: the geometry a client reads
 back is its content area alone, so without the property its own root-coordinate
 arithmetic is off by the decoration. The extents come from
-`titlebar::frame_extents`, which derives them from the same three inputs as
-`outer_size_for_client`, and are republished when a client toggles Motif
-decorations or the decoration configuration is reloaded.
+`titlebar::frame_extents` and are republished on Motif decoration changes and
+decoration configuration reloads. Games also receive a zero-frame override on
+fullscreen entry, with normal frame extents restored on exit.
 
 Halley does not advertise behavior it does not implement. In particular,
 `_NET_CLOSE_WINDOW`/`_NET_WM_ACTION_CLOSE`, above/below layers, shading, and

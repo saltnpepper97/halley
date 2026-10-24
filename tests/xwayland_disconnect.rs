@@ -61,6 +61,8 @@ mod resize_drag;
 mod timing_nested;
 #[path = "support/window_movement.rs"]
 mod window_movement;
+#[path = "support/x11_fullscreen_negotiation.rs"]
+mod x11_fullscreen_negotiation;
 
 struct Fixture {
     path: PathBuf,
@@ -118,7 +120,7 @@ impl Fixture {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
         let bindings = if two_outputs {
-            "  \"alt+tab\" \"cycle-focus\"\n  \"F8\" \"resize-window-right\"\n  \"F9\" \"resize-window-down\"\n"
+            "  \"alt+tab\" \"cycle-focus\"\n  \"F8\" \"resize-window-right\"\n  \"F9\" \"resize-window-down\"\n  \"F10\" \"toggle-fullscreen\"\n"
         } else {
             ""
         };

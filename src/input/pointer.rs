@@ -498,10 +498,7 @@ fn window_under(
         }
         let visual_geometry = presentation.visual_geometry();
         let surface = window.wl_surface();
-        let fullscreen = surface
-            .as_ref()
-            .is_some_and(|surface| context.fullscreen.suppresses_chrome(surface.as_ref()))
-            || crate::xwayland::is_fullscreen(window);
+        let fullscreen = context.fullscreen.suppresses_window_chrome(window);
         let chrome =
             crate::titlebar::WindowChrome::for_window(window, context.decorations, context.font);
         let chrome_visible = surface.as_ref().is_none_or(|surface| {
@@ -511,8 +508,7 @@ fn window_under(
                 > 0.0
         });
         if hit_kind == WindowHitKind::Any && !fullscreen && chrome_visible {
-            let source_height = presentation.source_geometry().size.h.max(1);
-            let visual_scale = visual_geometry.size.h as f32 / source_height as f32;
+            let visual_scale = presentation.decoration_scale();
             let border_width =
                 crate::render::window_decoration::scaled_metric(chrome.border_width, visual_scale);
             let titlebar_layout = chrome.has_server_titlebar().then(|| {

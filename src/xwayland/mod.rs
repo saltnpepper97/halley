@@ -248,7 +248,11 @@ impl<D: SessionDriver> State<D> {
         if surface.is_override_redirect() {
             return;
         }
-        let extents = crate::titlebar::frame_extents(window, decorations, font);
+        let extents = if surface.is_fullscreen() {
+            (0, 0, 0, 0)
+        } else {
+            crate::titlebar::frame_extents(window, decorations, font)
+        };
         if let Err(err) = control.set_frame_extents(surface.window_id(), extents) {
             eventline::warn!(
                 "xwayland: failed to publish frame extents xid={}: {err}",
@@ -326,15 +330,43 @@ impl<D: SessionDriver> State<D> {
     }
 
     pub fn set_window_iconic(&mut self, window: &Window) {
-        if let Some(surface) = window.x11_surface() {
-            self.transition_surface(surface, xwm::WindowState::Iconic);
-        }
+        self.set_window_visibility(window, false);
     }
 
     pub fn set_window_normal(&mut self, window: &Window) {
-        if let Some(surface) = window.x11_surface() {
-            self.transition_surface(surface, xwm::WindowState::Normal);
+        self.set_window_visibility(window, true);
+    }
+
+    fn set_window_visibility(&mut self, window: &Window, visible: bool) {
+        let Some(surface) = window.x11_surface() else {
+            return;
+        };
+        if visible {
+            // Only the WM's own connection can map a root child without
+            // redirecting the operation back into MapRequest handling.
+            if surface.mapped_window_id().is_some() {
+                if let Err(err) = surface.set_mapped(true) {
+                    eventline::warn!("xwayland: failed to restore minimized frame: {err}");
+                }
+            } else if let Some(control) = self.control.as_ref()
+                && let Err(err) = control.request_client_map(surface.window_id())
+            {
+                eventline::warn!("xwayland: failed to request minimized client map: {err}");
+            }
+        } else if let (Some(control), Some(frame)) =
+            (self.control.as_ref(), surface.mapped_window_id())
+            && let Err(err) = control.hide_frame(frame)
+        {
+            eventline::warn!("xwayland: failed to hide minimized frame: {err}");
         }
+        self.transition_surface(
+            surface,
+            if visible {
+                xwm::WindowState::Normal
+            } else {
+                xwm::WindowState::Iconic
+            },
+        );
     }
 
     /// Temporarily keeps cluster layout from configuring an X11 client while
@@ -371,6 +403,19 @@ impl<D: SessionDriver> State<D> {
         self.client_geometry_guards
             .get(&xid)
             .is_some_and(|guard| guard.is_active(now))
+    }
+
+    pub(crate) fn arm_client_restore_geometry_guard(
+        &mut self,
+        xid: u32,
+        now: std::time::Duration,
+        outer: Rectangle<i32, Logical>,
+    ) {
+        self.arm_client_geometry_guard(xid, now);
+        self.client_geometry_guards
+            .get_mut(&xid)
+            .expect("geometry guard was armed above")
+            .set_restore_center(outer);
     }
 
     pub(crate) fn client_geometry_guarded_for_window(

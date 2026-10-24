@@ -106,7 +106,7 @@ fn x11_apps_and_games_cross_monitor_alt_tab_preserve_fullscreen() {
     }
 }
 
-fn place(fixture: &mut Fixture, id: u64, second: bool) {
+pub(super) fn place(fixture: &mut Fixture, id: u64, second: bool) {
     let target = if second { "winit-2" } else { "winit" };
     if fixture
         .nodes()

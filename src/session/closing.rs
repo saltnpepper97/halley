@@ -203,8 +203,7 @@ fn capture_window_inner<D: SessionDriver>(
         return false;
     };
     let focused = session.wayland.focused_window.as_ref() == Some(&surface);
-    let chrome_visible =
-        !session.fullscreen.suppresses_chrome(&surface) && !crate::xwayland::is_fullscreen(window);
+    let chrome_visible = !session.fullscreen.suppresses_window_chrome(window);
     let maximized = session.maximize.contains(&surface);
     let server_titlebar = chrome_visible
         && crate::titlebar::WindowChrome::for_window(

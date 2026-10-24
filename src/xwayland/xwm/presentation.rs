@@ -54,6 +54,28 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     let Some(window) = window_for_surface(&session.wayland, &session.nodes, surface) else {
         return;
     };
+    let rule = session
+        .window_rules
+        .resolve_identity(&crate::window::rules::identity(&window));
+    let game =
+        session
+            .window_rules
+            .games
+            .is_game(&window, &session.wayland.display_handle, rule.game);
+    // Exclusive games can answer a cross-monitor hover focus change with an
+    // unset request. Keep that monitor's presentation while another monitor
+    // is in use; a focused mode change and explicit compositor exit still work.
+    let remote_focus_exit = game
+        && !fullscreen
+        && origin == FullscreenRequestOrigin::Client
+        && session.fullscreen.external_desired_matches(&window, true)
+        && window.wl_surface().is_some_and(|surface| {
+            session.wayland.focused_window.as_ref() != Some(surface.as_ref())
+        })
+        && crate::wayland::focus::selected_output(&session.wayland).is_some_and(|output| {
+            crate::wayland::window_output_name(&window).as_deref() != Some(output.name().as_str())
+        });
+    let fullscreen = fullscreen || remote_focus_exit;
     let now = crate::frame_clock::monotonic_now();
     let opening_animation = window.wl_surface().is_some_and(|wl_surface| {
         session
@@ -118,6 +140,29 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
     } else {
         cluster_restore
     };
+    if game
+        && !fullscreen
+        && origin != FullscreenRequestOrigin::Maximize
+        && cluster_restore.is_none()
+        && session.fullscreen.external_desired_matches(&window, true)
+        && let Some(restore) =
+            session
+                .fullscreen
+                .external_target_geometry(&session.wayland, &window, false)
+    {
+        // A game's first windowed video mode can arrive after its fullscreen
+        // unset. Preserve the restored frame's center across that resize burst,
+        // rather than anchoring the new size to the old fullscreen top-left.
+        let outer = crate::titlebar::outer_rect_for_client(
+            &window,
+            restore,
+            &session.settings.decorations,
+            &session.settings.font,
+        );
+        session
+            .xwayland
+            .arm_client_restore_geometry_guard(surface.window_id(), now, outer);
+    }
     if !fullscreen && let Some(restore) = cluster_restore.as_ref() {
         session.fullscreen.override_restore_from_cluster(
             window
@@ -133,13 +178,43 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         crate::window::raise_managed(&mut session.wayland, &window);
         session.xwayland.raise_window(&window);
     }
+    let fitted_restore = (game
+        && !fullscreen
+        && origin == FullscreenRequestOrigin::Compositor
+        && cluster_restore.is_none())
+    .then(|| fitting_fullscreen_restore(session, &window))
+    .flatten();
+    let state_changed = surface.is_fullscreen() != fullscreen;
     if update_client_fullscreen && let Err(err) = surface.set_fullscreen(fullscreen) {
         eventline::warn!("xwayland: failed to update fullscreen state: {err}");
+    }
+    if game {
+        session.xwayland.sync_frame_extents(
+            &window,
+            &session.settings.decorations,
+            &session.settings.font,
+        );
     }
     if session
         .fullscreen
         .external_desired_matches(&window, fullscreen)
     {
+        if game && origin == FullscreenRequestOrigin::Client {
+            if !state_changed
+                && let Some(control) = session.xwayland.control.as_ref()
+                && let Err(err) = control.acknowledge_fullscreen(surface.window_id(), fullscreen)
+            {
+                eventline::warn!("xwayland: failed to acknowledge game fullscreen state: {err}");
+            }
+            // Reply at the accepted target without beginning another visual
+            // transaction or restarting its smooth geometry timeline.
+            let geometry = session
+                .fullscreen
+                .external_configure_geometry(&session.wayland, &window);
+            if let Err(err) = surface.configure(geometry) {
+                eventline::warn!("xwayland: failed to acknowledge game fullscreen geometry: {err}");
+            }
+        }
         eventline::debug!(
             "xwayland: coalesced fullscreen request xid={} fullscreen={fullscreen} \
              origin={origin:?}",
@@ -167,26 +242,59 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
         origin,
         opening,
         crate::session::has_active_pointer_confinement(session),
+        game,
     );
     if policy == ExternalPresentationPolicy::Opening {
         preserve_opening_center(session, surface, &window);
     }
-    let animate = policy == ExternalPresentationPolicy::Animated
-        && capture_fullscreen_snapshot(session, &window, fullscreen);
+    // Games can toggle fullscreen off/on while retaining their swapchain.
+    // X11 has no xdg-style state acknowledgement, and an unchanged buffer
+    // need never receive full damage again. Waiting for a resized repaint in
+    // that case leaves the outgoing snapshot displayed indefinitely.
+    let state_only = fitted_restore.is_none()
+        && session
+            .fullscreen
+            .external_target_geometry(&session.wayland, &window, fullscreen)
+            .is_some_and(|target| {
+                window.wl_surface().is_some_and(|surface| {
+                    smithay::backend::renderer::utils::with_renderer_surface_state(
+                        surface.as_ref(),
+                        |state| state.surface_size() == Some(target.size),
+                    )
+                    .unwrap_or(false)
+                })
+            });
+    let live_buffers = policy == ExternalPresentationPolicy::LiveAnimated;
+    let animate = !state_only
+        && (live_buffers
+            || (policy == ExternalPresentationPolicy::Animated
+                && capture_fullscreen_snapshot(session, &window, fullscreen)));
     if policy == ExternalPresentationPolicy::Opening {
         request_opening_fullscreen(session, surface, &window, fullscreen, origin);
     } else if animate {
+        if live_buffers {
+            remove_fullscreen_snapshot(session, &window);
+        }
         let request = if fullscreen {
             session.fullscreen.request_external_animated(
                 &mut session.wayland,
                 &window,
                 origin.presentation_origin(),
+                live_buffers,
             )
         } else {
-            session.fullscreen.unrequest_external_animated(&window)
+            session
+                .fullscreen
+                .unrequest_external_animated(&window, live_buffers)
         };
         match request {
             Some(ExternalTransactionRequest::Configure(geometry)) => {
+                let geometry = fitted_restore.unwrap_or(geometry);
+                if fitted_restore.is_some() {
+                    session
+                        .fullscreen
+                        .negotiate_external_windowed_geometry(&window, geometry);
+                }
                 if let Err(err) = surface.configure(geometry) {
                     eventline::warn!("xwayland: failed to configure animated fullscreen: {err}");
                     remove_fullscreen_snapshot(session, &window);
@@ -194,8 +302,9 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
                 } else {
                     eventline::debug!(
                         "xwayland: fullscreen policy xid={} fullscreen={fullscreen} \
-                         origin={origin:?} policy=animated",
+                         origin={origin:?} policy={}",
                         surface.window_id(),
+                        policy.name(),
                     );
                 }
             }
@@ -208,12 +317,17 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
             }
         }
     } else {
-        let reason = policy.name();
+        let reason = if state_only {
+            "state-only"
+        } else {
+            policy.name()
+        };
         eventline::debug!(
             "xwayland: fullscreen policy xid={} fullscreen={fullscreen} \
              origin={origin:?} policy={reason}",
             surface.window_id(),
         );
+        remove_fullscreen_snapshot(session, &window);
         settle_external_immediately(session, surface, &window, fullscreen, origin);
     }
     if fullscreen && let Some(wl_surface) = window.wl_surface() {
@@ -770,4 +884,62 @@ pub(crate) fn configure_window<D: SessionDriver>(
     if let Err(err) = surface.configure(Rectangle::new(current.loc, size)) {
         eventline::warn!("xwayland: failed to configure window geometry: {err}");
     }
+}
+
+/// A game can map fullscreen without ever having a smaller windowed size.
+/// Fit only oversized restores before configuring a real windowed client.
+fn fitting_fullscreen_restore<D: SessionDriver>(
+    session: &Session<D>,
+    window: &Window,
+) -> Option<Rectangle<i32, Logical>> {
+    let surface = window.wl_surface()?;
+    let (restore, _) = session.fullscreen.restore_placement(surface.as_ref())?;
+    let output_name = crate::wayland::window_output_name(window)?;
+    let output = session
+        .wayland
+        .space
+        .outputs()
+        .find(|output| output.name() == output_name)?;
+    let output_geometry = session.wayland.space.output_geometry(output)?;
+    let view = session.cameras.field_restore_view(&output_name)?;
+    let viewport = crate::presentation::camera::world_viewport(view, output_geometry);
+    let usable = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
+    let gap = session.settings.field.gap.ceil() as i32;
+    let scale = view.scale.max(f32::EPSILON);
+    let available: Rectangle<i32, Logical> = Rectangle::new(
+        (
+            viewport.loc.x + ((usable.loc.x + gap) as f32 / scale).ceil() as i32,
+            viewport.loc.y + ((usable.loc.y + gap) as f32 / scale).ceil() as i32,
+        )
+            .into(),
+        (
+            ((usable.size.w - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+            ((usable.size.h - 2 * gap) as f32 / scale).floor().max(1.0) as i32,
+        )
+            .into(),
+    );
+    let chrome = crate::titlebar::WindowChrome::for_window(
+        window,
+        &session.settings.decorations,
+        &session.settings.font,
+    );
+    let outer = chrome.outer_rect(restore);
+    if outer.size.w <= available.size.w && outer.size.h <= available.size.h {
+        return None;
+    }
+    let limit = chrome.client_rect(available);
+    let factor = (f64::from(limit.size.w) / f64::from(restore.size.w.max(1)))
+        .min(f64::from(limit.size.h) / f64::from(restore.size.h.max(1)))
+        .min(1.0);
+    let size = (
+        (f64::from(restore.size.w) * factor).floor().max(1.0) as i32,
+        (f64::from(restore.size.h) * factor).floor().max(1.0) as i32,
+    );
+    let mut fitted = chrome.outer_rect(Rectangle::from_size(size.into()));
+    fitted.loc = available.loc
+        + smithay::utils::Point::<i32, Logical>::from((
+            (available.size.w - fitted.size.w) / 2,
+            (available.size.h - fitted.size.h) / 2,
+        ));
+    Some(chrome.client_rect(fitted))
 }

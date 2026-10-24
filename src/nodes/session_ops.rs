@@ -844,6 +844,13 @@ fn collapse_inner<D: crate::session::SessionDriver>(
         }
     }
     crate::session::cancel_grab_for_surface(session, &record.surface);
+    if record.window.x11_surface().is_some() {
+        // Publish the accepted minimize before focus loss. An exclusive
+        // fullscreen client can otherwise start a conflicting mode change
+        // while its X11 frame still appears viewable and normal.
+        crate::xwayland::set_hidden(&record.window, true);
+        session.xwayland.set_window_iconic(&record.window);
+    }
     if client_was_focused {
         // A collapsed surface must not keep receiving keyboard input, but the
         // node remains Halley's logical command/focus target.
@@ -855,10 +862,7 @@ fn collapse_inner<D: crate::session::SessionDriver>(
             .wayland
             .collapsed
             .insert(record.surface.clone(), record.window.clone());
-    } else {
-        crate::xwayland::set_hidden(&record.window, true);
     }
-    session.xwayland.set_window_iconic(&record.window);
     let collapse_origin = rect_center(geometry);
     let scale = session
         .cameras

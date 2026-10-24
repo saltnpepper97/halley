@@ -1123,10 +1123,7 @@ fn preview_chrome_visible(
     window: &smithay::desktop::Window,
     fullscreen: &crate::wayland::fullscreen::FullscreenManager,
 ) -> bool {
-    !crate::xwayland::is_fullscreen(window)
-        && window
-            .wl_surface()
-            .is_none_or(|surface| !fullscreen.suppresses_chrome(surface.as_ref()))
+    !fullscreen.suppresses_window_chrome(window)
 }
 
 fn preview_outer_size(
@@ -1137,7 +1134,9 @@ fn preview_outer_size(
     chrome_visible: bool,
 ) -> smithay::utils::Size<i32, Logical> {
     if chrome_visible {
-        crate::titlebar::outer_size_for_client(window, client, decorations, font)
+        crate::titlebar::WindowChrome::for_window(window, decorations, font)
+            .outer_rect(Rectangle::from_size(client))
+            .size
     } else {
         client
     }
@@ -1153,7 +1152,8 @@ fn preview_outer_rect(
     if !chrome_visible {
         return client;
     }
-    crate::titlebar::outer_rect_for_client(window, client.to_logical(1), decorations, font)
+    crate::titlebar::WindowChrome::for_window(window, decorations, font)
+        .outer_rect(client.to_logical(1))
         .to_physical(1)
 }
 

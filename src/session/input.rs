@@ -3381,11 +3381,13 @@ where
                                 });
                             if double_click {
                                 session.interactions.titlebar_last_click = None;
-                                let maximized = session.maximize.contains(surface.as_ref());
-                                let _ = super::set_surface_field_maximized(
+                                super::activate_titlebar_control(
                                     session,
-                                    surface.as_ref(),
-                                    !maximized,
+                                    &crate::titlebar::ButtonTarget {
+                                        window: pending.window.clone(),
+                                        control: crate::titlebar::Control::Maximize,
+                                    },
+                                    serial,
                                 );
                             } else {
                                 session.interactions.titlebar_last_click =

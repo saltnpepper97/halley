@@ -42,6 +42,35 @@ XWayland child are owned by its fixture. Diagnostics stay in its temporary
 These are two-logical-output integration tests. They do not validate physical
 monitor modesetting, DRM scanout or real game-engine input behavior.
 
+## X11 fullscreen video-mode changes
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect x11_fullscreen_negotiation \
+  -- --ignored --test-threads=1
+```
+
+The suite uses real X11 requests, raw key/pointer events, and captured pixels.
+Game rules and ordinary-app controls cover:
+
+- Output-sized fullscreen geometry, same-size transitions, and partial repaints.
+- Smooth fullscreen motion with live game frames and ordinary-app crossfades.
+- Game mode changes after Mod+F, unchanged-mode replies, consistent EWMH
+  state/frame extents, and cleanup when an XID is unmapped and reused.
+- Mod+F clears the fullscreen protocol state and restores the client's windowed
+  size. Later client mode requests remain authoritative, without a persistent
+  compositor override or a separate scaled-buffer window mode.
+- Ordinary windowed game frames, titlebar close, and minimize/restore through
+  client unmap/remap cycles.
+- Windowed-size requests sent immediately with fullscreen exit.
+- Cross-monitor hover focus followed by a game fullscreen-exit request, plus
+  focused mode changes and ordinary-app behavior.
+- Centered placement of the first windowed frame and expiry of restore centering.
+
+These clients use server-rendered pixels. Vulkan swapchains, launcher handoffs,
+focus-loss reactions, and actual game display menus still require live testing
+in the installed compositor. See the [XWayland fullscreen policy](xwayland.md#fullscreen-and-game-mode-changes).
+
 ## Alt+Tab target visibility
 
 ```sh

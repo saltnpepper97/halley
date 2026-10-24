@@ -76,10 +76,6 @@ fn active_crossfade_completion(completion: Option<f64>) -> Option<f64> {
     completion.filter(|completion| *completion < CROSSFADE_COMPLETE)
 }
 
-fn compositor_chrome_visible(logical_fullscreen: bool, x11_fullscreen: bool) -> bool {
-    !logical_fullscreen && !x11_fullscreen
-}
-
 /// Window-rule opacity fades client pixels. Compositor chrome stays on the
 /// opening/cluster fade only, matching niri's split.
 fn window_content_and_chrome_alpha(
@@ -221,12 +217,7 @@ pub(super) fn live_window_elements(
     // Keep their advertised EWMH state as a render-time backstop so a missing
     // or temporarily retired presentation entry cannot expose compositor
     // chrome around an otherwise-fullscreen game.
-    let chrome_visible = compositor_chrome_visible(
-        context
-            .fullscreen
-            .suppresses_chrome(window_surface.as_ref()),
-        crate::xwayland::is_fullscreen(window),
-    );
+    let chrome_visible = !context.fullscreen.suppresses_window_chrome(window);
     let (content_alpha, chrome_alpha) =
         window_content_and_chrome_alpha(visual.opening_alpha, rule_opacity, chrome_visible);
     let chrome_alpha = chrome_alpha
@@ -1125,9 +1116,8 @@ mod tests {
     use smithay::utils::{Buffer, Size};
 
     use super::{
-        active_crossfade_completion, compositor_chrome_visible, decoration_presentation_scale,
-        quantized_f32, scaled_title_size, should_hold_x11_fullscreen_exit,
-        window_content_and_chrome_alpha,
+        active_crossfade_completion, decoration_presentation_scale, quantized_f32,
+        scaled_title_size, should_hold_x11_fullscreen_exit, window_content_and_chrome_alpha,
     };
 
     #[test]
@@ -1160,14 +1150,6 @@ mod tests {
         assert_eq!(scaled_title_size(native, 1.0), (120, 18).into());
         assert_eq!(scaled_title_size(native, 0.5), (60, 9).into());
         assert_eq!(scaled_title_size(native, 0.35), (42, 6).into());
-    }
-
-    #[test]
-    fn either_fullscreen_signal_suppresses_compositor_chrome() {
-        assert!(compositor_chrome_visible(false, false));
-        assert!(!compositor_chrome_visible(true, false));
-        assert!(!compositor_chrome_visible(false, true));
-        assert!(!compositor_chrome_visible(true, true));
     }
 
     #[test]
