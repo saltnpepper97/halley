@@ -124,10 +124,9 @@ void main() {
         // the double image brief, around the fastest part of the motion.
         color = mix(previous, next, smoothstep(0.4, 0.6, halley_progress));
     } else {
-        // Both endpoints are stretched over the same rectangle, so a long
-        // linear mix shows two differently scaled images at once. Hold each
-        // endpoint near its end and pass through the double image quickly.
-        color = mix(previous, next, smoothstep(0.15, 0.85, halley_progress));
+        // Fullscreen/maximize pass an already-eased weight, shared with the
+        // live presentation path so both draw the same fade.
+        color = mix(previous, next, halley_progress);
     }
     color *= alpha;
 

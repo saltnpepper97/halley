@@ -31,6 +31,10 @@ struct TransitionTextures {
     /// Last attempted tree, including rejected mixed endpoints. Retrying an
     /// identical tree cannot produce a different snapshot or readiness result.
     last_capture: Option<ResizeCaptureState>,
+    /// Tree last copied into `previous`. Until the client presents its
+    /// target, old-size commits refresh the outgoing endpoint so the handoff
+    /// starts from the latest frame instead of one frozen at the request.
+    previous_capture: Option<ResizeCaptureState>,
     owner: TextureTransitionOwner,
     last_surface_commit: CommitCounter,
     outgoing_surface_size: Option<Size<i32, Logical>>,
@@ -46,9 +50,10 @@ struct TransitionTextures {
 
 /// Wall-clock length of the endpoint crossfade. Spreading the fade over the
 /// geometry motion kept two differently stretched images on screen for most
-/// of it, including the slow tail of a spring. A short fixed fade keeps the
-/// double image to a few frames regardless of the motion's feel or length.
-const CROSSFADE_DURATION: Duration = Duration::from_millis(150);
+/// of it, including the slow tail of a spring. Clients such as Firefox also
+/// stop presenting for several frames while they re-layout, so the outgoing
+/// endpoint is already stale when the target arrives; retire it quickly.
+const CROSSFADE_DURATION: Duration = Duration::from_millis(90);
 
 #[derive(Clone, Copy, Debug)]
 struct BlendStart {
@@ -263,6 +268,7 @@ impl FullscreenTextureTransitions {
                 next: None,
                 prepared: None,
                 last_capture: None,
+                previous_capture: None,
                 owner,
                 last_surface_commit,
                 outgoing_surface_size,
@@ -497,6 +503,10 @@ impl FullscreenTextureTransitions {
                     .flatten(),
                 window.geometry().size,
             );
+        if !buffer_matches && let Err(err) = refresh_outgoing(renderer, window, entry) {
+            self.windows.remove(surface.as_ref());
+            return Err(err);
+        }
         let (next, texture_progress) = if buffer_matches {
             let capture = match prepare_resize_capture(renderer, window) {
                 Ok(capture) => capture,
@@ -581,7 +591,7 @@ impl FullscreenTextureTransitions {
                     time: now,
                 })
                 .fade(progress, now);
-            (next, fade)
+            (next, crossfade_weight(fade))
         } else {
             (
                 ResizeWindowTexture {
@@ -612,11 +622,42 @@ impl FullscreenTextureTransitions {
     }
 }
 
-/// Weight of the incoming endpoint, matching the resize shader's mix so a
-/// window can switch between snapshot and live presentation mid-fade.
+/// Re-captures the outgoing endpoint while the live tree still has exactly
+/// its layout. Clients keep presenting old-size frames until they handle the
+/// configure; freezing the first one made moving content stall and then jump
+/// several frames ahead when the target arrived. Any change of client size or
+/// surface layout (including X11 geometry applied ahead of its buffer) stops
+/// the refresh, so the held endpoint is never replaced by a mixed tree.
+fn refresh_outgoing(
+    renderer: &mut GlesRenderer,
+    window: &Window,
+    entry: &mut TransitionTextures,
+) -> Result<(), Box<dyn Error>> {
+    let capture = prepare_resize_capture(renderer, window)?;
+    if entry.previous_capture.as_ref() == Some(&capture.state) {
+        return Ok(());
+    }
+    let layout = capture.layout()?;
+    let unchanged = layout.window_size == entry.previous.window_size
+        && layout.surface_geometry == entry.previous.surface_geometry
+        && layout.surface_layers == entry.previous.surface_layers;
+    if !unchanged {
+        return Ok(());
+    }
+    let state = capture.state.clone();
+    entry.previous = capture.capture(renderer, None)?;
+    entry.previous_capture = Some(state);
+    entry.capture_generation.increment();
+    Ok(())
+}
+
+/// Eased weight of the incoming endpoint, used by both the snapshot shader
+/// and the live overlay so a window can switch presentation mid-fade.
+/// Ease-out: the stale outgoing image starts fading on the first frame
+/// instead of being held fully opaque above already-live content.
 fn crossfade_weight(fade: f64) -> f64 {
-    let t = ((fade - 0.15) / (0.85 - 0.15)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+    let remaining = 1.0 - fade.clamp(0.0, 1.0);
+    1.0 - remaining * remaining
 }
 
 fn crossfade_progress(start: f64, progress: f64) -> f64 {
@@ -829,20 +870,21 @@ mod tests {
     }
 
     #[test]
-    fn live_fade_weight_matches_the_shader_mix_endpoints() {
-        // The resize shader holds each endpoint outside 0.15..0.85. A live
-        // fade must agree, or switching presentation mid-fade would jump.
+    fn crossfade_weight_retires_the_stale_endpoint_from_the_first_frame() {
         assert_eq!(crossfade_weight(0.0), 0.0);
-        assert_eq!(crossfade_weight(0.15), 0.0);
-        assert_eq!(crossfade_weight(0.5), 0.5);
-        assert_eq!(crossfade_weight(0.85), 1.0);
+        assert_eq!(crossfade_weight(0.5), 0.75);
         assert_eq!(crossfade_weight(1.0), 1.0);
-        let samples = (0..=100).map(|step| crossfade_weight(f64::from(step) / 100.0));
+        assert_eq!(crossfade_weight(-1.0), 0.0);
+        assert_eq!(crossfade_weight(2.0), 1.0);
+        let samples = (0..=100)
+            .map(|step| f64::from(step) / 100.0)
+            .map(|fade| (fade, crossfade_weight(fade)));
+        assert!(samples.clone().all(|(fade, weight)| weight >= fade));
         assert!(
             samples
                 .clone()
                 .zip(samples.skip(1))
-                .all(|(before, after)| after >= before)
+                .all(|((_, before), (_, after))| after >= before)
         );
     }
 
