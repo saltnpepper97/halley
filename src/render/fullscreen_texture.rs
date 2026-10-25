@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::time::Duration;
 
 use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -37,10 +38,32 @@ struct TransitionTextures {
     target_readiness: TargetReadiness,
     target_damage: TargetDamageCoverage,
     capture_generation: CommitCounter,
-    /// Geometry progress at which the accepted endpoint first became
-    /// presentable. The crossfade runs from there, so a late client buffer
-    /// fades in instead of popping to the already-advanced geometry progress.
-    blend_start: Option<f64>,
+    /// When the accepted endpoint first became presentable. The crossfade
+    /// runs from there, so a late client buffer fades in instead of popping
+    /// to the already-advanced geometry progress.
+    blend_start: Option<BlendStart>,
+}
+
+/// Wall-clock length of the endpoint crossfade. Spreading the fade over the
+/// geometry motion kept two differently stretched images on screen for most
+/// of it, including the slow tail of a spring. A short fixed fade keeps the
+/// double image to a few frames regardless of the motion's feel or length.
+const CROSSFADE_DURATION: Duration = Duration::from_millis(150);
+
+#[derive(Clone, Copy, Debug)]
+struct BlendStart {
+    progress: f64,
+    time: Duration,
+}
+
+impl BlendStart {
+    /// Linear fade position. The geometry term guarantees the fade has
+    /// finished when the motion does, even for very short transitions.
+    fn fade(self, progress: f64, now: Duration) -> f64 {
+        let elapsed = now.saturating_sub(self.time).as_secs_f64();
+        let timed = (elapsed / CROSSFADE_DURATION.as_secs_f64()).clamp(0.0, 1.0);
+        timed.max(crossfade_progress(self.progress, progress))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -197,6 +220,8 @@ pub struct BlendRequest<'a> {
     pub hold_previous_until_restored_buffer_matches: bool,
     pub alpha: f32,
     pub radii: super::window_decoration::CornerRadii,
+    /// Presentation time of the frame being rendered; drives the crossfade.
+    pub now: Duration,
 }
 
 impl FullscreenTextureTransitions {
@@ -451,6 +476,7 @@ impl FullscreenTextureTransitions {
             hold_previous_until_restored_buffer_matches,
             alpha,
             radii,
+            now,
         } = request;
         let surface = window
             .wl_surface()
@@ -492,8 +518,13 @@ impl FullscreenTextureTransitions {
                 )
             });
             if live_complete {
-                let start = *entry.blend_start.get_or_insert(progress);
-                let fade = crossfade_progress(start, progress);
+                let fade = entry
+                    .blend_start
+                    .get_or_insert(BlendStart {
+                        progress,
+                        time: now,
+                    })
+                    .fade(progress, now);
                 let outgoing = if fade < 1.0 {
                     Some(self.resize_renderer.element(
                         renderer,
@@ -543,8 +574,14 @@ impl FullscreenTextureTransitions {
             // Configure/buffer/tree validation already accepted this endpoint.
             // Opaque regions describe where a client permits occlusion, not
             // whether it has painted. A client may clear that hint at resize.
-            let start = *entry.blend_start.get_or_insert(progress);
-            (next, crossfade_progress(start, progress))
+            let fade = entry
+                .blend_start
+                .get_or_insert(BlendStart {
+                    progress,
+                    time: now,
+                })
+                .fade(progress, now);
+            (next, fade)
         } else {
             (
                 ResizeWindowTexture {
@@ -750,10 +787,10 @@ fn transition_buffer_ready(
 mod tests {
     use super::super::window_texture::rectangles_cover_size as damage_covers_buffer;
     use super::{
-        TargetDamageCoverage, TargetReadiness, commit_has_advanced, crossfade_progress,
-        crossfade_weight, native_target_buffer_ready, native_target_candidate_ready,
-        persistent_endpoint_layers_cover_target, surface_tree_matches_target_endpoint,
-        transition_buffer_ready,
+        BlendStart, CROSSFADE_DURATION, TargetDamageCoverage, TargetReadiness, commit_has_advanced,
+        crossfade_progress, crossfade_weight, native_target_buffer_ready,
+        native_target_candidate_ready, persistent_endpoint_layers_cover_target,
+        surface_tree_matches_target_endpoint, transition_buffer_ready,
     };
     use smithay::backend::renderer::utils::CommitCounter;
     use smithay::utils::{Buffer, Logical, Physical, Rectangle, Size};
@@ -767,6 +804,28 @@ mod tests {
             assert_eq!(crossfade_progress(start, start - 0.1), 0.0);
         }
         assert_eq!(crossfade_progress(1.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn crossfade_is_timed_from_acceptance_and_done_when_motion_is() {
+        use std::time::Duration;
+        let start = BlendStart {
+            progress: 0.4,
+            time: Duration::from_millis(1000),
+        };
+        let now = |ms: u64| Duration::from_millis(1000 + ms);
+        assert_eq!(start.fade(0.4, now(0)), 0.0);
+        // A slow spring tail does not stretch the fade.
+        let half = CROSSFADE_DURATION / 2;
+        assert!((start.fade(0.41, Duration::from_millis(1000) + half) - 0.5).abs() < 1e-9);
+        assert_eq!(
+            start.fade(0.5, Duration::from_millis(1000) + CROSSFADE_DURATION),
+            1.0
+        );
+        // A motion shorter than the fade still finishes it.
+        assert_eq!(start.fade(1.0, now(10)), 1.0);
+        // A frame timestamped before acceptance never fades backwards.
+        assert_eq!(start.fade(0.4, Duration::from_millis(900)), 0.0);
     }
 
     #[test]

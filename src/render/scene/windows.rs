@@ -420,6 +420,7 @@ pub(super) fn live_window_elements(
                 hold_previous_until_restored_buffer_matches: hold_x11_fullscreen_exit,
                 alpha: content_alpha,
                 radii: client_radii,
+                now: context.target_presentation_time,
             },
         ) {
             Ok(blend) => blend,
