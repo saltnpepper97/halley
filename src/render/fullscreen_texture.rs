@@ -170,6 +170,18 @@ pub struct FullscreenTextureTransitions {
     resize_renderer: super::resize::ResizeRenderer,
 }
 
+/// What the scene presents for a window during its texture transition.
+pub enum TransitionFrame {
+    /// Both endpoints are snapshots. The live tree stays out of the scene.
+    Snapshot(super::resize::ResizeRenderElement),
+    /// The live tree is a complete target endpoint and is presented directly,
+    /// so moving content keeps updating every frame. `outgoing` is the held
+    /// snapshot fading out above it, or `None` once the fade has finished.
+    Live {
+        outgoing: Option<super::resize::ResizeRenderElement>,
+    },
+}
+
 /// One window's crossfade between its captured and live textures.
 #[derive(Clone, Copy)]
 pub struct BlendRequest<'a> {
@@ -431,7 +443,7 @@ impl FullscreenTextureTransitions {
         &mut self,
         renderer: &mut GlesRenderer,
         request: BlendRequest<'_>,
-    ) -> Result<Option<super::resize::ResizeRenderElement>, Box<dyn Error>> {
+    ) -> Result<Option<TransitionFrame>, Box<dyn Error>> {
         let BlendRequest {
             window,
             destination,
@@ -467,6 +479,38 @@ impl FullscreenTextureTransitions {
                     return Err(err);
                 }
             };
+            // A re-captured endpoint only changes when the client commits a
+            // tree that passes validation, so moving content stutters. Once
+            // the live tree itself is complete, present it directly and fade
+            // the held outgoing snapshot out above it.
+            let live_complete = capture.layout().is_ok_and(|layout| {
+                layout_matches_target_endpoint(
+                    &entry.previous,
+                    layout.surface_geometry,
+                    layout.window_size,
+                    &layout.surface_layers,
+                )
+            });
+            if live_complete {
+                let start = *entry.blend_start.get_or_insert(progress);
+                let fade = crossfade_progress(start, progress);
+                let outgoing = if fade < 1.0 {
+                    Some(self.resize_renderer.element(
+                        renderer,
+                        entry.id.clone(),
+                        &entry.previous,
+                        entry.previous.clone(),
+                        destination,
+                        0.0,
+                        alpha * (1.0 - crossfade_weight(fade)) as f32,
+                        radii,
+                        entry.capture_generation,
+                    )?)
+                } else {
+                    None
+                };
+                return Ok(Some(TransitionFrame::Live { outgoing }));
+            }
             if entry.last_capture.as_ref() != Some(&capture.state) {
                 let state = capture.state.clone();
                 let reusable = entry.prepared.take().map(|candidate| candidate.texture);
@@ -515,18 +559,27 @@ impl FullscreenTextureTransitions {
             )
         };
         let id = entry.id.clone();
-        Ok(Some(self.resize_renderer.element(
-            renderer,
-            id,
-            &entry.previous,
-            next,
-            destination,
-            texture_progress as f32,
-            alpha,
-            radii,
-            entry.capture_generation,
-        )?))
+        Ok(Some(TransitionFrame::Snapshot(
+            self.resize_renderer.element(
+                renderer,
+                id,
+                &entry.previous,
+                next,
+                destination,
+                texture_progress as f32,
+                alpha,
+                radii,
+                entry.capture_generation,
+            )?,
+        )))
     }
+}
+
+/// Weight of the incoming endpoint, matching the resize shader's mix so a
+/// window can switch between snapshot and live presentation mid-fade.
+fn crossfade_weight(fade: f64) -> f64 {
+    let t = ((fade - 0.15) / (0.85 - 0.15)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 fn crossfade_progress(start: f64, progress: f64) -> f64 {
@@ -541,16 +594,27 @@ pub(crate) fn snapshot_matches_target_endpoint(
     outgoing: &ResizeWindowTexture,
     candidate: &ResizeWindowTexture,
 ) -> bool {
-    surface_tree_matches_target_endpoint(
-        outgoing.window_size,
+    layout_matches_target_endpoint(
+        outgoing,
         candidate.surface_geometry,
-        candidate.window_size,
-    ) && persistent_endpoint_layers_cover_target(
-        outgoing.window_size,
-        &outgoing.surface_layers,
         candidate.window_size,
         &candidate.surface_layers,
     )
+}
+
+fn layout_matches_target_endpoint(
+    outgoing: &ResizeWindowTexture,
+    surface_geometry: Rectangle<i32, Physical>,
+    window_size: Size<i32, Physical>,
+    surface_layers: &[(Id, Rectangle<i32, Physical>)],
+) -> bool {
+    surface_tree_matches_target_endpoint(outgoing.window_size, surface_geometry, window_size)
+        && persistent_endpoint_layers_cover_target(
+            outgoing.window_size,
+            &outgoing.surface_layers,
+            window_size,
+            surface_layers,
+        )
 }
 
 /// A merged surface-tree extent is not sufficient resize evidence. Firefox
@@ -687,7 +751,7 @@ mod tests {
     use super::super::window_texture::rectangles_cover_size as damage_covers_buffer;
     use super::{
         TargetDamageCoverage, TargetReadiness, commit_has_advanced, crossfade_progress,
-        native_target_buffer_ready, native_target_candidate_ready,
+        crossfade_weight, native_target_buffer_ready, native_target_candidate_ready,
         persistent_endpoint_layers_cover_target, surface_tree_matches_target_endpoint,
         transition_buffer_ready,
     };
@@ -703,6 +767,24 @@ mod tests {
             assert_eq!(crossfade_progress(start, start - 0.1), 0.0);
         }
         assert_eq!(crossfade_progress(1.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn live_fade_weight_matches_the_shader_mix_endpoints() {
+        // The resize shader holds each endpoint outside 0.15..0.85. A live
+        // fade must agree, or switching presentation mid-fade would jump.
+        assert_eq!(crossfade_weight(0.0), 0.0);
+        assert_eq!(crossfade_weight(0.15), 0.0);
+        assert_eq!(crossfade_weight(0.5), 0.5);
+        assert_eq!(crossfade_weight(0.85), 1.0);
+        assert_eq!(crossfade_weight(1.0), 1.0);
+        let samples = (0..=100).map(|step| crossfade_weight(f64::from(step) / 100.0));
+        assert!(
+            samples
+                .clone()
+                .zip(samples.skip(1))
+                .all(|(before, after)| after >= before)
+        );
     }
 
     #[test]

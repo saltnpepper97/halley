@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::fullscreen_texture::TransitionFrame;
 
 const JOIN_READY_TINT_ALPHA: f32 = 0.10;
 
@@ -448,9 +449,17 @@ pub(super) fn live_window_elements(
         } else {
             elements.push(SceneElement::Closing(base));
         }
-    } else if let Some(blend) = texture_blend {
+    } else if let Some(TransitionFrame::Snapshot(blend)) = texture_blend {
         elements.push(SceneElement::WindowResize(blend));
     } else {
+        // Elements are front-to-back: the fading outgoing snapshot is pushed
+        // first so the live tree underneath shows through as it fades.
+        if let Some(TransitionFrame::Live {
+            outgoing: Some(outgoing),
+        }) = texture_blend
+        {
+            elements.push(SceneElement::WindowResize(outgoing));
+        }
         for surface_element in surface_elements {
             let native_geometry = surface_element.geometry(Scale::from(1.0));
             let destination = if visual.maps_from_source() {
