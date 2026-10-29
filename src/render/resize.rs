@@ -124,8 +124,8 @@ void main() {
         // the double image brief, around the fastest part of the motion.
         color = mix(previous, next, smoothstep(0.4, 0.6, halley_progress));
     } else {
-        // Fullscreen/maximize pass an already-eased weight, shared with the
-        // live presentation path so both draw the same fade.
+        // Fullscreen/maximize pass a linear weight that follows the motion,
+        // shared with the live presentation path so both draw the same fade.
         color = mix(previous, next, halley_progress);
     }
     color *= alpha;
