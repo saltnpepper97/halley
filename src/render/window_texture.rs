@@ -200,16 +200,20 @@ pub(crate) fn prepare_resize_capture(
     Ok(ResizeCapture { state, elements })
 }
 
-impl ResizeCapture {
-    pub(crate) fn capture(
-        self,
-        renderer: &mut GlesRenderer,
-        reusable: Option<GlesTexture>,
-    ) -> Result<ResizeWindowTexture, Box<dyn Error>> {
-        let geometry = self.state.window_geometry;
-        let elements = self.elements;
+/// Endpoint validation metadata for a surface tree, available without
+/// rendering it. A transition can check the live tree against the same rules
+/// as a captured snapshot and present the tree directly once it is complete.
+#[derive(Clone, Debug)]
+pub(crate) struct ResizeCaptureLayout {
+    pub(crate) surface_geometry: Rectangle<i32, Physical>,
+    pub(crate) window_size: Size<i32, Physical>,
+    pub(crate) surface_layers: Vec<(Id, Rectangle<i32, Physical>)>,
+}
 
-        let surface_geometry = elements
+impl ResizeCapture {
+    pub(crate) fn layout(&self) -> Result<ResizeCaptureLayout, Box<dyn Error>> {
+        let surface_geometry = self
+            .elements
             .iter()
             .map(|element| element.geometry(Scale::from(1.0)))
             .reduce(|bounds, geometry| bounds.merge(geometry))
@@ -217,10 +221,29 @@ impl ResizeCapture {
         if surface_geometry.size.w <= 0 || surface_geometry.size.h <= 0 {
             return Err("window resize snapshot surface tree has empty geometry".into());
         }
-        let surface_layers = elements
-            .iter()
-            .map(|element| (element.id().clone(), element.geometry(Scale::from(1.0))))
-            .collect::<Vec<_>>();
+        Ok(ResizeCaptureLayout {
+            surface_geometry,
+            window_size: self.state.window_geometry.size.to_physical(1),
+            surface_layers: self
+                .elements
+                .iter()
+                .map(|element| (element.id().clone(), element.geometry(Scale::from(1.0))))
+                .collect(),
+        })
+    }
+
+    pub(crate) fn capture(
+        self,
+        renderer: &mut GlesRenderer,
+        reusable: Option<GlesTexture>,
+    ) -> Result<ResizeWindowTexture, Box<dyn Error>> {
+        let ResizeCaptureLayout {
+            surface_geometry,
+            surface_layers,
+            ..
+        } = self.layout()?;
+        let geometry = self.state.window_geometry;
+        let elements = self.elements;
         let client_rect = Rectangle::<i32, Physical>::from_size(geometry.size.to_physical(1));
         let opaque_regions = elements
             .iter()

@@ -30,6 +30,10 @@ struct TransitionTextures {
     /// Last attempted tree, including rejected mixed endpoints. Retrying an
     /// identical tree cannot produce a different snapshot or readiness result.
     last_capture: Option<ResizeCaptureState>,
+    /// Tree last copied into `previous`. Until the client presents its
+    /// target, old-size commits refresh the outgoing endpoint so the handoff
+    /// starts from the latest frame instead of one frozen at the request.
+    previous_capture: Option<ResizeCaptureState>,
     owner: TextureTransitionOwner,
     last_surface_commit: CommitCounter,
     outgoing_surface_size: Option<Size<i32, Logical>>,
@@ -38,8 +42,9 @@ struct TransitionTextures {
     target_damage: TargetDamageCoverage,
     capture_generation: CommitCounter,
     /// Geometry progress at which the accepted endpoint first became
-    /// presentable. The crossfade runs from there, so a late client buffer
-    /// fades in instead of popping to the already-advanced geometry progress.
+    /// presentable. Like niri, the crossfade then follows the motion linearly
+    /// to its end: a short fade read as a flicker, while a fade that tracks
+    /// the geometry reads as one continuous morph.
     blend_start: Option<f64>,
 }
 
@@ -170,6 +175,18 @@ pub struct FullscreenTextureTransitions {
     resize_renderer: super::resize::ResizeRenderer,
 }
 
+/// What the scene presents for a window during its texture transition.
+pub enum TransitionFrame {
+    /// Both endpoints are snapshots. The live tree stays out of the scene.
+    Snapshot(super::resize::ResizeRenderElement),
+    /// The live tree is a complete target endpoint and is presented directly,
+    /// so moving content keeps updating every frame. `outgoing` is the held
+    /// snapshot fading out above it, or `None` once the fade has finished.
+    Live {
+        outgoing: Option<super::resize::ResizeRenderElement>,
+    },
+}
+
 /// One window's crossfade between its captured and live textures.
 #[derive(Clone, Copy)]
 pub struct BlendRequest<'a> {
@@ -226,6 +243,7 @@ impl FullscreenTextureTransitions {
                 next: None,
                 prepared: None,
                 last_capture: None,
+                previous_capture: None,
                 owner,
                 last_surface_commit,
                 outgoing_surface_size,
@@ -431,7 +449,7 @@ impl FullscreenTextureTransitions {
         &mut self,
         renderer: &mut GlesRenderer,
         request: BlendRequest<'_>,
-    ) -> Result<Option<super::resize::ResizeRenderElement>, Box<dyn Error>> {
+    ) -> Result<Option<TransitionFrame>, Box<dyn Error>> {
         let BlendRequest {
             window,
             destination,
@@ -459,6 +477,10 @@ impl FullscreenTextureTransitions {
                     .flatten(),
                 window.geometry().size,
             );
+        if !buffer_matches && let Err(err) = refresh_outgoing(renderer, window, entry) {
+            self.windows.remove(surface.as_ref());
+            return Err(err);
+        }
         let (next, texture_progress) = if buffer_matches {
             let capture = match prepare_resize_capture(renderer, window) {
                 Ok(capture) => capture,
@@ -467,6 +489,38 @@ impl FullscreenTextureTransitions {
                     return Err(err);
                 }
             };
+            // A re-captured endpoint only changes when the client commits a
+            // tree that passes validation, so moving content stutters. Once
+            // the live tree itself is complete, present it directly and fade
+            // the held outgoing snapshot out above it.
+            let live_complete = capture.layout().is_ok_and(|layout| {
+                layout_matches_target_endpoint(
+                    &entry.previous,
+                    layout.surface_geometry,
+                    layout.window_size,
+                    &layout.surface_layers,
+                )
+            });
+            if live_complete {
+                let start = *entry.blend_start.get_or_insert(progress);
+                let fade = crossfade_progress(start, progress);
+                let outgoing = if fade < 1.0 {
+                    Some(self.resize_renderer.element(
+                        renderer,
+                        entry.id.clone(),
+                        &entry.previous,
+                        entry.previous.clone(),
+                        destination,
+                        0.0,
+                        alpha * (1.0 - fade) as f32,
+                        radii,
+                        entry.capture_generation,
+                    )?)
+                } else {
+                    None
+                };
+                return Ok(Some(TransitionFrame::Live { outgoing }));
+            }
             if entry.last_capture.as_ref() != Some(&capture.state) {
                 let state = capture.state.clone();
                 let reusable = entry.prepared.take().map(|candidate| candidate.texture);
@@ -515,18 +569,49 @@ impl FullscreenTextureTransitions {
             )
         };
         let id = entry.id.clone();
-        Ok(Some(self.resize_renderer.element(
-            renderer,
-            id,
-            &entry.previous,
-            next,
-            destination,
-            texture_progress as f32,
-            alpha,
-            radii,
-            entry.capture_generation,
-        )?))
+        Ok(Some(TransitionFrame::Snapshot(
+            self.resize_renderer.element(
+                renderer,
+                id,
+                &entry.previous,
+                next,
+                destination,
+                texture_progress as f32,
+                alpha,
+                radii,
+                entry.capture_generation,
+            )?,
+        )))
     }
+}
+
+/// Re-captures the outgoing endpoint while the live tree still has exactly
+/// its layout. Clients keep presenting old-size frames until they handle the
+/// configure; freezing the first one made moving content stall and then jump
+/// several frames ahead when the target arrived. Any change of client size or
+/// surface layout (including X11 geometry applied ahead of its buffer) stops
+/// the refresh, so the held endpoint is never replaced by a mixed tree.
+fn refresh_outgoing(
+    renderer: &mut GlesRenderer,
+    window: &Window,
+    entry: &mut TransitionTextures,
+) -> Result<(), Box<dyn Error>> {
+    let capture = prepare_resize_capture(renderer, window)?;
+    if entry.previous_capture.as_ref() == Some(&capture.state) {
+        return Ok(());
+    }
+    let layout = capture.layout()?;
+    let unchanged = layout.window_size == entry.previous.window_size
+        && layout.surface_geometry == entry.previous.surface_geometry
+        && layout.surface_layers == entry.previous.surface_layers;
+    if !unchanged {
+        return Ok(());
+    }
+    let state = capture.state.clone();
+    entry.previous = capture.capture(renderer, None)?;
+    entry.previous_capture = Some(state);
+    entry.capture_generation.increment();
+    Ok(())
 }
 
 fn crossfade_progress(start: f64, progress: f64) -> f64 {
@@ -541,16 +626,27 @@ pub(crate) fn snapshot_matches_target_endpoint(
     outgoing: &ResizeWindowTexture,
     candidate: &ResizeWindowTexture,
 ) -> bool {
-    surface_tree_matches_target_endpoint(
-        outgoing.window_size,
+    layout_matches_target_endpoint(
+        outgoing,
         candidate.surface_geometry,
-        candidate.window_size,
-    ) && persistent_endpoint_layers_cover_target(
-        outgoing.window_size,
-        &outgoing.surface_layers,
         candidate.window_size,
         &candidate.surface_layers,
     )
+}
+
+fn layout_matches_target_endpoint(
+    outgoing: &ResizeWindowTexture,
+    surface_geometry: Rectangle<i32, Physical>,
+    window_size: Size<i32, Physical>,
+    surface_layers: &[(Id, Rectangle<i32, Physical>)],
+) -> bool {
+    surface_tree_matches_target_endpoint(outgoing.window_size, surface_geometry, window_size)
+        && persistent_endpoint_layers_cover_target(
+            outgoing.window_size,
+            &outgoing.surface_layers,
+            window_size,
+            surface_layers,
+        )
 }
 
 /// A merged surface-tree extent is not sufficient resize evidence. Firefox

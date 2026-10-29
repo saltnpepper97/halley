@@ -124,10 +124,9 @@ void main() {
         // the double image brief, around the fastest part of the motion.
         color = mix(previous, next, smoothstep(0.4, 0.6, halley_progress));
     } else {
-        // Both endpoints are stretched over the same rectangle, so a long
-        // linear mix shows two differently scaled images at once. Hold each
-        // endpoint near its end and pass through the double image quickly.
-        color = mix(previous, next, smoothstep(0.15, 0.85, halley_progress));
+        // Fullscreen/maximize pass a linear weight that follows the motion,
+        // shared with the live presentation path so both draw the same fade.
+        color = mix(previous, next, halley_progress);
     }
     color *= alpha;
 
@@ -299,6 +298,7 @@ impl ResizeRenderer {
             base.current_commit(),
             generation,
             progress,
+            alpha,
             destination,
             radii,
         );
@@ -509,6 +509,7 @@ fn resize_commit(
     base: CommitCounter,
     generation: CommitCounter,
     progress: f32,
+    alpha: f32,
     destination: Rectangle<i32, Physical>,
     radii: super::window_decoration::CornerRadii,
 ) -> CommitCounter {
@@ -521,6 +522,7 @@ fn resize_commit(
         .unwrap_or(usize::MAX)
         .hash(&mut hasher);
     progress.to_bits().hash(&mut hasher);
+    alpha.to_bits().hash(&mut hasher);
     destination.loc.x.hash(&mut hasher);
     destination.loc.y.hash(&mut hasher);
     destination.size.w.hash(&mut hasher);
@@ -960,15 +962,15 @@ mod tests {
     }
 
     #[test]
-    fn resize_commits_follow_location_generation_and_progress() {
+    fn resize_commits_follow_location_generation_progress_and_alpha() {
         let destination = Rectangle::<i32, Physical>::new((10, 20).into(), (1920, 1080).into());
         let radii = crate::render::window_decoration::CornerRadii::all(8.0);
         let base = CommitCounter::from(7);
-        let first = resize_commit(base, CommitCounter::from(1), 0.25, destination, radii);
+        let first = resize_commit(base, CommitCounter::from(1), 0.25, 1.0, destination, radii);
 
         assert_eq!(
             first,
-            resize_commit(base, CommitCounter::from(1), 0.25, destination, radii)
+            resize_commit(base, CommitCounter::from(1), 0.25, 1.0, destination, radii)
         );
         assert_ne!(
             first,
@@ -976,17 +978,22 @@ mod tests {
                 base,
                 CommitCounter::from(1),
                 0.25,
+                1.0,
                 Rectangle::new((11, 20).into(), destination.size),
                 radii,
             )
         );
         assert_ne!(
             first,
-            resize_commit(base, CommitCounter::from(2), 0.25, destination, radii)
+            resize_commit(base, CommitCounter::from(2), 0.25, 1.0, destination, radii)
         );
         assert_ne!(
             first,
-            resize_commit(base, CommitCounter::from(1), 0.5, destination, radii)
+            resize_commit(base, CommitCounter::from(1), 0.5, 1.0, destination, radii)
+        );
+        assert_ne!(
+            first,
+            resize_commit(base, CommitCounter::from(1), 0.25, 0.5, destination, radii)
         );
     }
 
