@@ -184,6 +184,21 @@ pub(crate) fn build_with_privacy(
         .resources
         .backdrop_blur_renderer
         .end_scene(&output.name());
+    let elements = if block_screencast
+        && (request.desktop.window_rules.has_screencast_blocks()
+            || request
+                .desktop
+                .layer_rules
+                .iter()
+                .any(|rule| rule.block_screencast))
+    {
+        elements
+            .into_iter()
+            .filter(|element| !matches!(element, SceneElement::ScreenshotPreview(_)))
+            .collect::<Vec<_>>()
+    } else {
+        elements
+    };
     Ok(elements
         .into_iter()
         .map(|element| super::display_scale::element(element, scale, locked))
@@ -266,6 +281,30 @@ fn build_logical(
             .resources
             .window_decoration_renderer
             .available(renderer);
+    }
+    let privacy_active = block_screencast
+        && (request.desktop.window_rules.has_screencast_blocks()
+            || request
+                .desktop
+                .layer_rules
+                .iter()
+                .any(|rule| rule.block_screencast));
+    // These replacement scenes render cached previews that may have been
+    // captured before a privacy rule was enabled. Fail closed during them.
+    if privacy_active
+        && (request.overlays.apogee.is_active()
+            || request.overlays.focus_cycle.is_active()
+            || request
+                .overlays
+                .cluster_composer
+                .replacement_output()
+                .is_some_and(|name| name == output.name()))
+    {
+        return Ok(vec![SceneElement::Border(super::solid_color_element(
+            Id::new(),
+            Rectangle::from_size(output_geometry.size.to_physical(1)),
+            smithay::backend::renderer::Color32F::BLACK,
+        ))]);
     }
     let overlay_snapshot = request
         .overlays
@@ -723,7 +762,9 @@ fn build_logical(
         request.resources.shadow_renderer,
         &mut hover_preview,
     )?;
-    elements.extend(hover_preview);
+    if !privacy_active {
+        elements.extend(hover_preview);
+    }
 
     let node_scene = node_elements(
         renderer,
@@ -760,6 +801,18 @@ fn build_logical(
         )
         .into_iter()
         .map(|closing| -> Result<StackGroup, Box<dyn Error>> {
+            if block_screencast && request.desktop.window_rules.has_screencast_blocks() {
+                return Ok(StackGroup {
+                    window: None,
+                    stack_index: closing.stack_index,
+                    order: closing.order,
+                    elements: vec![SceneElement::Border(super::solid_color_element(
+                        Id::new(),
+                        closing.destination,
+                        smithay::backend::renderer::Color32F::BLACK,
+                    ))],
+                });
+            }
             let mut elements = Vec::new();
             let shader = closing.shader;
             let shader_active = shader.is_some();
@@ -966,13 +1019,14 @@ fn build_logical(
             },
         )?;
         let protected = block_screencast
-            && window.wl_surface().is_some_and(|surface| {
+            && (window.wl_surface().is_some_and(|surface| {
                 request
                     .desktop
                     .window_rules
                     .applied(surface.as_ref())
                     .block_screencast
-            });
+            }) || (request.desktop.window_rules.has_screencast_blocks()
+                && crate::xwayland::is_override_redirect(window)));
         if protected {
             redact_window_scene(&mut window_scene);
         } else if !block_screencast

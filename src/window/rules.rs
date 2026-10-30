@@ -56,6 +56,10 @@ impl WindowRulesState {
         }
     }
 
+    pub fn has_screencast_blocks(&self) -> bool {
+        self.rules.iter().any(|rule| rule.block_screencast)
+    }
+
     pub fn reload(&mut self, rules: Vec<WindowRule>) {
         self.rules = rules;
         self.games = super::games::GameApplications::load();
