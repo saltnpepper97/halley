@@ -120,7 +120,7 @@ pub(super) fn layer_surface_scene_elements(
         let rule_blur = layer_rules
             .iter()
             .find(|rule| rule.matches(surface.namespace(), layer_shell_layer(surface.layer())))
-            .map(|rule| rule.blur);
+            .and_then(|rule| rule.blur);
         for (popup, popup_offset) in PopupManager::popups_for_surface(surface.wl_surface()) {
             let popup_origin = geometry.loc + popup_offset - popup.geometry().loc;
             let location = popup_origin.to_f64().to_physical(scale).to_i32_round();

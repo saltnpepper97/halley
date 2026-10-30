@@ -66,6 +66,7 @@ pub struct WindowRule {
     pub initial_size: Option<(u32, u32)>,
     pub opacity: Option<f32>,
     pub blur: Option<bool>,
+    pub block_screencast: bool,
     pub game: Option<bool>,
     pub spawn_placement: WindowSpawnPlacement,
     pub cluster_participation: WindowClusterParticipation,
@@ -85,7 +86,8 @@ pub enum LayerShellLayer {
 pub struct LayerRule {
     pub namespaces: Vec<RulePattern>,
     pub layers: Vec<LayerShellLayer>,
-    pub blur: bool,
+    pub blur: Option<bool>,
+    pub block_screencast: bool,
 }
 
 impl LayerRule {
@@ -191,6 +193,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "height"
                 | "opacity"
                 | "blur"
+                | "block-screencast"
                 | "game"
                 | "overlap-policy"
                 | "overlap_policy"
@@ -251,6 +254,10 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     let blur = field(fields, &["blur"])
         .map(|value| boolean(value, "blur"))
         .transpose()?;
+    let block_screencast = field(fields, &["block-screencast"])
+        .map(|value| boolean(value, "block-screencast"))
+        .transpose()?
+        .unwrap_or(false);
     let game = field(fields, &["game"])
         .map(|value| boolean(value, "game"))
         .transpose()?;
@@ -297,6 +304,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         initial_size,
         opacity,
         blur,
+        block_screencast,
         game,
         spawn_placement,
         cluster_participation,
@@ -310,7 +318,10 @@ fn parse_layer_rule(fields: &[ObjectItem]) -> Result<LayerRule, WindowRuleParseE
                 "conditionals are not supported inside a layer rule".to_string(),
             ));
         };
-        if !matches!(key.as_str(), "namespace" | "layer" | "blur") {
+        if !matches!(
+            key.as_str(),
+            "namespace" | "layer" | "blur" | "block-screencast"
+        ) {
             return Err(WindowRuleParseError(format!(
                 "unknown layer rule key {key:?}"
             )));
@@ -330,19 +341,23 @@ fn parse_layer_rule(fields: &[ObjectItem]) -> Result<LayerRule, WindowRuleParseE
             "layer rule requires namespace and/or layer".to_string(),
         ));
     }
-    let Some(blur) = field(fields, &["blur"])
+    let blur = field(fields, &["blur"])
         .map(|value| boolean(value, "blur"))
-        .transpose()?
-    else {
+        .transpose()?;
+    let block_screencast = field(fields, &["block-screencast"])
+        .map(|value| boolean(value, "block-screencast"))
+        .transpose()?;
+    if blur.is_none() && block_screencast.is_none() {
         return Err(WindowRuleParseError(
-            "layer rule requires blur true or false".to_string(),
+            "layer rule requires blur or block-screencast".to_string(),
         ));
-    };
+    }
 
     Ok(LayerRule {
         namespaces,
         layers,
         blur,
+        block_screencast: block_screencast.unwrap_or(false),
     })
 }
 
@@ -559,7 +574,24 @@ end
         assert!(rules.layers[0].matches("fuzzel", LayerShellLayer::Overlay));
         assert!(!rules.layers[0].matches("waybar", LayerShellLayer::Bottom));
         assert!(rules.layers[1].matches("anything", LayerShellLayer::Bottom));
-        assert!(!rules.layers[1].blur);
+        assert_eq!(rules.layers[1].blur, Some(false));
+    }
+
+    #[test]
+    fn parses_screencast_privacy_for_windows_and_layers() {
+        for value in ["true", "false"] {
+            let config = RuneConfig::from_str(&format!(
+                "rules:\n  window-rule:\n    app-id \"secret\"\n    block-screencast {value}\n  end\n  layer-rule:\n    namespace \"notifications\"\n    block-screencast {value}\n  end\nend\n"
+            )).unwrap();
+            let rules = parse_rules(&config).unwrap();
+            assert_eq!(rules.windows[0].block_screencast, value == "true");
+            assert_eq!(rules.layers[0].block_screencast, value == "true");
+            assert_eq!(rules.layers[0].blur, None);
+        }
+        let config = RuneConfig::from_str(
+            "rules:\n  layer-rule:\n    namespace \"notifications\"\n    block-screencast \"true\"\n  end\nend\n"
+        ).unwrap();
+        assert!(parse_rules(&config).is_err());
     }
 
     #[test]
