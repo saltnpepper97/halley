@@ -595,6 +595,7 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
         .space
         .map_element(window.clone(), location, true);
     if let Some(wl_surface) = window.wl_surface() {
+        let first_map = session.nodes.id_for_surface(wl_surface.as_ref()).is_none();
         session.nodes.register_mapped(
             &session.wayland.space,
             wl_surface.as_ref(),
@@ -624,6 +625,18 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
                     work_area,
                     now,
                 );
+            if first_map
+                && !initially_iconic
+                && saved_maximize.is_none()
+                && !admitted_to_draft
+                && !admitted_to_startup
+            {
+                crate::session::apply_initial_window_presentation(
+                    session,
+                    wl_surface.as_ref(),
+                    &rule,
+                );
+            }
             if admitted_to_startup || admitted_to_active {
                 session.request_redraw();
             }
@@ -673,9 +686,17 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
             eventline::warn!("xwayland: failed to retain remapped maximized state: {err}");
         }
         enter_fullscreen(session, &surface, FullscreenRequestOrigin::Maximize);
-    } else if surface.is_fullscreen() {
+    } else if surface.is_fullscreen()
+        && !session.fullscreen.is_fullscreen_or_pending(
+            window
+                .wl_surface()
+                .as_ref()
+                .map(|s| s.as_ref())
+                .expect("mapped X11 window has a surface"),
+        )
+    {
         enter_fullscreen(session, &surface, FullscreenRequestOrigin::Initial);
-    } else if surface.is_maximized() {
+    } else if surface.is_maximized() && !rule.open_maximized {
         // Startup maximize hints are not user decoration clicks. Keeping the
         // centered opening prevents monitor-sized remaps from becoming the
         // client's next remembered "normal" size (notably Steam).

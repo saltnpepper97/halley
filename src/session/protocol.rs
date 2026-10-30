@@ -389,6 +389,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                     crate::wayland::set_window_output(&window, &output);
                     self.wayland.space.relocate_element(&window, location);
                 }
+                let first_map = self.nodes.id_for_surface(&mapped).is_none();
                 self.nodes.register_mapped(
                     &self.wayland.space,
                     &mapped,
@@ -447,6 +448,9 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                     && let Some(id) = self.nodes.id_for_surface(&mapped)
                 {
                     crate::nodes::displace_landmarks_for_new_window(self, id);
+                }
+                if first_map && !admitted_to_draft && !admitted_to_startup {
+                    super::apply_initial_window_presentation(self, &mapped, &rule);
                 }
                 let remains_collapsed = self
                     .nodes

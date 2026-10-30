@@ -66,6 +66,8 @@ pub struct WindowRule {
     pub open_on_output: Option<String>,
     pub open_focused: Option<bool>,
     pub open_position: Option<(i32, i32)>,
+    pub open_fullscreen: Option<bool>,
+    pub open_maximized: Option<bool>,
     pub matches_any: Vec<WindowMatcher>,
     pub excludes: Vec<WindowMatcher>,
     pub app_ids: Vec<WindowRulePattern>,
@@ -242,6 +244,8 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "open-on-output"
                 | "open-focused"
                 | "open-position"
+                | "open-fullscreen"
+                | "open-maximized"
                 | "width"
                 | "height"
                 | "opacity"
@@ -371,6 +375,12 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     Ok(WindowRule {
         compose: false,
         match_all,
+        open_fullscreen: field(fields, &["open-fullscreen"])
+            .map(|v| boolean(v, "open-fullscreen"))
+            .transpose()?,
+        open_maximized: field(fields, &["open-maximized"])
+            .map(|v| boolean(v, "open-maximized"))
+            .transpose()?,
         open_position: field(fields, &["open-position"])
             .map(parse_open_position)
             .transpose()?,
@@ -681,6 +691,24 @@ end
         )
         .unwrap();
         assert!(parse_window_rules(&config).is_err());
+    }
+
+    #[test]
+    fn opening_presentation_rules_require_booleans() {
+        for (value, valid) in [
+            ("true", true),
+            ("false", true),
+            ("1", false),
+            ("\"true\"", false),
+        ] {
+            for key in ["open-fullscreen", "open-maximized"] {
+                let source = format!(
+                    "rules:\n  window-rule:\n    match-all true\n    {key} {value}\n  end\nend\n"
+                );
+                let config = RuneConfig::from_str(&source).unwrap();
+                assert_eq!(parse_window_rules(&config).is_ok(), valid, "{key} {value}");
+            }
+        }
     }
 
     #[test]

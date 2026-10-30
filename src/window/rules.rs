@@ -12,6 +12,8 @@ pub struct ResolvedWindowRule {
     pub open_on_output: Option<String>,
     pub open_focused: Option<bool>,
     pub open_position: Option<(i32, i32)>,
+    pub open_fullscreen: bool,
+    pub open_maximized: bool,
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: f32,
     pub blur: Option<bool>,
@@ -28,6 +30,8 @@ impl Default for ResolvedWindowRule {
             open_on_output: None,
             open_focused: None,
             open_position: None,
+            open_fullscreen: false,
+            open_maximized: false,
             initial_size: (None, None),
             opacity: 1.0,
             blur: None,
@@ -80,6 +84,12 @@ impl WindowRulesState {
                 continue;
             }
             resolved.matched = true;
+            if let Some(v) = rule.open_fullscreen {
+                resolved.open_fullscreen = v;
+            }
+            if let Some(v) = rule.open_maximized {
+                resolved.open_maximized = v;
+            }
             if let Some(v) = rule.open_position {
                 resolved.open_position = Some(v);
             }
@@ -184,6 +194,8 @@ mod tests {
                 open_on_output: None,
                 open_focused: None,
                 open_position: None,
+                open_fullscreen: None,
+                open_maximized: None,
                 compose: false,
                 match_all: false,
                 matches_any: vec![],
@@ -202,6 +214,8 @@ mod tests {
                 open_on_output: None,
                 open_focused: None,
                 open_position: None,
+                open_fullscreen: None,
+                open_maximized: None,
                 compose: false,
                 match_all: false,
                 matches_any: vec![],
@@ -259,6 +273,7 @@ rules:
     end
     blur false
     block-screencast false
+    open-maximized true
   end
 end
 "#,
@@ -271,6 +286,7 @@ end
         });
         assert_eq!(monitoring.opacity, 0.9);
         assert_eq!(monitoring.blur, Some(false));
+        assert!(monitoring.open_maximized);
         assert!(!monitoring.block_screencast);
         let secret = state.resolve_identity(&WindowIdentity {
             app_id: Some("other".into()),
