@@ -116,10 +116,8 @@ mod tests {
     fn cluster_cores_use_override_only_on_the_selected_output() {
         let config = halley_config::RuntimeConfig::default();
         let mut nodes = NodesState::new(&config);
-        let mut clusters = crate::clusters::ClusterSystem::new(
-            config.clusters.clone(),
-            config.animations.cluster.clone(),
-        );
+        let mut clusters =
+            crate::clusters::ClusterSystem::new(config.clusters, config.animations.cluster);
         for output in ["DP-1", "DP-2"] {
             let member = nodes.field.spawn_surface(
                 output,
@@ -141,7 +139,7 @@ mod tests {
         let fullscreen =
             crate::wayland::fullscreen::FullscreenManager::new(config.animations.clone());
         let maximize = crate::presentation::maximize::FieldMaximizeManager::new(
-            config.field.clone(),
+            config.field,
             config.animations.clone(),
         );
         let bodies = collect_dynamics_bodies(
