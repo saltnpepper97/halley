@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Add portal screencast privacy rules for windows and layer surfaces, plus a local indicator for directly shared windows.
+
 ### Added
 - Add isolated two-output Alt+Tab integration tests covering native and XWayland
   apps and game windows, client/compositor/overlapping fullscreen ownership,

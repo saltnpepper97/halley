@@ -62,7 +62,6 @@ pub enum RuntimeConfigError {
     Field(FieldParseError),
     Background(BackgroundParseError),
     Rule(WindowRuleParseError),
-    ScreencastPrivacyUnavailable,
 }
 
 impl fmt::Display for RuntimeConfigError {
@@ -79,9 +78,6 @@ impl fmt::Display for RuntimeConfigError {
             Self::Field(err) => write!(f, "{err}"),
             Self::Background(err) => write!(f, "{err}"),
             Self::Rule(err) => write!(f, "{err}"),
-            Self::ScreencastPrivacyUnavailable => {
-                write!(f, "block-screencast is not implemented in this build")
-            }
         }
     }
 }
@@ -160,12 +156,6 @@ pub fn parse_runtime_config(config: &RuneConfig) -> Result<RuntimeConfig, Runtim
         focus_rings,
     } = parse_view_checked(config)?;
     let rules = parse_rules(config)?;
-    // Do not accept a privacy promise until capture enforcement is complete.
-    if rules.windows.iter().any(|rule| rule.block_screencast)
-        || rules.layers.iter().any(|rule| rule.block_screencast)
-    {
-        return Err(RuntimeConfigError::ScreencastPrivacyUnavailable);
-    }
     Ok(RuntimeConfig {
         env: parse_env(config)?,
         autostart: parse_autostart(config)?,
@@ -216,21 +206,6 @@ pub fn load_runtime_config_diagnostic_at(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn unfinished_screencast_privacy_is_rejected() {
-        for rule in [
-            "window-rule:\n    app-id \"secret\"",
-            "layer-rule:\n    namespace \"notifications\"",
-        ] {
-            let source = format!("rules:\n  {rule}\n    block-screencast true\n  end\nend\n");
-            let config = RuneConfig::from_str(&source).unwrap();
-            assert!(matches!(
-                parse_runtime_config(&config),
-                Err(RuntimeConfigError::ScreencastPrivacyUnavailable)
-            ));
-        }
-    }
 
     #[test]
     fn parses_all_supported_sections_as_one_snapshot() {

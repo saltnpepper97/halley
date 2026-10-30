@@ -94,7 +94,7 @@ render_elements! {
     Layer=WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
-fn indicate_window_cast(scene: &mut LiveWindowScene) {
+fn indicate_window_cast(scene: &mut LiveWindowScene, decorations: &halley_config::Decorations) {
     let bounds = scene
         .elements
         .iter()
@@ -107,7 +107,10 @@ fn indicate_window_cast(scene: &mut LiveWindowScene) {
         .map(|element| element.geometry(Scale::from(1.0)))
         .reduce(|a, b| a.merge(b));
     if let Some(bounds) = bounds {
-        let width = 4.min(bounds.size.w / 2).min(bounds.size.h / 2);
+        let width = decorations
+            .screencast_indicator_size
+            .min(bounds.size.w / 2)
+            .min(bounds.size.h / 2);
         if width == 0 {
             return;
         }
@@ -119,7 +122,7 @@ fn indicate_window_cast(scene: &mut LiveWindowScene) {
             std::array::from_fn(|_| Id::new()),
             inner,
             width,
-            smithay::backend::renderer::Color32F::new(0.94, 0.20, 0.24, 1.0),
+            super::decoration_color(decorations.screencast_indicator_color),
         );
         scene
             .elements
@@ -1039,7 +1042,7 @@ fn build_logical(
                 .wl_surface()
                 .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
         {
-            indicate_window_cast(&mut window_scene);
+            indicate_window_cast(&mut window_scene, request.visuals.decorations);
         }
         if window_scene.cluster_exclusive {
             exclusive_windows.push((stack_index, window_scene));
@@ -1085,7 +1088,7 @@ fn build_logical(
                     request.desktop.screencast.is_window_cast(surface.as_ref())
                 })
             {
-                indicate_window_cast(&mut extra_scene);
+                indicate_window_cast(&mut extra_scene, request.visuals.decorations);
             }
             if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
                 live_windows.push((stack_index, extra_scene));
