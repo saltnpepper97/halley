@@ -638,6 +638,38 @@ impl<D: SessionDriver> Session<D> {
             .is_none_or(|surface| self.window_rules.opacity(surface) < 0.999)
     }
 
+    pub(crate) fn refresh_dynamic_window_rules(&mut self) {
+        let windows = self
+            .wayland
+            .space
+            .elements()
+            .cloned()
+            .chain(self.wayland.collapsed.values().cloned())
+            .chain(self.wayland.unmapped.values().cloned())
+            .collect::<Vec<_>>();
+        let mut changed = false;
+        for window in windows {
+            if let Some(surface) = window.wl_surface() {
+                let before = self.window_rules.applied(surface.as_ref());
+                let after = self.window_rules.track_window(&window);
+                changed |= before != after;
+            }
+        }
+        if changed {
+            self.render.overlay_previews.mark_all_dirty();
+            self.request_redraw();
+        }
+    }
+
+    pub(crate) fn refresh_window_cast_rules(&mut self) {
+        if self
+            .window_rules
+            .set_casts(self.screencast.window_cast_targets())
+        {
+            self.refresh_dynamic_window_rules();
+        }
+    }
+
     fn window_rules_reload_changes_visuals(&mut self, rules: &[halley_config::WindowRule]) -> bool {
         self.window_rules.reload(rules.to_vec());
         let windows = self

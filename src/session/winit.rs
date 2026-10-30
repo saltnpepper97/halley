@@ -430,6 +430,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         },
         |app, client_id| {
             if app.screencast.disconnect(client_id) {
+                app.refresh_window_cast_rules();
                 app.request_redraw();
             }
             app.api_subscriptions.disconnect(client_id);

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use halley_config::{WindowClusterParticipation, WindowRule, WindowSpawnPlacement};
 use smithay::desktop::Window;
@@ -73,6 +73,8 @@ pub struct WindowIdentity {
 pub struct WindowRulesState {
     rules: Vec<WindowRule>,
     start_time: std::time::Instant,
+    focused: Option<WlSurface>,
+    casts: HashSet<WlSurface>,
     applied: HashMap<WlSurface, ResolvedWindowRule>,
     pub(crate) games: super::games::GameApplications,
 }
@@ -88,6 +90,8 @@ impl WindowRulesState {
         Self {
             rules,
             start_time: std::time::Instant::now(),
+            focused: None,
+            casts: HashSet::new(),
             applied: HashMap::new(),
             games: super::games::GameApplications::load(),
         }
@@ -115,6 +119,15 @@ impl WindowRulesState {
     }
 
     pub fn resolve_identity(&self, identity: &WindowIdentity) -> ResolvedWindowRule {
+        self.resolve_with_context(identity, false, false)
+    }
+
+    fn resolve_with_context(
+        &self,
+        identity: &WindowIdentity,
+        is_focused: bool,
+        is_cast: bool,
+    ) -> ResolvedWindowRule {
         let mut resolved = ResolvedWindowRule::default();
         for rule in &self.rules {
             if !rule.matches_with_context(
@@ -122,6 +135,8 @@ impl WindowRulesState {
                 identity.title.as_deref(),
                 identity.is_transient,
                 self.start_time.elapsed() < std::time::Duration::from_secs(60),
+                is_focused,
+                is_cast,
             ) {
                 continue;
             }
@@ -184,8 +199,31 @@ impl WindowRulesState {
         resolved
     }
 
+    pub fn set_focus(&mut self, surface: Option<WlSurface>) -> bool {
+        if self.focused == surface {
+            return false;
+        }
+        self.focused = surface;
+        true
+    }
+
+    pub fn set_casts(&mut self, casts: HashSet<WlSurface>) -> bool {
+        if self.casts == casts {
+            return false;
+        }
+        self.casts = casts;
+        true
+    }
+
     pub fn track_window(&mut self, window: &Window) -> ResolvedWindowRule {
-        let resolved = self.resolve_identity(&identity(window));
+        let surface = window.wl_surface().map(|surface| surface.into_owned());
+        let resolved = self.resolve_with_context(
+            &identity(window),
+            surface
+                .as_ref()
+                .is_some_and(|s| self.focused.as_ref() == Some(s)),
+            surface.as_ref().is_some_and(|s| self.casts.contains(s)),
+        );
         if let Some(surface) = window.wl_surface().map(|surface| surface.into_owned()) {
             self.applied.insert(surface, resolved.clone());
         }
@@ -463,5 +501,50 @@ end
             ..Default::default()
         });
         assert!(!other.blocks_capture(true));
+    }
+    #[test]
+    fn dynamic_conditions_resolve_on_focus_and_window_cast() {
+        let config = rune_cfg::RuneConfig::from_str(
+            r#"
+rules:
+  window-rule-mode "compose"
+  window-rule:
+    match-all true
+    opacity 0.8
+  end
+  window-rule:
+    match:
+      is-focused true
+    end
+    opacity 1.0
+  end
+  window-rule:
+    match:
+      is-screencast-target true
+    end
+    shadow false
+  end
+end
+"#,
+        )
+        .unwrap();
+        let state = WindowRulesState::new(halley_config::parse_window_rules(&config).unwrap());
+        let identity = WindowIdentity::default();
+        assert_eq!(
+            state.resolve_with_context(&identity, false, false).opacity,
+            0.8
+        );
+        assert_eq!(
+            state.resolve_with_context(&identity, true, false).opacity,
+            1.0
+        );
+        assert_eq!(
+            state.resolve_with_context(&identity, false, true).shadow,
+            Some(false)
+        );
+        assert_eq!(
+            state.resolve_with_context(&identity, false, false).shadow,
+            None
+        );
     }
 }

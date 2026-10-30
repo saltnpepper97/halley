@@ -1771,6 +1771,9 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
     serial: smithay::utils::Serial,
 ) {
     if session.session_lock.active() {
+        if session.window_rules.set_focus(None) {
+            session.refresh_dynamic_window_rules();
+        }
         let focused = session
             .session_lock
             .focused_surface()
@@ -1832,6 +1835,9 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
         .as_ref()
         .and_then(|target| target.wl_surface().map(Cow::into_owned))
         .filter(|surface| session.wayland.focused_window.as_ref() == Some(surface));
+    if session.window_rules.set_focus(next_constraint_root.clone()) {
+        session.refresh_dynamic_window_rules();
+    }
     let active_x11_window = focused
         .as_ref()
         .and_then(crate::xwayland::KeyboardFocusTarget::x11_window_id);

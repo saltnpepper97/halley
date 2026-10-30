@@ -672,6 +672,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                             )
                         } else {
                             app.screencast.begin_window_cast(client_id, surface);
+                            app.refresh_window_cast_rules();
                             app.request_redraw();
                             halley_ipc::Response::Ack
                         }

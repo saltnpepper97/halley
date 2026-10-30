@@ -87,6 +87,14 @@ impl ScreencastState {
         self.window_casts.insert(client_id, surface);
     }
 
+    pub fn window_cast_targets(
+        &self,
+    ) -> std::collections::HashSet<
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    > {
+        self.window_casts.values().cloned().collect()
+    }
+
     pub fn is_window_cast(
         &self,
         surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,

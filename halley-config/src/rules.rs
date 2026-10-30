@@ -89,6 +89,8 @@ pub struct WindowRule {
 pub struct WindowMatcher {
     pub is_transient: Option<bool>,
     pub at_startup: Option<bool>,
+    pub is_focused: Option<bool>,
+    pub is_screencast_target: Option<bool>,
     pub app_ids: Vec<WindowRulePattern>,
     pub titles: Vec<WindowRulePattern>,
 }
@@ -100,9 +102,16 @@ impl WindowMatcher {
         title: Option<&str>,
         is_transient: bool,
         at_startup: bool,
+        is_focused: bool,
+        is_screencast_target: bool,
     ) -> bool {
-        self.at_startup
-            .is_none_or(|expected| expected == at_startup)
+        self.is_focused.is_none_or(|v| v == is_focused)
+            && self
+                .is_screencast_target
+                .is_none_or(|v| v == is_screencast_target)
+            && self
+                .at_startup
+                .is_none_or(|expected| expected == at_startup)
             && self
                 .is_transient
                 .is_none_or(|expected| expected == is_transient)
@@ -150,7 +159,7 @@ pub struct Rules {
 
 impl WindowRule {
     pub fn matches(&self, app_id: Option<&str>, title: Option<&str>) -> bool {
-        self.matches_with_context(app_id, title, false, false)
+        self.matches_with_context(app_id, title, false, false, false, false)
     }
 
     pub fn matches_with_context(
@@ -159,25 +168,48 @@ impl WindowRule {
         title: Option<&str>,
         is_transient: bool,
         at_startup: bool,
+        is_focused: bool,
+        is_screencast_target: bool,
     ) -> bool {
         let base = WindowMatcher {
             is_transient: None,
             at_startup: None,
+            is_focused: None,
+            is_screencast_target: None,
             app_ids: self.app_ids.clone(),
             titles: self.titles.clone(),
         };
         let included = self.match_all
             || ((!self.app_ids.is_empty() || !self.titles.is_empty())
-                && base.matches(app_id, title, is_transient, at_startup))
-            || self
-                .matches_any
-                .iter()
-                .any(|m| m.matches(app_id, title, is_transient, at_startup));
+                && base.matches(
+                    app_id,
+                    title,
+                    is_transient,
+                    at_startup,
+                    is_focused,
+                    is_screencast_target,
+                ))
+            || self.matches_any.iter().any(|m| {
+                m.matches(
+                    app_id,
+                    title,
+                    is_transient,
+                    at_startup,
+                    is_focused,
+                    is_screencast_target,
+                )
+            });
         included
-            && !self
-                .excludes
-                .iter()
-                .any(|m| m.matches(app_id, title, is_transient, at_startup))
+            && !self.excludes.iter().any(|m| {
+                m.matches(
+                    app_id,
+                    title,
+                    is_transient,
+                    at_startup,
+                    is_focused,
+                    is_screencast_target,
+                )
+            })
     }
 }
 
@@ -350,6 +382,32 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         ));
     }
 
+    let dynamic = matches_any
+        .iter()
+        .chain(&excludes)
+        .any(|m| m.is_focused.is_some() || m.is_screencast_target.is_some());
+    if dynamic
+        && [
+            "width",
+            "height",
+            "open-on-output",
+            "open-focused",
+            "open-position",
+            "open-fullscreen",
+            "open-maximized",
+            "spawn-placement",
+            "spawn_placement",
+            "cluster-participation",
+            "cluster_participation",
+        ]
+        .iter()
+        .any(|name| field(fields, &[name]).is_some())
+    {
+        return Err(WindowRuleParseError(
+            "dynamic matchers cannot set opening properties".into(),
+        ));
+    }
+
     let width = field(fields, &["width"])
         .map(|value| dimension(value, "width"))
         .transpose()?;
@@ -501,11 +559,17 @@ fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParse
             ObjectItem::Assign(key, _)
                 if matches!(
                     key.as_str(),
-                    "app-id" | "app_id" | "title" | "is-transient" | "at-startup"
+                    "app-id"
+                        | "app_id"
+                        | "title"
+                        | "is-transient"
+                        | "at-startup"
+                        | "is-focused"
+                        | "is-screencast-target"
                 ) => {}
             _ => {
                 return Err(WindowRuleParseError(
-                    "match and exclude support app-id, title, is-transient, and at-startup".into(),
+                    "unknown condition in match or exclude".into(),
                 ));
             }
         }
@@ -524,7 +588,19 @@ fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParse
     let at_startup = field(fields, &["at-startup"])
         .map(|v| boolean(v, "at-startup"))
         .transpose()?;
-    if app_ids.is_empty() && titles.is_empty() && is_transient.is_none() && at_startup.is_none() {
+    let is_focused = field(fields, &["is-focused"])
+        .map(|v| boolean(v, "is-focused"))
+        .transpose()?;
+    let is_screencast_target = field(fields, &["is-screencast-target"])
+        .map(|v| boolean(v, "is-screencast-target"))
+        .transpose()?;
+    if app_ids.is_empty()
+        && titles.is_empty()
+        && is_transient.is_none()
+        && at_startup.is_none()
+        && is_focused.is_none()
+        && is_screencast_target.is_none()
+    {
         return Err(WindowRuleParseError(
             "match and exclude require at least one condition".into(),
         ));
@@ -534,6 +610,8 @@ fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParse
         titles,
         is_transient,
         at_startup,
+        is_focused,
+        is_screencast_target,
     })
 }
 
@@ -768,6 +846,20 @@ end
         )
         .unwrap();
         assert!(parse_window_rules(&config).is_err());
+    }
+
+    #[test]
+    fn dynamic_matchers_cannot_change_opening_properties() {
+        for key in ["is-focused", "is-screencast-target"] {
+            let source = format!(
+                "rules:\n  window-rule:\n    match:\n      {key} true\n    end\n    open-on-output \"DP-1\"\n  end\nend\n"
+            );
+            let config = RuneConfig::from_str(&source).unwrap();
+            assert!(parse_window_rules(&config).is_err());
+            let source = source.replace("open-on-output \"DP-1\"", "opacity 0.9");
+            let config = RuneConfig::from_str(&source).unwrap();
+            assert!(parse_window_rules(&config).is_ok());
+        }
     }
 
     #[test]
