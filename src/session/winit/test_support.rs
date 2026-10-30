@@ -126,7 +126,12 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
             let modifiers = keyboard.modifier_state();
             let sides = app.keyboard.side_modifiers;
             let last_led_update = app.driver.keyboard_led_update.map(|leds| serde_json::json!({"caps": leds.caps, "num": leds.num, "scroll": leds.scroll}));
+            let capture_region = match app.capture.overlay() {
+                crate::capture::CaptureOverlay::Region(rect) => Some([rect.loc.x, rect.loc.y, rect.size.w, rect.size.h]),
+                _ => None,
+            };
             let reply = serde_json::json!({"open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
+                "capture_active": app.capture.is_active(), "capture_source": app.capture.source_accessibility().2, "capture_region": capture_region,
                 "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
                 "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,
                 "keyboard": {"pressed": keyboard.pressed_keys().into_iter().map(|key| key.raw() - 8).collect::<Vec<_>>(),

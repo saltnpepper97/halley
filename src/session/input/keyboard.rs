@@ -19,6 +19,7 @@ enum KeyboardOutcome {
     CaptureCancel,
     CapturePrevious,
     CaptureNext,
+    CaptureAdjustRegion(i32, i32, bool),
     CaptureIntercept,
     BearingsRelease,
     ClusterAccept,
@@ -167,6 +168,12 @@ pub(super) fn handle<D, B>(
                     _ => FilterResult::Intercept(KeyboardOutcome::ClusterDeleteIntercept),
                 };
             }
+            // Orca's grabbed keys must not also drive compositor overlays or
+            // enter text into Cluster Composer. Confirmation dialogs remain
+            // above this path so their protected input policy is unchanged.
+            if accessibility == crate::accessibility::KeyboardDisposition::Intercept {
+                return FilterResult::Intercept(KeyboardOutcome::AccessibilityIntercept);
+            }
             // The card is a one-time primer, not a modal. Intercept only its
             // dismissal keys; all other keys continue through modal checks and
             // the compositor keybind matcher below.
@@ -312,9 +319,6 @@ pub(super) fn handle<D, B>(
                 }
                 return FilterResult::Intercept(KeyboardOutcome::FocusCycleIntercept);
             }
-            if accessibility == crate::accessibility::KeyboardDisposition::Intercept {
-                return FilterResult::Intercept(KeyboardOutcome::AccessibilityIntercept);
-            }
             match modal_key_routing(data.capture.is_active(), state, release_is_suppressed) {
                 ModalKeyRouting::SuppressRelease => {
                     return FilterResult::Intercept(KeyboardOutcome::CaptureIntercept);
@@ -328,15 +332,32 @@ pub(super) fn handle<D, B>(
                 ModalKeyRouting::Evaluate => {}
             }
             if data.capture.is_active() {
-                return match handle.raw_latin_sym_or_raw_current_sym() {
+                let sym = handle.raw_latin_sym_or_raw_current_sym();
+                if data.capture.kind() == Some(crate::capture::CaptureKind::Area) {
+                    let direction = match sym {
+                        Some(Keysym::Left) => Some((-10, 0)),
+                        Some(Keysym::Right) => Some((10, 0)),
+                        Some(Keysym::Up) => Some((0, -10)),
+                        Some(Keysym::Down) => Some((0, 10)),
+                        _ => None,
+                    };
+                    if let Some((dx, dy)) = direction {
+                        return FilterResult::Intercept(KeyboardOutcome::CaptureAdjustRegion(
+                            dx,
+                            dy,
+                            modifiers.shift,
+                        ));
+                    }
+                }
+                return match sym {
                     Some(Keysym::Escape) => FilterResult::Intercept(KeyboardOutcome::CaptureCancel),
                     Some(Keysym::Return | Keysym::KP_Enter) => {
                         FilterResult::Intercept(KeyboardOutcome::CaptureAccept)
                     }
-                    Some(Keysym::Left) if data.capture.menu_is_active() => {
+                    Some(Keysym::Left | Keysym::Up) => {
                         FilterResult::Intercept(KeyboardOutcome::CapturePrevious)
                     }
-                    Some(Keysym::Right) if data.capture.menu_is_active() => {
+                    Some(Keysym::Right | Keysym::Down) => {
                         FilterResult::Intercept(KeyboardOutcome::CaptureNext)
                     }
                     _ => FilterResult::Intercept(KeyboardOutcome::CaptureIntercept),
@@ -653,12 +674,23 @@ pub(super) fn handle<D, B>(
             }
         }
         Some(KeyboardOutcome::CapturePrevious) => {
-            if session.capture.move_menu_selection(-1) {
+            if session.capture.move_menu_selection(-1)
+                || crate::capture::move_source_selection(session, -1)
+                || crate::capture::move_screenshot_selection(session, -1)
+            {
                 session.request_redraw();
             }
         }
         Some(KeyboardOutcome::CaptureNext) => {
-            if session.capture.move_menu_selection(1) {
+            if session.capture.move_menu_selection(1)
+                || crate::capture::move_source_selection(session, 1)
+                || crate::capture::move_screenshot_selection(session, 1)
+            {
+                session.request_redraw();
+            }
+        }
+        Some(KeyboardOutcome::CaptureAdjustRegion(dx, dy, resize)) => {
+            if session.capture.adjust_region(dx, dy, resize) {
                 session.request_redraw();
             }
         }

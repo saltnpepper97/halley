@@ -2,6 +2,54 @@
 mod dbus;
 #[cfg(feature = "dbus")]
 mod keyboard_monitor;
+#[cfg(feature = "dbus")]
+mod tree;
+
+#[cfg(feature = "dbus")]
+pub use tree::AccessibilityTree;
+
+#[cfg(feature = "dbus")]
+pub fn start_configured_orca<D: SessionDriver>(
+    session: &Session<D>,
+    wayland_display: &std::ffi::OsStr,
+) -> Option<OrcaSupervisor> {
+    let path = session
+        .launch_environment()
+        .find_map(|(key, value)| {
+            (key == std::ffi::OsStr::new("HALLEY_ORCA_PATH")).then(|| value.to_os_string())
+        })
+        .or_else(|| std::env::var_os("HALLEY_ORCA_PATH"))?;
+    if !std::path::Path::new(&path).is_absolute() {
+        eventline::warn!("accessibility: HALLEY_ORCA_PATH must be an absolute executable path");
+        return None;
+    }
+    let service = session.keyboard_monitor.as_ref()?;
+    let mut command = std::process::Command::new(path);
+    command.envs(session.launch_environment());
+    // Orca is a separate child, not the compositor's systemd service.
+    for key in [
+        "NOTIFY_SOCKET",
+        "WATCHDOG_USEC",
+        "WATCHDOG_PID",
+        "LISTEN_FDS",
+        "LISTEN_PID",
+    ] {
+        command.env_remove(key);
+    }
+    command.env("WAYLAND_DISPLAY", wayland_display);
+    if let Some(display) = session.xwayland.display_name() {
+        command.env("DISPLAY", display);
+    } else {
+        command.env_remove("DISPLAY");
+    }
+    match service.supervise_orca(command) {
+        Ok(supervisor) => Some(supervisor),
+        Err(error) => {
+            eventline::warn!("accessibility: could not supervise Orca: {error}");
+            None
+        }
+    }
+}
 
 #[cfg(feature = "dbus")]
 use std::time::Duration;
@@ -12,7 +60,7 @@ use smithay::backend::input::{KeyState, Keycode};
 use smithay::input::keyboard::xkb;
 
 #[cfg(feature = "dbus")]
-pub use keyboard_monitor::{KeyboardDisposition, KeyboardMonitorService};
+pub use keyboard_monitor::{KeyboardDisposition, KeyboardMonitorService, OrcaSupervisor};
 
 use crate::session::{Session, SessionDriver};
 

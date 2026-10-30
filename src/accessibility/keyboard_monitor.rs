@@ -186,6 +186,7 @@ impl MonitorData {
 struct KeyboardMonitor {
     data: Arc<Mutex<MonitorData>>,
     connection: Arc<OnceLock<Connection>>,
+    supervised_orca: Arc<Mutex<Option<std::process::Child>>>,
 }
 
 impl KeyboardMonitor {
@@ -193,6 +194,7 @@ impl KeyboardMonitor {
         Self {
             data: Arc::new(Mutex::new(MonitorData::default())),
             connection: Arc::new(OnceLock::new()),
+            supervised_orca: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -206,6 +208,7 @@ impl KeyboardMonitor {
             header,
             AUTHORIZED_MONITOR,
             "only the active assistive-technology keyboard monitor is authorized",
+            &self.supervised_orca,
         )
         .await
     }
@@ -339,6 +342,64 @@ pub struct KeyboardMonitorService {
 }
 
 impl KeyboardMonitorService {
+    /// Start an explicitly configured Orca executable and approve only that
+    /// live child process. Restarting it creates a fresh approved connection.
+    pub fn supervise_orca(
+        &self,
+        mut command: std::process::Command,
+    ) -> std::io::Result<OrcaSupervisor> {
+        let child = self.monitor.supervised_orca.clone();
+        let (stop, receiver) = std::sync::mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("halley-orca".into())
+            .spawn(move || {
+                loop {
+                    if let Ok(mut current) = child.lock() {
+                        let running = current
+                            .as_mut()
+                            .is_some_and(|process| matches!(process.try_wait(), Ok(None)));
+                        if !running {
+                            *current = match command.spawn() {
+                                Ok(process) => Some(process),
+                                Err(error) => {
+                                    eventline::warn!(
+                                        "accessibility: could not start Orca: {error}"
+                                    );
+                                    None
+                                }
+                            };
+                        }
+                    }
+                    match receiver.recv_timeout(Duration::from_secs(2)) {
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                if let Ok(mut current) = child.lock()
+                    && let Some(mut process) = current.take()
+                {
+                    // The PID belongs to our unreaped child. Give Orca time to
+                    // release its resources before falling back to SIGKILL.
+                    unsafe {
+                        libc::kill(process.id() as libc::pid_t, libc::SIGTERM);
+                    }
+                    for _ in 0..20 {
+                        if !matches!(process.try_wait(), Ok(None)) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    if matches!(process.try_wait(), Ok(None)) {
+                        let _ = process.kill();
+                    }
+                    let _ = process.wait();
+                }
+            })?;
+        Ok(OrcaSupervisor {
+            stop,
+            thread: Some(thread),
+        })
+    }
     pub fn start() -> Result<Self, Box<dyn std::error::Error>> {
         let monitor = KeyboardMonitor::new();
         let connection = Connection::session()?;
@@ -365,6 +426,20 @@ impl KeyboardMonitorService {
 
     pub fn process_key(&self, event: KeyboardEvent) -> KeyboardDisposition {
         self.monitor.process_key(event)
+    }
+}
+
+pub struct OrcaSupervisor {
+    stop: std::sync::mpsc::Sender<()>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for OrcaSupervisor {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

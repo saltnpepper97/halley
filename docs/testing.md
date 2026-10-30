@@ -1,4 +1,25 @@
-# Nested fullscreen regression tests
+# Nested regression tests
+
+## Orca accessibility
+
+With Orca, Python GI/AT-SPI, XWayland and a running Wayland desktop installed,
+build `nested_fullscreen_server` as below and build `halleyctl` with
+`cargo build --locked -p halley-cli`. Then run:
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  python tests/support/orca_nested.py
+```
+
+The script starts a nested compositor on private D-Bus and AT-SPI buses. It
+checks the spoken basics card, screenshot menu selection and configuration
+error, rejects an
+unapproved keyboard-monitor client, and restarts the supervised Orca process.
+It does not publish the nested compositor to the host accessibility bus.
+The ignored `accessible_capture` tests in `xwayland_disconnect` exercise
+keyboard monitor selection and screenshot-region movement in a nested session.
+
+## Fullscreen and Alt+Tab
 
 The two-output Alt+Tab suite runs real Wayland and XWayland clients against the
 production session, keyboard handler, switcher, fullscreen policy and renderer.

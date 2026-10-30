@@ -36,6 +36,8 @@ use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, Win
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
+#[path = "support/accessible_capture.rs"]
+mod accessible_capture;
 #[path = "support/alt_tab_visibility.rs"]
 mod alt_tab_visibility;
 #[path = "support/fifo_nested.rs"]
