@@ -144,4 +144,4 @@ cluster model. It covers initial enumeration, commit atomicity, per-binding and
 per-client independence, unsupported requests, external model changes, output
 removal and reconnection ordering, late `wl_output` binds, and manager `stop`.
 The session-level lock and grab policy is not covered there because it needs a
-graphics-backed session; it lives in `src/session/workspace.rs`.
+graphics-backed session; it lives in `src/session/workspace/workspace.rs`.

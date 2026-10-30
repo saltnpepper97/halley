@@ -1,6 +1,6 @@
 //! Exercise the real lifecycle helpers in isolated processes with a fake manager.
 #![allow(dead_code)]
-#[path = "../src/session/environment.rs"]
+#[path = "../src/session/startup/environment.rs"]
 mod environment;
 
 use std::fs;

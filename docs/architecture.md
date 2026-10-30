@@ -42,6 +42,10 @@ state do not share implementation files.
 - `session::cluster_runtime` reconciles cluster state with live surfaces and
   outputs. `session::window_presentation` coordinates fullscreen and maximize
   handoffs, while `session::node_controls` owns focused-node pin controls.
+  The `session/` source tree groups startup, onboarding, input, workspace,
+  windows, display, capture, protocol, drivers, and diagnostics by their work.
+  Explicit source paths in `session/mod.rs` retain the existing Rust module
+  boundaries; the folders organize files without changing ownership.
 - Cluster activation, window presentation, and workspace dragging are grouped
   in their respective `clusters` modules. Capture request setup lives in
   `capture::requests`; the Wayland output-control protocols are grouped under

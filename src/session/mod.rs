@@ -11,58 +11,92 @@ use smithay::wayland::seat::WaylandFocus;
 
 use crate::wayland;
 
+// Source folders group related session work. Explicit paths keep the existing
+// session module boundaries and visibility while making those groups browsable.
+#[path = "workspace/arrange.rs"]
 mod arrange;
+#[path = "startup/autostart.rs"]
 mod autostart;
+#[path = "onboarding/basics.rs"]
 mod basics;
+#[path = "windows/closing.rs"]
 pub(crate) mod closing;
+#[path = "workspace/cluster_runtime.rs"]
 mod cluster_runtime;
-mod node_controls;
-pub(crate) use node_controls::*;
-mod window_presentation;
-pub(crate) use cluster_runtime::*;
-pub(crate) use window_presentation::*;
+#[path = "protocol/commit_timing.rs"]
 mod commit_timing;
+#[path = "input/cursor.rs"]
 mod cursor;
+#[path = "onboarding/decay_notice.rs"]
 mod decay_notice;
+#[path = "workspace/empty_cluster.rs"]
 mod empty_cluster;
+#[path = "startup/environment.rs"]
+pub mod environment;
+#[path = "windows/focus.rs"]
 mod focus;
+#[path = "protocol/foreign_toplevel.rs"]
 mod foreign_toplevel;
+#[path = "input/gesture/mod.rs"]
 pub(crate) mod gesture;
-pub(crate) mod input;
-pub(crate) use input::{cluster_owns_focus, show_cluster_indicator, sync_cluster_activation_focus};
+#[path = "capture/image_copy_capture.rs"]
 mod image_copy_capture;
-mod interaction;
+pub(crate) mod input;
+#[path = "windows/lifecycle.rs"]
 mod lifecycle;
+#[path = "workspace/navigation.rs"]
 mod navigation;
+#[path = "workspace/node_controls.rs"]
+mod node_controls;
+#[path = "windows/opening.rs"]
 pub(crate) mod opening;
+#[path = "display/output.rs"]
 pub(crate) mod output;
+#[path = "display/output_power.rs"]
 mod output_power;
+#[path = "input/pointer/mod.rs"]
 pub(crate) mod pointer;
+#[path = "protocol/handlers.rs"]
 mod protocol;
+#[path = "display/render_completion.rs"]
 mod render_completion;
+#[path = "capture/screenshot.rs"]
 mod screenshot;
-mod settings;
+#[path = "startup/spawn.rs"]
 mod spawn;
+#[path = "startup/startup_clusters.rs"]
 mod startup_clusters;
-mod state;
+#[path = "input/touch.rs"]
 pub(crate) mod touch;
 #[cfg(feature = "xwayland")]
+#[path = "diagnostics/trace.rs"]
 pub(crate) mod trace;
 #[cfg(not(feature = "xwayland"))]
-#[path = "trace_disabled.rs"]
+#[path = "diagnostics/trace_disabled.rs"]
 pub(crate) mod trace;
+#[path = "drivers/tty/mod.rs"]
+pub mod tty;
+#[path = "windows/window_presentation.rs"]
+mod window_presentation;
+#[cfg(feature = "winit")]
+#[path = "drivers/winit/mod.rs"]
+pub mod winit;
+#[path = "workspace/workspace.rs"]
 pub(crate) mod workspace;
 
-pub mod environment;
-pub mod tty;
-#[cfg(feature = "winit")]
-pub mod winit;
+mod interaction;
+mod settings;
+mod state;
 
+pub(crate) use cluster_runtime::*;
 pub(crate) use focus::{focus_window, focus_window_after_close};
+pub(crate) use input::{cluster_owns_focus, show_cluster_indicator, sync_cluster_activation_focus};
 pub use interaction::InteractionState;
 pub(crate) use navigation::{activate_node, center_pointer_on_output};
+pub(crate) use node_controls::*;
 pub use settings::RuntimeSettings;
 pub use state::{OutputDriver, RenderDriver, Session, SessionDriver};
+pub(crate) use window_presentation::*;
 
 /// Builds popup unconstrain inputs from disjoint `Session` fields so a later
 /// `&mut session.wayland` borrow stays valid.
