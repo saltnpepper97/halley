@@ -134,7 +134,7 @@ and simply does not apply it.
 
 ## Tests
 
-`src/wayland/ext_workspace.rs` carries the pure logic — snapshot types, the
+`src/wayland/desktop/ext_workspace.rs` carries the pure logic — snapshot types, the
 transaction reducer, and capability constants — with unit tests for reduction
 and idempotence.
 
