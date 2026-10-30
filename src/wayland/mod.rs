@@ -1,13 +1,14 @@
 pub mod background_effect;
 pub mod buffer_readiness;
-pub(crate) mod clipboard_helper;
+mod capture;
+mod data_transfer;
+
 pub mod commit_timing;
 pub mod compositor;
 pub mod decoration;
 pub mod display_scale;
 pub mod dmabuf;
-pub mod dnd;
-pub mod ext_image_copy_capture;
+
 pub mod ext_workspace;
 pub mod fifo;
 pub mod focus;
@@ -21,14 +22,13 @@ mod output_protocols;
 pub mod permissions;
 pub mod popup;
 pub mod presentation;
-pub(crate) mod screenshot_clipboard;
-pub mod selection;
+
 pub mod session_lock;
 mod surface_scale;
 pub mod text_input;
 mod virtual_keyboard;
 pub use output_protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
-pub mod wlr_screencopy;
+
 pub mod xdg_shell;
 
 use std::collections::{HashMap, HashSet};
@@ -478,3 +478,10 @@ impl ClientData for ClientState {
         }
     }
 }
+
+pub use capture::ext_image_copy_capture;
+pub use capture::wlr_screencopy;
+pub(crate) use data_transfer::clipboard_helper;
+pub use data_transfer::dnd;
+pub(crate) use data_transfer::screenshot_clipboard;
+pub use data_transfer::selection;

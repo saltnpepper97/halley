@@ -1,5 +1,5 @@
 //! Wire tests against the production dispatcher, with deterministic CPU pixels.
-#[path = "../src/wayland/ext_image_copy_capture.rs"]
+#[path = "../src/wayland/capture/ext_image_copy_capture.rs"]
 #[allow(dead_code)]
 mod capture;
 #[path = "support/image_copy_client.rs"]

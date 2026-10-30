@@ -176,9 +176,9 @@ pub fn send_frame(icon: Option<&DndIcon>, output: &Output, elapsed: Duration, se
         &icon.surface,
         output,
         elapsed,
-        super::frame_callbacks::FALLBACK_THROTTLE,
+        super::super::frame_callbacks::FALLBACK_THROTTLE,
         |surface, states| {
-            super::frame_callbacks::callback_output(surface, states, output, sequence, false)
+            super::super::frame_callbacks::callback_output(surface, states, output, sequence, false)
         },
     );
 }
