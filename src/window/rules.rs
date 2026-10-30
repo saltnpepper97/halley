@@ -53,17 +53,25 @@ pub struct WindowIdentity {
     pub is_transient: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct WindowRulesState {
     rules: Vec<WindowRule>,
+    start_time: std::time::Instant,
     applied: HashMap<WlSurface, ResolvedWindowRule>,
     pub(crate) games: super::games::GameApplications,
+}
+
+impl Default for WindowRulesState {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
 }
 
 impl WindowRulesState {
     pub fn new(rules: Vec<WindowRule>) -> Self {
         Self {
             rules,
+            start_time: std::time::Instant::now(),
             applied: HashMap::new(),
             games: super::games::GameApplications::load(),
         }
@@ -83,10 +91,11 @@ impl WindowRulesState {
     pub fn resolve_identity(&self, identity: &WindowIdentity) -> ResolvedWindowRule {
         let mut resolved = ResolvedWindowRule::default();
         for rule in &self.rules {
-            if !rule.matches_with_transient(
+            if !rule.matches_with_context(
                 identity.app_id.as_deref(),
                 identity.title.as_deref(),
                 identity.is_transient,
+                self.start_time.elapsed() < std::time::Duration::from_secs(60),
             ) {
                 continue;
             }
@@ -342,5 +351,32 @@ end
         assert_eq!(state.resolve_identity(&identity).opacity, 1.0);
         identity.is_transient = true;
         assert_eq!(state.resolve_identity(&identity).opacity, 0.5);
+    }
+    #[test]
+    fn startup_match_uses_session_age_and_reload_does_not_reset_it() {
+        let config = rune_cfg::RuneConfig::from_str(
+            r#"
+rules:
+  window-rule:
+    match:
+      app-id "app"
+      at-startup true
+    end
+    width 1000
+  end
+end
+"#,
+        )
+        .unwrap();
+        let rules = halley_config::parse_window_rules(&config).unwrap();
+        let mut state = WindowRulesState::new(rules.clone());
+        let identity = WindowIdentity {
+            app_id: Some("app".into()),
+            ..Default::default()
+        };
+        assert_eq!(state.resolve_identity(&identity).initial_size.0, Some(1000));
+        state.start_time = std::time::Instant::now() - std::time::Duration::from_secs(61);
+        state.reload(rules);
+        assert_eq!(state.resolve_identity(&identity).initial_size.0, None);
     }
 }
