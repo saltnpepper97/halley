@@ -130,27 +130,13 @@ fn indicate_window_cast(scene: &mut LiveWindowScene, decorations: &halley_config
     }
 }
 
-fn redact_elements(elements: &mut Vec<SceneElement>) {
-    // Effects may cover the entire output even when their visible contribution
-    // is confined to a small window. Drop them instead of masking their bounds.
-    elements.retain(|element| {
-        !matches!(
-            element,
-            SceneElement::BackdropBlur(_) | SceneElement::Shadow(_)
-        )
-    });
-    for element in elements.iter_mut() {
-        *element = SceneElement::Border(super::solid_color_element(
-            Id::new(),
-            element.geometry(Scale::from(1.0)),
-            smithay::backend::renderer::Color32F::BLACK,
-        ));
-    }
+fn omit_elements(elements: &mut Vec<SceneElement>) {
+    elements.clear();
 }
 
-fn redact_window_scene(scene: &mut LiveWindowScene) {
-    redact_elements(&mut scene.elements);
-    redact_elements(&mut scene.popup_elements);
+fn omit_window_scene(scene: &mut LiveWindowScene) {
+    omit_elements(&mut scene.elements);
+    omit_elements(&mut scene.popup_elements);
 }
 
 pub fn build(
@@ -825,11 +811,7 @@ fn build_logical(
                     window: None,
                     stack_index: closing.stack_index,
                     order: closing.order,
-                    elements: vec![SceneElement::Border(super::solid_color_element(
-                        Id::new(),
-                        closing.destination,
-                        smithay::backend::renderer::Color32F::BLACK,
-                    ))],
+                    elements: Vec::new(),
                 });
             }
             let mut elements = Vec::new();
@@ -1047,7 +1029,7 @@ fn build_logical(
             }) || (request.desktop.window_rules.has_screencast_blocks()
                 && crate::xwayland::is_override_redirect(window)));
         if protected {
-            redact_window_scene(&mut window_scene);
+            omit_window_scene(&mut window_scene);
         } else if !block_screencast
             && window
                 .wl_surface()
@@ -1093,7 +1075,7 @@ fn build_logical(
                 },
             )?;
             if protected {
-                redact_window_scene(&mut extra_scene);
+                omit_window_scene(&mut extra_scene);
             } else if !block_screencast
                 && window.wl_surface().is_some_and(|surface| {
                     request.desktop.screencast.is_window_cast(surface.as_ref())
@@ -1198,7 +1180,19 @@ fn build_logical(
                 .rev()
                 .flat_map(|(_, scene)| scene.elements),
         );
-        if exclusive.progress > 0.0 {
+        let exclusive_is_protected = block_screencast
+            && request
+                .desktop
+                .nodes
+                .record(exclusive.member)
+                .is_some_and(|record| {
+                    request
+                        .desktop
+                        .window_rules
+                        .applied(&record.surface)
+                        .block_screencast
+                });
+        if exclusive.progress > 0.0 && !exclusive_is_protected {
             foreground.push(SceneElement::Border(super::solid_color_element(
                 request.resources.node_renderer.slot_id(
                     &output.name(),

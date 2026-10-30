@@ -23,7 +23,7 @@ const SIZE: (i32, i32) = (641, 481);
 /// Record before changing a renderer, then compare using the same baseline file.
 #[test]
 #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
-fn protected_blurred_window_does_not_black_out_the_background() {
+fn omitted_blurred_window_reveals_background_and_keeps_foreground() {
     let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
     let context = EGLContext::new(&display).unwrap();
     let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
@@ -61,7 +61,7 @@ fn protected_blurred_window_does_not_black_out_the_background() {
         )),
         SceneElement::BackdropBlur(blur),
     ];
-    super::redact_elements(&mut protected);
+    super::omit_elements(&mut protected);
     let foreground = Rectangle::<i32, Physical>::new((40, 30).into(), (8, 8).into());
     protected.insert(
         0,
@@ -94,8 +94,8 @@ fn protected_blurred_window_does_not_black_out_the_background() {
     );
     assert_eq!(
         pixel(35, 27),
-        &[0, 0, 0, 255],
-        "protected window must be black"
+        &[0, 255, 0, 255],
+        "content behind the protected window must remain visible"
     );
     assert_eq!(
         pixel(42, 32),
