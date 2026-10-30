@@ -58,6 +58,8 @@ mod output_power;
 pub(crate) mod pointer;
 #[path = "protocol/handlers.rs"]
 mod protocol;
+#[path = "protocol/setup.rs"]
+mod protocol_setup;
 #[path = "display/render_completion.rs"]
 mod render_completion;
 #[path = "capture/screenshot.rs"]
