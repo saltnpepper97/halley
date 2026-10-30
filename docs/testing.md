@@ -1,4 +1,76 @@
-# Nested regression tests
+# Testing
+
+## Continuous integration
+
+Three GitHub Actions workflows run on pull requests, pushes to every branch,
+and manual dispatch: [Rust](../.github/workflows/rust.yml),
+[Nix](../.github/workflows/nix.yml), and
+[XWayland](../.github/workflows/xwayland.yml).
+Each job uses a fresh GitHub-hosted VM.
+The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
+
+The checks cover:
+
+- Rust formatting and GitHub Actions workflow linting.
+- Strict Clippy across the workspace, all targets and all features, plus Rustdoc
+  with warnings treated as errors.
+- Workspace tests, strict Clippy for every target, release builds and binary smoke
+  tests with default features, no default features, and the documented dinit
+  desktop feature set.
+- `nix flake check` on native x86_64 and aarch64 runners, including the package,
+  its workspace tests, installed resources and NixOS module assertions.
+- Seven nested XWayland regressions covering disconnect cleanup, dialog focus
+  and stacking, offscreen pointer capture, fullscreen repainting and geometry,
+  and minimize/remap. They run sequentially under headless Weston and Mesa
+  llvmpipe, on a private D-Bus session, without a physical display or GPU.
+
+Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
+lock-file updates. Rust checks use Rust 1.97.1, matching the current development
+baseline; toolchain upgrades are explicit. Cargo caches are separated by
+job and feature set; only `main` and `dev` save caches. Jobs have read-only
+repository access, pinned external actions, timeouts, and cancellation when a
+new run supersedes one on the same branch or pull request. Dependabot checks
+action pins weekly.
+
+To run the ordinary gates locally with the required native libraries installed:
+
+```sh
+rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+cargo +1.97.1 fmt --all -- --check
+cargo +1.97.1 clippy --locked --workspace --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo +1.97.1 doc --locked --workspace --all-features --no-deps
+cargo +1.97.1 test --locked --workspace
+cargo +1.97.1 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.97.1 build --locked --release --workspace
+```
+
+Repeat the last three commands with `--no-default-features` for the minimal
+build, or with `--no-default-features --features dbus,dinit,xwayland,winit` for
+dinit (put Cargo flags before Clippy's `-- -D warnings`). On Ubuntu 26.04,
+`bash .github/scripts/install-dependencies.sh` installs
+the native build and test packages. On a Nix-enabled host, run
+`nix flake check --no-update-lock-file --print-build-logs`.
+
+Rust and Nix run the non-ignored tests. XWayland explicitly selects seven ignored
+tests; other display-dependent tests and subprocess helpers remain ignored
+unless invoked by their fixtures. To reproduce the headless suite on Ubuntu
+26.04, install `weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core`
+alongside the build dependencies, select Rust 1.97.1, then run:
+
+```sh
+sudo install -d -m 1777 /tmp/.X11-unix
+dbus-run-session -- bash .github/scripts/test-xwayland.sh
+```
+
+The script checks that every selected test exists, discovers the private server
+executable through Cargo, and owns its temporary Weston process and sockets.
+On failure, CI retains Weston logs, test output and failed fixture directories
+as `xwayland-diagnostics` for seven days.
+
+The remaining nested tests below need a Wayland session, EGL and their listed
+tools. Physical GPU, DRM/KMS, multi-monitor and real-application behavior still
+need separate live testing. These workflows do not publish or install Halley on
+your machine.
 
 ## Orca accessibility
 

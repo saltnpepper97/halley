@@ -1,0 +1,98 @@
+name: Rust
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  format:
+    name: Formatting and workflow lint
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - name: Lint GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+  lint:
+    name: Clippy and documentation
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: lint
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo doc --locked --workspace --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test-build:
+    name: Test and build (${{ matrix.name }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            cargo-args: ''
+          - name: minimal
+            cargo-args: --no-default-features
+          - name: dinit
+            cargo-args: --no-default-features --features dbus,dinit,xwayland,winit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: ${{ matrix.name }}
+      - name: Run workspace tests
+        env:
+          CARGO_ARGS: ${{ matrix.cargo-args }}
+        run: |
+          read -r -a cargo_args <<< "$CARGO_ARGS"
+          cargo test --locked --workspace "${cargo_args[@]}"
+      - name: Lint every target with this feature set
+        env:
+          CARGO_ARGS: ${{ matrix.cargo-args }}
+        run: |
+          read -r -a cargo_args <<< "$CARGO_ARGS"
+          cargo clippy --locked --workspace --all-targets "${cargo_args[@]}" -- -D warnings
+      - name: Build release binaries
+        env:
+          CARGO_ARGS: ${{ matrix.cargo-args }}
+        run: |
+          read -r -a cargo_args <<< "$CARGO_ARGS"
+          cargo build --locked --release --workspace "${cargo_args[@]}"
+      - name: Smoke-test release binaries
+        run: |
+          target/release/halley --version
+          target/release/halleyctl --help
+          test -x target/release/xdg-desktop-portal-halley

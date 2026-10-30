@@ -165,6 +165,37 @@ fn compositor_grab_policy(override_redirect: bool) -> bool {
     !override_redirect
 }
 
+/// Only standalone normal/utility pop-outs may be explicitly moved. This does
+/// not grant WM focus or resize privileges to override-redirect surfaces.
+#[cfg(feature = "xwayland")]
+pub fn accepts_popup_move(window: &Window) -> bool {
+    window.x11_surface().is_some_and(|surface| {
+        popup_move_policy(
+            surface.is_override_redirect(),
+            surface.is_transient_for().is_some()
+                || crate::wayland::window_presentation_owner(window).is_some(),
+            surface.window_type(),
+        )
+    })
+}
+
+#[cfg(not(feature = "xwayland"))]
+pub fn accepts_popup_move(_window: &Window) -> bool {
+    false
+}
+
+#[cfg(feature = "xwayland")]
+fn popup_move_policy(
+    override_redirect: bool,
+    attached: bool,
+    kind: Option<smithay::xwayland::xwm::WmWindowType>,
+) -> bool {
+    use smithay::xwayland::xwm::WmWindowType;
+    override_redirect
+        && !attached
+        && matches!(kind, Some(WmWindowType::Normal | WmWindowType::Utility))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -200,37 +231,6 @@ mod tests {
 
         assert_eq!(order, ["overlap", "arranged-back", "arranged-front"]);
     }
-}
-
-/// Only standalone normal/utility pop-outs may be explicitly moved. This does
-/// not grant WM focus or resize privileges to override-redirect surfaces.
-#[cfg(feature = "xwayland")]
-pub fn accepts_popup_move(window: &Window) -> bool {
-    window.x11_surface().is_some_and(|surface| {
-        popup_move_policy(
-            surface.is_override_redirect(),
-            surface.is_transient_for().is_some()
-                || crate::wayland::window_presentation_owner(window).is_some(),
-            surface.window_type(),
-        )
-    })
-}
-
-#[cfg(not(feature = "xwayland"))]
-pub fn accepts_popup_move(_window: &Window) -> bool {
-    false
-}
-
-#[cfg(feature = "xwayland")]
-fn popup_move_policy(
-    override_redirect: bool,
-    attached: bool,
-    kind: Option<smithay::xwayland::xwm::WmWindowType>,
-) -> bool {
-    use smithay::xwayland::xwm::WmWindowType;
-    override_redirect
-        && !attached
-        && matches!(kind, Some(WmWindowType::Normal | WmWindowType::Utility))
 }
 
 #[cfg(all(test, feature = "xwayland"))]

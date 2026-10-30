@@ -127,7 +127,7 @@ fn native_logout_stops_only_owned_startup_groups_and_drains_final_output() {
     let mut process = spawn::session_autostart_process(
         &halley_binary(),
         &path,
-        "trap 'printf graceful-shutdown; exit 0' TERM; printf ready; while :; do sleep 10; done",
+        "trap 'echo graceful-shutdown; exit 0' TERM; echo ready; while :; do sleep 10; done",
         OsStr::new("wayland-9"),
         None,
         24,
@@ -139,12 +139,13 @@ fn native_logout_stops_only_owned_startup_groups_and_drains_final_output() {
         .arg("30")
         .spawn()
         .unwrap();
-    wait_for(&path, "ready");
+    // The log header also contains the command; wait for real child output.
+    wait_for(&path, "\nready\n");
     let mut children = vec![child];
     autostart::stop_children(&mut children);
     assert!(children.is_empty());
     let text = wait_for(&path, "=== exit");
-    assert!(text.contains("graceful-shutdown"), "{text}");
+    assert!(text.contains("\ngraceful-shutdown\n"), "{text}");
     assert!(text.contains("exit status: 0"), "{text}");
     assert!(unrelated.try_wait().unwrap().is_none());
     assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
@@ -159,7 +160,7 @@ fn native_logout_is_bounded_when_an_app_ignores_termination() {
     let mut process = spawn::session_autostart_process(
         &halley_binary(),
         &path,
-        "trap '' TERM; printf ready; while :; do sleep 10; done",
+        "trap '' TERM; echo ready; while :; do sleep 10; done",
         OsStr::new("wayland-9"),
         None,
         24,
@@ -167,7 +168,7 @@ fn native_logout_is_bounded_when_an_app_ignores_termination() {
     );
     let child = process.spawn().unwrap();
     let pid = child.id();
-    wait_for(&path, "ready");
+    wait_for(&path, "\nready\n");
     let now = std::time::Instant::now();
     autostart::stop_children(&mut vec![child]);
     assert!(now.elapsed() < Duration::from_secs(2));

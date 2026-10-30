@@ -96,10 +96,11 @@ mod state;
 
 pub(crate) use cluster_runtime::*;
 pub(crate) use focus::{focus_window, focus_window_after_close};
+#[cfg(feature = "xwayland")]
+pub(crate) use grab::begin_pointer_resize;
 pub(crate) use grab::{
     activate_client_pointer_move, begin_client_pointer_move, begin_pointer_edge_pan,
-    begin_pointer_move, begin_pointer_resize, begin_titlebar_pointer_move, begin_window_resize,
-    settle_window_movement,
+    begin_pointer_move, begin_titlebar_pointer_move, begin_window_resize, settle_window_movement,
 };
 pub(crate) use input::{cluster_owns_focus, show_cluster_indicator, sync_cluster_activation_focus};
 pub use interaction::InteractionState;

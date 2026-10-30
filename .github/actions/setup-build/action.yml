@@ -1,0 +1,25 @@
+name: Set up Halley build
+description: Install native dependencies, pinned Rust, and a Cargo cache
+inputs:
+  cache-key:
+    description: Separate caches for different checks and feature sets
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install native dependencies
+      shell: bash
+      run: bash .github/scripts/install-dependencies.sh
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      with:
+        toolchain: 1.97.1
+        components: clippy, rustfmt
+    - name: Cache Cargo dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: ${{ inputs.cache-key }}
+        save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+    - name: Create private runtime directory
+      shell: bash
+      run: echo "XDG_RUNTIME_DIR=$(mktemp -d)" >> "$GITHUB_ENV"
