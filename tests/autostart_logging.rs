@@ -1,12 +1,12 @@
 //! Drive the production detached launcher and real logger entry point.
 #![allow(dead_code)]
-#[path = "../src/session/autostart.rs"]
+#[path = "../src/session/startup/autostart.rs"]
 mod autostart;
 #[path = "../src/autostart_log.rs"]
 mod autostart_log;
-#[path = "../src/session/environment.rs"]
+#[path = "../src/session/startup/environment.rs"]
 mod environment;
-#[path = "../src/session/spawn.rs"]
+#[path = "../src/session/startup/spawn.rs"]
 mod spawn;
 
 use std::collections::BTreeMap;

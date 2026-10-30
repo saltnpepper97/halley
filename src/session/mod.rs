@@ -12,7 +12,9 @@ use smithay::wayland::seat::WaylandFocus;
 use crate::wayland;
 
 mod arrange;
+#[path = "startup/autostart.rs"]
 mod autostart;
+#[path = "onboarding/basics.rs"]
 mod basics;
 pub(crate) mod closing;
 mod cluster_runtime;
@@ -23,6 +25,7 @@ pub(crate) use cluster_runtime::*;
 pub(crate) use window_presentation::*;
 mod commit_timing;
 mod cursor;
+#[path = "onboarding/decay_notice.rs"]
 mod decay_notice;
 mod empty_cluster;
 mod focus;
@@ -42,7 +45,9 @@ mod protocol;
 mod render_completion;
 mod screenshot;
 mod settings;
+#[path = "startup/spawn.rs"]
 mod spawn;
+#[path = "startup/startup_clusters.rs"]
 mod startup_clusters;
 mod state;
 pub(crate) mod touch;
@@ -53,6 +58,7 @@ pub(crate) mod trace;
 pub(crate) mod trace;
 pub(crate) mod workspace;
 
+#[path = "startup/environment.rs"]
 pub mod environment;
 pub mod tty;
 #[cfg(feature = "winit")]
