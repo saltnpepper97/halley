@@ -18,7 +18,8 @@ The checks cover:
   its workspace tests, installed resources and NixOS module assertions.
 
 Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
-lock-file updates. Rust checks track stable Rust. Cargo caches are separated by
+lock-file updates. Rust checks use Rust 1.97.1, matching the current development
+baseline; toolchain upgrades are explicit. Cargo caches are separated by
 job and feature set; only `main` and `dev` save caches. Jobs have read-only
 repository access, pinned external actions, timeouts, and cancellation when a
 new run supersedes one on the same branch or pull request. Dependabot checks

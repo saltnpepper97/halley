@@ -30,6 +30,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: 1.97.1
           components: rustfmt
       - run: cargo fmt --all -- --check
       - name: Lint GitHub Actions workflows
