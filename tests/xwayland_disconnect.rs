@@ -28,6 +28,9 @@ use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1 as foreign_handle,
     zwlr_foreign_toplevel_manager_v1 as foreign_manager,
 };
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1 as layer_shell, zwlr_layer_surface_v1 as layer_surface,
+};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, WindowClass};
 use x11rb::rust_connection::RustConnection;
@@ -455,6 +458,24 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for NativeState {
     ) {
         if let xdg_wm_base::Event::Ping { serial } = event {
             shell.pong(serial);
+        }
+    }
+}
+delegate_noop!(NativeState: ignore layer_shell::ZwlrLayerShellV1);
+impl Dispatch<layer_surface::ZwlrLayerSurfaceV1, ()> for NativeState {
+    fn event(
+        state: &mut Self,
+        layer: &layer_surface::ZwlrLayerSurfaceV1,
+        event: layer_surface::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let layer_surface::Event::Configure { serial, .. } = event {
+            layer.ack_configure(serial);
+            let surface = state.surface.as_ref().unwrap();
+            surface.attach(state.buffer.as_ref(), 0, 0);
+            surface.commit();
         }
     }
 }
@@ -2799,4 +2820,247 @@ fn explicit_capture_targets_save_without_confirmation_and_preserve_native_focus(
         Response::ApiError(error) if error.kind == ServerErrorKind::Busy)
     );
     assert!(fixture.process.try_wait().unwrap().is_none());
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn portal_monitor_capture_redacts_protected_window() {
+    let mut fixture = Fixture::new("tiling");
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "privacy test",
+        "halley.privacy.secret",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("privacy test");
+    queue.roundtrip(&mut state).unwrap();
+    queue.roundtrip(&mut state).unwrap();
+    let red_count = |pixels: &[u8]| {
+        pixels
+            .chunks_exact(4)
+            .filter(|p| p[2] > 245 && p[1] < 5 && p[0] < 5)
+            .count()
+    };
+    wait_for("unprotected red window in portal capture", || {
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) > 1000).then_some(())
+    });
+    let window_id = fixture.node("privacy test").id;
+    let mut cast =
+        halley_ipc::Connection::connect_to(&fixture.path.join("halley/halley.sock")).unwrap();
+    assert!(matches!(
+        cast.request(&Request::BeginWindowCast { window_id }, &[])
+            .unwrap()
+            .response,
+        Response::Ack
+    ));
+    drop(cast);
+    fs::write(fixture.path.join("halley.rune"), "keybinds:\nend\nrules:\n  window-rule:\n    app-id \"halley.privacy.secret\"\n    block-screencast true\n  end\nend\n").unwrap();
+    fixture.ack(Request::ConfigReload);
+    wait_for("privacy rule applied", || {
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) == 0).then_some(())
+    });
+    assert!(
+        matches!(
+            fixture.request(Request::BeginWindowCast {
+                window_id: window_id,
+            }),
+            Response::Error(_)
+        ),
+        "protected direct window cast must be rejected"
+    );
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn shared_window_indicator_follows_connection_lifetimes() {
+    use halley_ipc::CaptureRequest;
+    let mut fixture = Fixture::new("tiling");
+    let (mut queue, mut state) = native_window(&fixture);
+    fixture.node("surviving native window");
+    queue.roundtrip(&mut state).unwrap();
+    let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+        panic!("missing output")
+    };
+    let output_name = outputs.outputs[0].name.clone();
+    let indicator_count = |fixture: &mut Fixture| {
+        let response = fixture.request(Request::Capture(CaptureRequest::Screen {
+            output: Some(output_name.clone()),
+        }));
+        let Response::Screenshot(halley_ipc::ScreenshotResponse::Saved { path }) = response else {
+            panic!("screenshot failed: {response:?}")
+        };
+        image::open(path)
+            .unwrap()
+            .to_rgba8()
+            .pixels()
+            .filter(|p| {
+                (p[0] as i32 - 240).abs() <= 2
+                    && (p[1] as i32 - 51).abs() <= 2
+                    && (p[2] as i32 - 61).abs() <= 2
+            })
+            .count()
+    };
+    assert_eq!(indicator_count(&mut fixture), 0);
+    let window_id = fixture.node("surviving native window").id;
+    let path = fixture.path.join("halley/halley.sock");
+    let mut first = halley_ipc::Connection::connect_to(&path).unwrap();
+    let mut second = halley_ipc::Connection::connect_to(&path).unwrap();
+    for connection in [&mut first, &mut second] {
+        assert!(matches!(
+            connection
+                .request(&Request::BeginWindowCast { window_id }, &[])
+                .unwrap()
+                .response,
+            Response::Ack
+        ));
+    }
+    wait_for("indicator appears", || {
+        (indicator_count(&mut fixture) > 100).then_some(())
+    });
+    drop(first);
+    assert!(
+        indicator_count(&mut fixture) > 100,
+        "second share must retain indicator"
+    );
+    drop(second);
+    wait_for("indicator disappears after last stream", || {
+        (indicator_count(&mut fixture) == 0).then_some(())
+    });
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn portal_monitor_capture_redacts_layer_surface() {
+    let mut fixture = Fixture::new("tiling");
+    let (mut queue, mut state) = native_connection(&fixture);
+    let handle = queue.handle();
+    let registry = state.registry.as_ref().unwrap().clone();
+    let compositor: wl_compositor::WlCompositor =
+        registry.bind(state.globals["wl_compositor"], 6, &handle, ());
+    let pixels: pixel::WpSinglePixelBufferManagerV1 = registry.bind(
+        state.globals["wp_single_pixel_buffer_manager_v1"],
+        1,
+        &handle,
+        (),
+    );
+    let viewporter: wp_viewporter::WpViewporter =
+        registry.bind(state.globals["wp_viewporter"], 1, &handle, ());
+    let shell: layer_shell::ZwlrLayerShellV1 =
+        registry.bind(state.globals["zwlr_layer_shell_v1"], 4, &handle, ());
+    let surface = compositor.create_surface(&handle, ());
+    let viewport = viewporter.get_viewport(&surface, &handle, ());
+    viewport.set_destination(180, 120);
+    let layer = shell.get_layer_surface(
+        &surface,
+        None,
+        layer_shell::Layer::Overlay,
+        "halley-privacy-test".into(),
+        &handle,
+        (),
+    );
+    layer.set_size(180, 120);
+    layer.set_anchor(layer_surface::Anchor::Top | layer_surface::Anchor::Left);
+    state.buffer = Some(pixels.create_u32_rgba_buffer(u32::MAX, 0, 0, u32::MAX, &handle, ()));
+    state.surface = Some(surface.clone());
+    surface.commit();
+    queue.roundtrip(&mut state).unwrap();
+    queue.roundtrip(&mut state).unwrap();
+    let red_count = |pixels: &[u8]| {
+        pixels
+            .chunks_exact(4)
+            .filter(|p| p[2] > 245 && p[1] < 5 && p[0] < 5)
+            .count()
+    };
+    wait_for("unprotected layer in portal capture", || {
+        queue.roundtrip(&mut state).unwrap();
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) > 1000).then_some(())
+    });
+    fs::write(fixture.path.join("halley.rune"), "keybinds:\nend\nrules:\n  layer-rule:\n    namespace \"halley-privacy-test\"\n    block-screencast true\n  end\nend\n").unwrap();
+    fixture.ack(Request::ConfigReload);
+    wait_for("protected layer removed from portal capture", || {
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) == 0).then_some(())
+    });
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn active_window_stream_turns_black_when_rule_is_enabled() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileExt;
+    let decorations =
+        "decorations:\n  border:\n    size 0\n  end\n  titlebars:\n    enabled false\n  end\nend\n";
+    let mut fixture = Fixture::with_config("tiling", decorations);
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "privacy window",
+        "halley.privacy.secret",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("privacy window");
+    queue.roundtrip(&mut state).unwrap();
+    let window_id = fixture.node("privacy window").id;
+    let size = 240 * 160 * 4;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(fixture.path.join("window-cast-frame"))
+        .unwrap();
+    file.set_len(size).unwrap();
+    let request = Request::CaptureFrame(halley_ipc::CaptureFrameRequest {
+        stream_handle: "active-window-privacy".into(),
+        source: halley_ipc::CaptureSource::Window {
+            window_id,
+            width: 240,
+            height: 160,
+        },
+        cursor_mode: halley_ipc::CursorMode::Hidden,
+        buffer: halley_ipc::CaptureBuffer::MemFd {
+            fd_index: 0,
+            offset: 0,
+            size,
+            stride: 240 * 4,
+        },
+    });
+    let mut cast =
+        halley_ipc::Connection::connect_to(&fixture.path.join("halley/halley.sock")).unwrap();
+    assert!(matches!(
+        cast.request(&Request::BeginWindowCast { window_id }, &[])
+            .unwrap()
+            .response,
+        Response::Ack
+    ));
+    let frame = |cast: &mut halley_ipc::Connection| {
+        let response = cast
+            .request(&request, &[file.as_raw_fd()])
+            .unwrap()
+            .response;
+        assert!(
+            matches!(response, Response::Frame(_)),
+            "window frame failed: {response:?}"
+        );
+        let mut pixels = vec![0; size as usize];
+        file.read_exact_at(&mut pixels, 0).unwrap();
+        pixels
+    };
+    wait_for("unprotected window frame", || {
+        (frame(&mut cast)
+            .chunks_exact(4)
+            .filter(|p| p[2] > 245 && p[1] < 5 && p[0] < 5)
+            .count()
+            > 1000)
+            .then_some(())
+    });
+    fs::write(fixture.path.join("halley.rune"), format!("keybinds:\nend\n{decorations}rules:\n  window-rule:\n    app-id \"halley.privacy.secret\"\n    block-screencast true\n  end\nend\n")).unwrap();
+    fixture.ack(Request::ConfigReload);
+    wait_for("protected window frame becomes black", || {
+        frame(&mut cast)
+            .chunks_exact(4)
+            .all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0)
+            .then_some(())
+    });
 }

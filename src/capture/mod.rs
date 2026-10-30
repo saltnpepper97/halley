@@ -17,7 +17,7 @@ use menu::{ScreenshotMenu, ScreenshotMode};
 use picker::RegionPicker;
 pub(crate) use screenshot::screenshot_directory;
 pub(crate) use screenshot::{
-    capture_cursor_surface_tree, capture_source_pixels, render_source_dmabuf,
+    capture_cursor_surface_tree, capture_source_pixels, render_source_dmabuf, resolve_source_window,
 };
 pub(crate) use screenshot::{capture_monitor_region_pixels, render_monitor_region_dmabuf};
 pub use screenshot::{save_area, save_region, save_window};
@@ -1079,6 +1079,33 @@ pub fn cancel_portal<D: SessionDriver>(session: &mut Session<D>, request_handle:
 }
 
 pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
+    let blocked = match session.capture.source_chooser.selected_source() {
+        Some(halley_ipc::CaptureSource::Window { window_id, .. }) => {
+            resolve_source_window(&session.wayland.space, &session.nodes, *window_id)
+                .ok()
+                .and_then(|window| {
+                    window.wl_surface().map(|surface| {
+                        session
+                            .window_rules
+                            .applied(surface.as_ref())
+                            .block_screencast
+                    })
+                })
+                .unwrap_or(false)
+        }
+        _ => false,
+    };
+    if blocked {
+        let output = session.capture.source_chooser.output_name().to_string();
+        session.shell.overlays.show_error(
+            output,
+            "This window is blocked from screen sharing.",
+            3000,
+            crate::frame_clock::monotonic_now(),
+        );
+        session.request_redraw();
+        return false;
+    }
     let Some(accepted) = session.capture.accept() else {
         return false;
     };

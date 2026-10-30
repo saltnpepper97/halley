@@ -107,6 +107,8 @@ pub struct Decorations {
     pub border_color_focused: BorderColor,
     pub border_color_unfocused: BorderColor,
     pub resize_using_border: bool,
+    pub screencast_indicator_size: i32,
+    pub screencast_indicator_color: BorderColor,
     pub titlebars: Titlebars,
 }
 
@@ -127,6 +129,12 @@ impl Default for Decorations {
                 b: 0x59 as f32 / 255.0,
             },
             resize_using_border: true,
+            screencast_indicator_size: 4,
+            screencast_indicator_color: BorderColor {
+                r: 0.94,
+                g: 0.20,
+                b: 0.24,
+            },
             titlebars: Titlebars::default(),
         }
     }
@@ -274,6 +282,20 @@ pub fn parse_decorations(config: &RuneConfig) -> Decorations {
             "decorations.resize-using-border",
             defaults.resize_using_border,
         ),
+        screencast_indicator_size: config
+            .get_or(
+                "decorations.screencast-indicator.size",
+                defaults.screencast_indicator_size,
+            )
+            .clamp(1, 32),
+        screencast_indicator_color: parse_color(
+            config,
+            &[
+                "decorations.screencast-indicator.colour",
+                "decorations.screencast-indicator.color",
+            ],
+            defaults.screencast_indicator_color,
+        ),
         titlebars,
     }
 }
@@ -341,6 +363,21 @@ fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screencast_indicator_parses_size_and_color() {
+        let config = RuneConfig::from_str("decorations:\n  screencast-indicator:\n    size 7\n    colour \"#112233\"\n  end\nend\n").unwrap();
+        let decorations = parse_decorations(&config);
+        assert_eq!(decorations.screencast_indicator_size, 7);
+        assert_eq!(
+            decorations.screencast_indicator_color,
+            BorderColor {
+                r: 17.0 / 255.0,
+                g: 34.0 / 255.0,
+                b: 51.0 / 255.0
+            }
+        );
+    }
 
     #[test]
     fn parses_nested_border_section() {

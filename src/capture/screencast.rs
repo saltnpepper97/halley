@@ -7,7 +7,6 @@ use smithay::backend::allocator::{
     dmabuf::{Dmabuf, DmabufFlags},
 };
 use smithay::backend::renderer::sync::SyncPoint;
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::seat::WaylandFocus;
 
@@ -17,6 +16,7 @@ use crate::session::{Session, SessionDriver};
 #[derive(Default)]
 pub struct ScreencastState {
     buffers: HashMap<(u64, String, u64), Dmabuf>,
+    window_casts: HashMap<u64, smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
 }
 
 impl ScreencastState {
@@ -74,8 +74,24 @@ impl ScreencastState {
         Ok(())
     }
 
-    pub fn disconnect(&mut self, client_id: u64) {
+    pub fn disconnect(&mut self, client_id: u64) -> bool {
         self.buffers.retain(|key, _| key.0 != client_id);
+        self.window_casts.remove(&client_id).is_some()
+    }
+
+    pub fn begin_window_cast(
+        &mut self,
+        client_id: u64,
+        surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        self.window_casts.insert(client_id, surface);
+    }
+
+    pub fn is_window_cast(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> bool {
+        self.window_casts.values().any(|target| target == surface)
     }
 
     pub fn remove(&mut self, client_id: u64, stream_handle: &str, buffer_id: u64) {
@@ -107,7 +123,28 @@ pub fn capture_frame<D: SessionDriver>(
     if session.session_lock.active() {
         return Err("session is locked".to_string());
     }
-    let embedded = request.cursor_mode == halley_ipc::CursorMode::Embedded
+    let blocked_window = match &request.source {
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
+            crate::capture::resolve_source_window(
+                &session.wayland.space,
+                &session.nodes,
+                *window_id,
+            )
+            .ok()
+            .and_then(|window| {
+                window.wl_surface().map(|surface| {
+                    session
+                        .window_rules
+                        .applied(surface.as_ref())
+                        .block_screencast
+                })
+            })
+            .unwrap_or(false)
+        }
+        _ => false,
+    };
+    let embedded = !blocked_window
+        && request.cursor_mode == halley_ipc::CursorMode::Embedded
         && crate::session::cursor_visible(session);
     let width = request.source.width();
     let height = request.source.height();
@@ -175,7 +212,7 @@ pub fn capture_frame<D: SessionDriver>(
         }
     };
 
-    let cursor = (request.cursor_mode == halley_ipc::CursorMode::Metadata)
+    let cursor = (!blocked_window && request.cursor_mode == halley_ipc::CursorMode::Metadata)
         .then(|| cursor_metadata(session, &request.source))
         .flatten();
     let response = halley_ipc::CaptureFrameResponse { cursor };
@@ -248,13 +285,14 @@ fn cursor_metadata<D: SessionDriver>(
             .find(|output| output.name() == *name)?
             .current_scale()
             .fractional_scale(),
-        halley_ipc::CaptureSource::Window { surface_id, .. } => {
-            let window = session.wayland.space.elements().find(|window| {
-                window
-                    .wl_surface()
-                    .is_some_and(|surface| surface.id().protocol_id() == *surface_id)
-            })?;
-            crate::capture::window_display_scale(session, window)
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
+            let window = crate::capture::resolve_source_window(
+                &session.wayland.space,
+                &session.nodes,
+                *window_id,
+            )
+            .ok()?;
+            crate::capture::window_display_scale(session, &window)
         }
     };
     let presentation_override = crate::session::cursor_override(session);
@@ -370,7 +408,7 @@ fn cursor_position<D: SessionDriver>(
                 && local.1 < *height)
                 .then_some(local)
         }
-        halley_ipc::CaptureSource::Window { surface_id, .. } => {
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
             let route = crate::input::pointer::route_to_client(
                 crate::input::pointer::PointerRoutingContext {
                     space: &session.wayland.space,
@@ -394,7 +432,11 @@ fn cursor_position<D: SessionDriver>(
                 _ => return None,
             };
             let surface = window.wl_surface()?;
-            if surface.id().protocol_id() != *surface_id {
+            if session
+                .nodes
+                .id_for_surface(surface.as_ref())
+                .is_none_or(|id| id.as_u64() != *window_id)
+            {
                 return None;
             }
             let location = session.wayland.space.element_location(&window)?;

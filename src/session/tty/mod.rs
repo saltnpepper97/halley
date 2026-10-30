@@ -583,7 +583,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            app.screencast.disconnect(client_id);
+            if app.screencast.disconnect(client_id) {
+                app.request_redraw();
+            }
             app.api_subscriptions.disconnect(client_id);
         },
     ) {
@@ -1483,6 +1485,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
                 nodes: &app.nodes,
                 clusters: &app.clusters,
                 window_rules: &app.window_rules,
+                screencast: &app.screencast,
                 layer_rules: &app.settings.layer_rules,
                 node_grab_active: app.interactions.grab.landmark_active(),
                 titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
@@ -1645,7 +1648,9 @@ fn auto_vrr_eligible(app: &TtyApp, output: &Output, now: Duration) -> bool {
                 now,
             )
         })
-        .is_some_and(|surface| app.window_rules.opacity(surface) >= 0.999)
+        .is_some_and(|surface| {
+            app.window_rules.opacity(surface) >= 0.999 && !app.screencast.is_window_cast(surface)
+        })
 }
 
 fn queue_estimated_vblank_timer(

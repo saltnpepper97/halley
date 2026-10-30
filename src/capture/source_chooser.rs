@@ -215,6 +215,10 @@ impl SourceChooser {
         changed
     }
 
+    pub fn selected_source(&self) -> Option<&halley_ipc::CaptureSource> {
+        self.source.as_ref()
+    }
+
     pub fn take_selected(&mut self) -> Option<halley_ipc::CaptureSource> {
         let source = self.source.take()?;
         self.cancel();

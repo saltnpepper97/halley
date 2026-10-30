@@ -250,6 +250,7 @@ pub struct DesktopContext<'a> {
     pub nodes: &'a crate::nodes::NodesState,
     pub clusters: &'a crate::clusters::ClusterSystem,
     pub window_rules: &'a crate::window::rules::WindowRulesState,
+    pub screencast: &'a crate::capture::screencast::ScreencastState,
     pub layer_rules: &'a [halley_config::LayerRule],
     pub node_grab_active: bool,
     pub titlebar_hovered: Option<&'a crate::titlebar::ButtonTarget>,

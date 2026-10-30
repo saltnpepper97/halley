@@ -95,6 +95,7 @@ pub(super) fn layer_surface_scene_elements(
     output_geometry: Rectangle<i32, Logical>,
     layer: Layer,
     layer_rules: &[halley_config::LayerRule],
+    block_screencast: bool,
     blur_config: halley_config::Blur,
     backdrop_blur_renderer: &mut crate::render::effects::backdrop_blur::BackdropBlurRenderer,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
@@ -117,10 +118,13 @@ pub(super) fn layer_surface_scene_elements(
         let Some(geometry) = map.layer_geometry(surface) else {
             continue;
         };
-        let rule_blur = layer_rules
+        let rule = layer_rules
             .iter()
-            .find(|rule| rule.matches(surface.namespace(), layer_shell_layer(surface.layer())))
-            .map(|rule| rule.blur);
+            .find(|rule| rule.matches(surface.namespace(), layer_shell_layer(surface.layer())));
+        if block_screencast && rule.is_some_and(|rule| rule.block_screencast) {
+            continue;
+        }
+        let rule_blur = rule.and_then(|rule| rule.blur);
         for (popup, popup_offset) in PopupManager::popups_for_surface(surface.wl_surface()) {
             let popup_origin = geometry.loc + popup_offset - popup.geometry().loc;
             let location = popup_origin.to_f64().to_physical(scale).to_i32_round();

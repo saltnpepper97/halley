@@ -12,6 +12,7 @@ pub struct ResolvedWindowRule {
     pub initial_size: Option<(u32, u32)>,
     pub opacity: f32,
     pub blur: Option<bool>,
+    pub block_screencast: bool,
     pub game: Option<bool>,
     pub spawn_placement: WindowSpawnPlacement,
     pub cluster_participation: WindowClusterParticipation,
@@ -24,6 +25,7 @@ impl Default for ResolvedWindowRule {
             initial_size: None,
             opacity: 1.0,
             blur: None,
+            block_screencast: false,
             game: None,
             spawn_placement: WindowSpawnPlacement::Default,
             cluster_participation: WindowClusterParticipation::Layout,
@@ -54,6 +56,10 @@ impl WindowRulesState {
         }
     }
 
+    pub fn has_screencast_blocks(&self) -> bool {
+        self.rules.iter().any(|rule| rule.block_screencast)
+    }
+
     pub fn reload(&mut self, rules: Vec<WindowRule>) {
         self.rules = rules;
         self.games = super::games::GameApplications::load();
@@ -67,6 +73,7 @@ impl WindowRulesState {
                 initial_size: rule.initial_size,
                 opacity: rule.opacity.unwrap_or(1.0).clamp(0.0, 1.0),
                 blur: rule.blur,
+                block_screencast: rule.block_screencast,
                 game: rule.game,
                 spawn_placement: rule.spawn_placement,
                 cluster_participation: rule.cluster_participation,
@@ -141,6 +148,7 @@ mod tests {
                 initial_size: Some((800, 600)),
                 opacity: Some(0.7),
                 blur: Some(true),
+                block_screencast: true,
                 game: Some(true),
                 spawn_placement: WindowSpawnPlacement::Center,
                 cluster_participation: WindowClusterParticipation::Float,
@@ -151,6 +159,7 @@ mod tests {
                 initial_size: None,
                 opacity: Some(0.2),
                 blur: Some(false),
+                block_screencast: false,
                 game: Some(false),
                 spawn_placement: WindowSpawnPlacement::Cursor,
                 cluster_participation: WindowClusterParticipation::Layout,
@@ -161,6 +170,7 @@ mod tests {
             title: None,
         });
         assert_eq!(resolved.opacity, 0.7);
+        assert!(resolved.block_screencast);
         assert_eq!(resolved.game, Some(true));
         assert_eq!(resolved.initial_size, Some((800, 600)));
         assert_eq!(

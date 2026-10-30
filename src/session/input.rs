@@ -8,7 +8,6 @@ use smithay::desktop::{Space, Window};
 use smithay::input::keyboard::{FilterResult, Keysym};
 use smithay::input::pointer::{ButtonEvent, RelativeMotionEvent};
 use smithay::output::Output;
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size};
 use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat;
 use smithay::wayland::seat::WaylandFocus;
@@ -4135,7 +4134,7 @@ fn update_capture_pointer<D: SessionDriver>(session: &mut Session<D>, position: 
                         let size = crate::capture::window_capture_size(session, &window);
                         Some((
                             halley_ipc::CaptureSource::Window {
-                                surface_id: surface.id().protocol_id(),
+                                window_id: session.nodes.id_for_surface(surface.as_ref())?.as_u64(),
                                 width: size.w,
                                 height: size.h,
                             },

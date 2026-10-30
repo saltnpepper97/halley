@@ -13,7 +13,6 @@ use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::utils::draw_render_elements;
 use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer, Texture};
 use smithay::output::Output;
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Transform};
 use smithay::wayland::seat::WaylandFocus;
 
@@ -154,6 +153,7 @@ fn save_region_inner<D: SessionDriver>(
                             nodes,
                             clusters,
                             window_rules,
+                            screencast: &session.screencast,
                             layer_rules: &session.settings.layer_rules,
                             node_grab_active,
                             titlebar_hovered: session.interactions.titlebar_hovered.as_ref(),
@@ -268,6 +268,7 @@ pub(crate) fn capture_source_pixels<D: SessionDriver>(
             *width,
             *height,
             show_cursor,
+            true,
             |renderer, elements, size| {
                 capture_elements(
                     renderer,
@@ -279,12 +280,24 @@ pub(crate) fn capture_source_pixels<D: SessionDriver>(
             },
         ),
         halley_ipc::CaptureSource::Window {
-            surface_id,
+            window_id,
             width,
             height,
         } => {
-            let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            let window = resolve_source_window(&session.wayland.space, &session.nodes, *window_id)?;
             validate_source_window_size(session, &window, *width, *height)?;
+            if window.wl_surface().is_some_and(|surface| {
+                session
+                    .window_rules
+                    .applied(surface.as_ref())
+                    .block_screencast
+            }) {
+                let len = (*width as usize)
+                    .checked_mul(*height as usize)
+                    .and_then(|v| v.checked_mul(4))
+                    .ok_or_else(|| io::Error::other("window frame dimensions overflow"))?;
+                return Ok(vec![0; len]);
+            }
             capture_decorated_window_pixels(session, &window).map(|capture| capture.pixels)
         }
     }
@@ -314,17 +327,34 @@ pub(crate) fn render_source_dmabuf<D: SessionDriver>(
             *width,
             *height,
             show_cursor,
+            true,
             |renderer, elements, size| {
                 render_elements_to_dmabuf(renderer, dmabuf, size, elements, render::CLEAR_COLOR)
             },
         ),
         halley_ipc::CaptureSource::Window {
-            surface_id,
+            window_id,
             width,
             height,
         } => {
-            let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            let window = resolve_source_window(&session.wayland.space, &session.nodes, *window_id)?;
             validate_source_window_size(session, &window, *width, *height)?;
+            if window.wl_surface().is_some_and(|surface| {
+                session
+                    .window_rules
+                    .applied(surface.as_ref())
+                    .block_screencast
+            }) {
+                return session.driver.with_renderer(|renderer| {
+                    render_elements_to_dmabuf::<render::scene::SceneElement>(
+                        renderer,
+                        dmabuf,
+                        (*width, *height).into(),
+                        &[],
+                        Color32F::BLACK,
+                    )
+                });
+            }
             with_decorated_window(session, &window, |renderer, element, size| {
                 render_elements_to_dmabuf(renderer, dmabuf, size, &[element], Color32F::TRANSPARENT)
             })
@@ -338,6 +368,7 @@ pub(crate) fn with_monitor_scene<D, T>(
     width: i32,
     height: i32,
     show_cursor: bool,
+    block_screencast: bool,
     consume: impl FnOnce(
         &mut GlesRenderer,
         &[render::scene::SceneElement],
@@ -388,7 +419,7 @@ where
     let resources = &mut session.render;
     let session_lock = &session.session_lock;
     driver.with_renderer(|renderer| {
-        let elements = render::scene::build(
+        let elements = render::scene::build_with_privacy(
             renderer,
             &output,
             &primary,
@@ -412,6 +443,7 @@ where
                     nodes,
                     clusters,
                     window_rules,
+                    screencast: &session.screencast,
                     layer_rules: &session.settings.layer_rules,
                     node_grab_active,
                     titlebar_hovered: session.interactions.titlebar_hovered.as_ref(),
@@ -446,6 +478,7 @@ where
                 },
                 resources: crate::render::resources::RenderResources::from(resources),
             },
+            block_screencast,
         )?;
         consume(renderer, &elements, render::output_physical_size(&output))
     })
@@ -466,6 +499,7 @@ pub(crate) fn capture_monitor_region_pixels<D: SessionDriver>(
         render::output_physical_size(output).w,
         render::output_physical_size(output).h,
         show_cursor,
+        false,
         |renderer, elements, _| {
             let offset = region.loc.upscale(-1);
             let relocated = elements
@@ -502,6 +536,7 @@ pub(crate) fn render_monitor_region_dmabuf<D: SessionDriver>(
         render::output_physical_size(output).w,
         render::output_physical_size(output).h,
         show_cursor,
+        false,
         |renderer, elements, _| {
             let offset = region.loc.upscale(-1);
             let relocated = elements
@@ -521,16 +556,19 @@ pub(crate) fn render_monitor_region_dmabuf<D: SessionDriver>(
     )
 }
 
-fn resolve_source_window(
+pub(crate) fn resolve_source_window(
     space: &smithay::desktop::Space<smithay::desktop::Window>,
-    surface_id: u32,
+    nodes: &crate::nodes::NodesState,
+    window_id: u64,
 ) -> Result<smithay::desktop::Window, Box<dyn Error>> {
     let window = space
         .elements()
         .find(|window| {
-            window
-                .wl_surface()
-                .is_some_and(|surface| surface.id().protocol_id() == surface_id)
+            window.wl_surface().is_some_and(|surface| {
+                nodes
+                    .id_for_surface(surface.as_ref())
+                    .is_some_and(|id| id.as_u64() == window_id)
+            })
         })
         .cloned()
         .ok_or_else(|| io::Error::other("selected window is no longer mapped"))?;

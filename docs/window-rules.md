@@ -13,6 +13,7 @@ rules:
     height 520
     opacity 0.90
     blur true
+    # block-screencast true
     spawn-placement "cursor"
     cluster-participation "float"
   end
@@ -43,6 +44,7 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
   only; opacity never enables blur implicitly.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.
+- `block-screencast true` omits the window and its popups from portal monitor shares, revealing the content behind them and prevents choosing it for a new window share. A window already being shared becomes black if the rule is enabled. It defaults to `false` and does not block screenshots or direct capture protocols.
 - `game true` preserves fullscreen state and client size when explicit
   navigation selects another window on the same monitor and parks the
   presentation. Navigation to other monitors keeps the game fullscreen. A
@@ -81,7 +83,7 @@ temporarily floats an existing cluster member without removing its membership.
 The old `overlap-policy` field is accepted only as a migration aid and has no
 runtime effect; new configurations should omit it.
 
-Live reload re-resolves visual fields such as opacity and blur for mapped
+Live reload re-resolves visual fields such as opacity, blur, and screencast privacy for mapped
 windows, and updates game policy for the next navigation. Initial size and
 placement remain initial-map decisions.
 
@@ -106,11 +108,12 @@ rules:
     namespace ["waybar", r"^fuzzel$"]
     layer ["top", "overlay"]
     blur true
+    # block-screencast true
   end
 end
 ```
 
 `layer` accepts `background`, `bottom`, `top`, or `overlay`. A layer rule must
-have `namespace` and/or `layer`, and must set `blur`. The resolved policy also
+have `namespace` and/or `layer`, and must set `blur` and/or `block-screencast`. A protected layer and its popups are omitted from portal monitor shares. The resolved policy also
 applies to that layer root's popups; popup background-effect regions remain
 region-limited when blur is enabled.

@@ -295,6 +295,9 @@ fn create_stream(
     // wrong render node can be accepted lazily by EGL and still fault on the
     // first draw, so filesystem guessing is not a safe compatibility test.
     let mut compositor_connection = crate::compositor::connect()?;
+    if let halley_ipc::CaptureSource::Window { window_id, .. } = &source {
+        crate::compositor::begin_window_cast(&mut compositor_connection, *window_id)?;
+    }
     let dmabuf_allocator = if wants_dmabuf {
         match crate::compositor::capture_capabilities(&mut compositor_connection) {
             Ok(capabilities) => match open_gbm_device(width, height, &capabilities) {

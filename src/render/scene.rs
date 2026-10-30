@@ -41,7 +41,8 @@ use overview::{
 };
 pub(crate) use windows::append_titlebar_elements;
 use windows::{
-    LiveWindowContext, LiveWindowRenderers, StackGroup, live_window_elements, sort_stack_groups,
+    LiveWindowContext, LiveWindowRenderers, LiveWindowScene, StackGroup, live_window_elements,
+    sort_stack_groups,
 };
 
 pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
@@ -93,12 +94,75 @@ render_elements! {
     Layer=WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
+fn indicate_window_cast(scene: &mut LiveWindowScene, decorations: &halley_config::Decorations) {
+    let bounds = scene
+        .elements
+        .iter()
+        .filter(|element| {
+            !matches!(
+                element,
+                SceneElement::Shadow(_) | SceneElement::BackdropBlur(_)
+            )
+        })
+        .map(|element| element.geometry(Scale::from(1.0)))
+        .reduce(|a, b| a.merge(b));
+    if let Some(bounds) = bounds {
+        let width = decorations
+            .screencast_indicator_size
+            .min(bounds.size.w / 2)
+            .min(bounds.size.h / 2);
+        if width == 0 {
+            return;
+        }
+        let inner = Rectangle::new(
+            (bounds.loc.x + width, bounds.loc.y + width).into(),
+            (bounds.size.w - 2 * width, bounds.size.h - 2 * width).into(),
+        );
+        let border = super::border_strips(
+            std::array::from_fn(|_| Id::new()),
+            inner,
+            width,
+            super::decoration_color(decorations.screencast_indicator_color),
+        );
+        scene
+            .elements
+            .splice(0..0, border.into_iter().map(SceneElement::Border));
+    }
+}
+
+fn omit_elements(elements: &mut Vec<SceneElement>) {
+    elements.clear();
+}
+
+fn omit_window_scene(scene: &mut LiveWindowScene) {
+    omit_elements(&mut scene.elements);
+    omit_elements(&mut scene.popup_elements);
+}
+
 pub fn build(
     renderer: &mut GlesRenderer,
     output: &Output,
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
+    request: RenderRequest<'_>,
+) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    build_with_privacy(
+        renderer,
+        output,
+        primary_output,
+        output_geometry,
+        request,
+        false,
+    )
+}
+
+pub(crate) fn build_with_privacy(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    primary_output: &Output,
+    output_geometry: Rectangle<i32, Logical>,
     mut request: RenderRequest<'_>,
+    block_screencast: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let scale = output.current_scale().fractional_scale();
     let locked = request.desktop.session_lock.active();
@@ -114,11 +178,32 @@ pub fn build(
         primary_output,
         output_geometry,
         &mut request,
+        block_screencast,
     )?;
     request
         .resources
         .backdrop_blur_renderer
         .end_scene(&output.name());
+    let elements = if block_screencast
+        && (request.desktop.window_rules.has_screencast_blocks()
+            || request
+                .desktop
+                .layer_rules
+                .iter()
+                .any(|rule| rule.block_screencast))
+    {
+        elements
+            .into_iter()
+            .filter(|element| {
+                !matches!(
+                    element,
+                    SceneElement::ScreenshotPreview(_) | SceneElement::BackdropBlur(_)
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        elements
+    };
     Ok(elements
         .into_iter()
         .map(|element| super::display_scale::element(element, scale, locked))
@@ -131,6 +216,7 @@ fn build_logical(
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
     request: &mut RenderRequest<'_>,
+    block_screencast: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request
@@ -200,6 +286,30 @@ fn build_logical(
             .resources
             .window_decoration_renderer
             .available(renderer);
+    }
+    let privacy_active = block_screencast
+        && (request.desktop.window_rules.has_screencast_blocks()
+            || request
+                .desktop
+                .layer_rules
+                .iter()
+                .any(|rule| rule.block_screencast));
+    // These replacement scenes render cached previews that may have been
+    // captured before a privacy rule was enabled. Fail closed during them.
+    if privacy_active
+        && (request.overlays.apogee.is_active()
+            || request.overlays.focus_cycle.is_active()
+            || request
+                .overlays
+                .cluster_composer
+                .replacement_output()
+                .is_some_and(|name| name == output.name()))
+    {
+        return Ok(vec![SceneElement::Border(super::solid_color_element(
+            Id::new(),
+            Rectangle::from_size(output_geometry.size.to_physical(1)),
+            smithay::backend::renderer::Color32F::BLACK,
+        ))]);
     }
     let overlay_snapshot = request
         .overlays
@@ -553,6 +663,7 @@ fn build_logical(
         output_geometry,
         Layer::Overlay,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -615,6 +726,7 @@ fn build_logical(
             output_geometry,
             Layer::Top,
             request.desktop.layer_rules,
+            block_screencast,
             request.visuals.blur,
             request.resources.backdrop_blur_renderer,
         )?);
@@ -655,7 +767,9 @@ fn build_logical(
         request.resources.shadow_renderer,
         &mut hover_preview,
     )?;
-    elements.extend(hover_preview);
+    if !privacy_active {
+        elements.extend(hover_preview);
+    }
 
     let node_scene = node_elements(
         renderer,
@@ -692,6 +806,14 @@ fn build_logical(
         )
         .into_iter()
         .map(|closing| -> Result<StackGroup, Box<dyn Error>> {
+            if block_screencast && request.desktop.window_rules.has_screencast_blocks() {
+                return Ok(StackGroup {
+                    window: None,
+                    stack_index: closing.stack_index,
+                    order: closing.order,
+                    elements: Vec::new(),
+                });
+            }
             let mut elements = Vec::new();
             let shader = closing.shader;
             let shader_active = shader.is_some();
@@ -880,7 +1002,7 @@ fn build_logical(
         }) {
             continue;
         }
-        let window_scene = live_window_elements(
+        let mut window_scene = live_window_elements(
             renderer,
             window,
             context,
@@ -897,6 +1019,24 @@ fn build_logical(
                 window_shaders: request.resources.window_shaders,
             },
         )?;
+        let protected = block_screencast
+            && (window.wl_surface().is_some_and(|surface| {
+                request
+                    .desktop
+                    .window_rules
+                    .applied(surface.as_ref())
+                    .block_screencast
+            }) || (request.desktop.window_rules.has_screencast_blocks()
+                && crate::xwayland::is_override_redirect(window)));
+        if protected {
+            omit_window_scene(&mut window_scene);
+        } else if !block_screencast
+            && window
+                .wl_surface()
+                .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
+        {
+            indicate_window_cast(&mut window_scene, request.visuals.decorations);
+        }
         if window_scene.cluster_exclusive {
             exclusive_windows.push((stack_index, window_scene));
         } else if !window_scene.elements.is_empty() || !window_scene.popup_elements.is_empty() {
@@ -913,7 +1053,7 @@ fn build_logical(
                 )
             });
         if let Some(extra_presentation) = extra_presentation {
-            let extra_scene = live_window_elements(
+            let mut extra_scene = live_window_elements(
                 renderer,
                 window,
                 LiveWindowContext {
@@ -934,6 +1074,15 @@ fn build_logical(
                     window_shaders: request.resources.window_shaders,
                 },
             )?;
+            if protected {
+                omit_window_scene(&mut extra_scene);
+            } else if !block_screencast
+                && window.wl_surface().is_some_and(|surface| {
+                    request.desktop.screencast.is_window_cast(surface.as_ref())
+                })
+            {
+                indicate_window_cast(&mut extra_scene, request.visuals.decorations);
+            }
             if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
                 live_windows.push((stack_index, extra_scene));
             }
@@ -1031,7 +1180,19 @@ fn build_logical(
                 .rev()
                 .flat_map(|(_, scene)| scene.elements),
         );
-        if exclusive.progress > 0.0 {
+        let exclusive_is_protected = block_screencast
+            && request
+                .desktop
+                .nodes
+                .record(exclusive.member)
+                .is_some_and(|record| {
+                    request
+                        .desktop
+                        .window_rules
+                        .applied(&record.surface)
+                        .block_screencast
+                });
+        if exclusive.progress > 0.0 && !exclusive_is_protected {
             foreground.push(SceneElement::Border(super::solid_color_element(
                 request.resources.node_renderer.slot_id(
                     &output.name(),
@@ -1070,6 +1231,7 @@ fn build_logical(
         output_geometry,
         Layer::Bottom,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -1079,6 +1241,7 @@ fn build_logical(
         output_geometry,
         Layer::Background,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
