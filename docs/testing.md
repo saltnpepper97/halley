@@ -28,12 +28,13 @@ action pins weekly.
 To run the ordinary gates locally with the required native libraries installed:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
-cargo test --locked --workspace
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo build --locked --release --workspace
+rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+cargo +1.97.1 fmt --all -- --check
+cargo +1.97.1 clippy --locked --workspace --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo +1.97.1 doc --locked --workspace --all-features --no-deps
+cargo +1.97.1 test --locked --workspace
+cargo +1.97.1 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.97.1 build --locked --release --workspace
 ```
 
 Repeat the last three commands with `--no-default-features` for the minimal
