@@ -114,7 +114,7 @@ pub(crate) fn transfer_window<D: crate::session::SessionDriver>(
         .field_arrange
         .invalidate_surface(surface.as_ref());
     super::session_ops::set_collapsed_output(session, id, &target);
-    super::session_ops::apply_dynamics_positions(
+    super::session_physics::apply_dynamics_positions(
         session,
         [(id, center)].into_iter().collect(),
         Some(id),
