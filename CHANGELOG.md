@@ -4,26 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Add portal screencast privacy rules for windows and layer surfaces, plus a local indicator for directly shared windows.
-
-### Changed
-- Separate input dispatch from modal, pointer motion, button, and wheel handling while retaining event ownership and routing order.
-
-### Fixed
-- Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
-- Omit screencast-blocked windows and layer surfaces so monitor shares show the content behind them.
-- Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
-
 ### Added
+- Add portal screencast privacy rules for windows and layer surfaces, plus a
+  local indicator for directly shared windows.
 - Expose initial compositor accessibility information through AccessKit, and
   allow opt-in supervision of a trusted Orca executable across restarts.
-  Portal source selection supports keyboard navigation through visible,
-  shareable windows and monitors.
-- Add isolated two-output Alt+Tab integration tests covering native and XWayland
-  apps and game windows, client/compositor/overlapping fullscreen ownership,
-  preview cancellation, cross-monitor commit and return, and same-monitor
-  controls. Verify client state, camera ownership, presented bounds and captured
-  fullscreen pixels through the production keyboard and switcher paths.
+- Support keyboard navigation through visible, shareable windows and monitors
+  in the portal source selector.
 - Animate ordinary CLI and keyboard window movement with independent
   `animations.window-move` easing or spring settings. Retarget repeated commands
   from the visible position, retain spring velocity, and hand pointer drags the
@@ -95,7 +82,18 @@ All notable changes to this project will be documented in this file.
   include `scale 1.0`; existing configs keep that default when omitted. The
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
+### Changed
+- Separate input dispatch from modal, pointer motion, button, and wheel handling while retaining event ownership and routing order.
+- Add isolated two-output Alt+Tab integration tests covering native and XWayland
+  apps and game windows, client/compositor/overlapping fullscreen ownership,
+  preview cancellation, cross-monitor commit and return, and same-monitor
+  controls. Verify client state, camera ownership, presented bounds and captured
+  fullscreen pixels through the production keyboard and switcher paths.
+
 ### Fixed
+- Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
+- Omit screencast-blocked windows and layer surfaces so monitor shares show the content behind them.
+- Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
 - Keep pointer-lock release hints and restored drag anchors within the output
   layout. Confine captured cursors to the visible part of partially offscreen
   windows, and release confinement when its effective visible region is empty.
