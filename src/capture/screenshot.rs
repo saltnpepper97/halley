@@ -268,6 +268,7 @@ pub(crate) fn capture_source_pixels<D: SessionDriver>(
             *width,
             *height,
             show_cursor,
+            true,
             |renderer, elements, size| {
                 capture_elements(
                     renderer,
@@ -314,6 +315,7 @@ pub(crate) fn render_source_dmabuf<D: SessionDriver>(
             *width,
             *height,
             show_cursor,
+            true,
             |renderer, elements, size| {
                 render_elements_to_dmabuf(renderer, dmabuf, size, elements, render::CLEAR_COLOR)
             },
@@ -338,6 +340,7 @@ pub(crate) fn with_monitor_scene<D, T>(
     width: i32,
     height: i32,
     show_cursor: bool,
+    block_screencast: bool,
     consume: impl FnOnce(
         &mut GlesRenderer,
         &[render::scene::SceneElement],
@@ -388,7 +391,7 @@ where
     let resources = &mut session.render;
     let session_lock = &session.session_lock;
     driver.with_renderer(|renderer| {
-        let elements = render::scene::build(
+        let elements = render::scene::build_with_privacy(
             renderer,
             &output,
             &primary,
@@ -446,6 +449,7 @@ where
                 },
                 resources: crate::render::resources::RenderResources::from(resources),
             },
+            block_screencast,
         )?;
         consume(renderer, &elements, render::output_physical_size(&output))
     })
@@ -466,6 +470,7 @@ pub(crate) fn capture_monitor_region_pixels<D: SessionDriver>(
         render::output_physical_size(output).w,
         render::output_physical_size(output).h,
         show_cursor,
+        false,
         |renderer, elements, _| {
             let offset = region.loc.upscale(-1);
             let relocated = elements
@@ -502,6 +507,7 @@ pub(crate) fn render_monitor_region_dmabuf<D: SessionDriver>(
         render::output_physical_size(output).w,
         render::output_physical_size(output).h,
         show_cursor,
+        false,
         |renderer, elements, _| {
             let offset = region.loc.upscale(-1);
             let relocated = elements

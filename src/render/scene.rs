@@ -98,7 +98,25 @@ pub fn build(
     output: &Output,
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
+    request: RenderRequest<'_>,
+) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    build_with_privacy(
+        renderer,
+        output,
+        primary_output,
+        output_geometry,
+        request,
+        false,
+    )
+}
+
+pub(crate) fn build_with_privacy(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    primary_output: &Output,
+    output_geometry: Rectangle<i32, Logical>,
     mut request: RenderRequest<'_>,
+    block_screencast: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let scale = output.current_scale().fractional_scale();
     let locked = request.desktop.session_lock.active();
@@ -114,6 +132,7 @@ pub fn build(
         primary_output,
         output_geometry,
         &mut request,
+        block_screencast,
     )?;
     request
         .resources
@@ -131,6 +150,7 @@ fn build_logical(
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
     request: &mut RenderRequest<'_>,
+    block_screencast: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request
@@ -553,6 +573,7 @@ fn build_logical(
         output_geometry,
         Layer::Overlay,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -615,6 +636,7 @@ fn build_logical(
             output_geometry,
             Layer::Top,
             request.desktop.layer_rules,
+            block_screencast,
             request.visuals.blur,
             request.resources.backdrop_blur_renderer,
         )?);
@@ -1070,6 +1092,7 @@ fn build_logical(
         output_geometry,
         Layer::Bottom,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -1079,6 +1102,7 @@ fn build_logical(
         output_geometry,
         Layer::Background,
         request.desktop.layer_rules,
+        block_screencast,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);

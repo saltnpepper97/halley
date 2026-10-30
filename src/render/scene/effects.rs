@@ -95,6 +95,7 @@ pub(super) fn layer_surface_scene_elements(
     output_geometry: Rectangle<i32, Logical>,
     layer: Layer,
     layer_rules: &[halley_config::LayerRule],
+    block_screencast: bool,
     blur_config: halley_config::Blur,
     backdrop_blur_renderer: &mut crate::render::effects::backdrop_blur::BackdropBlurRenderer,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
@@ -117,10 +118,44 @@ pub(super) fn layer_surface_scene_elements(
         let Some(geometry) = map.layer_geometry(surface) else {
             continue;
         };
-        let rule_blur = layer_rules
+        let rule = layer_rules
             .iter()
-            .find(|rule| rule.matches(surface.namespace(), layer_shell_layer(surface.layer())))
-            .and_then(|rule| rule.blur);
+            .find(|rule| rule.matches(surface.namespace(), layer_shell_layer(surface.layer())));
+        if block_screencast && rule.is_some_and(|rule| rule.block_screencast) {
+            let mut protected: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = Vec::new();
+            for (popup, popup_offset) in PopupManager::popups_for_surface(surface.wl_surface()) {
+                let origin = geometry.loc + popup_offset - popup.geometry().loc;
+                protected.extend(
+                    smithay::backend::renderer::element::surface::render_elements_from_surface_tree(
+                        renderer,
+                        popup.wl_surface(),
+                        origin.to_f64().to_physical(scale).to_i32_round(),
+                        scale,
+                        1.0,
+                        Kind::Unspecified,
+                    ),
+                );
+            }
+            protected.extend(
+                smithay::backend::renderer::element::surface::render_elements_from_surface_tree(
+                    renderer,
+                    surface.wl_surface(),
+                    geometry.loc.to_f64().to_physical(scale).to_i32_round(),
+                    scale,
+                    1.0,
+                    Kind::Unspecified,
+                ),
+            );
+            elements.extend(protected.into_iter().map(|element| {
+                SceneElement::Border(super::super::solid_color_element(
+                    Id::new(),
+                    element.geometry(Scale::from(1.0)),
+                    smithay::backend::renderer::Color32F::BLACK,
+                ))
+            }));
+            continue;
+        }
+        let rule_blur = rule.and_then(|rule| rule.blur);
         for (popup, popup_offset) in PopupManager::popups_for_surface(surface.wl_surface()) {
             let popup_origin = geometry.loc + popup_offset - popup.geometry().loc;
             let location = popup_origin.to_f64().to_physical(scale).to_i32_round();
