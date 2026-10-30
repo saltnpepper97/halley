@@ -78,6 +78,7 @@ pub struct WindowRule {
     pub corner_radius: Option<i32>,
     pub blur: Option<bool>,
     pub block_screencast: Option<bool>,
+    pub block_screenshot: Option<bool>,
     pub game: Option<bool>,
     pub spawn_placement: Option<WindowSpawnPlacement>,
     pub cluster_participation: Option<WindowClusterParticipation>,
@@ -287,6 +288,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "corner-radius"
                 | "blur"
                 | "block-screencast"
+                | "block-screenshot"
                 | "game"
                 | "overlap-policy"
                 | "overlap_policy"
@@ -441,6 +443,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
             .transpose()?,
         blur,
         block_screencast,
+        block_screenshot: field(fields, &["block-screenshot"])
+            .map(|v| boolean(v, "block-screenshot"))
+            .transpose()?,
         game,
         spawn_placement,
         cluster_participation,

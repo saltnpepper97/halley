@@ -20,6 +20,7 @@ pub struct ResolvedWindowRule {
     pub corner_radius: Option<i32>,
     pub blur: Option<bool>,
     pub block_screencast: bool,
+    pub block_screenshot: bool,
     pub game: Option<bool>,
     pub spawn_placement: WindowSpawnPlacement,
     pub cluster_participation: WindowClusterParticipation,
@@ -40,10 +41,21 @@ impl Default for ResolvedWindowRule {
             corner_radius: None,
             blur: None,
             block_screencast: false,
+            block_screenshot: false,
             game: None,
             spawn_placement: WindowSpawnPlacement::Default,
             cluster_participation: WindowClusterParticipation::Layout,
             matched: false,
+        }
+    }
+}
+
+impl ResolvedWindowRule {
+    pub fn blocks_capture(&self, screenshot: bool) -> bool {
+        if screenshot {
+            self.block_screenshot
+        } else {
+            self.block_screencast
         }
     }
 }
@@ -77,6 +89,16 @@ impl WindowRulesState {
             applied: HashMap::new(),
             games: super::games::GameApplications::load(),
         }
+    }
+
+    pub fn has_capture_blocks(&self, screenshot: bool) -> bool {
+        if screenshot {
+            return self
+                .rules
+                .iter()
+                .any(|rule| rule.block_screenshot == Some(true));
+        }
+        self.has_screencast_blocks()
     }
 
     pub fn has_screencast_blocks(&self) -> bool {
@@ -134,6 +156,9 @@ impl WindowRulesState {
             }
             if let Some(v) = rule.blur {
                 resolved.blur = Some(v);
+            }
+            if let Some(v) = rule.block_screenshot {
+                resolved.block_screenshot = v;
             }
             if let Some(v) = rule.block_screencast {
                 resolved.block_screencast = v;
@@ -234,6 +259,7 @@ mod tests {
                 corner_radius: None,
                 opacity: Some(0.7),
                 blur: Some(true),
+                block_screenshot: None,
                 block_screencast: Some(true),
                 game: Some(true),
                 spawn_placement: Some(WindowSpawnPlacement::Center),
@@ -256,6 +282,7 @@ mod tests {
                 corner_radius: None,
                 opacity: Some(0.2),
                 blur: Some(false),
+                block_screenshot: None,
                 block_screencast: Some(false),
                 game: Some(false),
                 spawn_placement: Some(WindowSpawnPlacement::Cursor),
@@ -293,6 +320,7 @@ rules:
     shadow true
     corner-radius 12
     block-screencast true
+    block-screenshot true
   end
   window-rule:
     match:
@@ -309,6 +337,7 @@ rules:
     shadow false
     corner-radius 0
     block-screencast false
+    block-screenshot false
     open-maximized true
   end
 end
@@ -327,6 +356,8 @@ end
         assert_eq!(monitoring.corner_radius, Some(0));
         assert!(monitoring.open_maximized);
         assert!(!monitoring.block_screencast);
+        assert!(!monitoring.block_screenshot);
+        assert!(!monitoring.blocks_capture(true));
         let secret = state.resolve_identity(&WindowIdentity {
             app_id: Some("other".into()),
             title: Some("Secret".into()),
@@ -336,6 +367,8 @@ end
         assert_eq!(secret.shadow, Some(true));
         assert_eq!(secret.corner_radius, Some(12));
         assert!(secret.block_screencast);
+        assert!(secret.block_screenshot);
+        assert!(secret.blocks_capture(true));
     }
     #[test]
     fn transient_matcher_distinguishes_dialogs_from_main_windows() {

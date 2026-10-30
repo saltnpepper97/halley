@@ -229,6 +229,9 @@ pub fn save_window<D: SessionDriver>(
     if session.session_lock.active() {
         return Err(io::Error::other("session is locked").into());
     }
+    if session.window_rules.applied(surface).block_screenshot {
+        return Err(io::Error::other("window screenshot blocked by rule").into());
+    }
     let window = session
         .wayland
         .space
@@ -788,7 +791,8 @@ fn capture_output(
     geometry: Rectangle<i32, Logical>,
     request: RenderRequest<'_>,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
-    let elements = render::scene::build(renderer, output, primary, geometry, request)?;
+    let elements =
+        render::scene::build_with_screenshot_privacy(renderer, output, primary, geometry, request)?;
     let size = render::output_physical_size(output);
     capture_elements(
         renderer,

@@ -161,8 +161,46 @@ pub(crate) fn build_with_privacy(
     output: &Output,
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
+    request: RenderRequest<'_>,
+    block_screencast: bool,
+) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    build_with_capture_privacy(
+        renderer,
+        output,
+        primary_output,
+        output_geometry,
+        request,
+        block_screencast,
+        false,
+    )
+}
+
+pub(crate) fn build_with_screenshot_privacy(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    primary_output: &Output,
+    output_geometry: Rectangle<i32, Logical>,
+    request: RenderRequest<'_>,
+) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    build_with_capture_privacy(
+        renderer,
+        output,
+        primary_output,
+        output_geometry,
+        request,
+        true,
+        true,
+    )
+}
+
+fn build_with_capture_privacy(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    primary_output: &Output,
+    output_geometry: Rectangle<i32, Logical>,
     mut request: RenderRequest<'_>,
     block_screencast: bool,
+    screenshot: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let scale = output.current_scale().fractional_scale();
     let locked = request.desktop.session_lock.active();
@@ -179,18 +217,19 @@ pub(crate) fn build_with_privacy(
         output_geometry,
         &mut request,
         block_screencast,
+        screenshot,
     )?;
     request
         .resources
         .backdrop_blur_renderer
         .end_scene(&output.name());
     let elements = if block_screencast
-        && (request.desktop.window_rules.has_screencast_blocks()
+        && (request.desktop.window_rules.has_capture_blocks(screenshot)
             || request
                 .desktop
                 .layer_rules
                 .iter()
-                .any(|rule| rule.block_screencast))
+                .any(|rule| !screenshot && rule.block_screencast))
     {
         elements
             .into_iter()
@@ -217,6 +256,7 @@ fn build_logical(
     output_geometry: Rectangle<i32, Logical>,
     request: &mut RenderRequest<'_>,
     block_screencast: bool,
+    screenshot: bool,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request
@@ -288,12 +328,12 @@ fn build_logical(
             .available(renderer);
     }
     let privacy_active = block_screencast
-        && (request.desktop.window_rules.has_screencast_blocks()
+        && (request.desktop.window_rules.has_capture_blocks(screenshot)
             || request
                 .desktop
                 .layer_rules
                 .iter()
-                .any(|rule| rule.block_screencast));
+                .any(|rule| !screenshot && rule.block_screencast));
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
     if privacy_active
@@ -663,7 +703,7 @@ fn build_logical(
         output_geometry,
         Layer::Overlay,
         request.desktop.layer_rules,
-        block_screencast,
+        block_screencast && !screenshot,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -726,7 +766,7 @@ fn build_logical(
             output_geometry,
             Layer::Top,
             request.desktop.layer_rules,
-            block_screencast,
+            block_screencast && !screenshot,
             request.visuals.blur,
             request.resources.backdrop_blur_renderer,
         )?);
@@ -806,7 +846,7 @@ fn build_logical(
         )
         .into_iter()
         .map(|closing| -> Result<StackGroup, Box<dyn Error>> {
-            if block_screencast && request.desktop.window_rules.has_screencast_blocks() {
+            if block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot) {
                 return Ok(StackGroup {
                     window: None,
                     stack_index: closing.stack_index,
@@ -1029,8 +1069,8 @@ fn build_logical(
                     .desktop
                     .window_rules
                     .applied(surface.as_ref())
-                    .block_screencast
-            }) || (request.desktop.window_rules.has_screencast_blocks()
+                    .blocks_capture(screenshot)
+            }) || (request.desktop.window_rules.has_capture_blocks(screenshot)
                 && crate::xwayland::is_override_redirect(window)));
         if protected {
             omit_window_scene(&mut window_scene);
@@ -1194,7 +1234,7 @@ fn build_logical(
                         .desktop
                         .window_rules
                         .applied(&record.surface)
-                        .block_screencast
+                        .blocks_capture(screenshot)
                 });
         if exclusive.progress > 0.0 && !exclusive_is_protected {
             foreground.push(SceneElement::Border(super::solid_color_element(
@@ -1235,7 +1275,7 @@ fn build_logical(
         output_geometry,
         Layer::Bottom,
         request.desktop.layer_rules,
-        block_screencast,
+        block_screencast && !screenshot,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);
@@ -1245,7 +1285,7 @@ fn build_logical(
         output_geometry,
         Layer::Background,
         request.desktop.layer_rules,
-        block_screencast,
+        block_screencast && !screenshot,
         request.visuals.blur,
         request.resources.backdrop_blur_renderer,
     )?);

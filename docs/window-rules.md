@@ -74,6 +74,7 @@ A `match:` group combines its `app-id` and `title` with AND; multiple groups are
 - `open-focused true` requests normal initial focus; `open-focused false` keeps the current focus. When omitted, normal focus behavior applies except for windows routed to another output.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.
+- `block-screenshot true` omits the window and its popups from Halley’s built-in screen and region screenshots, revealing the content behind it. A direct screenshot of the protected window fails. To avoid revealing cached content, some previews and close animations are omitted when a screenshot rule is present. This does not cover screen sharing, third-party screenshots, or direct capture protocols; use `block-screencast` separately for portal shares.
 - `block-screencast true` omits the window and its popups from portal monitor shares, revealing the content behind them and prevents choosing it for a new window share. A window already being shared becomes black if the rule is enabled. It defaults to `false` and does not block screenshots or direct capture protocols.
 - `game true` preserves fullscreen state and client size when explicit
   navigation selects another window on the same monitor and parks the
@@ -113,7 +114,7 @@ temporarily floats an existing cluster member without removing its membership.
 The old `overlap-policy` field is accepted only as a migration aid and has no
 runtime effect; new configurations should omit it.
 
-Live reload re-resolves visual fields such as opacity, blur, shadow, corner radius, and screencast privacy for mapped
+Live reload re-resolves visual fields such as opacity, blur, shadow, corner radius, and capture privacy for mapped
 windows, and updates game policy for the next navigation. Initial size, output, focus, and placement remain initial-map decisions.
 
 Blur activation is entirely rule-driven: `effects.blur` configures quality and
