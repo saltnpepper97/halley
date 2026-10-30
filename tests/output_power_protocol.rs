@@ -1,5 +1,5 @@
 //! Production protocol dispatch over sockets; the driver never touches hardware.
-#[path = "../src/wayland/wlr_output_power.rs"]
+#[path = "../src/wayland/output_protocols/wlr_output_power.rs"]
 mod output_power;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
