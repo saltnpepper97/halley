@@ -51,7 +51,7 @@ rules:
 end
 ```
 
-A `match:` group combines its `app-id` and `title` with AND; multiple groups are OR alternatives. Any matching `exclude:` group prevents that rule from applying. Groups accept the same exact strings, regular expressions, and arrays as the simple matchers. Use `match-all true` for a rule matching every window. Do not mix `match:` groups or `match-all` with top-level `app-id`/`title` in the same rule. Exclusions can be used with any of these forms. Empty groups are invalid.
+A `match:` group combines its `app-id` and `title` with AND; multiple groups are OR alternatives. Any matching `exclude:` group prevents that rule from applying. Groups accept the same exact strings, regular expressions, and arrays as the simple matchers, plus `is-transient true` or `false` to match whether a window has a Wayland parent or X11 transient-for relationship. Use `match-all true` for a rule matching every window. Do not mix `match:` groups or `match-all` with top-level `app-id`/`title` in the same rule. Exclusions can be used with any of these forms. Empty groups are invalid.
 
 ## Effects
 

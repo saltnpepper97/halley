@@ -84,14 +84,17 @@ pub struct WindowRule {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowMatcher {
+    pub is_transient: Option<bool>,
     pub app_ids: Vec<WindowRulePattern>,
     pub titles: Vec<WindowRulePattern>,
 }
 
 impl WindowMatcher {
-    fn matches(&self, app_id: Option<&str>, title: Option<&str>) -> bool {
-        (self.app_ids.is_empty()
-            || app_id.is_some_and(|v| self.app_ids.iter().any(|p| p.matches(v))))
+    fn matches(&self, app_id: Option<&str>, title: Option<&str>, is_transient: bool) -> bool {
+        self.is_transient
+            .is_none_or(|expected| expected == is_transient)
+            && (self.app_ids.is_empty()
+                || app_id.is_some_and(|v| self.app_ids.iter().any(|p| p.matches(v))))
             && (self.titles.is_empty()
                 || title.is_some_and(|v| self.titles.iter().any(|p| p.matches(v))))
     }
@@ -134,15 +137,32 @@ pub struct Rules {
 
 impl WindowRule {
     pub fn matches(&self, app_id: Option<&str>, title: Option<&str>) -> bool {
+        self.matches_with_transient(app_id, title, false)
+    }
+
+    pub fn matches_with_transient(
+        &self,
+        app_id: Option<&str>,
+        title: Option<&str>,
+        is_transient: bool,
+    ) -> bool {
         let base = WindowMatcher {
+            is_transient: None,
             app_ids: self.app_ids.clone(),
             titles: self.titles.clone(),
         };
         let included = self.match_all
             || ((!self.app_ids.is_empty() || !self.titles.is_empty())
-                && base.matches(app_id, title))
-            || self.matches_any.iter().any(|m| m.matches(app_id, title));
-        included && !self.excludes.iter().any(|m| m.matches(app_id, title))
+                && base.matches(app_id, title, is_transient))
+            || self
+                .matches_any
+                .iter()
+                .any(|m| m.matches(app_id, title, is_transient));
+        included
+            && !self
+                .excludes
+                .iter()
+                .any(|m| m.matches(app_id, title, is_transient))
     }
 }
 
@@ -440,11 +460,11 @@ fn parse_open_position(value: &Value) -> Result<(i32, i32), WindowRuleParseError
 fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParseError> {
     for item in fields {
         match item {
-            ObjectItem::Assign(key, _) if matches!(key.as_str(), "app-id" | "app_id" | "title") => {
-            }
+            ObjectItem::Assign(key, _)
+                if matches!(key.as_str(), "app-id" | "app_id" | "title" | "is-transient") => {}
             _ => {
                 return Err(WindowRuleParseError(
-                    "match and exclude support only app-id and title".into(),
+                    "match and exclude support app-id, title, and is-transient".into(),
                 ));
             }
         }
@@ -457,12 +477,19 @@ fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParse
         .map(|v| patterns(v, "title"))
         .transpose()?
         .unwrap_or_default();
-    if app_ids.is_empty() && titles.is_empty() {
+    let is_transient = field(fields, &["is-transient"])
+        .map(|v| boolean(v, "is-transient"))
+        .transpose()?;
+    if app_ids.is_empty() && titles.is_empty() && is_transient.is_none() {
         return Err(WindowRuleParseError(
-            "match and exclude require app-id and/or title".into(),
+            "match and exclude require at least one condition".into(),
         ));
     }
-    Ok(WindowMatcher { app_ids, titles })
+    Ok(WindowMatcher {
+        app_ids,
+        titles,
+        is_transient,
+    })
 }
 
 fn parse_layer_rule(fields: &[ObjectItem]) -> Result<LayerRule, WindowRuleParseError> {

@@ -50,6 +50,7 @@ impl Default for ResolvedWindowRule {
 pub struct WindowIdentity {
     pub app_id: Option<String>,
     pub title: Option<String>,
+    pub is_transient: bool,
 }
 
 #[derive(Debug, Default)]
@@ -82,7 +83,11 @@ impl WindowRulesState {
     pub fn resolve_identity(&self, identity: &WindowIdentity) -> ResolvedWindowRule {
         let mut resolved = ResolvedWindowRule::default();
         for rule in &self.rules {
-            if !rule.matches(identity.app_id.as_deref(), identity.title.as_deref()) {
+            if !rule.matches_with_transient(
+                identity.app_id.as_deref(),
+                identity.title.as_deref(),
+                identity.is_transient,
+            ) {
                 continue;
             }
             resolved.matched = true;
@@ -162,6 +167,7 @@ impl WindowRulesState {
 
 pub fn identity(window: &Window) -> WindowIdentity {
     if let Some(toplevel) = window.toplevel() {
+        let is_transient = toplevel.parent().is_some();
         return with_states(toplevel.wl_surface(), |states| {
             states
                 .data_map
@@ -170,6 +176,7 @@ pub fn identity(window: &Window) -> WindowIdentity {
                 .map(|data| WindowIdentity {
                     app_id: nonempty(data.app_id.clone()),
                     title: nonempty(data.title.clone()),
+                    is_transient,
                 })
                 .unwrap_or_default()
         });
@@ -178,6 +185,7 @@ pub fn identity(window: &Window) -> WindowIdentity {
         return WindowIdentity {
             app_id: nonempty(Some(class)),
             title: nonempty(Some(title)),
+            is_transient: crate::xwayland::is_transient(window),
         };
     }
     WindowIdentity::default()
@@ -241,6 +249,7 @@ mod tests {
         let resolved = state.resolve_identity(&WindowIdentity {
             app_id: Some("app".to_string()),
             title: None,
+            is_transient: false,
         });
         assert_eq!(resolved.opacity, 0.7);
         assert!(resolved.block_screencast);
@@ -292,6 +301,7 @@ end
         let monitoring = state.resolve_identity(&WindowIdentity {
             app_id: Some("foot".into()),
             title: Some("Monitoring".into()),
+            is_transient: false,
         });
         assert_eq!(monitoring.opacity, 0.9);
         assert_eq!(monitoring.blur, Some(false));
@@ -301,9 +311,36 @@ end
         let secret = state.resolve_identity(&WindowIdentity {
             app_id: Some("other".into()),
             title: Some("Secret".into()),
+            is_transient: false,
         });
         assert_eq!(secret.blur, Some(true));
         assert_eq!(secret.shadow, Some(true));
         assert!(secret.block_screencast);
+    }
+    #[test]
+    fn transient_matcher_distinguishes_dialogs_from_main_windows() {
+        let config = rune_cfg::RuneConfig::from_str(
+            r#"
+rules:
+  window-rule:
+    match:
+      app-id "app"
+      is-transient true
+    end
+    opacity 0.5
+  end
+end
+"#,
+        )
+        .unwrap();
+        let state = WindowRulesState::new(halley_config::parse_window_rules(&config).unwrap());
+        let mut identity = WindowIdentity {
+            app_id: Some("app".into()),
+            title: None,
+            is_transient: false,
+        };
+        assert_eq!(state.resolve_identity(&identity).opacity, 1.0);
+        identity.is_transient = true;
+        assert_eq!(state.resolve_identity(&identity).opacity, 0.5);
     }
 }

@@ -180,6 +180,10 @@ pub(crate) fn parent_window_from<'a>(
     None
 }
 
+pub fn is_transient(_window: &Window) -> bool {
+    false
+}
+
 pub fn metadata(_window: &Window) -> Option<(String, String)> {
     None
 }
