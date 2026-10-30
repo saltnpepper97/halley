@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 - Add portal screencast privacy rules for windows and layer surfaces, plus a local indicator for directly shared windows.
 
 ### Fixed
+- Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
 - Omit screencast-blocked windows and layer surfaces so monitor shares show the content behind them.
 - Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
 
