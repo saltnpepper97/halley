@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static DIRECT_SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-const SESSION_CLEANUP_VARIABLES: [&str; 7] = [
+const SESSION_CLEANUP_VARIABLES: [&str; 8] = [
     "WAYLAND_DISPLAY",
     "DISPLAY",
     "XDG_CURRENT_DESKTOP",
@@ -21,6 +21,7 @@ const SESSION_CLEANUP_VARIABLES: [&str; 7] = [
     "XDG_SESSION_TYPE",
     "DESKTOP_SESSION",
     "XCURSOR_SIZE",
+    "XCURSOR_THEME",
 ];
 
 /// A native compositor launched without a session wrapper owns cleanup too.
@@ -110,6 +111,12 @@ impl LaunchEnvironment {
         );
     }
 
+    /// The cursor section is authoritative over inherited and env-block values.
+    pub fn set_cursor_theme(&mut self, theme: &str) {
+        self.values
+            .insert("XCURSOR_THEME".to_string(), theme.to_string());
+    }
+
     pub fn apply_to(&self, command: &mut Command) {
         command.envs(&self.values);
     }
@@ -146,7 +153,7 @@ pub fn prepare_session() {
 }
 
 /// Publish a usable compositor socket before starting graphical services.
-pub fn activate_session(wayland_display: &OsStr, cursor_size: u8) {
+pub fn activate_session(wayland_display: &OsStr, cursor_theme: &str, cursor_size: u8) {
     unsafe {
         std::env::set_var("WAYLAND_DISPLAY", wayland_display);
     }
@@ -168,7 +175,7 @@ pub fn activate_session(wayland_display: &OsStr, cursor_size: u8) {
     } else {
         publish_dinit_variables(&SESSION_VARIABLES);
     }
-    publish_cursor_size(cursor_size);
+    publish_cursor_settings(cursor_theme, cursor_size);
 }
 
 /// Refresh portal services only after announcing a usable graphical session.
@@ -196,10 +203,10 @@ pub fn refresh_portals() {
     run("portal refresh", &mut restart);
 }
 
-/// Updates the cursor size for applications activated after a config reload.
+/// Updates cursor settings for applications activated after a config reload.
 /// Existing processes retain their launch environment.
-pub fn publish_cursor_size(cursor_size: u8) {
-    let assignments = cursor_assignments(cursor_size);
+pub fn publish_cursor_settings(cursor_theme: &str, cursor_size: u8) {
+    let assignments = cursor_assignments(cursor_theme, cursor_size);
     let mut dbus = Command::new("dbus-update-activation-environment");
     if systemd_is_enabled() {
         dbus.arg("--systemd");
@@ -435,8 +442,11 @@ fn helper_error_detail(stderr: &[u8]) -> String {
     )
 }
 
-fn cursor_assignments(cursor_size: u8) -> [OsString; 1] {
-    [OsString::from(format!("XCURSOR_SIZE={cursor_size}"))]
+fn cursor_assignments(cursor_theme: &str, cursor_size: u8) -> [OsString; 2] {
+    [
+        OsString::from(format!("XCURSOR_THEME={cursor_theme}")),
+        OsString::from(format!("XCURSOR_SIZE={cursor_size}")),
+    ]
 }
 
 #[cfg(test)]
@@ -457,8 +467,11 @@ mod tests {
     #[test]
     fn cursor_assignments_use_the_validated_runtime_config() {
         assert_eq!(
-            cursor_assignments(32),
-            [std::ffi::OsString::from("XCURSOR_SIZE=32")]
+            cursor_assignments("Breeze5", 32),
+            [
+                std::ffi::OsString::from("XCURSOR_THEME=Breeze5"),
+                std::ffi::OsString::from("XCURSOR_SIZE=32")
+            ]
         );
     }
 
@@ -482,6 +495,38 @@ mod tests {
                 (OsStr::new("FIRST"), OsStr::new("one")),
                 (OsStr::new("SECOND"), OsStr::new("two")),
             ])
+        );
+    }
+
+    #[test]
+    fn cursor_theme_is_authoritative_and_refreshes_after_reload() {
+        let mut environment = LaunchEnvironment::new(&BTreeMap::from([(
+            "XCURSOR_THEME".to_string(),
+            "ambient-override".to_string(),
+        )]));
+        environment.set_cursor_theme("Breeze5");
+        assert_eq!(
+            environment
+                .iter()
+                .find(|(key, _)| *key == "XCURSOR_THEME")
+                .unwrap()
+                .1,
+            OsStr::new("Breeze5")
+        );
+        environment.reload(&BTreeMap::from([(
+            "XCURSOR_THEME".to_string(),
+            "stale".to_string(),
+        )]));
+        environment.set_cursor_theme("Adwaita");
+        let mut command = Command::new("true");
+        environment.apply_to(&mut command);
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(key, _)| *key == "XCURSOR_THEME")
+                .unwrap()
+                .1,
+            Some(OsStr::new("Adwaita"))
         );
     }
 
