@@ -41,7 +41,8 @@ use overview::{
 };
 pub(crate) use windows::append_titlebar_elements;
 use windows::{
-    LiveWindowContext, LiveWindowRenderers, StackGroup, live_window_elements, sort_stack_groups,
+    LiveWindowContext, LiveWindowRenderers, LiveWindowScene, StackGroup, live_window_elements,
+    sort_stack_groups,
 };
 
 pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
@@ -91,6 +92,18 @@ render_elements! {
     Border=SolidColorRenderElement,
     DisplayScaled=super::display_scale::DisplayScaledElement,
     Layer=WaylandSurfaceRenderElement<GlesRenderer>,
+}
+
+fn redact_window_scene(scene: &mut LiveWindowScene) {
+    for elements in [&mut scene.elements, &mut scene.popup_elements] {
+        for element in elements.iter_mut() {
+            *element = SceneElement::Border(super::solid_color_element(
+                Id::new(),
+                element.geometry(Scale::from(1.0)),
+                smithay::backend::renderer::Color32F::BLACK,
+            ));
+        }
+    }
 }
 
 pub fn build(
@@ -902,7 +915,7 @@ fn build_logical(
         }) {
             continue;
         }
-        let window_scene = live_window_elements(
+        let mut window_scene = live_window_elements(
             renderer,
             window,
             context,
@@ -919,6 +932,17 @@ fn build_logical(
                 window_shaders: request.resources.window_shaders,
             },
         )?;
+        let protected = block_screencast
+            && window.wl_surface().is_some_and(|surface| {
+                request
+                    .desktop
+                    .window_rules
+                    .applied(surface.as_ref())
+                    .block_screencast
+            });
+        if protected {
+            redact_window_scene(&mut window_scene);
+        }
         if window_scene.cluster_exclusive {
             exclusive_windows.push((stack_index, window_scene));
         } else if !window_scene.elements.is_empty() || !window_scene.popup_elements.is_empty() {
@@ -935,7 +959,7 @@ fn build_logical(
                 )
             });
         if let Some(extra_presentation) = extra_presentation {
-            let extra_scene = live_window_elements(
+            let mut extra_scene = live_window_elements(
                 renderer,
                 window,
                 LiveWindowContext {
@@ -956,6 +980,9 @@ fn build_logical(
                     window_shaders: request.resources.window_shaders,
                 },
             )?;
+            if protected {
+                redact_window_scene(&mut extra_scene);
+            }
             if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
                 live_windows.push((stack_index, extra_scene));
             }
