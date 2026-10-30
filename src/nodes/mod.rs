@@ -15,6 +15,7 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use smithay::wayland::shell::xdg::dialog::ToplevelDialogHint;
 
 mod dynamics;
+mod dynamics_inputs;
 pub(crate) mod ipc;
 mod keyboard_navigation;
 mod movement;
