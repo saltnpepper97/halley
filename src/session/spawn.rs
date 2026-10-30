@@ -349,6 +349,44 @@ mod tests {
     }
 
     #[test]
+    fn cursor_theme_is_inherited_and_an_explicit_launch_override_wins() {
+        let mut environment = LaunchEnvironment::default();
+        environment.set_cursor_theme("Breeze5");
+        let process = configured_process(
+            "true",
+            OsStr::new("wayland-4"),
+            Some(OsStr::new(":8")),
+            24,
+            &environment,
+            &[],
+        );
+        assert_eq!(
+            process
+                .get_envs()
+                .find(|(key, _)| *key == "XCURSOR_THEME")
+                .unwrap()
+                .1,
+            Some(OsStr::new("Breeze5"))
+        );
+        let process = configured_process(
+            "true",
+            OsStr::new("wayland-4"),
+            Some(OsStr::new(":8")),
+            24,
+            &environment,
+            &[("XCURSOR_THEME", "Adwaita")],
+        );
+        assert_eq!(
+            process
+                .get_envs()
+                .find(|(key, _)| *key == "XCURSOR_THEME")
+                .unwrap()
+                .1,
+            Some(OsStr::new("Adwaita"))
+        );
+    }
+
+    #[test]
     fn unavailable_xwayland_removes_ambient_display() {
         let process = detached_process(
             "foot",

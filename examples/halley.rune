@@ -254,7 +254,9 @@ input:
 end
 
 # Cursor themes use the standard Xcursor search path and theme inheritance.
-# Theme changes are applied immediately to Halley's compositor cursor.
+# Theme changes apply immediately to Halley's compositor cursor. The theme
+# and size are also exported to newly launched apps as XCURSOR_THEME and
+# XCURSOR_SIZE; running apps may need a restart to adopt a new theme.
 cursor:
   # This configured name is authoritative; Halley does not inherit the theme
   # from its process environment. Theme names are case-sensitive.

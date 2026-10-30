@@ -81,6 +81,33 @@ pub struct State<D: SessionDriver> {
 }
 
 impl<D: SessionDriver> State<D> {
+    pub(crate) fn sync_cursor(&mut self, cursor: &crate::cursor::CursorManager) {
+        let Some(xwm) = self.xwm.as_mut() else {
+            return;
+        };
+        let frame = cursor.default_frame(1, std::time::Duration::ZERO);
+        let (Ok(width), Ok(height), Ok(x), Ok(y)) = (
+            u16::try_from(frame.width),
+            u16::try_from(frame.height),
+            u16::try_from(frame.hotspot_x),
+            u16::try_from(frame.hotspot_y),
+        ) else {
+            eventline::warn!("xwayland: cursor dimensions or hotspot exceed X11 limits");
+            return;
+        };
+        let mut pixels = frame.metadata_bgra.to_vec();
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        if let Err(err) = xwm.set_cursor(&pixels, (width, height).into(), (x, y).into()) {
+            eventline::warn!("xwayland: failed to set default cursor: {err}");
+        } else if let Err(err) = xwm.get_randr_primary_output() {
+            // Smithay's set_cursor queues its final X11 requests without flushing.
+            // A round trip on the same connection sends them immediately.
+            eventline::warn!("xwayland: failed to flush default cursor update: {err}");
+        }
+    }
+
     pub fn new(display: &DisplayHandle, loop_handle: LoopHandle<'static, Session<D>>) -> Self
     where
         Session<D>: XWaylandShellHandler + XWaylandKeyboardGrabHandler + 'static,
@@ -486,6 +513,7 @@ where
             ) {
                 Ok(xwm) => {
                     session.xwayland.xwm = Some(xwm);
+                    session.xwayland.sync_cursor(&session.cursor);
                     session.xwayland.display = Some(display_number);
                     match control::X11Control::connect(display_number) {
                         Ok(control) => {

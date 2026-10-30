@@ -38,6 +38,29 @@ This split is deliberate. The property connection never takes ownership of
 RandR policy, and primary-output change notifications are observed without
 being rewritten.
 
+## Cursor theme
+
+Halley's `cursor.theme` and `cursor.size` are published as `XCURSOR_THEME` and
+`XCURSOR_SIZE` for programs launched by Halley and for applications activated
+through the native session's D-Bus or user service manager. XWayland also
+inherits the configured theme when it starts. The cursor section takes
+precedence over an `XCURSOR_THEME` value in the `env:` block; an individual
+command can still explicitly override it, for example:
+
+```sh
+env XCURSOR_THEME=Adwaita QT_QPA_PLATFORM=xcb qt5ct
+```
+
+Halley also sets XWayland's default cursor to the configured theme and size,
+and refreshes it on config reload. This applies to X11 windows that inherit the
+default cursor; applications can still choose their own cursor images.
+
+An accepted config reload updates these values for future launches. Existing
+applications retain their original environment and may need to be restarted;
+some toolkits or applications use their own settings or custom cursor images.
+Nested Winit sessions pass the theme to their own children but do not publish
+it into the host's session environment.
+
 ## Managed-window lifecycle
 
 Each managed XID receives a monotonically increasing generation so a reused XID

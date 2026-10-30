@@ -537,15 +537,20 @@ impl<D: SessionDriver> Session<D> {
             super::gesture::cancel_all(self);
         }
         self.launch_environment.reload(&config.env);
+        self.launch_environment
+            .set_cursor_theme(&config.cursor.theme);
         let launch_path = self.launch_environment.path();
         self.keyboard
             .reload(&config.keybinds, D::BACKEND_KIND, launch_path.as_deref());
         crate::input::config::reload(self, &config.input);
-        let cursor_size_changed = self.cursor.size() != config.cursor.size;
         let cursor_changed = self.cursor.reload(&config.cursor);
+        #[cfg(feature = "xwayland")]
+        if cursor_changed {
+            self.xwayland.sync_cursor(&self.cursor);
+        }
         let cursor_visibility_changed = self.cursor_policy.reload(&config.cursor);
-        if cursor_size_changed && self.publish_session_environment {
-            super::environment::publish_cursor_size(config.cursor.size);
+        if cursor_changed && self.publish_session_environment {
+            super::environment::publish_cursor_settings(&config.cursor.theme, config.cursor.size);
         }
         let window_rules_redraw = self.window_rules_reload_changes_visuals(&config.window_rules);
         let decorations_changed =

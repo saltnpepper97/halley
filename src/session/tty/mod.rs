@@ -460,7 +460,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     applied_input.keyboard = applied_keyboard;
     let startup_cluster_declarations = runtime_config.autostart.clusters.clone();
     let startup_cluster_default_layout = runtime_config.clusters.default_layout;
-    let launch_environment = super::environment::LaunchEnvironment::new(&runtime_config.env);
+    let mut launch_environment = super::environment::LaunchEnvironment::new(&runtime_config.env);
+    launch_environment.set_cursor_theme(&runtime_config.cursor.theme);
     let launch_path = launch_environment.path();
     // Portal calls can activate GTK. Wait until the display environment and
     // graphical session are ready before asking for the initial appearance.
@@ -573,7 +574,11 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     app.wayland_display = Some(socket_name.clone());
     eventline::info!("wayland socket ready, WAYLAND_DISPLAY={socket_name:?}");
     app.arm_autostart_once(&socket_name, runtime_config.autostart.once.clone());
-    super::environment::activate_session(&socket_name, runtime_config.cursor.size);
+    super::environment::activate_session(
+        &socket_name,
+        &runtime_config.cursor.theme,
+        runtime_config.cursor.size,
+    );
     if let Err(err) = crate::xwayland::start(&event_loop.handle(), &mut app, true) {
         eventline::warn!("xwayland: unavailable: {err}");
         app.run_autostart_once();
