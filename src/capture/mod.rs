@@ -1,7 +1,7 @@
 mod jobs;
 pub(crate) use jobs::ScreenshotJobs;
 mod window_geometry;
-pub(crate) use window_geometry::window_capture_context;
+pub(crate) use window_geometry::WindowCaptureContext;
 mod requests;
 pub use requests::*;
 pub mod encoder;
@@ -752,10 +752,11 @@ fn window_selection_candidates<D: SessionDriver>(
                 output,
                 now,
             )?;
-            let geometry = window_capture_context(session)
+            let geometry = session
+                .window_capture_context()
                 .visual_geometry(&record.window, presentation.visual_geometry());
             geometry.intersection(output_geometry)?;
-            let size = window_capture_context(session).size(&record.window);
+            let size = session.window_capture_context().size(&record.window);
             Some(WindowSelectionCandidate {
                 surface: record.surface.clone(),
                 geometry,

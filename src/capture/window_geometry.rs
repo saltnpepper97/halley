@@ -5,8 +5,6 @@ use smithay::output::Output;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
 use smithay::wayland::seat::WaylandFocus;
 
-use crate::session::{Session, SessionDriver};
-
 pub(crate) struct WindowCaptureContext<'a> {
     wayland: &'a crate::wayland::WaylandState,
     primary_output: &'a Output,
@@ -15,20 +13,23 @@ pub(crate) struct WindowCaptureContext<'a> {
     font: &'a halley_config::Font,
 }
 
-/// The session adapter stays here; geometry decisions only receive these inputs.
-pub(crate) fn window_capture_context<D: SessionDriver>(
-    session: &Session<D>,
-) -> WindowCaptureContext<'_> {
-    WindowCaptureContext {
-        wayland: &session.wayland,
-        primary_output: session.driver.primary_output(),
-        fullscreen: &session.fullscreen,
-        decorations: &session.settings.decorations,
-        font: &session.settings.font,
+impl<'a> WindowCaptureContext<'a> {
+    pub(crate) fn new(
+        wayland: &'a crate::wayland::WaylandState,
+        primary_output: &'a Output,
+        fullscreen: &'a crate::wayland::fullscreen::FullscreenManager,
+        decorations: &'a halley_config::Decorations,
+        font: &'a halley_config::Font,
+    ) -> Self {
+        Self {
+            wayland,
+            primary_output,
+            fullscreen,
+            decorations,
+            font,
+        }
     }
-}
 
-impl WindowCaptureContext<'_> {
     pub(crate) fn chrome_visible(&self, window: &Window) -> bool {
         !crate::xwayland::is_fullscreen(window)
             && window

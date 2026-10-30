@@ -303,7 +303,7 @@ fn cursor_metadata<D: SessionDriver>(
                 *window_id,
             )
             .ok()?;
-            crate::capture::window_capture_context(session).display_scale(&window)
+            session.window_capture_context().display_scale(&window)
         }
     };
     let presentation_override = crate::session::cursor_override(session);
@@ -451,9 +451,8 @@ fn cursor_position<D: SessionDriver>(
                 return None;
             }
             let location = session.wayland.space.element_location(&window)?;
-            let client_offset =
-                crate::capture::window_capture_context(session).client_offset(&window);
-            let scale = crate::capture::window_capture_context(session).display_scale(&window);
+            let client_offset = session.window_capture_context().client_offset(&window);
+            let scale = session.window_capture_context().display_scale(&window);
             Some((
                 ((route.location.x - f64::from(location.x) + f64::from(client_offset.x)) * scale)
                     .round() as i32,

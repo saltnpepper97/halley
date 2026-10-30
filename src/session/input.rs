@@ -1145,9 +1145,10 @@ fn update_capture_pointer<D: SessionDriver>(session: &mut Session<D>, position: 
                 crate::input::pointer::PointerTarget::Window(window)
                 | crate::input::pointer::PointerTarget::Decoration { window, .. } => {
                     window.wl_surface().and_then(|surface| {
-                        let geometry = crate::capture::window_capture_context(session)
+                        let geometry = session
+                            .window_capture_context()
                             .visual_geometry(&window, route.visual_geometry?);
-                        let size = crate::capture::window_capture_context(session).size(&window);
+                        let size = session.window_capture_context().size(&window);
                         Some((
                             halley_ipc::CaptureSource::Window {
                                 window_id: session.nodes.id_for_surface(surface.as_ref())?.as_u64(),
@@ -1172,7 +1173,8 @@ fn update_capture_pointer<D: SessionDriver>(session: &mut Session<D>, position: 
                     _ => return None,
                 };
                 let surface = window.wl_surface()?.into_owned();
-                let geometry = crate::capture::window_capture_context(session)
+                let geometry = session
+                    .window_capture_context()
                     .visual_geometry(&window, route.visual_geometry?);
                 Some((surface, geometry))
             });

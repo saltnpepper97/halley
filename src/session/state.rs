@@ -180,6 +180,16 @@ pub struct Session<D: SessionDriver> {
 }
 
 impl<D: SessionDriver> Session<D> {
+    pub(crate) fn window_capture_context(&self) -> crate::capture::WindowCaptureContext<'_> {
+        crate::capture::WindowCaptureContext::new(
+            &self.wayland,
+            self.driver.primary_output(),
+            &self.fullscreen,
+            &self.settings.decorations,
+            &self.settings.font,
+        )
+    }
+
     pub(crate) fn launch_environment(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
         self.launch.environment().iter()
     }
