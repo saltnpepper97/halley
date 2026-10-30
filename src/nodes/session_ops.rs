@@ -845,7 +845,7 @@ fn collapse_inner<D: crate::session::SessionDriver>(
         }
     }
     crate::session::cancel_grab_for_surface(session, &record.surface);
-    if record.window.x11_surface().is_some() {
+    if crate::xwayland::is_x11(&record.window) {
         // Publish the accepted minimize before focus loss. An exclusive
         // fullscreen client can otherwise start a conflicting mode change
         // while its X11 frame still appears viewable and normal.
@@ -1029,7 +1029,7 @@ fn restore_with_centering<D: crate::session::SessionDriver>(
     };
     if let Some(output) = output {
         let started = crate::session::opening::start(session, record.surface.clone(), &output, now);
-        if started && record.window.x11_surface().is_some() {
+        if started && crate::xwayland::is_x11(&record.window) {
             session
                 .window_animations
                 .defer_opening_until_commit(&record.surface, now);

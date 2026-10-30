@@ -91,6 +91,8 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Fix builds without default features by routing XWayland window checks through
+  the feature-independent compatibility layer.
 - Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
 - Omit screencast-blocked windows and layer surfaces so monitor shares show the content behind them.
 - Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
