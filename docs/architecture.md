@@ -31,9 +31,12 @@ state do not share implementation files.
   override-redirect policy, and presentation policy are separate. X11
   fullscreen selection is a pure policy object; event handling only applies
   its result.
-- `session::input` owns raw device-event coordination. Keyboard modal routing
-  and configured compositor actions are separate state-machine and action
-  modules beneath it.
+- `session::input` owns raw device-event coordination. Its dispatcher orders
+  lock, modal, touch and gesture interception before capture, screenshot,
+  pointer grabs, client delivery, and keyboard dispatch. Modal, pointer motion,
+  button, wheel, keyboard, and configured action handling live in separate
+  modules. Button ownership and suppressed releases stay with the interaction
+  that claimed the press; client grabs retain their forwarding path.
 - `animation` owns pure timelines. Rendering consumes animation output but
   animation code does not know about GLES or backends.
 - `halley-cli` separates command parsing, help, response presentation,
@@ -64,9 +67,9 @@ The scores are deliberately close to the threshold rather than aspirational.
 Smithay protocol handlers still require the complete session type, and the
 remaining large orchestration files are `session/input.rs`,
 `wayland/fullscreen.rs`, `clusters/mod.rs`, `render/scene.rs`, and the TTY
-session/backend drivers. Input delegates keyboard and action policy but its raw
-pointer loop is still large. Future feature work should add narrow policy or
-transaction objects instead of growing those assemblers in place.
+session/backend drivers. Pointer button and motion handling remain substantial
+within their respective input modules. Future feature work should add narrow
+policy or transaction objects instead of growing those assemblers in place.
 
 ## SOLID application
 
