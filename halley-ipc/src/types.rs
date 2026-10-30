@@ -52,7 +52,7 @@ pub enum Request {
         silent: bool,
     },
     BeginWindowCast {
-        surface_id: u32,
+        window_id: u64,
     },
 }
 
@@ -661,7 +661,7 @@ pub enum CaptureSource {
         height: i32,
     },
     Window {
-        surface_id: u32,
+        window_id: u64,
         width: i32,
         height: i32,
     },

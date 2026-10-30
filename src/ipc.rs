@@ -662,8 +662,8 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 halley_ipc::Response::Error("source chooser is not active".to_string())
             }
         }
-        halley_ipc::Request::BeginWindowCast { surface_id } => {
-            match crate::capture::resolve_source_window(&app.wayland.space, surface_id) {
+        halley_ipc::Request::BeginWindowCast { window_id } => {
+            match crate::capture::resolve_source_window(&app.wayland.space, &app.nodes, window_id) {
                 Ok(window) => {
                     if let Some(surface) = window.wl_surface().map(|surface| surface.into_owned()) {
                         if app.window_rules.applied(&surface).block_screencast {

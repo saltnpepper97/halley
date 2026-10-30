@@ -13,7 +13,6 @@ use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::utils::draw_render_elements;
 use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer, Texture};
 use smithay::output::Output;
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Transform};
 use smithay::wayland::seat::WaylandFocus;
 
@@ -281,11 +280,11 @@ pub(crate) fn capture_source_pixels<D: SessionDriver>(
             },
         ),
         halley_ipc::CaptureSource::Window {
-            surface_id,
+            window_id,
             width,
             height,
         } => {
-            let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            let window = resolve_source_window(&session.wayland.space, &session.nodes, *window_id)?;
             validate_source_window_size(session, &window, *width, *height)?;
             if window.wl_surface().is_some_and(|surface| {
                 session
@@ -334,11 +333,11 @@ pub(crate) fn render_source_dmabuf<D: SessionDriver>(
             },
         ),
         halley_ipc::CaptureSource::Window {
-            surface_id,
+            window_id,
             width,
             height,
         } => {
-            let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            let window = resolve_source_window(&session.wayland.space, &session.nodes, *window_id)?;
             validate_source_window_size(session, &window, *width, *height)?;
             if window.wl_surface().is_some_and(|surface| {
                 session
@@ -559,14 +558,17 @@ pub(crate) fn render_monitor_region_dmabuf<D: SessionDriver>(
 
 pub(crate) fn resolve_source_window(
     space: &smithay::desktop::Space<smithay::desktop::Window>,
-    surface_id: u32,
+    nodes: &crate::nodes::NodesState,
+    window_id: u64,
 ) -> Result<smithay::desktop::Window, Box<dyn Error>> {
     let window = space
         .elements()
         .find(|window| {
-            window
-                .wl_surface()
-                .is_some_and(|surface| surface.id().protocol_id() == surface_id)
+            window.wl_surface().is_some_and(|surface| {
+                nodes
+                    .id_for_surface(surface.as_ref())
+                    .is_some_and(|id| id.as_u64() == window_id)
+            })
         })
         .cloned()
         .ok_or_else(|| io::Error::other("selected window is no longer mapped"))?;

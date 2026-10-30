@@ -231,14 +231,14 @@ impl ScreenCastInterface {
                     );
                     properties.insert("mapping_id".to_string(), owned(Value::from(name.clone()))?);
                 }
-                halley_ipc::CaptureSource::Window { surface_id, .. } => {
+                halley_ipc::CaptureSource::Window { window_id, .. } => {
                     properties.insert(
                         "source_type".to_string(),
                         OwnedValue::from(halley_ipc::SOURCE_WINDOW),
                     );
                     properties.insert(
                         "mapping_id".to_string(),
-                        owned(Value::from(format!("halley-window-{surface_id}")))?,
+                        owned(Value::from(format!("halley-window-{window_id}")))?,
                     );
                 }
             }

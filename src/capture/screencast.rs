@@ -7,7 +7,6 @@ use smithay::backend::allocator::{
     dmabuf::{Dmabuf, DmabufFlags},
 };
 use smithay::backend::renderer::sync::SyncPoint;
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::seat::WaylandFocus;
 
@@ -125,18 +124,22 @@ pub fn capture_frame<D: SessionDriver>(
         return Err("session is locked".to_string());
     }
     let blocked_window = match &request.source {
-        halley_ipc::CaptureSource::Window { surface_id, .. } => {
-            crate::capture::resolve_source_window(&session.wayland.space, *surface_id)
-                .ok()
-                .and_then(|window| {
-                    window.wl_surface().map(|surface| {
-                        session
-                            .window_rules
-                            .applied(surface.as_ref())
-                            .block_screencast
-                    })
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
+            crate::capture::resolve_source_window(
+                &session.wayland.space,
+                &session.nodes,
+                *window_id,
+            )
+            .ok()
+            .and_then(|window| {
+                window.wl_surface().map(|surface| {
+                    session
+                        .window_rules
+                        .applied(surface.as_ref())
+                        .block_screencast
                 })
-                .unwrap_or(false)
+            })
+            .unwrap_or(false)
         }
         _ => false,
     };
@@ -282,13 +285,14 @@ fn cursor_metadata<D: SessionDriver>(
             .find(|output| output.name() == *name)?
             .current_scale()
             .fractional_scale(),
-        halley_ipc::CaptureSource::Window { surface_id, .. } => {
-            let window = session.wayland.space.elements().find(|window| {
-                window
-                    .wl_surface()
-                    .is_some_and(|surface| surface.id().protocol_id() == *surface_id)
-            })?;
-            crate::capture::window_display_scale(session, window)
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
+            let window = crate::capture::resolve_source_window(
+                &session.wayland.space,
+                &session.nodes,
+                *window_id,
+            )
+            .ok()?;
+            crate::capture::window_display_scale(session, &window)
         }
     };
     let presentation_override = crate::session::cursor_override(session);
@@ -404,7 +408,7 @@ fn cursor_position<D: SessionDriver>(
                 && local.1 < *height)
                 .then_some(local)
         }
-        halley_ipc::CaptureSource::Window { surface_id, .. } => {
+        halley_ipc::CaptureSource::Window { window_id, .. } => {
             let route = crate::input::pointer::route_to_client(
                 crate::input::pointer::PointerRoutingContext {
                     space: &session.wayland.space,
@@ -428,7 +432,11 @@ fn cursor_position<D: SessionDriver>(
                 _ => return None,
             };
             let surface = window.wl_surface()?;
-            if surface.id().protocol_id() != *surface_id {
+            if session
+                .nodes
+                .id_for_surface(surface.as_ref())
+                .is_none_or(|id| id.as_u64() != *window_id)
+            {
                 return None;
             }
             let location = session.wayland.space.element_location(&window)?;
