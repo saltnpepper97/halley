@@ -244,10 +244,10 @@ pub(crate) fn dispatch<D: SessionDriver>(
         .then(|| output_name.and_then(|name| session.cameras.get_mut(name)))
         .flatten();
     let zoom_camera_available = camera.is_some();
-    match super::super::dispatch_action(
+    match super::dispatch::dispatch_action(
         action,
         session.keyboard.terminal_command(),
-        super::super::SpawnContext {
+        super::dispatch::SpawnContext {
             socket_name,
             x11_display: x11_display.as_deref(),
             cursor_size: session.cursor.size(),
@@ -256,9 +256,9 @@ pub(crate) fn dispatch<D: SessionDriver>(
         camera,
         &session.settings.zoom,
     ) {
-        super::super::SessionControl::Continue => {}
-        super::super::SessionControl::Quit => session.show_exit_confirmation(),
-        super::super::SessionControl::CloseFocusedWindow => {
+        super::dispatch::SessionControl::Continue => {}
+        super::dispatch::SessionControl::Quit => session.show_exit_confirmation(),
+        super::dispatch::SessionControl::CloseFocusedWindow => {
             let focused_cluster = focused_cluster_close_target(
                 &session.clusters,
                 session.nodes.focused(),
@@ -270,24 +270,24 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 crate::nodes::close_focused_on_output(session, action_output.as_deref());
             }
         }
-        super::super::SessionControl::ToggleFullscreen => {
+        super::dispatch::SessionControl::ToggleFullscreen => {
             super::super::toggle_focused_fullscreen(session, action_output.as_deref())
         }
-        super::super::SessionControl::ToggleFieldMaximize => {
+        super::dispatch::SessionControl::ToggleFieldMaximize => {
             super::super::toggle_focused_field_maximize(session, action_output.as_deref())
         }
-        super::super::SessionControl::ToggleState => toggle_cluster_or_focused_node(
+        super::dispatch::SessionControl::ToggleState => toggle_cluster_or_focused_node(
             session,
             action_output.as_deref(),
             SERIAL_COUNTER.next_serial(),
         ),
-        super::super::SessionControl::ToggleFocusedPin => {
+        super::dispatch::SessionControl::ToggleFocusedPin => {
             super::super::toggle_focused_pin(session, action_output.as_deref());
         }
-        super::super::SessionControl::Apogee => {
+        super::dispatch::SessionControl::Apogee => {
             crate::shell::apogee::toggle(session);
         }
-        super::super::SessionControl::FocusCycle(direction) => {
+        super::dispatch::SessionControl::FocusCycle(direction) => {
             let cluster_cycle = action_output.as_deref().map_or(
                 crate::clusters::StackCycleOutcome::NotActive,
                 |output| {
@@ -320,13 +320,13 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 }
             }
         }
-        super::super::SessionControl::Trail(direction) => {
+        super::dispatch::SessionControl::Trail(direction) => {
             if let Err(error) = crate::trail::navigate(session, direction, action_output.as_deref())
             {
                 eventline::debug!("trail: {error}");
             }
         }
-        super::super::SessionControl::FocusDirection(direction) => {
+        super::dispatch::SessionControl::FocusDirection(direction) => {
             if let Some(output) = action_output {
                 if session.clusters.active_on(&output).is_some() {
                     navigate_cluster(session, &output, direction, false);
@@ -335,24 +335,24 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 }
             }
         }
-        super::super::SessionControl::TransferWindow(direction) => {
+        super::dispatch::SessionControl::TransferWindow(direction) => {
             if let Err(error) = crate::nodes::transfer_window(session, direction) {
                 eventline::debug!("window transfer: {error}");
             }
         }
-        super::super::SessionControl::PanField(direction) => {
+        super::dispatch::SessionControl::PanField(direction) => {
             if let Err(error) = crate::nodes::pan_field(session, direction) {
                 eventline::debug!("pan field: {error}");
             }
         }
-        super::super::SessionControl::MoveNode(direction) => {
+        super::dispatch::SessionControl::MoveNode(direction) => {
             if let Some(output) = action_output
                 && session.clusters.active_on(&output).is_none()
             {
                 crate::nodes::move_selected_direction(session, direction, Some(&output));
             }
         }
-        super::super::SessionControl::MoveNodeBy {
+        super::dispatch::SessionControl::MoveNodeBy {
             direction,
             distance,
         } => {
@@ -362,29 +362,29 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 crate::nodes::ipc::move_selected_by(session, direction, distance, Some(&output));
             }
         }
-        super::super::SessionControl::ResizeWindow(direction) => {
+        super::dispatch::SessionControl::ResizeWindow(direction) => {
             if let Some(output) = action_output
                 && session.clusters.active_on(&output).is_none()
             {
                 crate::nodes::resize_selected_direction(session, direction, Some(&output));
             }
         }
-        super::super::SessionControl::ArrangeVisible => {
+        super::dispatch::SessionControl::ArrangeVisible => {
             if let Some(output) = action_output {
                 super::super::arrange::arrange_visible(session, &output);
             }
         }
-        super::super::SessionControl::UndoArrange => {
+        super::dispatch::SessionControl::UndoArrange => {
             if let Some(output) = action_output {
                 super::super::arrange::undo_last(session, &output);
             }
         }
-        super::super::SessionControl::CenterLastFocused => {
+        super::dispatch::SessionControl::CenterLastFocused => {
             if let Some(output) = action_output {
                 super::super::navigation::center_last_focused(session, &output);
             }
         }
-        super::super::SessionControl::ClusterMode => {
+        super::dispatch::SessionControl::ClusterMode => {
             if let Some(output) = action_output {
                 let conflicts = session.capture.is_active()
                     || session.shell.apogee.is_active()
@@ -423,7 +423,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 }
             }
         }
-        super::super::SessionControl::ClusterLayoutCycle => {
+        super::dispatch::SessionControl::ClusterLayoutCycle => {
             if let Some(output) = action_output
                 && let Some(work_area) = work_area_for_output(&session.wayland.space, &output)
             {
@@ -439,10 +439,10 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 }
             }
         }
-        super::super::SessionControl::ClusterToggleFloat => {
+        super::dispatch::SessionControl::ClusterToggleFloat => {
             toggle_focused_cluster_float(session, action_output.as_deref());
         }
-        super::super::SessionControl::ClusterSlot(slot) => {
+        super::dispatch::SessionControl::ClusterSlot(slot) => {
             if let Some(output_name) = action_output {
                 let target = session
                     .clusters
@@ -475,25 +475,27 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 }
             }
         }
-        super::super::SessionControl::ClusterTileFocus(direction) => {
+        super::dispatch::SessionControl::ClusterTileFocus(direction) => {
             if let Some(output) = action_output {
                 navigate_cluster(session, &output, direction, false);
             }
         }
-        super::super::SessionControl::ClusterTileSwap(direction) => {
+        super::dispatch::SessionControl::ClusterTileSwap(direction) => {
             if let Some(output) = action_output {
                 navigate_cluster(session, &output, direction, true);
             }
         }
-        super::super::SessionControl::MonitorFocus(target) => focus_output_target(session, target),
-        super::super::SessionControl::Reload => {
+        super::dispatch::SessionControl::MonitorFocus(target) => {
+            focus_output_target(session, target)
+        }
+        super::dispatch::SessionControl::Reload => {
             if let Some(watcher) = session.config_watcher.as_ref() {
                 watcher.request_reload();
             } else {
                 eventline::warn!("config: manual reload requested without a watched file");
             }
         }
-        super::super::SessionControl::BearingsShow => {
+        super::dispatch::SessionControl::BearingsShow => {
             let changed = match held_keycode {
                 Some(keycode) => session.shell.bearings.show_while_held(keycode),
                 None => session.shell.bearings.set_visible(true),
@@ -502,11 +504,11 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 session.request_redraw();
             }
         }
-        super::super::SessionControl::BearingsToggle => {
+        super::dispatch::SessionControl::BearingsToggle => {
             session.shell.bearings.toggle();
             session.request_redraw();
         }
-        super::super::SessionControl::Screenshot => {
+        super::dispatch::SessionControl::Screenshot => {
             let window_available = session.wayland.space.elements().any(|window| {
                 window.wl_surface().is_some()
                     && crate::wayland::window_output_name(window)

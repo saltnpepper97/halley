@@ -24,6 +24,7 @@ pub(crate) mod actions;
 mod axis;
 mod button;
 mod cluster_interaction;
+mod dispatch;
 pub(crate) use cluster_interaction::*;
 mod hit_test;
 use hit_test::*;
