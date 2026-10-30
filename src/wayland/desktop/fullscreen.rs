@@ -26,7 +26,7 @@ use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelState, ToplevelSu
 use crate::animation::MotionTimeline;
 use crate::presentation::camera::{FullscreenCameraFrame, OutputCameras};
 
-use super::WaylandState;
+use super::super::WaylandState;
 
 // Give clients which acknowledge before resizing a chance to attach their
 // target buffer, without pinning a valid fixed-size client indefinitely.
@@ -493,7 +493,7 @@ impl FullscreenManager {
         };
 
         if visual_desired {
-            super::set_window_output(&window, &output);
+            super::super::set_window_output(&window, &output);
             let location = center_in_rect(
                 window.geometry().size,
                 output_geometry.loc,
@@ -517,7 +517,7 @@ impl FullscreenManager {
                     window.geometry().size,
                 ),
             };
-            super::set_window_output(&window, &output);
+            super::super::set_window_output(&window, &output);
             if preserve_stack {
                 wayland.space.relocate_element(&window, location);
             } else {
@@ -598,7 +598,7 @@ impl FullscreenManager {
             entry.presentation_paused |= occupied;
             occupied |= entry_owns_output_presentation(entry)
                 && entry_occupies_output(entry, &fallback_name);
-            super::set_window_output(&window, fallback);
+            super::super::set_window_output(&window, fallback);
             let geometry = if entry.desired {
                 target
             } else {

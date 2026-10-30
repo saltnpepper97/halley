@@ -281,9 +281,11 @@ pub fn send_frames(state: &State, output: &Output, elapsed: std::time::Duration,
             surface.wl_surface(),
             output,
             elapsed,
-            super::frame_callbacks::FALLBACK_THROTTLE,
+            super::super::frame_callbacks::FALLBACK_THROTTLE,
             |surface, states| {
-                super::frame_callbacks::callback_output(surface, states, output, sequence, true)
+                super::super::frame_callbacks::callback_output(
+                    surface, states, output, sequence, true,
+                )
             },
         );
     }
@@ -324,7 +326,7 @@ impl<D: SessionDriver> SessionLockHandler for Session<D> {
             awaiting_outputs,
         });
         crate::wayland::dnd::clear(self);
-        super::session_lock::enter_secure_mode(self);
+        super::super::session_lock::enter_secure_mode(self);
         if self
             .session_lock
             .pending_confirmation
@@ -351,7 +353,7 @@ impl<D: SessionDriver> SessionLockHandler for Session<D> {
         self.session_lock.pending_confirmation = None;
         self.session_lock.owner = None;
         self.session_lock.confirmed = false;
-        super::session_lock::leave_secure_mode(self);
+        super::super::session_lock::leave_secure_mode(self);
         self.request_redraw();
     }
 
@@ -488,12 +490,12 @@ pub fn enter_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
     session.interactions.suppressed_buttons.clear();
     session.interactions.suppressed_keys.clear();
     session.interactions.wheel_accumulator.reset_all();
-    super::session_lock::cancel_client_input(session);
+    super::super::session_lock::cancel_client_input(session);
     crate::session::sync_keyboard_focus(session, SERIAL_COUNTER.next_serial());
 }
 
 pub fn leave_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
-    super::session_lock::cancel_client_input(session);
+    super::super::session_lock::cancel_client_input(session);
     let old_cursor = session
         .cursor
         .set_image(smithay::input::pointer::CursorImageStatus::default_named());

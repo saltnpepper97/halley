@@ -14,7 +14,7 @@ use smithay::wayland::shell::xdg::{PopupSurface, PositionerState};
 use crate::presentation::camera::OutputCameras;
 use crate::presentation::window::WindowPresentation;
 
-use super::WaylandState;
+use super::super::WaylandState;
 
 #[derive(Clone, Copy)]
 pub struct UnconstrainContext<'a> {
@@ -119,7 +119,7 @@ fn unconstrain(wayland: &WaylandState, context: UnconstrainContext<'_>, popup: &
         let Some(output) = wayland
             .space
             .outputs()
-            .find(|output| super::window_is_on_output(window, output, &primary))
+            .find(|output| super::super::window_is_on_output(window, output, &primary))
         else {
             return;
         };

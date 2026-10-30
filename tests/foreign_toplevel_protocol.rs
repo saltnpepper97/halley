@@ -1,5 +1,5 @@
 //! Exercise the production foreign-toplevel state over real Wayland sockets.
-#[path = "../src/wayland/foreign_toplevel.rs"]
+#[path = "../src/wayland/desktop/foreign_toplevel.rs"]
 mod foreign_toplevel;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;

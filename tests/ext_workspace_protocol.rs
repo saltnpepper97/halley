@@ -12,7 +12,7 @@
 // The production protocol module, compiled directly into this test target. It
 // deliberately depends on nothing inside `crate::`, which is what makes this
 // possible without adding a library target to the compositor.
-#[path = "../src/wayland/ext_workspace.rs"]
+#[path = "../src/wayland/desktop/ext_workspace.rs"]
 #[allow(dead_code)] // The compositor uses more of this module than these tests do.
 mod ext_workspace;
 

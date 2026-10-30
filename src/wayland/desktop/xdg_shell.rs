@@ -6,7 +6,7 @@ use smithay::wayland::shell::xdg::ToplevelSurface;
 
 use crate::presentation::camera::OutputCameras;
 
-use super::WaylandState;
+use super::super::WaylandState;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToplevelCommit {
@@ -169,7 +169,7 @@ pub fn handle_commit(
     };
 
     if !toplevel.is_initial_configure_sent() {
-        toplevel.with_pending_state(super::decoration::apply_tiled_hint);
+        toplevel.with_pending_state(super::super::decoration::apply_tiled_hint);
         toplevel.send_configure();
         return ToplevelCommit::None;
     }
@@ -208,9 +208,9 @@ pub fn handle_commit(
                     font,
                 )
             });
-        super::set_window_output(&window, &placement.output);
-        let location = if super::clipboard_helper::is_helper(surface) {
-            super::clipboard_helper::remember_focus(
+        super::super::set_window_output(&window, &placement.output);
+        let location = if super::super::clipboard_helper::is_helper(surface) {
+            super::super::clipboard_helper::remember_focus(
                 surface,
                 wayland.focused_window.as_ref(),
                 wayland.focused_layer.as_ref(),
