@@ -26,6 +26,7 @@ mod animation_pixels;
 mod apogee_clusters;
 mod capture_ui;
 mod chrome;
+mod close_stack;
 mod cluster_composer;
 mod clusters;
 mod effects;
@@ -496,126 +497,21 @@ fn build_logical(
     )?;
     elements.extend(node_scene.overlay);
 
-    let mut stack = request
-        .resources
-        .window_close_animations
-        .renders_for_output(
-            renderer,
-            request.resources.window_shaders,
-            output,
-            output_geometry,
-            request.desktop.cameras,
-            request.frame.target_presentation_time,
-        )
-        .into_iter()
-        .map(|closing| -> Result<StackGroup, Box<dyn Error>> {
-            if block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot) {
-                return Ok(StackGroup {
-                    window: None,
-                    stack_index: closing.stack_index,
-                    order: closing.order,
-                    elements: Vec::new(),
-                });
-            }
-            let mut elements = Vec::new();
-            let shader = closing.shader;
-            let shader_active = shader.is_some();
-            let shadow_alpha = closing.texture.alpha();
-            let border_width = closing.border.map(|border| border.width).unwrap_or(0);
-            let rounded = shader.is_none()
-                && closing.content_radius > 0.0
-                && request
-                    .resources
-                    .window_decoration_renderer
-                    .available(renderer);
-            if let Some(border) = closing.border {
-                if rounded
-                    && let Some(border) =
-                        request.resources.window_decoration_renderer.border_element(
-                            renderer,
-                            closing.border_id.clone(),
-                            closing.destination,
-                            border.width,
-                            closing.content_radius,
-                            border.color,
-                            1.0,
-                        )
-                {
-                    elements.push(SceneElement::WindowBorder(border));
-                } else {
-                    elements.extend(
-                        super::border_strips(
-                            std::array::from_fn(|index| closing.border_id.namespaced(100 + index)),
-                            closing.destination,
-                            border.width,
-                            border.color,
-                        )
-                        .into_iter()
-                        .map(SceneElement::Border),
-                    );
-                }
-            }
-            if let Some(shader) = shader {
-                elements.push(SceneElement::WindowShader(shader));
-            } else if rounded {
-                let texture = request
-                    .resources
-                    .window_decoration_renderer
-                    .texture_element(
-                        renderer,
-                        closing.texture,
-                        closing.source_texture,
-                        closing.destination,
-                        closing.content_radius,
-                    )
-                    .expect("rounded resources were checked above");
-                elements.push(SceneElement::RoundedTexture(texture));
-            } else {
-                elements.push(SceneElement::Closing(closing.texture));
-            }
-            let caster = Rectangle::new(
-                (
-                    closing.destination.loc.x - border_width,
-                    closing.destination.loc.y - border_width,
-                )
-                    .into(),
-                (
-                    closing.destination.size.w + border_width * 2,
-                    closing.destination.size.h + border_width * 2,
-                )
-                    .into(),
-            );
-            // The rectangular caster cannot follow an arbitrary shader's
-            // fragment silhouette. Let the shader own the complete close
-            // visual instead of leaving a detached shadow on the trajectory.
-            let mut shadow_config = request.visuals.shadows.window;
-            if let Some(enabled) = closing.shadow {
-                shadow_config.enabled = enabled;
-            }
-            if !shader_active
-                && let Some(shadow) = request.resources.shadow_renderer.element(
-                    renderer,
-                    format!("{}:closing:{}", output.name(), closing.order),
-                    caster,
-                    if rounded {
-                        closing.content_radius + border_width as f32
-                    } else {
-                        0.0
-                    },
-                    shadow_alpha,
-                    shadow_config,
-                )?
-            {
-                elements.push(SceneElement::Shadow(shadow));
-            }
-            Ok(StackGroup {
-                window: None,
-                stack_index: closing.stack_index,
-                order: closing.order,
-                elements,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut stack = close_stack::stack_groups(
+        renderer,
+        output,
+        output_geometry,
+        close_stack::ClosingSceneContext {
+            animations: request.resources.window_close_animations,
+            shaders: request.resources.window_shaders,
+            decorations: request.resources.window_decoration_renderer,
+            shadow_renderer: request.resources.shadow_renderer,
+            shadow_style: request.visuals.shadows.window,
+            cameras: request.desktop.cameras,
+            now: request.frame.target_presentation_time,
+            redact: block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot),
+        },
+    )?;
     stack.extend(node_scene.groups);
     let cluster_scene = cluster_elements(
         renderer,
