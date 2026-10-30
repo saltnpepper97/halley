@@ -44,8 +44,9 @@ state do not share implementation files.
   handoffs, while `session::node_controls` owns focused-node pin controls.
   The `session/` source tree groups startup, onboarding, input, workspace,
   windows, display, capture, protocol, drivers, and diagnostics by their work.
-  Explicit source paths in `session/mod.rs` retain the existing Rust module
-  boundaries; the folders organize files without changing ownership.
+  Pointer-grab transactions, frame timing, and Wayland global initialization
+  live in their corresponding input, display, and protocol groups. Configuration
+  source state owns its path, startup diagnostic, and reload handle.
 - Cluster activation, window presentation, and workspace dragging are grouped
   in their respective `clusters` modules. Capture request setup lives in
   `capture::requests`; the Wayland output-control protocols are grouped under
@@ -81,10 +82,12 @@ The session coordinator remains a shared integration point for Smithay
 protocol handlers. Screenshot encoding jobs own their worker and pending replies;
 startup owns launch environment and autostart state. Rendering uses a narrow
 closing-scene context and separates replacement scenes, live-window collection,
-stack ordering, capture privacy, and shared overlays. Window rendering and input
-use the same explicit presentation context. The remaining ordinary scene
-assembler, input coordination, and TTY drivers are
-still substantial and warrant careful review before further decomposition.
+stack ordering, desktop assembly, capture privacy, and shared overlays. Window
+rendering and input use the same explicit presentation context; capture geometry
+receives its inputs from a session adapter. Landmark physics is separate from
+node actions, and its body collection receives only the state it needs. The
+session coordinator and TTY drivers remain substantial integration points and
+warrant care when changing their responsibilities.
 
 Workspace tests, software-rendered pixel checks, no-default-feature builds, and
 strict Clippy are complementary: a passing unit test suite does not cover every

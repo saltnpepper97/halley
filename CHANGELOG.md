@@ -88,7 +88,10 @@ All notable changes to this project will be documented in this file.
 - Separate replacement, closing-window, live-window, and stack scene stages;
   centralize capture privacy and share shell overlay assembly. Give screenshot
   jobs, capture geometry, and session startup state explicit owners, and share
-  window presentation inputs between rendering and input.
+  window presentation inputs between rendering and input. Separate desktop
+  scene assembly, landmark physics, pointer grabs, frame timing, and Wayland
+  global setup; give configuration reload its own state and narrow physics
+  and window-capture inputs.
 - Update private IPC to version 28 for shared-window capture indicators; rebuild
   companion tools with Halley. The public API remains version 1.
 - Separate input dispatch from modal, pointer motion, button, and wheel handling while retaining event ownership and routing order.
