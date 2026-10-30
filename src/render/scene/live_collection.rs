@@ -35,7 +35,10 @@ pub(super) fn collect(
             let rule = window
                 .wl_surface()
                 .map(|surface| context.window_rules.applied(surface.as_ref()));
-            privacy.redact_window(rule.as_ref(), crate::xwayland::is_override_redirect(window))
+            privacy.redact_window(
+                rule.as_ref(),
+                privacy.redact_cached_windows() && crate::xwayland::is_override_redirect(window),
+            )
         } else {
             false
         };

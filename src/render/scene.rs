@@ -648,8 +648,8 @@ fn build_logical(
                 .rev()
                 .flat_map(|(_, scene)| scene.elements),
         );
-        let exclusive_is_protected =
-            request
+        let exclusive_is_protected = privacy.enabled()
+            && request
                 .desktop
                 .nodes
                 .record(exclusive.member)

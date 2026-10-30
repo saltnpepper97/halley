@@ -74,16 +74,19 @@ fn build_with_capture_privacy(
         scale,
         crate::render::output_physical_size(output),
     );
-    let privacy = CapturePrivacy::new(
-        block_screencast,
-        screenshot,
-        request.desktop.window_rules.has_capture_blocks(screenshot),
-        request
+    // Normal presentation is the common path; do not scan capture rules
+    // unless a capture requests privacy filtering.
+    let window_rules =
+        block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot);
+    let layer_rules = block_screencast
+        && !screenshot
+        && !window_rules
+        && request
             .desktop
             .layer_rules
             .iter()
-            .any(|rule| rule.block_screencast),
-    );
+            .any(|rule| rule.block_screencast);
+    let privacy = CapturePrivacy::new(block_screencast, screenshot, window_rules, layer_rules);
     let elements = build_logical(
         renderer,
         output,
