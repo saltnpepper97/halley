@@ -30,6 +30,7 @@ mod clusters;
 mod effects;
 pub(crate) mod nodes;
 mod overview;
+mod replacement;
 mod windows;
 
 use capture_ui::capture_overlay_elements;
@@ -268,263 +269,20 @@ fn build_logical(
         .replacement_output()
         .is_some_and(|name| name == output.name())
     {
-        let mut elements = cluster_composer_elements(
+        return replacement::cluster_composer(
             renderer,
             output,
             output_geometry,
-            request.overlays.cluster_composer,
-            request.desktop.clusters,
-            request.overlays.apogee_config,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.visuals.font,
-            request.desktop.space,
-            request.desktop.cameras,
-            request.desktop.nodes,
-            request.resources.node_renderer,
-            request.resources.cluster_renderer,
-            request.resources.titlebar_renderer,
-            request.resources.window_decoration_renderer,
-            request.resources.ui_text,
-            request.desktop.window_animations,
-            request.desktop.fullscreen,
-            request.desktop.maximize,
-            request.resources.overlay_previews,
-            request.frame.target_presentation_time,
-        )?;
-        append_overlay_shadows(
-            renderer,
-            output,
-            "cluster-composer",
-            request.visuals.shadows.overlay,
-            request.resources.shadow_renderer,
-            &mut elements,
-        )?;
-        elements.extend(
-            super::layer_surface_elements(renderer, output, Layer::Background)
-                .into_iter()
-                .map(SceneElement::Layer),
-        );
-        append_background(
-            renderer,
-            request.resources.background_renderer,
-            BackgroundSceneRequest {
-                output,
-                output_geometry,
-                cameras: request.desktop.cameras,
-                config: request.visuals.background,
-                config_dir: request.visuals.background_base,
-                now: request.frame.target_presentation_time,
-            },
-            &mut elements,
-        );
-
-        let mut naming = super::overlays::cluster_creation::elements(
-            renderer,
-            request.resources.cluster_creation_overlay,
-            output,
-            output_geometry,
-            request.desktop.clusters.creation(),
-            request.cursor.cursor_position,
-            request
-                .overlays
-                .cluster_composer
-                .session()
-                .map_or(1.0, |session| {
-                    session.naming_alpha(request.frame.target_presentation_time)
-                }),
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "cluster-creation",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut naming,
-        )?;
-        elements.splice(0..0, naming);
-
-        let mut overlay_elements = super::overlays::shell::elements(
-            renderer,
-            output_geometry,
+            request,
             overlay_snapshot,
-            request.overlays.overlay_config,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "shell-overlay",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut overlay_elements,
-        )?;
-        elements.splice(0..0, overlay_elements);
-        if request.visuals.debug.overlay_fps {
-            let mut fps_elements = super::overlays::fps::elements(
-                renderer,
-                &output.name(),
-                request.frame.target_presentation_time,
-                request.resources.debug_fps_overlay,
-                request.overlays.overlay_config,
-                request.visuals.decorations,
-                request.resources.node_renderer,
-                request.resources.ui_text,
-            )?;
-            append_compositor_overlay_blur(
-                renderer,
-                output,
-                OverlayEffectStyle {
-                    output_size: output_geometry.size,
-                    identity: "debug-fps",
-                    blur: request.visuals.blur,
-                    shadow: request.visuals.shadows.overlay,
-                },
-                request.resources.backdrop_blur_renderer,
-                request.resources.shadow_renderer,
-                &mut fps_elements,
-            )?;
-            elements.splice(0..0, fps_elements);
-        }
-        prepend_pointer_elements(
-            renderer,
-            output,
-            output_geometry,
-            &request.cursor,
-            request.frame.target_presentation_time,
-            true,
-            &mut elements,
-        )?;
-        return Ok(elements);
+        );
     }
 
     // Apogee is a replacement scene, not a translucent layer over the live
     // desktop. Keep only its tiles and the wallpaper layer behind them; normal
     // windows, nodes, panels, and desktop overlays must not bleed through.
     if request.overlays.apogee.is_active() {
-        let mut elements = apogee_elements(
-            renderer,
-            output,
-            output_geometry,
-            request.overlays.apogee,
-            request.overlays.apogee_config,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.visuals.font,
-            request.desktop.space,
-            request.desktop.cameras,
-            request.desktop.nodes,
-            request.desktop.clusters,
-            request.resources.node_renderer,
-            request.resources.cluster_renderer,
-            request.resources.titlebar_renderer,
-            request.resources.window_decoration_renderer,
-            request.resources.ui_text,
-            request.desktop.window_animations,
-            request.desktop.fullscreen,
-            request.desktop.maximize,
-            request.resources.overlay_previews,
-            request.frame.target_presentation_time,
-        )?;
-        append_overlay_shadows(
-            renderer,
-            output,
-            "apogee",
-            request.visuals.shadows.overlay,
-            request.resources.shadow_renderer,
-            &mut elements,
-        )?;
-        elements.extend(
-            super::layer_surface_elements(renderer, output, Layer::Background)
-                .into_iter()
-                .map(SceneElement::Layer),
-        );
-        append_background(
-            renderer,
-            request.resources.background_renderer,
-            BackgroundSceneRequest {
-                output,
-                output_geometry,
-                cameras: request.desktop.cameras,
-                config: request.visuals.background,
-                config_dir: request.visuals.background_base,
-                now: request.frame.target_presentation_time,
-            },
-            &mut elements,
-        );
-        let mut overlay_elements = super::overlays::shell::elements(
-            renderer,
-            output_geometry,
-            overlay_snapshot,
-            request.overlays.overlay_config,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "shell-overlay",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut overlay_elements,
-        )?;
-        elements.splice(0..0, overlay_elements);
-        if request.visuals.debug.overlay_fps {
-            let mut fps_elements = super::overlays::fps::elements(
-                renderer,
-                &output.name(),
-                request.frame.target_presentation_time,
-                request.resources.debug_fps_overlay,
-                request.overlays.overlay_config,
-                request.visuals.decorations,
-                request.resources.node_renderer,
-                request.resources.ui_text,
-            )?;
-            append_compositor_overlay_blur(
-                renderer,
-                output,
-                OverlayEffectStyle {
-                    output_size: output_geometry.size,
-                    identity: "debug-fps",
-                    blur: request.visuals.blur,
-                    shadow: request.visuals.shadows.overlay,
-                },
-                request.resources.backdrop_blur_renderer,
-                request.resources.shadow_renderer,
-                &mut fps_elements,
-            )?;
-            elements.splice(0..0, fps_elements);
-        }
-        prepend_pointer_elements(
-            renderer,
-            output,
-            output_geometry,
-            &request.cursor,
-            request.frame.target_presentation_time,
-            true,
-            &mut elements,
-        )?;
-        return Ok(elements);
+        return replacement::apogee(renderer, output, output_geometry, request, overlay_snapshot);
     }
 
     let mut elements = capture_overlay_elements(
