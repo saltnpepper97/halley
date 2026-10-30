@@ -297,14 +297,20 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                     .size_for_surface(&root, &app_id)
                     .map(|size| (app_id, size))
             });
-        let recovered_size = (rule.initial_size.is_none()
+        let recovered_size = (rule.initial_size == (None, None)
             && !self.fullscreen.is_fullscreen_or_pending(&root))
         .then_some(recovery_candidate)
         .flatten();
-        let initial_size = rule.initial_size.map(|size| {
+        let initial_size = (rule.initial_size != (None, None)).then(|| {
             Size::from((
-                i32::try_from(size.0).unwrap_or(i32::MAX).max(96),
-                i32::try_from(size.1).unwrap_or(i32::MAX).max(72),
+                rule.initial_size
+                    .0
+                    .map(|v| i32::try_from(v).unwrap_or(i32::MAX).max(96))
+                    .unwrap_or(0),
+                rule.initial_size
+                    .1
+                    .map(|v| i32::try_from(v).unwrap_or(i32::MAX).max(72))
+                    .unwrap_or(0),
             ))
         });
         if let Some((app_id, size)) = recovered_size
@@ -337,7 +343,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
             wayland::xdg_shell::ToplevelCommitContext {
                 cameras: &self.cameras,
                 primary_output: &primary_output,
-                rule,
+                rule: rule.clone(),
                 cursor_position: smithay::utils::Point::from(self.pointer.position()),
                 gap: self.settings.field.gap,
                 decorations: &self.settings.decorations,

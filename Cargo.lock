@@ -1201,6 +1201,7 @@ dependencies = [
  "libc",
  "png 0.17.16",
  "resvg 0.47.0",
+ "rune-cfg",
  "sd-notify",
  "serde_json",
  "sha2",

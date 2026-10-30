@@ -20,7 +20,7 @@ rules:
 end
 ```
 
-Window rules are evaluated from top to bottom and the first matching rule wins.
+Window rules are evaluated from top to bottom. By default the first matching rule wins, preserving existing configurations. Set `window-rule-mode "compose"` inside `rules:` to apply all matching window rules: later explicitly set properties override earlier ones. Omitted properties do not override previous values, while explicit `false` does. Layer rules remain first-match.
 Strings match exactly and case-sensitively. `r"..."` values are regular
 expressions. An array is an OR-list. When both `app-id` and `title` are
 present, both fields must match.
@@ -28,10 +28,34 @@ present, both fields must match.
 For native Wayland, `app-id` is the XDG toplevel app ID. For XWayland it is
 the X11 window class. `title` uses the corresponding toplevel/window title.
 
+For example:
+
+```rune
+rules:
+  window-rule-mode "compose"
+  window-rule:
+    app-id "foot"
+    opacity 0.90
+    blur true
+  end
+  window-rule:
+    match:
+      app-id "foot"
+      title "Monitoring"
+    end
+    exclude:
+      title "Private"
+    end
+    open-on-output "DP-2"
+  end
+end
+```
+
+A `match:` group combines its `app-id` and `title` with AND; multiple groups are OR alternatives. Any matching `exclude:` group prevents that rule from applying. Groups accept the same exact strings, regular expressions, and arrays as the simple matchers. Use `match-all true` for a rule matching every window. Do not mix `match:` groups or `match-all` with top-level `app-id`/`title` in the same rule. Exclusions can be used with any of these forms. Empty groups are invalid.
+
 ## Effects
 
-- `width` and `height` set the requested initial size and must appear together.
-  Halley enforces a safe minimum of 96 by 72 logical pixels.
+- `width` and `height` independently set requested initial dimensions. Unspecified dimensions use the client’s normal sizing. Halley enforces a safe minimum of 96 by 72 logical pixels on dimensions specified by the rule.
 - `opacity` accepts `0.0` through `1.0` and applies to the client and its
   popups. Compositor titlebars, borders, pin badges, and shadows stay
   opaque. Open and close animations still fade the whole window.
@@ -42,6 +66,8 @@ the X11 window class. `title` uses the corresponding toplevel/window title.
 - `blur false` disables all blur for the match, including client background-
   effect requests. With no blur rule, Halley honors explicit client regions
   only; opacity never enables blur implicitly.
+- `open-on-output` selects a connected output by its exact connector name, as shown by `halleyctl outputs`. If unavailable, Halley falls back to the selected output and centers the window in its viewport. Parent or cursor placement on a different output also falls back to the target viewport. A window opened on another output does not take focus by default. Startup cluster attribution and restored XWayland geometry can override initial routing.
+- `open-focused true` requests normal initial focus; `open-focused false` keeps the current focus. When omitted, normal focus behavior applies except for windows routed to another output.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.
 - `block-screencast true` omits the window and its popups from portal monitor shares, revealing the content behind them and prevents choosing it for a new window share. A window already being shared becomes black if the rule is enabled. It defaults to `false` and does not block screenshots or direct capture protocols.
@@ -84,8 +110,7 @@ The old `overlap-policy` field is accepted only as a migration aid and has no
 runtime effect; new configurations should omit it.
 
 Live reload re-resolves visual fields such as opacity, blur, and screencast privacy for mapped
-windows, and updates game policy for the next navigation. Initial size and
-placement remain initial-map decisions.
+windows, and updates game policy for the next navigation. Initial size, output, focus, and placement remain initial-map decisions.
 
 Blur activation is entirely rule-driven: `effects.blur` configures quality and
 whether compositor-owned overlays may blur, but has no global enable switch.

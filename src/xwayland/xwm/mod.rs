@@ -376,12 +376,16 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
     let initially_iconic = session.xwayland.managed_states.state(xid) == WindowState::Iconic;
     let mut opening_size = OpeningPlacement::preferred_size(initial_size, window.geometry().size);
     let rule = session.window_rules.track_window(&window);
-    if saved_maximize.is_none()
-        && let Some((width, height)) = rule.initial_size
-    {
+    if saved_maximize.is_none() && rule.initial_size != (None, None) {
         opening_size = Size::from((
-            i32::try_from(width).unwrap_or(i32::MAX).max(96),
-            i32::try_from(height).unwrap_or(i32::MAX).max(72),
+            rule.initial_size
+                .0
+                .map(|v| i32::try_from(v).unwrap_or(i32::MAX).max(96))
+                .unwrap_or(opening_size.w),
+            rule.initial_size
+                .1
+                .map(|v| i32::try_from(v).unwrap_or(i32::MAX).max(72))
+                .unwrap_or(opening_size.h),
         ));
     }
     let initial_outer_size = crate::titlebar::outer_size_for_client(
@@ -398,9 +402,15 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
             window: Some(&window),
             window_size: initial_outer_size,
             placement: rule.spawn_placement,
+            output_name: rule.open_on_output.as_deref(),
             cursor_position: smithay::utils::Point::from(session.pointer.position()),
             gap: session.settings.field.gap,
         },
+    );
+    let selected_output = crate::wayland::focus::output_for_new_surface(
+        &session.wayland,
+        None,
+        session.driver.primary_output(),
     );
     let mut output = initial_placement.output;
     let mut location = crate::titlebar::client_location_for_outer(
@@ -434,6 +444,7 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
                     window: Some(&window),
                     window_size: outer_size,
                     placement: halley_config::WindowSpawnPlacement::Default,
+                    output_name: None,
                     cursor_position: smithay::utils::Point::from(session.pointer.position()),
                     gap: session.settings.field.gap,
                 },
@@ -478,6 +489,7 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
                     window: Some(&window),
                     window_size: outer_size,
                     placement: rule.spawn_placement,
+                    output_name: rule.open_on_output.as_deref(),
                     cursor_position: smithay::utils::Point::from(session.pointer.position()),
                     gap: session.settings.field.gap,
                 },
@@ -686,7 +698,11 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
                 .transition_surface(&surface, WindowState::Normal);
             crate::session::focus_window(session, &window, SERIAL_COUNTER.next_serial());
         }
-    } else if !surface.is_override_redirect() {
+    } else if !surface.is_override_redirect()
+        && rule
+            .open_focused
+            .unwrap_or(rule.open_on_output.is_none() || output == selected_output)
+    {
         crate::session::focus_window(session, &window, SERIAL_COUNTER.next_serial());
     }
     refresh_override_redirect_owners(session);

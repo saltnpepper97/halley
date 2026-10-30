@@ -31,7 +31,7 @@ chooser chrome and is never included in the resulting stream.
 
 ## Privacy and window sharing indicators
 
-Set `block-screencast true` in a matching window or layer rule to omit that content from portal monitor shares, revealing what is behind it. The first matching rule wins. A protected window cannot be selected for a new window share; enabling its rule during an existing share turns its stream black. Windows and layer surfaces remain visible on the local display. These rules do not apply to screenshots or direct Wayland capture protocols. See [window and layer rules](window-rules.md) for matching syntax.
+Set `block-screencast true` in a matching window or layer rule to omit that content from portal monitor shares, revealing what is behind it. Window rules default to first-match, with opt-in composition; layer rules use first-match. A protected window cannot be selected for a new window share; enabling its rule during an existing share turns its stream black. Windows and layer surfaces remain visible on the local display. These rules do not apply to screenshots or direct Wayland capture protocols. See [window and layer rules](window-rules.md) for matching syntax.
 
 A directly shared window has a red outline on the local display until its last share ends. The outline is not included in portal streams and does not mark windows merely visible in a shared monitor. Configure its size and colour with:
 

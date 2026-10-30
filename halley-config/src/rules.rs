@@ -61,15 +61,36 @@ pub enum WindowClusterParticipation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowRule {
+    pub compose: bool,
+    pub match_all: bool,
+    pub open_on_output: Option<String>,
+    pub open_focused: Option<bool>,
+    pub matches_any: Vec<WindowMatcher>,
+    pub excludes: Vec<WindowMatcher>,
     pub app_ids: Vec<WindowRulePattern>,
     pub titles: Vec<WindowRulePattern>,
-    pub initial_size: Option<(u32, u32)>,
+    pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: Option<f32>,
     pub blur: Option<bool>,
-    pub block_screencast: bool,
+    pub block_screencast: Option<bool>,
     pub game: Option<bool>,
-    pub spawn_placement: WindowSpawnPlacement,
-    pub cluster_participation: WindowClusterParticipation,
+    pub spawn_placement: Option<WindowSpawnPlacement>,
+    pub cluster_participation: Option<WindowClusterParticipation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowMatcher {
+    pub app_ids: Vec<WindowRulePattern>,
+    pub titles: Vec<WindowRulePattern>,
+}
+
+impl WindowMatcher {
+    fn matches(&self, app_id: Option<&str>, title: Option<&str>) -> bool {
+        (self.app_ids.is_empty()
+            || app_id.is_some_and(|v| self.app_ids.iter().any(|p| p.matches(v))))
+            && (self.titles.is_empty()
+                || title.is_some_and(|v| self.titles.iter().any(|p| p.matches(v))))
+    }
 }
 
 /// One protocol layer that a layer-shell rule may match.
@@ -109,11 +130,15 @@ pub struct Rules {
 
 impl WindowRule {
     pub fn matches(&self, app_id: Option<&str>, title: Option<&str>) -> bool {
-        let app_matches = self.app_ids.is_empty()
-            || app_id.is_some_and(|value| self.app_ids.iter().any(|item| item.matches(value)));
-        let title_matches = self.titles.is_empty()
-            || title.is_some_and(|value| self.titles.iter().any(|item| item.matches(value)));
-        app_matches && title_matches
+        let base = WindowMatcher {
+            app_ids: self.app_ids.clone(),
+            titles: self.titles.clone(),
+        };
+        let included = self.match_all
+            || ((!self.app_ids.is_empty() || !self.titles.is_empty())
+                && base.matches(app_id, title))
+            || self.matches_any.iter().any(|m| m.matches(app_id, title));
+        included && !self.excludes.iter().any(|m| m.matches(app_id, title))
     }
 }
 
@@ -138,6 +163,8 @@ pub fn parse_rules(config: &RuneConfig) -> Result<Rules, WindowRuleParseError> {
         ));
     };
     let mut rules = Rules::default();
+    let mut compose = false;
+    let mut mode_seen = false;
     for section in root.iter().filter_map(|item| match item {
         ObjectItem::Assign(key, Value::Object(fields)) if key == "rules" => Some(fields),
         _ => None,
@@ -148,6 +175,22 @@ pub fn parse_rules(config: &RuneConfig) -> Result<Rules, WindowRuleParseError> {
                     "conditionals are not supported directly inside rules".to_string(),
                 ));
             };
+            if key == "window-rule-mode" {
+                if mode_seen {
+                    return Err(WindowRuleParseError("duplicate window-rule-mode".into()));
+                }
+                mode_seen = true;
+                compose = match string(value, "window-rule-mode")?.as_str() {
+                    "compose" => true,
+                    "first-match" => false,
+                    other => {
+                        return Err(WindowRuleParseError(format!(
+                            "unknown window-rule-mode {other:?}"
+                        )));
+                    }
+                };
+                continue;
+            }
             if key == "rule" {
                 return Err(WindowRuleParseError(
                     "`rules.rule` has been renamed to `rules.window-rule`".to_string(),
@@ -170,6 +213,9 @@ pub fn parse_rules(config: &RuneConfig) -> Result<Rules, WindowRuleParseError> {
             }
         }
     }
+    for rule in &mut rules.windows {
+        rule.compose = compose;
+    }
     Ok(rules)
 }
 
@@ -189,6 +235,11 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
             "app-id"
                 | "app_id"
                 | "title"
+                | "match"
+                | "exclude"
+                | "match-all"
+                | "open-on-output"
+                | "open-focused"
                 | "width"
                 | "height"
                 | "opacity"
@@ -216,9 +267,40 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         .map(|value| patterns(value, "title"))
         .transpose()?
         .unwrap_or_default();
-    if app_ids.is_empty() && titles.is_empty() {
+    let match_all = field(fields, &["match-all"])
+        .map(|v| boolean(v, "match-all"))
+        .transpose()?
+        .unwrap_or(false);
+    let mut matches_any = Vec::new();
+    let mut excludes = Vec::new();
+    for item in fields {
+        if let ObjectItem::Assign(key, value) = item {
+            if key == "match" || key == "exclude" {
+                let Value::Object(group) = value else {
+                    return Err(WindowRuleParseError(format!("{key} must be an object")));
+                };
+                let matcher = parse_matcher(group)?;
+                if key == "match" {
+                    matches_any.push(matcher);
+                } else {
+                    excludes.push(matcher);
+                }
+            }
+        }
+    }
+    if !matches_any.is_empty() && (!app_ids.is_empty() || !titles.is_empty() || match_all) {
         return Err(WindowRuleParseError(
-            "window rule requires app-id and/or title".to_string(),
+            "do not mix match blocks with top-level matchers or match-all".into(),
+        ));
+    }
+    if match_all && (!app_ids.is_empty() || !titles.is_empty()) {
+        return Err(WindowRuleParseError(
+            "do not mix match-all with top-level matchers".into(),
+        ));
+    }
+    if app_ids.is_empty() && titles.is_empty() && matches_any.is_empty() && !match_all {
+        return Err(WindowRuleParseError(
+            "window rule requires a matcher or match-all true".into(),
         ));
     }
 
@@ -228,20 +310,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     let height = field(fields, &["height"])
         .map(|value| dimension(value, "height"))
         .transpose()?;
-    let initial_size = match (width, height) {
-        (Some(width), Some(height)) => Some((width, height)),
-        (Some(_), None) => {
-            return Err(WindowRuleParseError(
-                "window rule width requires a matching height".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(WindowRuleParseError(
-                "window rule height requires a matching width".to_string(),
-            ));
-        }
-        (None, None) => None,
-    };
+    let initial_size = (width, height);
 
     let opacity = field(fields, &["opacity"])
         .map(|value| number(value, "opacity").map(|value| value as f32))
@@ -256,8 +325,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         .transpose()?;
     let block_screencast = field(fields, &["block-screencast"])
         .map(|value| boolean(value, "block-screencast"))
-        .transpose()?
-        .unwrap_or(false);
+        .transpose()?;
     let game = field(fields, &["game"])
         .map(|value| boolean(value, "game"))
         .transpose()?;
@@ -270,8 +338,8 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         }
     }
     let spawn_placement = match field(fields, &["spawn-placement", "spawn_placement"]) {
-        None => WindowSpawnPlacement::Default,
-        Some(value) => match string(value, "spawn-placement")?.as_str() {
+        None => None,
+        Some(value) => Some(match string(value, "spawn-placement")?.as_str() {
             "center" => WindowSpawnPlacement::Center,
             "adjacent" => WindowSpawnPlacement::Adjacent,
             "viewport-center" => WindowSpawnPlacement::ViewportCenter,
@@ -282,12 +350,12 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                     "unknown spawn-placement {other:?}"
                 )));
             }
-        },
+        }),
     };
     let cluster_participation =
         match field(fields, &["cluster-participation", "cluster_participation"]) {
-            None => WindowClusterParticipation::Layout,
-            Some(value) => match string(value, "cluster-participation")?.as_str() {
+            None => None,
+            Some(value) => Some(match string(value, "cluster-participation")?.as_str() {
                 "layout" => WindowClusterParticipation::Layout,
                 "float" => WindowClusterParticipation::Float,
                 other => {
@@ -295,10 +363,21 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                         "unknown cluster-participation {other:?}"
                     )));
                 }
-            },
+            }),
         };
 
     Ok(WindowRule {
+        compose: false,
+        match_all,
+        open_focused: field(fields, &["open-focused"])
+            .map(|v| boolean(v, "open-focused"))
+            .transpose()?,
+        open_on_output: field(fields, &["open-on-output"])
+            .map(|v| string(v, "open-on-output"))
+            .transpose()?
+            .map(|v| v.to_string()),
+        matches_any,
+        excludes,
         app_ids,
         titles,
         initial_size,
@@ -309,6 +388,34 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         spawn_placement,
         cluster_participation,
     })
+}
+
+fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParseError> {
+    for item in fields {
+        match item {
+            ObjectItem::Assign(key, _) if matches!(key.as_str(), "app-id" | "app_id" | "title") => {
+            }
+            _ => {
+                return Err(WindowRuleParseError(
+                    "match and exclude support only app-id and title".into(),
+                ));
+            }
+        }
+    }
+    let app_ids = field(fields, &["app-id", "app_id"])
+        .map(|v| patterns(v, "app-id"))
+        .transpose()?
+        .unwrap_or_default();
+    let titles = field(fields, &["title"])
+        .map(|v| patterns(v, "title"))
+        .transpose()?
+        .unwrap_or_default();
+    if app_ids.is_empty() && titles.is_empty() {
+        return Err(WindowRuleParseError(
+            "match and exclude require app-id and/or title".into(),
+        ));
+    }
+    Ok(WindowMatcher { app_ids, titles })
 }
 
 fn parse_layer_rule(fields: &[ObjectItem]) -> Result<LayerRule, WindowRuleParseError> {
@@ -491,11 +598,11 @@ end
         assert_eq!(rules.len(), 2);
         assert!(rules[0].matches(Some("firefox"), Some("Picture-in-Picture")));
         assert!(!rules[0].matches(Some("Firefox"), Some("Picture-in-Picture")));
-        assert_eq!(rules[0].initial_size, Some((720, 520)));
+        assert_eq!(rules[0].initial_size, (Some(720), Some(520)));
         assert_eq!(rules[0].opacity, Some(0.86));
         assert_eq!(
             rules[0].cluster_participation,
-            WindowClusterParticipation::Float
+            Some(WindowClusterParticipation::Float)
         );
     }
 
@@ -509,7 +616,10 @@ end
             "rules:\n  window-rule:\n    app-id \"x\"\n    width 100\n  end\nend\n",
         )
         .unwrap();
-        assert!(parse_window_rules(&config).is_err());
+        assert_eq!(
+            parse_window_rules(&config).unwrap()[0].initial_size,
+            (Some(100), None)
+        );
     }
 
     #[test]
@@ -539,6 +649,20 @@ end
         )
         .unwrap();
         assert!(parse_window_rules(&config).is_err());
+    }
+
+    #[test]
+    fn validates_composition_and_matching_groups() {
+        for body in [
+            "window-rule-mode \"unknown\"",
+            "window-rule:\n    match:\n    end\n  end",
+            "window-rule:\n    app-id \"a\"\n    match:\n      title \"x\"\n    end\n  end",
+            "window-rule:\n    match-all true\n    app-id \"a\"\n  end",
+        ] {
+            let source = format!("rules:\n  {body}\nend\n");
+            let config = RuneConfig::from_str(&source).unwrap();
+            assert!(parse_rules(&config).is_err(), "{body}");
+        }
     }
 
     #[test]
@@ -584,7 +708,7 @@ end
                 "rules:\n  window-rule:\n    app-id \"secret\"\n    block-screencast {value}\n  end\n  layer-rule:\n    namespace \"notifications\"\n    block-screencast {value}\n  end\nend\n"
             )).unwrap();
             let rules = parse_rules(&config).unwrap();
-            assert_eq!(rules.windows[0].block_screencast, value == "true");
+            assert_eq!(rules.windows[0].block_screencast, Some(value == "true"));
             assert_eq!(rules.layers[0].block_screencast, value == "true");
             assert_eq!(rules.layers[0].blur, None);
         }
