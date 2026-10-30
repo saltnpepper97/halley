@@ -286,15 +286,19 @@ pub(crate) fn capture_source_pixels<D: SessionDriver>(
             height,
         } => {
             let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            validate_source_window_size(session, &window, *width, *height)?;
             if window.wl_surface().is_some_and(|surface| {
                 session
                     .window_rules
                     .applied(surface.as_ref())
                     .block_screencast
             }) {
-                return Err(io::Error::other("window is protected from screencasting").into());
+                let len = (*width as usize)
+                    .checked_mul(*height as usize)
+                    .and_then(|v| v.checked_mul(4))
+                    .ok_or_else(|| io::Error::other("window frame dimensions overflow"))?;
+                return Ok(vec![0; len]);
             }
-            validate_source_window_size(session, &window, *width, *height)?;
             capture_decorated_window_pixels(session, &window).map(|capture| capture.pixels)
         }
     }
@@ -335,15 +339,23 @@ pub(crate) fn render_source_dmabuf<D: SessionDriver>(
             height,
         } => {
             let window = resolve_source_window(&session.wayland.space, *surface_id)?;
+            validate_source_window_size(session, &window, *width, *height)?;
             if window.wl_surface().is_some_and(|surface| {
                 session
                     .window_rules
                     .applied(surface.as_ref())
                     .block_screencast
             }) {
-                return Err(io::Error::other("window is protected from screencasting").into());
+                return session.driver.with_renderer(|renderer| {
+                    render_elements_to_dmabuf::<render::scene::SceneElement>(
+                        renderer,
+                        dmabuf,
+                        (*width, *height).into(),
+                        &[],
+                        Color32F::BLACK,
+                    )
+                });
             }
-            validate_source_window_size(session, &window, *width, *height)?;
             with_decorated_window(session, &window, |renderer, element, size| {
                 render_elements_to_dmabuf(renderer, dmabuf, size, &[element], Color32F::TRANSPARENT)
             })

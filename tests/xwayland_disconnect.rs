@@ -2800,3 +2800,112 @@ fn explicit_capture_targets_save_without_confirmation_and_preserve_native_focus(
     );
     assert!(fixture.process.try_wait().unwrap().is_none());
 }
+
+#[test]
+#[ignore = "pending privacy enablement; requires Wayland desktop and XWayland"]
+fn portal_monitor_capture_redacts_protected_window() {
+    let mut fixture = Fixture::new("tiling");
+    let (mut queue, mut state) = native_window_named(
+        &fixture,
+        "privacy test",
+        "halley.privacy.secret",
+        [u32::MAX, 0, 0, u32::MAX],
+    );
+    fixture.node("privacy test");
+    queue.roundtrip(&mut state).unwrap();
+    queue.roundtrip(&mut state).unwrap();
+    let red_count = |pixels: &[u8]| {
+        pixels
+            .chunks_exact(4)
+            .filter(|p| p[2] > 245 && p[1] < 5 && p[0] < 5)
+            .count()
+    };
+    wait_for("unprotected red window in portal capture", || {
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) > 1000).then_some(())
+    });
+    let surface_id = wayland_client::Proxy::id(state.surface.as_ref().unwrap()).protocol_id();
+    let mut cast =
+        halley_ipc::Connection::connect_to(&fixture.path.join("halley/halley.sock")).unwrap();
+    assert!(matches!(
+        cast.request(&Request::BeginWindowCast { surface_id }, &[])
+            .unwrap()
+            .response,
+        Response::Ack
+    ));
+    drop(cast);
+    fs::write(fixture.path.join("halley.rune"), "keybinds:\nend\nrules:\n  window-rule:\n    app-id \"halley.privacy.secret\"\n    block-screencast true\n  end\nend\n").unwrap();
+    fixture.ack(Request::ConfigReload);
+    wait_for("privacy rule applied", || {
+        let (pixels, _) = capture_frame_pixels(&mut fixture);
+        (red_count(&pixels) == 0).then_some(())
+    });
+    assert!(
+        matches!(
+            fixture.request(Request::BeginWindowCast {
+                surface_id: wayland_client::Proxy::id(state.surface.as_ref().unwrap())
+                    .protocol_id(),
+            }),
+            Response::Error(_)
+        ),
+        "protected direct window cast must be rejected"
+    );
+}
+
+#[test]
+#[ignore = "requires a Wayland desktop and XWayland; starts an isolated nested compositor"]
+fn shared_window_indicator_follows_connection_lifetimes() {
+    use halley_ipc::CaptureRequest;
+    let mut fixture = Fixture::new("tiling");
+    let (mut queue, mut state) = native_window(&fixture);
+    fixture.node("surviving native window");
+    queue.roundtrip(&mut state).unwrap();
+    let Response::Outputs(outputs) = fixture.request(Request::Outputs) else {
+        panic!("missing output")
+    };
+    let output_name = outputs.outputs[0].name.clone();
+    let indicator_count = |fixture: &mut Fixture| {
+        let response = fixture.request(Request::Capture(CaptureRequest::Screen {
+            output: Some(output_name.clone()),
+        }));
+        let Response::Screenshot(halley_ipc::ScreenshotResponse::Saved { path }) = response else {
+            panic!("screenshot failed: {response:?}")
+        };
+        image::open(path)
+            .unwrap()
+            .to_rgba8()
+            .pixels()
+            .filter(|p| {
+                (p[0] as i32 - 240).abs() <= 2
+                    && (p[1] as i32 - 51).abs() <= 2
+                    && (p[2] as i32 - 61).abs() <= 2
+            })
+            .count()
+    };
+    assert_eq!(indicator_count(&mut fixture), 0);
+    let surface_id = wayland_client::Proxy::id(state.surface.as_ref().unwrap()).protocol_id();
+    let path = fixture.path.join("halley/halley.sock");
+    let mut first = halley_ipc::Connection::connect_to(&path).unwrap();
+    let mut second = halley_ipc::Connection::connect_to(&path).unwrap();
+    for connection in [&mut first, &mut second] {
+        assert!(matches!(
+            connection
+                .request(&Request::BeginWindowCast { surface_id }, &[])
+                .unwrap()
+                .response,
+            Response::Ack
+        ));
+    }
+    wait_for("indicator appears", || {
+        (indicator_count(&mut fixture) > 100).then_some(())
+    });
+    drop(first);
+    assert!(
+        indicator_count(&mut fixture) > 100,
+        "second share must retain indicator"
+    );
+    drop(second);
+    wait_for("indicator disappears after last stream", || {
+        (indicator_count(&mut fixture) == 0).then_some(())
+    });
+}

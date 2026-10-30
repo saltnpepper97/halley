@@ -194,7 +194,12 @@ pub(crate) fn build_with_privacy(
     {
         elements
             .into_iter()
-            .filter(|element| !matches!(element, SceneElement::ScreenshotPreview(_)))
+            .filter(|element| {
+                !matches!(
+                    element,
+                    SceneElement::ScreenshotPreview(_) | SceneElement::BackdropBlur(_)
+                )
+            })
             .collect::<Vec<_>>()
     } else {
         elements

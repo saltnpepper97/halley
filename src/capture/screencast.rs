@@ -124,7 +124,24 @@ pub fn capture_frame<D: SessionDriver>(
     if session.session_lock.active() {
         return Err("session is locked".to_string());
     }
-    let embedded = request.cursor_mode == halley_ipc::CursorMode::Embedded
+    let blocked_window = match &request.source {
+        halley_ipc::CaptureSource::Window { surface_id, .. } => {
+            crate::capture::resolve_source_window(&session.wayland.space, *surface_id)
+                .ok()
+                .and_then(|window| {
+                    window.wl_surface().map(|surface| {
+                        session
+                            .window_rules
+                            .applied(surface.as_ref())
+                            .block_screencast
+                    })
+                })
+                .unwrap_or(false)
+        }
+        _ => false,
+    };
+    let embedded = !blocked_window
+        && request.cursor_mode == halley_ipc::CursorMode::Embedded
         && crate::session::cursor_visible(session);
     let width = request.source.width();
     let height = request.source.height();
@@ -192,7 +209,7 @@ pub fn capture_frame<D: SessionDriver>(
         }
     };
 
-    let cursor = (request.cursor_mode == halley_ipc::CursorMode::Metadata)
+    let cursor = (!blocked_window && request.cursor_mode == halley_ipc::CursorMode::Metadata)
         .then(|| cursor_metadata(session, &request.source))
         .flatten();
     let response = halley_ipc::CaptureFrameResponse { cursor };
