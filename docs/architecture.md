@@ -80,8 +80,10 @@ job), coupling (which concrete state and behavior it needs), and maintainability
 The session coordinator remains a shared integration point for Smithay
 protocol handlers. Screenshot encoding jobs own their worker and pending replies;
 startup owns launch environment and autostart state. Rendering uses a narrow
-closing-scene context and separate replacement scene and shared overlay stages.
-The remaining ordinary scene assembler, input coordination, and TTY drivers are
+closing-scene context and separates replacement scenes, live-window collection,
+stack ordering, capture privacy, and shared overlays. Window rendering and input
+use the same explicit presentation context. The remaining ordinary scene
+assembler, input coordination, and TTY drivers are
 still substantial and warrant careful review before further decomposition.
 
 Workspace tests, software-rendered pixel checks, no-default-feature builds, and
@@ -110,5 +112,6 @@ Before merging architectural or rendering changes:
 3. `cargo build -p halley`
 4. `cargo clippy --workspace --all-targets -- -D warnings`
 
-Configuration syntax and IPC enum ordering are compatibility surfaces. The current private IPC wire version is defined by `HALLEY_IPC_VERSION` in
+Configuration syntax and IPC enum ordering are compatibility surfaces. The
+current private IPC wire version is defined by `HALLEY_IPC_VERSION` in
 `halley-ipc/src/types.rs`; change it only for a deliberate wire-format change.
