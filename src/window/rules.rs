@@ -423,4 +423,34 @@ end
         state.reload(rules);
         assert_eq!(state.resolve_identity(&identity).initial_size.0, None);
     }
+    #[test]
+    fn screenshot_and_screencast_rules_are_independent() {
+        let config = rune_cfg::RuneConfig::from_str(
+            r#"
+rules:
+  window-rule-mode "compose"
+  window-rule:
+    app-id "private"
+    block-screenshot true
+    block-screencast false
+  end
+end
+"#,
+        )
+        .unwrap();
+        let state = WindowRulesState::new(halley_config::parse_window_rules(&config).unwrap());
+        let protected = state.resolve_identity(&WindowIdentity {
+            app_id: Some("private".into()),
+            ..Default::default()
+        });
+        assert!(protected.blocks_capture(true));
+        assert!(!protected.blocks_capture(false));
+        assert!(state.has_capture_blocks(true));
+        assert!(!state.has_capture_blocks(false));
+        let other = state.resolve_identity(&WindowIdentity {
+            app_id: Some("other".into()),
+            ..Default::default()
+        });
+        assert!(!other.blocks_capture(true));
+    }
 }
