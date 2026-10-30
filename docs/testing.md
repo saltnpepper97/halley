@@ -1,4 +1,51 @@
-# Nested regression tests
+# Testing
+
+## Continuous integration
+
+[GitHub Actions](../.github/workflows/ci.yml) runs on pull requests, pushes to
+`main` and `dev`, and manual dispatch. Each job uses a fresh GitHub-hosted VM.
+The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
+
+The checks cover:
+
+- Rust formatting and GitHub Actions workflow linting.
+- Strict Clippy across the workspace, all targets and all features, plus Rustdoc
+  with warnings treated as errors.
+- Workspace tests, checks for every target, release builds and binary smoke
+  tests with default features, no default features, and the documented dinit
+  desktop feature set.
+- `nix flake check` on native x86_64 and aarch64 runners, including the package,
+  its workspace tests, installed resources and NixOS module assertions.
+
+Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
+lock-file updates. Rust checks track stable Rust. Cargo caches are separated by
+job and feature set; only `main` and `dev` save caches. Jobs have read-only
+repository access, pinned external actions, timeouts, and cancellation when a
+new run supersedes one on the same branch or pull request. Dependabot checks
+action pins weekly.
+
+To run the ordinary gates locally with the required native libraries installed:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
+cargo test --locked --workspace
+cargo check --locked --workspace --all-targets
+cargo build --locked --release --workspace
+```
+
+Repeat the last three commands with `--no-default-features` for the minimal
+build, or with `--no-default-features --features dbus,dinit,xwayland,winit` for
+dinit. On Ubuntu 26.04, `bash .github/scripts/install-dependencies.sh` installs
+the native build and test packages. On a Nix-enabled host, run
+`nix flake check --no-update-lock-file --print-build-logs`.
+
+CI runs the non-ignored tests. Display-dependent tests and subprocess helpers
+remain ignored unless explicitly invoked by their fixtures. Nested graphical
+tests below need a Wayland session, EGL and their listed tools; physical GPU,
+DRM/KMS, multi-monitor and real-application behavior still need separate live
+testing. The workflow does not publish or install Halley on your machine.
 
 ## Orca accessibility
 

@@ -14,7 +14,7 @@ pub fn new_decoration(toplevel: ToplevelSurface) {
 
 /// A client explicitly asked for a mode - honor exactly what it asked for.
 /// Forcing a different mode during window creation can leave some clients
-/// permanently hidden (https://github.com/libsdl-org/SDL/issues/8173).
+/// permanently hidden (<https://github.com/libsdl-org/SDL/issues/8173>).
 pub fn request_mode(toplevel: ToplevelSurface, mode: Mode) {
     set_mode(&toplevel, mode);
 }
