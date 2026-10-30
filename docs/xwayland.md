@@ -51,6 +51,10 @@ command can still explicitly override it, for example:
 env XCURSOR_THEME=Adwaita QT_QPA_PLATFORM=xcb qt5ct
 ```
 
+Halley also sets XWayland's default cursor to the configured theme and size,
+and refreshes it on config reload. This applies to X11 windows that inherit the
+default cursor; applications can still choose their own cursor images.
+
 An accepted config reload updates these values for future launches. Existing
 applications retain their original environment and may need to be restarted;
 some toolkits or applications use their own settings or custom cursor images.

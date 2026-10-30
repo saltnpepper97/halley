@@ -544,6 +544,10 @@ impl<D: SessionDriver> Session<D> {
             .reload(&config.keybinds, D::BACKEND_KIND, launch_path.as_deref());
         crate::input::config::reload(self, &config.input);
         let cursor_changed = self.cursor.reload(&config.cursor);
+        #[cfg(feature = "xwayland")]
+        if cursor_changed {
+            self.xwayland.sync_cursor(&self.cursor);
+        }
         let cursor_visibility_changed = self.cursor_policy.reload(&config.cursor);
         if cursor_changed && self.publish_session_environment {
             super::environment::publish_cursor_settings(&config.cursor.theme, config.cursor.size);
