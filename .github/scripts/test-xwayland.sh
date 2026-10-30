@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ ! -d /tmp/.X11-unix ]]; then
+    echo 'Missing X11 socket directory: run sudo install -d -m 1777 /tmp/.X11-unix' >&2
+    exit 1
+fi
+
 # A private display and software renderer keep this off the user's desktop/GPU.
 artifacts="$PWD/target/ci-xwayland"
 mkdir -p "$artifacts/tmp"
@@ -28,6 +33,8 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Cargo reports the hashed executable; do not guess a target/debug/deps path.
 export HALLEY_TEST_WINIT_SERVER
@@ -73,7 +80,10 @@ cases=(
 available=$(cargo test --locked --test xwayland_disconnect -- --ignored --list)
 for name in "${cases[@]}"; do
     # A renamed or missing test must fail instead of silently running zero tests.
-    grep -Fxq "$name: test" <<< "$available"
+    if ! grep -Fxq "$name: test" <<< "$available"; then
+        echo "Selected XWayland test is missing: $name" >&2
+        exit 1
+    fi
     cargo test --locked --test xwayland_disconnect "$name" \
         -- --ignored --exact --test-threads=1 --nocapture 2>&1 |
         tee -a "$artifacts/tests.log"

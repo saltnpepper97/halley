@@ -3,7 +3,7 @@ name: XWayland
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,7 @@ jobs:
         run: |
           sudo apt-get install --no-install-recommends -y \
             weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core
+          sudo install -d -m 1777 /tmp/.X11-unix
       - name: Run nested XWayland tests on software rendering
         run: dbus-run-session -- bash .github/scripts/test-xwayland.sh
       - name: Save compositor and test logs on failure

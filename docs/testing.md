@@ -2,7 +2,7 @@
 
 ## Continuous integration
 
-Three GitHub Actions workflows run on pull requests, pushes to `main` and `dev`,
+Three GitHub Actions workflows run on pull requests, pushes to every branch,
 and manual dispatch: [Rust](../.github/workflows/rust.yml),
 [Nix](../.github/workflows/nix.yml), and
 [XWayland](../.github/workflows/xwayland.yml).
@@ -58,6 +58,7 @@ unless invoked by their fixtures. To reproduce the headless suite on Ubuntu
 alongside the build dependencies, select Rust 1.97.1, then run:
 
 ```sh
+sudo install -d -m 1777 /tmp/.X11-unix
 dbus-run-session -- bash .github/scripts/test-xwayland.sh
 ```
 
