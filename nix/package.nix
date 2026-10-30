@@ -86,6 +86,7 @@ rustPlatform.buildRustPackage {
     ]
   );
 
+  
   postPatch = ''
     # These test fixtures deliberately clear PATH and create executable scripts.
     substituteInPlace tests/session_lifecycle.rs \
@@ -98,7 +99,10 @@ rustPlatform.buildRustPackage {
       }'
     substituteInPlace tests/idle_service.rs halley-portal/tests/portal_dispatch.rs \
       --replace-fail '"--session"' '"--config-file=${dbus}/share/dbus-1/session.conf"'
+    substituteInPlace src/accessibility/dbus.rs \
+      --replace-fail '"/usr/bin/sleep"' '"${coreutils}/bin/sleep"'
   '';
+
 
   postInstall = ''
     install -Dm755 packaging/wayland-sessions/halley-session "$out/bin/halley-session"
