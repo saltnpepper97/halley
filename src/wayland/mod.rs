@@ -6,7 +6,6 @@ mod data_transfer;
 
 pub mod compositor;
 pub mod decoration;
-pub mod display_scale;
 
 pub mod ext_workspace;
 
@@ -16,14 +15,15 @@ pub mod fullscreen;
 pub mod idle_inhibit;
 
 pub mod layer_shell;
-mod output_protocols;
+mod output;
 pub mod permissions;
 pub mod popup;
 
 pub mod session_lock;
-mod surface_scale;
 
-pub use output_protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
+pub use output::display_scale;
+pub use output::protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
+use output::surface_scale;
 
 pub mod xdg_shell;
 

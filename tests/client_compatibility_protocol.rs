@@ -7,7 +7,7 @@ mod clipboard_helper;
 mod fifo_state;
 #[path = "support/fifo.rs"]
 mod fifo_tests;
-#[path = "../src/wayland/surface_scale.rs"]
+#[path = "../src/wayland/output/surface_scale.rs"]
 mod surface_scale;
 #[path = "../src/wayland/surface/commit_timing.rs"]
 mod timing_state;
