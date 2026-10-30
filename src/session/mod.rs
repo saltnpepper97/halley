@@ -11,38 +11,56 @@ use smithay::wayland::seat::WaylandFocus;
 
 use crate::wayland;
 
+#[path = "workspace/arrange.rs"]
 mod arrange;
 #[path = "startup/autostart.rs"]
 mod autostart;
 #[path = "onboarding/basics.rs"]
 mod basics;
+#[path = "windows/closing.rs"]
 pub(crate) mod closing;
+#[path = "workspace/cluster_runtime.rs"]
 mod cluster_runtime;
+#[path = "workspace/node_controls.rs"]
 mod node_controls;
 pub(crate) use node_controls::*;
+#[path = "windows/window_presentation.rs"]
 mod window_presentation;
 pub(crate) use cluster_runtime::*;
 pub(crate) use window_presentation::*;
+#[path = "protocol/commit_timing.rs"]
 mod commit_timing;
 mod cursor;
 #[path = "onboarding/decay_notice.rs"]
 mod decay_notice;
+#[path = "workspace/empty_cluster.rs"]
 mod empty_cluster;
+#[path = "windows/focus.rs"]
 mod focus;
+#[path = "protocol/foreign_toplevel.rs"]
 mod foreign_toplevel;
 pub(crate) mod gesture;
 pub(crate) mod input;
 pub(crate) use input::{cluster_owns_focus, show_cluster_indicator, sync_cluster_activation_focus};
+#[path = "capture/image_copy_capture.rs"]
 mod image_copy_capture;
 mod interaction;
+#[path = "windows/lifecycle.rs"]
 mod lifecycle;
+#[path = "workspace/navigation.rs"]
 mod navigation;
+#[path = "windows/opening.rs"]
 pub(crate) mod opening;
+#[path = "display/output.rs"]
 pub(crate) mod output;
+#[path = "display/output_power.rs"]
 mod output_power;
 pub(crate) mod pointer;
+#[path = "protocol/handlers.rs"]
 mod protocol;
+#[path = "display/render_completion.rs"]
 mod render_completion;
+#[path = "capture/screenshot.rs"]
 mod screenshot;
 mod settings;
 #[path = "startup/spawn.rs"]
@@ -56,6 +74,7 @@ pub(crate) mod trace;
 #[cfg(not(feature = "xwayland"))]
 #[path = "trace_disabled.rs"]
 pub(crate) mod trace;
+#[path = "workspace/workspace.rs"]
 pub(crate) mod workspace;
 
 #[path = "startup/environment.rs"]
