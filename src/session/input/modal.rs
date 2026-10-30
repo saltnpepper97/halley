@@ -79,16 +79,11 @@ pub(super) fn intercept_early<D: SessionDriver, B: InputBackend>(
     false
 }
 
-// Runs after pointer position updates, in capture, cluster composer, then Apogee order.
-pub(super) fn intercept_pointer<D: SessionDriver, B: InputBackend>(
+pub(super) fn capture<D: SessionDriver, B: InputBackend>(
     session: &mut Session<D>,
     event: &InputEvent<B>,
     proposed_position: (f64, f64),
 ) -> bool {
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
     if session.capture.is_active() {
         match event {
             InputEvent::PointerMotion { .. } | InputEvent::PointerMotionAbsolute { .. } => {
@@ -135,6 +130,18 @@ pub(super) fn intercept_pointer<D: SessionDriver, B: InputBackend>(
             _ => {}
         }
     }
+    false
+}
+
+pub(super) fn cluster_composer<D: SessionDriver, B: InputBackend>(
+    session: &mut Session<D>,
+    event: &InputEvent<B>,
+    proposed_position: (f64, f64),
+) -> bool {
+    let pointer_handle = session
+        .seat
+        .get_pointer()
+        .expect("pointer capability added at seat setup");
     if session.shell.cluster_composer.accepts_input() {
         let naming = session
             .clusters
@@ -291,6 +298,14 @@ pub(super) fn intercept_pointer<D: SessionDriver, B: InputBackend>(
             return true;
         }
     }
+    false
+}
+
+pub(super) fn apogee<D: SessionDriver, B: InputBackend>(
+    session: &mut Session<D>,
+    event: &InputEvent<B>,
+    proposed_position: (f64, f64),
+) -> bool {
     if session.shell.apogee.accepts_input() {
         match event {
             InputEvent::PointerMotion { .. } | InputEvent::PointerMotionAbsolute { .. } => {
