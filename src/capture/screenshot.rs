@@ -584,7 +584,7 @@ fn validate_source_window_size<D: SessionDriver>(
     width: i32,
     height: i32,
 ) -> Result<(), Box<dyn Error>> {
-    if crate::capture::window_capture_size(session, window) != (width, height).into() {
+    if crate::capture::window_capture_context(session).size(window) != (width, height).into() {
         return Err(io::Error::other("selected window size changed").into());
     }
     Ok(())
@@ -623,7 +623,7 @@ fn with_decorated_window<D, T>(
 where
     D: SessionDriver,
 {
-    let chrome_visible = crate::capture::window_chrome_visible(session, window);
+    let chrome_visible = crate::capture::window_capture_context(session).chrome_visible(window);
     let focused = window
         .wl_surface()
         .is_some_and(|surface| session.wayland.focused_window.as_ref() == Some(surface.as_ref()));
@@ -633,7 +633,7 @@ where
     let maximized = window
         .wl_surface()
         .is_some_and(|surface| session.maximize.contains(surface.as_ref()));
-    let scale = crate::capture::window_display_scale(session, window);
+    let scale = crate::capture::window_capture_context(session).display_scale(window);
     let mut decorations = session.settings.decorations;
     if let Some(radius) = window
         .wl_surface()
