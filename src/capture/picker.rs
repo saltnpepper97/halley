@@ -49,6 +49,28 @@ impl RegionPicker {
         self.region
     }
 
+    /// Move the region, or resize its bottom-right edge, using logical pixels.
+    pub fn adjust(&mut self, dx: i32, dy: i32, resize: bool) -> bool {
+        let (Some(region), Some(bounds)) = (self.region, self.bounds) else {
+            return false;
+        };
+        let before = region;
+        let interaction = Interaction {
+            handle: if resize {
+                Handle::BottomRight
+            } else {
+                Handle::Move
+            },
+            start_pointer: (0.0, 0.0).into(),
+            start_region: region,
+            moving: true,
+        };
+        let region = transform_region(interaction, (dx as f64, dy as f64).into(), bounds);
+        self.region = Some(constrain_region(region, bounds, &self.outputs));
+        self.interaction = None;
+        self.region != Some(before)
+    }
+
     pub fn begin(
         &mut self,
         outputs: Vec<Rectangle<i32, Logical>>,
@@ -465,6 +487,27 @@ fn transform_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_adjustment_moves_and_resizes_without_leaving_output() {
+        let output = Rectangle::new((0, 0).into(), (800, 600).into());
+        let mut picker = RegionPicker::default();
+        let initial = picker.begin(vec![output], output);
+        assert!(picker.adjust(10, 0, false));
+        let moved = picker.region().unwrap();
+        assert_eq!(moved.loc.x, initial.loc.x + 10);
+        assert_eq!(moved.size, initial.size);
+        assert!(picker.adjust(10, 10, true));
+        let resized = picker.region().unwrap();
+        assert_eq!(resized.loc, moved.loc);
+        assert_eq!(resized.size.w, moved.size.w + 10);
+        assert_eq!(resized.size.h, moved.size.h + 10);
+        picker.adjust(10_000, 10_000, true);
+        let limited = picker.region().unwrap();
+        assert_eq!(limited.loc, moved.loc);
+        assert!(limited.loc.x + limited.size.w <= 800);
+        assert!(limited.loc.y + limited.size.h <= 600);
+    }
 
     fn bounds() -> Rectangle<i32, Logical> {
         Rectangle::new((0, 0).into(), (2000, 1000).into())

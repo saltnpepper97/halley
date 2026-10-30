@@ -47,6 +47,8 @@ calloop = "0.14.4"
 cgmath = "0.18"
 halley-ui = "=0.1.2"
 eventline = "0.9.0"
+accesskit = { version = "0.25.1", optional = true }
+accesskit_unix = { version = "0.24.0", optional = true }
 futures-util = { version = "0.3", optional = true }
 drm-ffi = "0.9.1"
 halley-config = { version = "0.8.0", path = "halley-config" }
@@ -70,7 +72,7 @@ sd-notify = { version = "0.5", optional = true }
 [features]
 default = ["dbus", "systemd", "xwayland", "winit"]
 # In-process accessibility monitoring and native idle-inhibition services.
-dbus = ["dep:futures-util", "dep:zbus"]
+dbus = ["dep:futures-util", "dep:zbus", "dep:accesskit", "dep:accesskit_unix"]
 # User-manager environment publishing and readiness notification.
 systemd = ["dep:sd-notify"]
 dinit = []

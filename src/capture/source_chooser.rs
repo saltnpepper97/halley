@@ -219,6 +219,31 @@ impl SourceChooser {
         self.source.as_ref()
     }
 
+    pub fn select_source(
+        &mut self,
+        source: halley_ipc::CaptureSource,
+        geometry: Rectangle<i32, Logical>,
+    ) -> bool {
+        let valid = matches!(
+            (self.phase, &source),
+            (
+                Some(SourcePhase::MonitorPick),
+                halley_ipc::CaptureSource::Monitor { .. }
+            ) | (
+                Some(SourcePhase::WindowPick),
+                halley_ipc::CaptureSource::Window { .. }
+            )
+        );
+        if !valid {
+            return false;
+        }
+        let changed =
+            self.source.as_ref() != Some(&source) || self.source_geometry != Some(geometry);
+        self.source = Some(source);
+        self.source_geometry = Some(geometry);
+        changed
+    }
+
     pub fn take_selected(&mut self) -> Option<halley_ipc::CaptureSource> {
         let source = self.source.take()?;
         self.cancel();
@@ -299,6 +324,23 @@ mod tests {
         assert!(chooser.return_to_menu());
         assert!(chooser.activate(SourceMode::Monitor));
         assert_eq!(chooser.phase(), Some(SourcePhase::MonitorPick));
+    }
+
+    #[test]
+    fn keyboard_selection_cannot_switch_source_type_or_confirm_without_a_choice() {
+        let mut chooser = SourceChooser::default();
+        chooser.begin(halley_ipc::SOURCE_WINDOW, "DP-2".into(), output());
+        let monitor = monitor_source("DP-2", output());
+        assert!(!chooser.select_source(monitor, output()));
+        assert!(chooser.selected_source().is_none());
+        assert!(chooser.take_selected().is_none());
+        let window = halley_ipc::CaptureSource::Window {
+            window_id: 7,
+            width: 100,
+            height: 100,
+        };
+        assert!(chooser.select_source(window.clone(), output()));
+        assert_eq!(chooser.take_selected(), Some(window));
     }
 
     #[test]

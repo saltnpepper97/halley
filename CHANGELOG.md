@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
 - Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
 
 ### Added
+- Expose initial compositor accessibility information through AccessKit, and
+  allow opt-in supervision of a trusted Orca executable across restarts.
+  Portal source selection supports keyboard navigation through visible,
+  shareable windows and monitors.
 - Add isolated two-output Alt+Tab integration tests covering native and XWayland
   apps and game windows, client/compositor/overlapping fullscreen ownership,
   preview cancellation, cross-monitor commit and return, and same-monitor

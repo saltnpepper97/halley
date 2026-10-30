@@ -18,6 +18,13 @@ enters that picking mode directly and does not place a second source-category
 menu over the application's own chooser. Use the pointer or Left/Right and
 Enter. Escape returns from a picking mode to the bottom bar only for requests
 that support both source types; otherwise it cancels the request.
+In a picking mode, the arrow keys cycle through eligible monitors or visible
+windows; Enter confirms the highlighted source. Windows blocked from sharing
+are omitted from the keyboard choices.
+
+For screenshots, arrow keys choose a monitor or window. In region mode,
+arrows move the region by 10 logical pixels and Shift+arrow resizes its
+bottom-right edge; Enter captures and Escape returns or cancels.
 
 Monitor and window picking dim everything outside the candidate. This is only
 chooser chrome and is never included in the resulting stream.

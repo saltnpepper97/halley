@@ -143,6 +143,10 @@ other action keep working, and each captured press is matched with its release s
 no orphan event reaches a client. `Enter`, `Escape`, or a click fades the card
 out and records the dismissal.
 
+When Orca is enabled, Halley exposes the card's text and the configured
+modifier through the accessibility interface. The card can still be dismissed
+with Enter or Escape.
+
 Automatic display is native-only (not `--winit`) and occurs until the card
 has been dismissed for the current compositor package version. Existing
 configurations qualify too. Updating the compositor's version in `Cargo.toml`

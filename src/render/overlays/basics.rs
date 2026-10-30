@@ -25,10 +25,10 @@ const ROWS_TO_FOOTER: i32 = 20;
 const CHIP_PADDING_X: i32 = 8;
 const CHIP_TEXT_GAP: i32 = 12;
 
-const TITLE: &str = "Halley basics";
-const MODEL: &str = "Windows live on the Field.";
-const MODEL_SUBTEXT: &str = "Clusters are optional named contexts you can create later.";
-const FOOTER: &str =
+pub(crate) const TITLE: &str = "Halley basics";
+pub(crate) const MODEL: &str = "Windows live on the Field.";
+pub(crate) const MODEL_SUBTEXT: &str = "Clusters are optional named contexts you can create later.";
+pub(crate) const FOOTER: &str =
     "Enter, Esc, or click to dismiss. Reopen it anytime from Lift: Show Halley basics.";
 
 /// The five essentials, in the order the card teaches them. The key is rendered
@@ -223,7 +223,7 @@ fn row_width(row: &Row) -> i32 {
 
 /// The card's rows, as `(chord, description)`, with the session's own modifier
 /// substituted so the card names the chords this session listens for.
-fn chord_entries(modifier: &str) -> Vec<(String, &'static str)> {
+pub(crate) fn chord_entries(modifier: &str) -> Vec<(String, &'static str)> {
     ESSENTIALS
         .iter()
         .map(|(key, description)| (format!("{modifier}+{key}"), *description))

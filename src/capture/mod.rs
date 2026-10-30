@@ -242,6 +242,73 @@ impl CaptureState {
             || self.source_chooser.phase() == Some(SourcePhase::Menu)
     }
 
+    #[cfg(any(feature = "dbus", test))]
+    pub fn source_accessibility(
+        &self,
+    ) -> (
+        Option<SourcePhase>,
+        usize,
+        Option<&halley_ipc::CaptureSource>,
+    ) {
+        (
+            self.source_chooser.phase(),
+            self.source_chooser.selected(),
+            self.source_chooser.selected_source(),
+        )
+    }
+
+    #[cfg(feature = "dbus")]
+    pub fn screenshot_accessibility(
+        &self,
+        nodes: &crate::nodes::NodesState,
+        space: &Space<Window>,
+    ) -> String {
+        match &self.selection {
+            Some(Selection::Menu) => {
+                let mode = self.local_menu().map(ScreenshotMenu::selected_mode);
+                let name = match mode {
+                    Some(ScreenshotMode::Region) => "region",
+                    Some(ScreenshotMode::Screen) => "monitor",
+                    Some(ScreenshotMode::Window) => "window",
+                    None => "unknown",
+                };
+                format!(
+                    "Screenshot, {name}. Use arrows to choose, Enter to select, Escape to cancel."
+                )
+            }
+            Some(Selection::Area) => match self.picker.region() {
+                Some(rect) => format!(
+                    "Screenshot region at {}, {}, width {}, height {}. Use arrows to move, Shift plus arrows to resize, Enter to capture, Escape to go back.",
+                    rect.loc.x, rect.loc.y, rect.size.w, rect.size.h
+                ),
+                None => "Screenshot region".into(),
+            },
+            Some(Selection::Screen { geometry }) => {
+                let name = space
+                    .outputs()
+                    .find(|output| space.output_geometry(output).as_ref() == Some(geometry))
+                    .map(|output| output.name())
+                    .unwrap_or_else(|| "unknown".into());
+                format!(
+                    "Screenshot monitor {name}. Use arrows to choose, Enter to capture, Escape to go back."
+                )
+            }
+            Some(Selection::Window { surface, .. }) => {
+                let name = surface
+                    .as_ref()
+                    .and_then(|surface| nodes.id_for_surface(surface))
+                    .and_then(|id| nodes.record(id))
+                    .map(|record| record.title.as_str())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or("No window selected");
+                format!(
+                    "Screenshot window, {name}. Use arrows to choose, Enter to capture, Escape to go back."
+                )
+            }
+            None => "Screenshot chooser".into(),
+        }
+    }
+
     pub fn overlay(&self) -> CaptureOverlay<'_> {
         match self.selection.as_ref() {
             Some(Selection::Menu) => {
@@ -488,6 +555,10 @@ impl CaptureState {
                     .local_menu_mut()
                     .is_some_and(|menu| menu.move_selection(delta))
         }
+    }
+
+    pub fn adjust_region(&mut self, dx: i32, dy: i32, resize: bool) -> bool {
+        matches!(self.selection, Some(Selection::Area)) && self.picker.adjust(dx, dy, resize)
     }
 
     pub fn activate_selected_menu(&mut self, space: &Space<Window>) -> bool {
@@ -1078,6 +1149,186 @@ pub fn cancel_portal<D: SessionDriver>(session: &mut Session<D>, request_handle:
     true
 }
 
+/// Move between visible, shareable portal sources without moving the pointer.
+pub fn move_source_selection<D: SessionDriver>(session: &mut Session<D>, delta: i32) -> bool {
+    let phase = session.capture.source_chooser.phase();
+    let mut candidates: Vec<(halley_ipc::CaptureSource, Rectangle<i32, Logical>)> = Vec::new();
+    match phase {
+        Some(SourcePhase::MonitorPick) => {
+            for output in session.wayland.space.outputs() {
+                if let Some(geometry) = session.wayland.space.output_geometry(output) {
+                    candidates.push((
+                        halley_ipc::CaptureSource::Monitor {
+                            name: output.name(),
+                            x: geometry.loc.x,
+                            y: geometry.loc.y,
+                            width: geometry.size.w,
+                            height: geometry.size.h,
+                        },
+                        geometry,
+                    ));
+                }
+            }
+            candidates.sort_by(|a, b| match (&a.0, &b.0) {
+                (
+                    halley_ipc::CaptureSource::Monitor { name: a, .. },
+                    halley_ipc::CaptureSource::Monitor { name: b, .. },
+                ) => a.cmp(b),
+                _ => std::cmp::Ordering::Equal,
+            });
+        }
+        Some(SourcePhase::WindowPick) => candidates.extend(
+            window_selection_candidates(session, true)
+                .into_iter()
+                .map(|candidate| (candidate.source, candidate.geometry)),
+        ),
+        _ => return false,
+    }
+    let current = session.capture.source_chooser.selected_source();
+    let index = current.and_then(|source| {
+        candidates
+            .iter()
+            .position(|(candidate, _)| candidate == source)
+    });
+    let Some(index) = next_source_index(candidates.len(), index, delta) else {
+        return false;
+    };
+    let (source, geometry) = candidates.swap_remove(index);
+    session
+        .capture
+        .source_chooser
+        .select_source(source, geometry)
+}
+
+fn next_source_index(count: usize, current: Option<usize>, delta: i32) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    match current {
+        Some(index) if index < count => Some(if delta < 0 {
+            (index + count - 1) % count
+        } else {
+            (index + 1) % count
+        }),
+        _ => Some(if delta < 0 { count - 1 } else { 0 }),
+    }
+}
+
+struct WindowSelectionCandidate {
+    surface: WlSurface,
+    source: halley_ipc::CaptureSource,
+    geometry: Rectangle<i32, Logical>,
+}
+
+fn window_selection_candidates<D: SessionDriver>(
+    session: &Session<D>,
+    sharing: bool,
+) -> Vec<WindowSelectionCandidate> {
+    let mut records: Vec<_> = session
+        .nodes
+        .records()
+        .filter(|record| {
+            record.attached
+                && !record.collapsed
+                && (!sharing
+                    || !session
+                        .window_rules
+                        .applied(&record.surface)
+                        .block_screencast)
+        })
+        .collect();
+    records.sort_by(|a, b| {
+        (&a.output, &a.title, a.id.as_u64()).cmp(&(&b.output, &b.title, b.id.as_u64()))
+    });
+    let now = crate::frame_clock::monotonic_now();
+    records
+        .into_iter()
+        .filter_map(|record| {
+            let output = session
+                .wayland
+                .space
+                .outputs()
+                .find(|output| output.name() == record.output)?;
+            let output_geometry = session.wayland.space.output_geometry(output)?;
+            let presentation = crate::presentation::window::WindowPresentation::for_window(
+                &session.wayland.space,
+                &session.cameras,
+                Some(&session.clusters),
+                Some(&session.nodes),
+                &session.window_animations,
+                &session.fullscreen,
+                &session.maximize,
+                &session.settings.decorations,
+                &session.settings.font,
+                &record.window,
+                output,
+                now,
+            )?;
+            let geometry = window_capture_visual_geometry(
+                session,
+                &record.window,
+                presentation.visual_geometry(),
+            );
+            geometry.intersection(output_geometry)?;
+            let size = window_capture_size(session, &record.window);
+            Some(WindowSelectionCandidate {
+                surface: record.surface.clone(),
+                geometry,
+                source: halley_ipc::CaptureSource::Window {
+                    window_id: record.id.as_u64(),
+                    width: size.w,
+                    height: size.h,
+                },
+            })
+        })
+        .collect()
+}
+
+/// Cycle full-monitor or window screenshots through the same visible
+/// presentations used by pointer selection.
+pub fn move_screenshot_selection<D: SessionDriver>(session: &mut Session<D>, delta: i32) -> bool {
+    match &session.capture.selection {
+        Some(Selection::Screen { geometry }) => {
+            let mut outputs: Vec<_> = session
+                .wayland
+                .space
+                .outputs()
+                .filter_map(|output| {
+                    session
+                        .wayland
+                        .space
+                        .output_geometry(output)
+                        .map(|geometry| (output.name(), geometry))
+                })
+                .collect();
+            outputs.sort_by(|a, b| a.0.cmp(&b.0));
+            let current = outputs
+                .iter()
+                .position(|(_, candidate)| candidate == geometry);
+            let Some(index) = next_source_index(outputs.len(), current, delta) else {
+                return false;
+            };
+            session.capture.hover_screen(outputs[index].1)
+        }
+        Some(Selection::Window { surface, .. }) => {
+            let mut candidates = window_selection_candidates(session, false);
+            let current = surface.as_ref().and_then(|surface| {
+                candidates
+                    .iter()
+                    .position(|candidate| &candidate.surface == surface)
+            });
+            let Some(index) = next_source_index(candidates.len(), current, delta) else {
+                return false;
+            };
+            let candidate = candidates.swap_remove(index);
+            session
+                .capture
+                .hover_window(Some(candidate.surface), Some(candidate.geometry))
+        }
+        _ => false,
+    }
+}
+
 pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
     let blocked = match session.capture.source_chooser.selected_source() {
         Some(halley_ipc::CaptureSource::Window { window_id, .. }) => {
@@ -1383,6 +1634,15 @@ mod tests {
     use smithay::utils::{Physical, Size, Transform};
 
     use super::*;
+
+    #[test]
+    fn keyboard_source_navigation_wraps_and_handles_no_selection() {
+        assert_eq!(next_source_index(0, None, 1), None);
+        assert_eq!(next_source_index(3, None, 1), Some(0));
+        assert_eq!(next_source_index(3, None, -1), Some(2));
+        assert_eq!(next_source_index(3, Some(2), 1), Some(0));
+        assert_eq!(next_source_index(3, Some(0), -1), Some(2));
+    }
 
     fn output(name: &str, size: Size<i32, Physical>) -> Output {
         let output = Output::new(

@@ -210,6 +210,21 @@ impl OverlayManager {
         self.cluster_delete.is_some()
     }
 
+    #[cfg(feature = "dbus")]
+    pub fn cluster_delete_name(&self) -> Option<&str> {
+        self.cluster_delete
+            .as_ref()
+            .map(|confirmation| confirmation.name.as_str())
+    }
+
+    #[cfg(feature = "dbus")]
+    pub fn accessibility_notification(&self, now: Duration) -> Option<&str> {
+        self.notification
+            .as_ref()
+            .filter(|n| !n.finished(now) && n.dismissed.is_none())
+            .map(|n| n.message.as_str())
+    }
+
     pub fn show_exit(&mut self, _now: Duration) -> bool {
         if self.confirmation_modal_active() {
             return false;
@@ -276,6 +291,14 @@ impl OverlayManager {
         self.basics
             .as_ref()
             .is_some_and(|card| card.dismissed.is_none())
+    }
+
+    #[cfg(feature = "dbus")]
+    pub fn basics_modifier(&self) -> Option<&str> {
+        self.basics
+            .as_ref()
+            .filter(|card| card.dismissed.is_none())
+            .map(|card| card.modifier.as_str())
     }
 
     pub fn dismiss_basics_card(&mut self, now: Duration) -> bool {

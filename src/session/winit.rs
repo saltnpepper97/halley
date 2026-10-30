@@ -368,7 +368,20 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         touch: super::touch::TouchState::default(),
         gestures: super::gesture::GestureState::default(),
         window_trace: super::trace::WindowTrace::from_env(),
-        keyboard_monitor: None,
+        keyboard_monitor: {
+            #[cfg(all(feature = "dbus", test))]
+            {
+                if std::env::var_os("HALLEY_TEST_ACCESSIBILITY").is_some() {
+                    crate::accessibility::KeyboardMonitorService::start().ok()
+                } else {
+                    None
+                }
+            }
+            #[cfg(not(all(feature = "dbus", test)))]
+            {
+                None
+            }
+        },
         opening_origins: super::opening::OpeningOrigins::default(),
         window_animations: crate::animation::WindowAnimations::new(
             runtime_config.animations.clone(),
@@ -402,6 +415,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     app.record_fresh_config(fresh_config);
 
     let socket_name = super::protocol::init_wayland_listener(display, &mut event_loop);
+    #[cfg(all(feature = "dbus", test))]
+    let orca_wayland_display = socket_name.clone();
     app.wayland_display = Some(socket_name.clone());
     eventline::info!("halley (winit) starting, WAYLAND_DISPLAY={socket_name:?}");
     if let Err(err) = crate::xwayland::start(&event_loop.handle(), &mut app, false) {
@@ -924,10 +939,39 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         })
         .expect("failed to insert winit event source");
 
+    // Only an explicitly isolated test session should publish a second desktop
+    // accessibility tree; ordinary nested sessions share the host bus.
+    #[cfg(all(feature = "dbus", test))]
+    let mut accessibility_tree = if std::env::var_os("HALLEY_TEST_ACCESSIBILITY").is_some() {
+        crate::accessibility::AccessibilityTree::start().ok()
+    } else {
+        None
+    };
+    #[cfg(all(feature = "dbus", test))]
+    let mut orca_supervisor = None;
+    #[cfg(all(feature = "dbus", test))]
+    let mut orca_start_attempted = false;
+    #[cfg(all(feature = "dbus", test))]
+    let orca_start_deadline = Instant::now() + std::time::Duration::from_secs(5);
     while !app.driver.exit {
         event_loop
             .dispatch(None, &mut app)
             .expect("event loop dispatch failed");
+        #[cfg(all(feature = "dbus", test))]
+        if let Some(tree) = &mut accessibility_tree {
+            tree.refresh(&app);
+        }
+        #[cfg(all(feature = "dbus", test))]
+        if accessibility_tree.is_some()
+            && !orca_start_attempted
+            && (!cfg!(feature = "xwayland")
+                || app.xwayland.display_name().is_some()
+                || Instant::now() >= orca_start_deadline)
+        {
+            orca_start_attempted = true;
+            orca_supervisor =
+                crate::accessibility::start_configured_orca(&app, &orca_wayland_display);
+        }
         crate::ipc::publish_api_events(&mut app);
         // Every cluster mutation in this iteration - keyboard or pointer
         // activation, IPC, creation, dissolution, output changes - is published
@@ -936,4 +980,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         super::foreign_toplevel::sync(&mut app);
         let _ = app.wayland.display_handle.flush_clients();
     }
+    #[cfg(all(feature = "dbus", test))]
+    drop(orca_supervisor);
 }

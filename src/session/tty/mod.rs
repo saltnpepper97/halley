@@ -568,6 +568,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     app.initialize_basics_card();
 
     let socket_name = super::protocol::init_wayland_listener(display, &mut event_loop);
+    #[cfg(feature = "dbus")]
+    let orca_wayland_display = socket_name.clone();
     app.wayland_display = Some(socket_name.clone());
     eventline::info!("wayland socket ready, WAYLAND_DISPLAY={socket_name:?}");
     app.arm_autostart_once(&socket_name, runtime_config.autostart.once.clone());
@@ -817,8 +819,30 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     }
 
     eventline::info!("session ready: outputs active; use the configured Quit chord to exit");
+    #[cfg(feature = "dbus")]
+    let mut accessibility_tree = crate::accessibility::AccessibilityTree::start().ok();
+    #[cfg(feature = "dbus")]
+    let mut orca_supervisor = None;
+    #[cfg(feature = "dbus")]
+    let mut orca_start_attempted = false;
+    #[cfg(feature = "dbus")]
+    let orca_start_deadline = Instant::now() + Duration::from_secs(5);
     event_loop
         .run(None, &mut app, |app| {
+            #[cfg(feature = "dbus")]
+            if let Some(tree) = &mut accessibility_tree {
+                tree.refresh(app);
+            }
+            #[cfg(feature = "dbus")]
+            if !orca_start_attempted
+                && (!cfg!(feature = "xwayland")
+                    || app.xwayland.display_name().is_some()
+                    || Instant::now() >= orca_start_deadline)
+            {
+                orca_start_attempted = true;
+                orca_supervisor =
+                    crate::accessibility::start_configured_orca(app, &orca_wayland_display);
+            }
             app.autostart.reap_finished();
             if !app.driver.pause_reasons.any() {
                 redraw_queued_outputs(app, &loop_handle);
@@ -833,6 +857,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         })
         .expect("event loop run failed");
     eventline::info!("quit requested, exiting cleanly");
+    #[cfg(feature = "dbus")]
+    drop(orca_supervisor);
     app.autostart.shutdown();
     super::environment::shutdown_session();
     app.idle_service.take();

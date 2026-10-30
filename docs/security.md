@@ -14,6 +14,30 @@ A well-known name, wildcard, executable name, or replacement connection is not
 an approval. Restarting the screen reader requires a new explicit approval.
 Do not set this variable from an untrusted application's output automatically.
 
+For a restart-friendly Orca session, set `HALLEY_ORCA_PATH` to the absolute
+path of the trusted Orca executable before starting Halley, for example
+`HALLEY_ORCA_PATH=/usr/bin/orca halley`. Halley starts and supervises that
+process and approves its live D-Bus connection only while that exact child is
+running and owns `org.gnome.Orca.KeyboardMonitor`. If Orca exits, Halley
+starts it again and approves the replacement process. Halley stops its child
+when the session exits. Do not configure an interpreter, shell, generic
+launcher, or untrusted executable: the selected program receives keyboard
+monitoring authority. Avoid starting a second Orca instance independently;
+the supervised process needs to be the instance that owns the bus name.
+
+For a display-manager session, the same opt-in can be placed in Halley's
+configuration and takes effect at the next login:
+
+```rune
+env:
+  HALLEY_ORCA_PATH "/usr/bin/orca"
+end
+```
+
+Install Orca, Speech Dispatcher, a speech synthesizer, and the desktop's
+AT-SPI services using your distribution's packages. The path may differ on
+your system. To turn this off, remove the setting and restart the session.
+
 These controls constrain protocol access, not arbitrary execution as your Unix
 user. Applications able to modify your session environment or compositor
 configuration already share your desktop's administrative trust boundary.
