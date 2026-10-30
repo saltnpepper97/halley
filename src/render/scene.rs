@@ -885,6 +885,10 @@ fn build_logical(
             // The rectangular caster cannot follow an arbitrary shader's
             // fragment silhouette. Let the shader own the complete close
             // visual instead of leaving a detached shadow on the trajectory.
+            let mut shadow_config = request.visuals.shadows.window;
+            if let Some(enabled) = closing.shadow {
+                shadow_config.enabled = enabled;
+            }
             if !shader_active
                 && let Some(shadow) = request.resources.shadow_renderer.element(
                     renderer,
@@ -896,7 +900,7 @@ fn build_logical(
                         0.0
                     },
                     shadow_alpha,
-                    request.visuals.shadows.window,
+                    shadow_config,
                 )?
             {
                 elements.push(SceneElement::Shadow(shadow));

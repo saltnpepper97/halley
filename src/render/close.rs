@@ -43,6 +43,7 @@ pub struct CloseSnapshotMetadata {
     pub retract_origin: Option<smithay::utils::Point<f64, Physical>>,
     pub border: Option<CloseBorder>,
     pub content_radius: f32,
+    pub shadow: Option<bool>,
     pub collapse_target: Option<Vec2>,
 }
 
@@ -69,6 +70,7 @@ pub struct ClosingWindowRender {
     pub destination: Rectangle<i32, Physical>,
     pub border: Option<CloseBorder>,
     pub content_radius: f32,
+    pub shadow: Option<bool>,
     pub stack_index: usize,
     pub order: u64,
 }
@@ -309,6 +311,7 @@ impl WindowCloseAnimations {
                         destination: shader_geo,
                         border: None,
                         content_radius: 0.0,
+                        shadow: metadata.shadow,
                         stack_index: metadata.stack_index,
                         order: active.captured.order,
                     });
@@ -376,6 +379,7 @@ fn closing_render(
         destination,
         border,
         content_radius: metadata.content_radius * scale.max(0.0),
+        shadow: metadata.shadow,
         stack_index: metadata.stack_index,
         order: captured.order,
     })
@@ -590,6 +594,7 @@ mod tests {
             retract_origin: None,
             border: None,
             content_radius: 0.0,
+            shadow: None,
             collapse_target: None,
         };
 

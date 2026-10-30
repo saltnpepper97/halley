@@ -720,6 +720,10 @@ pub(super) fn live_window_elements(
         } else {
             crate::render::window_decoration::CornerRadii::default()
         };
+        let mut shadow_config = context.shadow_config;
+        if let Some(enabled) = context.window_rules.applied(window_surface.as_ref()).shadow {
+            shadow_config.enabled = enabled;
+        }
         if let Some(shadow) = shadow_renderer.element_with_radii(
             renderer,
             format!(
@@ -731,7 +735,7 @@ pub(super) fn live_window_elements(
             caster,
             caster_radii,
             chrome_alpha,
-            context.shadow_config,
+            shadow_config,
         )? {
             elements.push(SceneElement::Shadow(shadow));
         }

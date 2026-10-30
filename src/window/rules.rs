@@ -16,6 +16,7 @@ pub struct ResolvedWindowRule {
     pub open_maximized: bool,
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: f32,
+    pub shadow: Option<bool>,
     pub blur: Option<bool>,
     pub block_screencast: bool,
     pub game: Option<bool>,
@@ -34,6 +35,7 @@ impl Default for ResolvedWindowRule {
             open_maximized: false,
             initial_size: (None, None),
             opacity: 1.0,
+            shadow: None,
             blur: None,
             block_screencast: false,
             game: None,
@@ -104,6 +106,9 @@ impl WindowRulesState {
             }
             if rule.initial_size.1.is_some() {
                 resolved.initial_size.1 = rule.initial_size.1;
+            }
+            if let Some(v) = rule.shadow {
+                resolved.shadow = Some(v);
             }
             if let Some(v) = rule.opacity {
                 resolved.opacity = v.clamp(0.0, 1.0);
@@ -203,6 +208,7 @@ mod tests {
                 app_ids: vec![WindowRulePattern::Exact("app".to_string())],
                 titles: Vec::new(),
                 initial_size: (Some(800), Some(600)),
+                shadow: None,
                 opacity: Some(0.7),
                 blur: Some(true),
                 block_screencast: Some(true),
@@ -223,6 +229,7 @@ mod tests {
                 app_ids: vec![WindowRulePattern::Exact("app".to_string())],
                 titles: Vec::new(),
                 initial_size: (None, None),
+                shadow: None,
                 opacity: Some(0.2),
                 blur: Some(false),
                 block_screencast: Some(false),
@@ -258,6 +265,7 @@ rules:
     match-all true
     opacity 0.9
     blur true
+    shadow true
     block-screencast true
   end
   window-rule:
@@ -272,6 +280,7 @@ rules:
       title "Secret"
     end
     blur false
+    shadow false
     block-screencast false
     open-maximized true
   end
@@ -286,6 +295,7 @@ end
         });
         assert_eq!(monitoring.opacity, 0.9);
         assert_eq!(monitoring.blur, Some(false));
+        assert_eq!(monitoring.shadow, Some(false));
         assert!(monitoring.open_maximized);
         assert!(!monitoring.block_screencast);
         let secret = state.resolve_identity(&WindowIdentity {
@@ -293,6 +303,7 @@ end
             title: Some("Secret".into()),
         });
         assert_eq!(secret.blur, Some(true));
+        assert_eq!(secret.shadow, Some(true));
         assert!(secret.block_screencast);
     }
 }

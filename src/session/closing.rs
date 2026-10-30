@@ -253,6 +253,7 @@ fn capture_window_inner<D: SessionDriver>(
         // closing scene must not synthesize a second border or clip pass.
         border: None,
         content_radius: 0.0,
+        shadow: session.window_rules.applied(&surface).shadow,
         collapse_target: None,
     };
     let border_width = crate::render::window_decoration::scaled_metric(
@@ -278,6 +279,7 @@ fn capture_window_inner<D: SessionDriver>(
         } else {
             0.0
         },
+        shadow: session.window_rules.applied(&surface).shadow,
         collapse_target: None,
     };
     let decorations = session.settings.decorations;

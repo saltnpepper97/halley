@@ -74,6 +74,7 @@ pub struct WindowRule {
     pub titles: Vec<WindowRulePattern>,
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: Option<f32>,
+    pub shadow: Option<bool>,
     pub blur: Option<bool>,
     pub block_screencast: Option<bool>,
     pub game: Option<bool>,
@@ -249,6 +250,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "width"
                 | "height"
                 | "opacity"
+                | "shadow"
                 | "blur"
                 | "block-screencast"
                 | "game"
@@ -397,6 +399,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         titles,
         initial_size,
         opacity,
+        shadow: field(fields, &["shadow"])
+            .map(|v| boolean(v, "shadow"))
+            .transpose()?,
         blur,
         block_screencast,
         game,
