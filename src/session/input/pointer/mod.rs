@@ -247,18 +247,20 @@ pub(super) fn presentation_covers_field_point<D: SessionDriver>(
             return false;
         }
         let Some(visual) = crate::presentation::window::window_visual_state(
-            &session.wayland.space,
-            &session.cameras,
-            Some(&session.clusters),
-            Some(&session.nodes),
+            crate::presentation::window::WindowVisualContext {
+                space: &session.wayland.space,
+                cameras: &session.cameras,
+                clusters: Some(&session.clusters),
+                nodes: Some(&session.nodes),
+                output,
+                window_animations: &session.window_animations,
+                fullscreen: &session.fullscreen,
+                maximize: &session.maximize,
+                decorations: &session.settings.decorations,
+                font: &session.settings.font,
+                now,
+            },
             window,
-            output,
-            &session.window_animations,
-            &session.fullscreen,
-            &session.maximize,
-            &session.settings.decorations,
-            &session.settings.font,
-            now,
         ) else {
             return false;
         };

@@ -114,18 +114,20 @@ pub(super) fn cluster_elements(
         .filter(|window| crate::wayland::window_is_on_output(window, output, primary_output))
         .filter_map(|window| {
             crate::presentation::window::window_visual_state(
-                space,
-                cameras,
-                Some(clusters),
-                Some(nodes),
+                crate::presentation::window::WindowVisualContext {
+                    space,
+                    cameras,
+                    clusters: Some(clusters),
+                    nodes: Some(nodes),
+                    output,
+                    window_animations,
+                    fullscreen,
+                    maximize,
+                    decorations,
+                    font,
+                    now,
+                },
                 window,
-                output,
-                window_animations,
-                fullscreen,
-                maximize,
-                decorations,
-                font,
-                now,
             )
         })
         .filter(|visual| visual.opening_alpha > 0.01)

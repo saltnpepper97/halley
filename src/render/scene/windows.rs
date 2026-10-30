@@ -185,18 +185,20 @@ pub(super) fn live_window_elements(
                 .join_ready_for(member, &context.output.name())
         });
     let Some(visual) = window_visual_state_with_cluster_presentation(
-        context.space,
-        context.cameras,
-        Some(context.clusters),
-        Some(context.nodes),
+        crate::presentation::window::WindowVisualContext {
+            space: context.space,
+            cameras: context.cameras,
+            clusters: Some(context.clusters),
+            nodes: Some(context.nodes),
+            output: context.output,
+            window_animations: context.window_animations,
+            fullscreen: context.fullscreen,
+            maximize: context.maximize,
+            decorations: context.decorations,
+            font: context.font,
+            now: context.target_presentation_time,
+        },
         window,
-        context.output,
-        context.window_animations,
-        context.fullscreen,
-        context.maximize,
-        context.decorations,
-        context.font,
-        context.target_presentation_time,
         context.cluster_presentation_override,
     ) else {
         return Ok(LiveWindowScene {
