@@ -196,6 +196,11 @@ pub fn handle_commit(
             .unmapped_locations
             .remove(surface)
             .unwrap_or_else(|| {
+                if let Some(location) = rule.open_position.and_then(|p| {
+                    crate::window::routing::rule_position(wayland, &placement.output, p)
+                }) {
+                    return location;
+                }
                 crate::titlebar::client_location_for_outer(
                     &window,
                     placement.location,

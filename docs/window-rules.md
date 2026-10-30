@@ -67,6 +67,7 @@ A `match:` group combines its `app-id` and `title` with AND; multiple groups are
   effect requests. With no blur rule, Halley honors explicit client regions
   only; opacity never enables blur implicitly.
 - `open-on-output` selects a connected output by its exact connector name, as shown by `halleyctl outputs`. If unavailable, Halley falls back to the selected output and centers the window in its viewport. Parent or cursor placement on a different output also falls back to the target viewport. A window opened on another output does not take focus by default. Startup cluster attribution and restored XWayland geometry can override initial routing.
+- `open-position [X, Y]` sets the initial client top-left in signed Field units relative to the target output’s Field origin. It takes precedence over `spawn-placement`; if the coordinate cannot be represented, normal placement is used. Existing window restoration, startup cluster placement, and client-specific recovery may override it. It does not enforce landmark clearance.
 - `open-focused true` requests normal initial focus; `open-focused false` keeps the current focus. When omitted, normal focus behavior applies except for windows routed to another output.
 - `spawn-placement` controls only initial placement. Existing windows are never
   moved by a rule reload or identity change.

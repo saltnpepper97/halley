@@ -11,6 +11,7 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 pub struct ResolvedWindowRule {
     pub open_on_output: Option<String>,
     pub open_focused: Option<bool>,
+    pub open_position: Option<(i32, i32)>,
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: f32,
     pub blur: Option<bool>,
@@ -26,6 +27,7 @@ impl Default for ResolvedWindowRule {
         Self {
             open_on_output: None,
             open_focused: None,
+            open_position: None,
             initial_size: (None, None),
             opacity: 1.0,
             blur: None,
@@ -78,6 +80,9 @@ impl WindowRulesState {
                 continue;
             }
             resolved.matched = true;
+            if let Some(v) = rule.open_position {
+                resolved.open_position = Some(v);
+            }
             if let Some(v) = rule.open_focused {
                 resolved.open_focused = Some(v);
             }
@@ -178,6 +183,7 @@ mod tests {
             WindowRule {
                 open_on_output: None,
                 open_focused: None,
+                open_position: None,
                 compose: false,
                 match_all: false,
                 matches_any: vec![],
@@ -195,6 +201,7 @@ mod tests {
             WindowRule {
                 open_on_output: None,
                 open_focused: None,
+                open_position: None,
                 compose: false,
                 match_all: false,
                 matches_any: vec![],

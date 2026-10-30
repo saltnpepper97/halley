@@ -65,6 +65,7 @@ pub struct WindowRule {
     pub match_all: bool,
     pub open_on_output: Option<String>,
     pub open_focused: Option<bool>,
+    pub open_position: Option<(i32, i32)>,
     pub matches_any: Vec<WindowMatcher>,
     pub excludes: Vec<WindowMatcher>,
     pub app_ids: Vec<WindowRulePattern>,
@@ -240,6 +241,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "match-all"
                 | "open-on-output"
                 | "open-focused"
+                | "open-position"
                 | "width"
                 | "height"
                 | "opacity"
@@ -369,6 +371,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     Ok(WindowRule {
         compose: false,
         match_all,
+        open_position: field(fields, &["open-position"])
+            .map(parse_open_position)
+            .transpose()?,
         open_focused: field(fields, &["open-focused"])
             .map(|v| boolean(v, "open-focused"))
             .transpose()?,
@@ -388,6 +393,33 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         spawn_placement,
         cluster_participation,
     })
+}
+
+fn parse_open_position(value: &Value) -> Result<(i32, i32), WindowRuleParseError> {
+    let Value::Array(values) = value else {
+        return Err(WindowRuleParseError("open-position must be [X, Y]".into()));
+    };
+    if values.len() != 2 {
+        return Err(WindowRuleParseError(
+            "open-position must contain exactly two integers".into(),
+        ));
+    }
+    let coordinate = |value: &Value| -> Result<i32, WindowRuleParseError> {
+        match value {
+            Value::Number(n)
+                if n.is_finite()
+                    && n.fract() == 0.0
+                    && *n >= i32::MIN as f64
+                    && *n <= i32::MAX as f64 =>
+            {
+                Ok(*n as i32)
+            }
+            _ => Err(WindowRuleParseError(
+                "open-position coordinates must be signed 32-bit integers".into(),
+            )),
+        }
+    };
+    Ok((coordinate(&values[0])?, coordinate(&values[1])?))
 }
 
 fn parse_matcher(fields: &[ObjectItem]) -> Result<WindowMatcher, WindowRuleParseError> {
@@ -649,6 +681,28 @@ end
         )
         .unwrap();
         assert!(parse_window_rules(&config).is_err());
+    }
+
+    #[test]
+    fn open_position_accepts_only_two_signed_integers() {
+        for (input, expected) in [
+            ("[-300, 200]", Some((-300, 200))),
+            ("[0, 0]", Some((0, 0))),
+            ("[1]", None),
+            ("[1, 2, 3]", None),
+            ("[1.5, 2]", None),
+            ("[2147483648, 2]", None),
+        ] {
+            let source = format!(
+                "rules:\n  window-rule:\n    match-all true\n    open-position {input}\n  end\nend\n"
+            );
+            let config = RuneConfig::from_str(&source).unwrap();
+            let result = parse_window_rules(&config);
+            match expected {
+                Some(position) => assert_eq!(result.unwrap()[0].open_position, Some(position)),
+                None => assert!(result.is_err(), "{input}"),
+            }
+        }
     }
 
     #[test]

@@ -164,6 +164,22 @@ pub(crate) fn initial_window_placement(
     InitialWindowPlacement { output, location }
 }
 
+/// Exact client coordinates relative to the output's Field origin.
+pub(crate) fn rule_position(
+    wayland: &WaylandState,
+    output: &Output,
+    position: (i32, i32),
+) -> Option<Point<i32, Logical>> {
+    let origin = wayland.space.output_geometry(output)?.loc;
+    Some(
+        (
+            origin.x.checked_add(position.0)?,
+            origin.y.checked_add(position.1)?,
+        )
+            .into(),
+    )
+}
+
 pub(crate) fn centered_location_for_size(
     wayland: &WaylandState,
     cameras: &OutputCameras,

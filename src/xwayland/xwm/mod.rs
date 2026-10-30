@@ -420,6 +420,14 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
         &session.settings.font,
     );
 
+    if saved_maximize.is_none()
+        && let Some(position) = rule.open_position
+        && let Some(target) =
+            crate::window::routing::rule_position(&session.wayland, &output, position)
+    {
+        location = target;
+    }
+
     if let Some(restore) = saved_maximize.as_ref() {
         opening_size = restore.geometry.size;
         if let Some(saved_output) = restore
