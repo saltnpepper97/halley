@@ -70,25 +70,23 @@ motion algorithms remain in `session::pointer::constraints`; presentation
 adapters may be called by that subsystem, but rendering and refactors must not
 own or duplicate constraint policy.
 
-## Quality rubric
+## Architecture assessment
 
-Scores use a ten-point scale and are gated separately; an average cannot hide
-a category below 8.
+Architecture quality is assessed per change rather than inferred from file
+counts or directory names. Review cohesion (whether a component has one clear
+job), coupling (which concrete state and behavior it needs), and maintainability
+(how safely a developer can locate, change, and validate that behavior).
 
-| Category | Score | Evidence |
-| --- | ---: | --- |
-| Cohesion | 8.4 | Input actions, keyboard routing, runtime settings, input interactions, shell state, and X11 fullscreen policy each have one explicit owner; protocol event loops remain intentionally cohesive assemblers |
-| Coupling | 8.0 | The flat `Session` surface fell from 54 to 38 fields; backend policy depends on segregated render/output/lifecycle contracts; helper lookups receive explicit subsystems instead of the whole session |
-| Maintainability | 8.3 | Typed/validated config, 800+ focused tests, documented invariants, pure policy seams, full workspace regression tests, formatting, production build, and strict clippy gates protect incremental changes |
+The session coordinator remains a shared integration point for Smithay
+protocol handlers. Screenshot encoding jobs own their worker and pending replies;
+startup owns launch environment and autostart state. Rendering uses a narrow
+closing-scene context and separate replacement scene and shared overlay stages.
+The remaining ordinary scene assembler, input coordination, and TTY drivers are
+still substantial and warrant careful review before further decomposition.
 
-The scores are deliberately close to the threshold rather than aspirational.
-Smithay protocol handlers still require the complete session type, and the
-remaining large orchestration files include `session/input.rs`,
-`session/mod.rs`, `render/scene.rs`, and the TTY session/backend drivers.
-The scene assembler in particular is still a long function and needs careful
-work to separate its ordered rendering stages without changing their behavior. Pointer button and motion handling remain substantial
-within their respective input modules. Future feature work should add narrow
-policy or transaction objects instead of growing those assemblers in place.
+Workspace tests, software-rendered pixel checks, no-default-feature builds, and
+strict Clippy are complementary: a passing unit test suite does not cover every
+GPU, Wayland desktop, and XWayland integration path.
 
 ## SOLID application
 
@@ -112,5 +110,5 @@ Before merging architectural or rendering changes:
 3. `cargo build -p halley`
 4. `cargo clippy --workspace --all-targets -- -D warnings`
 
-Configuration syntax and IPC enum ordering are compatibility surfaces. IPC
-remains at version 10 unless a deliberate wire-format change is made.
+Configuration syntax and IPC enum ordering are compatibility surfaces. The current private IPC wire version is defined by `HALLEY_IPC_VERSION` in
+`halley-ipc/src/types.rs`; change it only for a deliberate wire-format change.

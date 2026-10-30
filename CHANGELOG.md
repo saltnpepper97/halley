@@ -83,6 +83,11 @@ All notable changes to this project will be documented in this file.
   private IPC wire version is now 23; rebuild companion tools with Halley.
 
 ### Changed
+- Organize fullscreen, Wayland, and session code by responsibility, including
+  separate capture, input, desktop, output, startup, and workspace modules.
+- Separate replacement and closing-window scene composition, share shell overlay
+  assembly, and give screenshot encoding jobs and session startup state explicit
+  owners. Preserve rendering order and existing behavior.
 - Separate input dispatch from modal, pointer motion, button, and wheel handling while retaining event ownership and routing order.
 - Add isolated two-output Alt+Tab integration tests covering native and XWayland
   apps and game windows, client/compositor/overlapping fullscreen ownership,
@@ -91,6 +96,8 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Use the Nix-provided sleep executable for the accessibility supervisor test,
+  allowing it to run in Nix build environments.
 - Fix builds without default features by routing XWayland window checks through
   the feature-independent compatibility layer.
 - Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
