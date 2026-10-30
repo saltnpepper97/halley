@@ -75,6 +75,7 @@ pub struct WindowRule {
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: Option<f32>,
     pub shadow: Option<bool>,
+    pub corner_radius: Option<i32>,
     pub blur: Option<bool>,
     pub block_screencast: Option<bool>,
     pub game: Option<bool>,
@@ -283,6 +284,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "height"
                 | "opacity"
                 | "shadow"
+                | "corner-radius"
                 | "blur"
                 | "block-screencast"
                 | "game"
@@ -431,6 +433,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         titles,
         initial_size,
         opacity,
+        corner_radius: field(fields, &["corner-radius"])
+            .map(parse_corner_radius)
+            .transpose()?,
         shadow: field(fields, &["shadow"])
             .map(|v| boolean(v, "shadow"))
             .transpose()?,
@@ -440,6 +445,17 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         spawn_placement,
         cluster_participation,
     })
+}
+
+fn parse_corner_radius(value: &Value) -> Result<i32, WindowRuleParseError> {
+    match value {
+        Value::Number(v) if v.is_finite() && v.fract() == 0.0 && (0.0..=256.0).contains(v) => {
+            Ok(*v as i32)
+        }
+        _ => Err(WindowRuleParseError(
+            "corner-radius must be an integer from 0 through 256".into(),
+        )),
+    }
 }
 
 fn parse_open_position(value: &Value) -> Result<(i32, i32), WindowRuleParseError> {
@@ -742,6 +758,24 @@ end
         )
         .unwrap();
         assert!(parse_window_rules(&config).is_err());
+    }
+
+    #[test]
+    fn corner_radius_requires_a_bounded_nonnegative_integer() {
+        for (value, valid) in [
+            ("0", true),
+            ("12", true),
+            ("256", true),
+            ("-1", false),
+            ("257", false),
+            ("1.5", false),
+        ] {
+            let source = format!(
+                "rules:\n  window-rule:\n    match-all true\n    corner-radius {value}\n  end\nend\n"
+            );
+            let config = RuneConfig::from_str(&source).unwrap();
+            assert_eq!(parse_window_rules(&config).is_ok(), valid, "{value}");
+        }
     }
 
     #[test]

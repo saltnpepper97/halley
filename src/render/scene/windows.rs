@@ -250,7 +250,15 @@ pub(super) fn live_window_elements(
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
-            context.decorations.border_radius_px,
+            if managed {
+                context
+                    .window_rules
+                    .applied(window_surface.as_ref())
+                    .corner_radius
+                    .unwrap_or(context.decorations.border_radius_px)
+            } else {
+                context.decorations.border_radius_px
+            },
             decoration_scale,
         ) as f32
     } else {

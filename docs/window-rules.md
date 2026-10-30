@@ -59,6 +59,7 @@ A `match:` group combines its `app-id` and `title` with AND; multiple groups are
 - `opacity` accepts `0.0` through `1.0` and applies to the client and its
   popups. Compositor titlebars, borders, pin badges, and shadows stay
   opaque. Open and close animations still fade the whole window.
+- `corner-radius` overrides the client-content corner radius in logical pixels (an integer from 0 through 256). It also affects compositor borders, blur clipping, and window capture; server titlebar corners retain their own configured radius. Omit it to use the global radius.
 - `shadow true` or `shadow false` overrides whether the compositor draws the window shadow, using the configured window shadow parameters. Omit it to use the global setting.
 - `blur true` explicitly enables full-surface compositor blur for the match;
   a client-provided nonempty background-effect region remains region-limited.
@@ -112,7 +113,7 @@ temporarily floats an existing cluster member without removing its membership.
 The old `overlap-policy` field is accepted only as a migration aid and has no
 runtime effect; new configurations should omit it.
 
-Live reload re-resolves visual fields such as opacity, blur, shadow, and screencast privacy for mapped
+Live reload re-resolves visual fields such as opacity, blur, shadow, corner radius, and screencast privacy for mapped
 windows, and updates game policy for the next navigation. Initial size, output, focus, and placement remain initial-map decisions.
 
 Blur activation is entirely rule-driven: `effects.blur` configures quality and

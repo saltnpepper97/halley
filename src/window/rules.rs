@@ -17,6 +17,7 @@ pub struct ResolvedWindowRule {
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: f32,
     pub shadow: Option<bool>,
+    pub corner_radius: Option<i32>,
     pub blur: Option<bool>,
     pub block_screencast: bool,
     pub game: Option<bool>,
@@ -36,6 +37,7 @@ impl Default for ResolvedWindowRule {
             initial_size: (None, None),
             opacity: 1.0,
             shadow: None,
+            corner_radius: None,
             blur: None,
             block_screencast: false,
             game: None,
@@ -120,6 +122,9 @@ impl WindowRulesState {
             }
             if rule.initial_size.1.is_some() {
                 resolved.initial_size.1 = rule.initial_size.1;
+            }
+            if let Some(v) = rule.corner_radius {
+                resolved.corner_radius = Some(v);
             }
             if let Some(v) = rule.shadow {
                 resolved.shadow = Some(v);
@@ -226,6 +231,7 @@ mod tests {
                 titles: Vec::new(),
                 initial_size: (Some(800), Some(600)),
                 shadow: None,
+                corner_radius: None,
                 opacity: Some(0.7),
                 blur: Some(true),
                 block_screencast: Some(true),
@@ -247,6 +253,7 @@ mod tests {
                 titles: Vec::new(),
                 initial_size: (None, None),
                 shadow: None,
+                corner_radius: None,
                 opacity: Some(0.2),
                 blur: Some(false),
                 block_screencast: Some(false),
@@ -284,6 +291,7 @@ rules:
     opacity 0.9
     blur true
     shadow true
+    corner-radius 12
     block-screencast true
   end
   window-rule:
@@ -299,6 +307,7 @@ rules:
     end
     blur false
     shadow false
+    corner-radius 0
     block-screencast false
     open-maximized true
   end
@@ -315,6 +324,7 @@ end
         assert_eq!(monitoring.opacity, 0.9);
         assert_eq!(monitoring.blur, Some(false));
         assert_eq!(monitoring.shadow, Some(false));
+        assert_eq!(monitoring.corner_radius, Some(0));
         assert!(monitoring.open_maximized);
         assert!(!monitoring.block_screencast);
         let secret = state.resolve_identity(&WindowIdentity {
@@ -324,6 +334,7 @@ end
         });
         assert_eq!(secret.blur, Some(true));
         assert_eq!(secret.shadow, Some(true));
+        assert_eq!(secret.corner_radius, Some(12));
         assert!(secret.block_screencast);
     }
     #[test]

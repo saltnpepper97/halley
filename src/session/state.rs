@@ -657,7 +657,8 @@ impl<D: SessionDriver> Session<D> {
             let after = self.window_rules.track_window(&window);
             changed |= before.opacity != after.opacity
                 || before.blur != after.blur
-                || before.shadow != after.shadow;
+                || before.shadow != after.shadow
+                || before.corner_radius != after.corner_radius;
         }
         changed
     }

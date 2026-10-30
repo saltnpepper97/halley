@@ -273,7 +273,11 @@ fn capture_window_inner<D: SessionDriver>(
         }),
         content_radius: if chrome_visible {
             crate::render::window_decoration::scaled_metric(
-                session.settings.decorations.border_radius_px,
+                session
+                    .window_rules
+                    .applied(&surface)
+                    .corner_radius
+                    .unwrap_or(session.settings.decorations.border_radius_px),
                 visual.zoom_scale,
             ) as f32
         } else {
@@ -282,7 +286,10 @@ fn capture_window_inner<D: SessionDriver>(
         shadow: session.window_rules.applied(&surface).shadow,
         collapse_target: None,
     };
-    let decorations = session.settings.decorations;
+    let mut decorations = session.settings.decorations;
+    if let Some(radius) = session.window_rules.applied(&surface).corner_radius {
+        decorations.border_radius_px = radius;
+    }
     let font = session.settings.font.clone();
     let preview_id = session.nodes.id_for_surface(&surface);
     let render = &mut session.render;

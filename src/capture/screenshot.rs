@@ -628,7 +628,13 @@ where
         .wl_surface()
         .is_some_and(|surface| session.maximize.contains(surface.as_ref()));
     let scale = crate::capture::window_display_scale(session, window);
-    let decorations = &session.settings.decorations;
+    let mut decorations = session.settings.decorations;
+    if let Some(radius) = window
+        .wl_surface()
+        .and_then(|surface| session.window_rules.applied(surface.as_ref()).corner_radius)
+    {
+        decorations.border_radius_px = radius;
+    }
     let font = &session.settings.font;
     let resources = &mut session.render;
     resources.ui_text.set_display_scale(scale);
@@ -638,7 +644,7 @@ where
             window,
             None,
             scale,
-            decorations,
+            &decorations,
             font,
             focused,
             chrome_visible,
