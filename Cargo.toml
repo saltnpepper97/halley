@@ -82,6 +82,7 @@ xwayland = ["dep:x11rb", "smithay/xwayland"]
 winit = ["smithay/backend_winit"]
 
 [dev-dependencies]
+rune-cfg.workspace = true
 wayland-client = "0.31.14"
 wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
 # `staging` exposes the client bindings for the `ext-workspace-v1` global the

@@ -253,6 +253,7 @@ fn capture_window_inner<D: SessionDriver>(
         // closing scene must not synthesize a second border or clip pass.
         border: None,
         content_radius: 0.0,
+        shadow: session.window_rules.applied(&surface).shadow,
         collapse_target: None,
     };
     let border_width = crate::render::window_decoration::scaled_metric(
@@ -266,21 +267,33 @@ fn capture_window_inner<D: SessionDriver>(
         stack_index,
         start_alpha: visual.opening_alpha * session.window_rules.opacity(&surface),
         retract_origin,
-        border: (chrome_visible && border_width > 0).then(|| crate::render::close::CloseBorder {
-            width: border_width,
-            color: crate::render::window_border_color(&session.settings.decorations, focused),
-        }),
+        border: (chrome_visible
+            && session.window_rules.applied(&surface).border != Some(false)
+            && border_width > 0)
+            .then(|| crate::render::close::CloseBorder {
+                width: border_width,
+                color: crate::render::window_border_color(&session.settings.decorations, focused),
+            }),
         content_radius: if chrome_visible {
             crate::render::window_decoration::scaled_metric(
-                session.settings.decorations.border_radius_px,
+                session
+                    .window_rules
+                    .applied(&surface)
+                    .corner_radius
+                    .unwrap_or(session.settings.decorations.border_radius_px),
                 visual.zoom_scale,
             ) as f32
         } else {
             0.0
         },
+        shadow: session.window_rules.applied(&surface).shadow,
         collapse_target: None,
     };
-    let decorations = session.settings.decorations;
+    let draw_border = session.window_rules.applied(&surface).border != Some(false);
+    let mut decorations = session.settings.decorations;
+    if let Some(radius) = session.window_rules.applied(&surface).corner_radius {
+        decorations.border_radius_px = radius;
+    }
     let font = session.settings.font.clone();
     let preview_id = session.nodes.id_for_surface(&surface);
     let render = &mut session.render;
@@ -329,6 +342,7 @@ fn capture_window_inner<D: SessionDriver>(
                     focused,
                     chrome_visible,
                     maximized,
+                    draw_border,
                     titlebar_renderer,
                     window_decoration_renderer,
                     node_renderer,

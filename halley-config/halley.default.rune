@@ -474,6 +474,9 @@ end
 # Rules are checked top-to-bottom and only the first complete match applies.
 # Exact strings are case-sensitive; r"..." values are regular expressions.
 rules:
+  # Set window-rule-mode "compose" to combine matching rules; later explicitly
+  # specified properties override earlier ones. Omit it for first-match behavior.
+  # window-rule-mode "compose"
   # window-rule:
   #   app-id ["firefox", r"org\.mozilla\..*"]
   #   title r"Picture.*"

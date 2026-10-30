@@ -19,6 +19,7 @@ pub(crate) struct InitialWindowPlacementRequest<'a> {
     pub window: Option<&'a Window>,
     pub window_size: Size<i32, Logical>,
     pub placement: WindowSpawnPlacement,
+    pub output_name: Option<&'a str>,
     pub cursor_position: Point<f64, Logical>,
     pub gap: f32,
 }
@@ -27,6 +28,14 @@ pub(crate) struct InitialWindowPlacementRequest<'a> {
 pub(crate) fn initial_window_placement(
     request: InitialWindowPlacementRequest<'_>,
 ) -> InitialWindowPlacement {
+    let named_output = request.output_name.and_then(|name| {
+        request
+            .wayland
+            .space
+            .outputs()
+            .find(|output| output.name() == name)
+            .cloned()
+    });
     let parent = request
         .window
         .and_then(|window| super::stacking::parent_window(&request.wayland.space, window));
@@ -34,23 +43,33 @@ pub(crate) fn initial_window_placement(
     let adjacent_anchor = parent.as_ref().or(focused.as_ref());
     let preferred_anchor = parent.as_ref();
 
-    let mut output = match request.placement {
-        WindowSpawnPlacement::Cursor => request
-            .wayland
-            .space
-            .output_under(request.cursor_position)
-            .next()
-            .cloned(),
-        WindowSpawnPlacement::Center
-        | WindowSpawnPlacement::Adjacent
-        | WindowSpawnPlacement::App => preferred_anchor
-            .as_ref()
-            .or(adjacent_anchor.as_ref())
-            .and_then(|window| output_for_window(request.wayland, window)),
-        WindowSpawnPlacement::Default | WindowSpawnPlacement::ViewportCenter => None,
-    }
-    .unwrap_or_else(|| {
-        crate::wayland::focus::output_for_new_surface(request.wayland, None, request.primary_output)
+    let mut output = named_output.clone().unwrap_or_else(|| {
+        match if request.output_name.is_some() {
+            WindowSpawnPlacement::Default
+        } else {
+            request.placement
+        } {
+            WindowSpawnPlacement::Cursor => request
+                .wayland
+                .space
+                .output_under(request.cursor_position)
+                .next()
+                .cloned(),
+            WindowSpawnPlacement::Center
+            | WindowSpawnPlacement::Adjacent
+            | WindowSpawnPlacement::App => preferred_anchor
+                .as_ref()
+                .or(adjacent_anchor.as_ref())
+                .and_then(|window| output_for_window(request.wayland, window)),
+            WindowSpawnPlacement::Default | WindowSpawnPlacement::ViewportCenter => None,
+        }
+        .unwrap_or_else(|| {
+            crate::wayland::focus::output_for_new_surface(
+                request.wayland,
+                None,
+                request.primary_output,
+            )
+        })
     });
 
     let camera_centered = || {
@@ -61,8 +80,27 @@ pub(crate) fn initial_window_placement(
             request.window_size,
         )
     };
-    let location = match request.placement {
+    let placement = if request.output_name.is_some() && named_output.is_none() {
+        WindowSpawnPlacement::ViewportCenter
+    } else {
+        request.placement
+    };
+    let anchors_on_output =
+        |window: &Window| output_for_window(request.wayland, window).as_ref() == Some(&output);
+    let preferred_anchor = preferred_anchor.filter(|w| anchors_on_output(w));
+    let adjacent_anchor = adjacent_anchor.filter(|w| anchors_on_output(w));
+    let location = match placement {
         WindowSpawnPlacement::Default | WindowSpawnPlacement::ViewportCenter => camera_centered(),
+        WindowSpawnPlacement::Cursor
+            if named_output.is_some()
+                && request
+                    .wayland
+                    .space
+                    .output_under(request.cursor_position)
+                    .all(|o| *o != output) =>
+        {
+            camera_centered()
+        }
         WindowSpawnPlacement::Cursor => center_window(
             Point::<f32, Physical>::from((
                 request.cursor_position.x as f32,
@@ -111,17 +149,35 @@ pub(crate) fn initial_window_placement(
 
     // A parent or focused anchor can resolve an output after the initial
     // selection above. Keep the returned ownership and location coherent.
-    if let Some(anchor_output) = match request.placement {
-        WindowSpawnPlacement::Center | WindowSpawnPlacement::App => preferred_anchor.as_ref(),
-        WindowSpawnPlacement::Adjacent => adjacent_anchor.as_ref(),
-        _ => None,
-    }
-    .and_then(|window| output_for_window(request.wayland, window))
+    if named_output.is_none()
+        && request.output_name.is_none()
+        && let Some(anchor_output) = match request.placement {
+            WindowSpawnPlacement::Center | WindowSpawnPlacement::App => preferred_anchor.as_ref(),
+            WindowSpawnPlacement::Adjacent => adjacent_anchor.as_ref(),
+            _ => None,
+        }
+        .and_then(|window| output_for_window(request.wayland, window))
     {
         output = anchor_output;
     }
 
     InitialWindowPlacement { output, location }
+}
+
+/// Exact client coordinates relative to the output's Field origin.
+pub(crate) fn rule_position(
+    wayland: &WaylandState,
+    output: &Output,
+    position: (i32, i32),
+) -> Option<Point<i32, Logical>> {
+    let origin = wayland.space.output_geometry(output)?.loc;
+    Some(
+        (
+            origin.x.checked_add(position.0)?,
+            origin.y.checked_add(position.1)?,
+        )
+            .into(),
+    )
 }
 
 pub(crate) fn centered_location_for_size(

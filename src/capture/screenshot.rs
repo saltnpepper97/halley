@@ -229,6 +229,9 @@ pub fn save_window<D: SessionDriver>(
     if session.session_lock.active() {
         return Err(io::Error::other("session is locked").into());
     }
+    if session.window_rules.applied(surface).block_screenshot {
+        return Err(io::Error::other("window screenshot blocked by rule").into());
+    }
     let window = session
         .wayland
         .space
@@ -624,11 +627,20 @@ where
     let focused = window
         .wl_surface()
         .is_some_and(|surface| session.wayland.focused_window.as_ref() == Some(surface.as_ref()));
+    let draw_border = window
+        .wl_surface()
+        .is_none_or(|surface| session.window_rules.applied(surface.as_ref()).border != Some(false));
     let maximized = window
         .wl_surface()
         .is_some_and(|surface| session.maximize.contains(surface.as_ref()));
     let scale = crate::capture::window_display_scale(session, window);
-    let decorations = &session.settings.decorations;
+    let mut decorations = session.settings.decorations;
+    if let Some(radius) = window
+        .wl_surface()
+        .and_then(|surface| session.window_rules.applied(surface.as_ref()).corner_radius)
+    {
+        decorations.border_radius_px = radius;
+    }
     let font = &session.settings.font;
     let resources = &mut session.render;
     resources.ui_text.set_display_scale(scale);
@@ -638,11 +650,12 @@ where
             window,
             None,
             scale,
-            decorations,
+            &decorations,
             font,
             focused,
             chrome_visible,
             maximized,
+            draw_border,
             &mut resources.titlebar_renderer,
             &mut resources.window_decoration_renderer,
             &mut resources.node_renderer,
@@ -782,7 +795,8 @@ fn capture_output(
     geometry: Rectangle<i32, Logical>,
     request: RenderRequest<'_>,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
-    let elements = render::scene::build(renderer, output, primary, geometry, request)?;
+    let elements =
+        render::scene::build_with_screenshot_privacy(renderer, output, primary, geometry, request)?;
     let size = render::output_physical_size(output);
     capture_elements(
         renderer,

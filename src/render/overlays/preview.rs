@@ -157,6 +157,7 @@ impl OverlayPreviewCache {
                 false,
                 chrome_visible,
                 maximized,
+                true,
                 renderers.titlebar,
                 renderers.decoration,
                 renderers.node,

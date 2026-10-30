@@ -416,6 +416,7 @@ pub fn capture_decorated(
     focused: bool,
     chrome_visible: bool,
     maximized: bool,
+    draw_border: bool,
     titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
     window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
     node_renderer: &mut crate::render::node::NodeRenderer,
@@ -430,6 +431,7 @@ pub fn capture_decorated(
         focused,
         chrome_visible,
         maximized,
+        draw_border,
         titlebar_renderer,
         window_decoration_renderer,
         node_renderer,
@@ -450,6 +452,7 @@ pub fn capture_decorated_at_scale(
     focused: bool,
     chrome_visible: bool,
     maximized: bool,
+    draw_border: bool,
     titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
     window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
     node_renderer: &mut crate::render::node::NodeRenderer,
@@ -464,6 +467,7 @@ pub fn capture_decorated_at_scale(
         focused,
         chrome_visible,
         maximized,
+        draw_border,
         titlebar_renderer,
         window_decoration_renderer,
         node_renderer,
@@ -483,6 +487,7 @@ fn capture_decorated_inner(
     focused: bool,
     chrome_visible: bool,
     maximized: bool,
+    draw_border: bool,
     titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
     window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
     node_renderer: &mut crate::render::node::NodeRenderer,
@@ -582,7 +587,7 @@ fn capture_decorated_inner(
         elements.push(crate::render::scene::SceneElement::Closing(base));
     }
     let border_color = crate::render::window_border_color(decorations, focused);
-    if border_width > 0 {
+    if draw_border && border_width > 0 {
         if rounded
             && let Some(border) = if server_titlebar {
                 window_decoration_renderer.body_border_element(

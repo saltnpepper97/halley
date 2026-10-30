@@ -987,6 +987,28 @@ fn toggle_focused_fullscreen<D: SessionDriver>(session: &mut Session<D>, output:
     set_record_fullscreen(session, record, entering);
 }
 
+/// Apply an opening-only rule after a window has acquired a node and output.
+pub(crate) fn apply_initial_window_presentation<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    rule: &crate::window::rules::ResolvedWindowRule,
+) {
+    if rule.open_fullscreen {
+        if !session.fullscreen.is_fullscreen_or_pending(surface)
+            && let Some(record) = session
+                .nodes
+                .id_for_surface(surface)
+                .and_then(|id| session.nodes.record(id))
+                .filter(|record| !record.collapsed)
+                .cloned()
+        {
+            set_record_fullscreen(session, record, true);
+        }
+    } else if rule.open_maximized {
+        set_surface_field_maximized(session, surface, true);
+    }
+}
+
 fn set_record_fullscreen<D: SessionDriver>(
     session: &mut Session<D>,
     record: crate::nodes::NodeRecord,
@@ -1749,6 +1771,9 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
     serial: smithay::utils::Serial,
 ) {
     if session.session_lock.active() {
+        if session.window_rules.set_focus(None) {
+            session.refresh_dynamic_window_rules();
+        }
         let focused = session
             .session_lock
             .focused_surface()
@@ -1810,6 +1835,9 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
         .as_ref()
         .and_then(|target| target.wl_surface().map(Cow::into_owned))
         .filter(|surface| session.wayland.focused_window.as_ref() == Some(surface));
+    if session.window_rules.set_focus(next_constraint_root.clone()) {
+        session.refresh_dynamic_window_rules();
+    }
     let active_x11_window = focused
         .as_ref()
         .and_then(crate::xwayland::KeyboardFocusTarget::x11_window_id);

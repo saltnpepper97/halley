@@ -250,7 +250,15 @@ pub(super) fn live_window_elements(
         crate::render::window_decoration::scaled_metric(chrome.border_width, decoration_scale);
     let content_radius = if chrome_visible {
         crate::render::window_decoration::scaled_metric(
-            context.decorations.border_radius_px,
+            if managed {
+                context
+                    .window_rules
+                    .applied(window_surface.as_ref())
+                    .corner_radius
+                    .unwrap_or(context.decorations.border_radius_px)
+            } else {
+                context.decorations.border_radius_px
+            },
             decoration_scale,
         ) as f32
     } else {
@@ -616,7 +624,11 @@ pub(super) fn live_window_elements(
 
     let is_focused = Some(window_surface.as_ref()) == context.focused;
     let border_color = crate::render::window_border_color(context.decorations, is_focused);
-    if managed && border_width > 0 && chrome_alpha > 0.0 {
+    if managed
+        && context.window_rules.applied(window_surface.as_ref()).border != Some(false)
+        && border_width > 0
+        && chrome_alpha > 0.0
+    {
         if rounded_available
             && let Some(border) = if server_titlebar {
                 window_decoration_renderer.body_border_element(
@@ -720,6 +732,10 @@ pub(super) fn live_window_elements(
         } else {
             crate::render::window_decoration::CornerRadii::default()
         };
+        let mut shadow_config = context.shadow_config;
+        if let Some(enabled) = context.window_rules.applied(window_surface.as_ref()).shadow {
+            shadow_config.enabled = enabled;
+        }
         if let Some(shadow) = shadow_renderer.element_with_radii(
             renderer,
             format!(
@@ -731,7 +747,7 @@ pub(super) fn live_window_elements(
             caster,
             caster_radii,
             chrome_alpha,
-            context.shadow_config,
+            shadow_config,
         )? {
             elements.push(SceneElement::Shadow(shadow));
         }

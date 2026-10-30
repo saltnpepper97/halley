@@ -777,6 +777,12 @@ pub(crate) fn parent_window_from<'a>(
         .cloned()
 }
 
+pub fn is_transient(window: &Window) -> bool {
+    window
+        .x11_surface()
+        .is_some_and(|surface| surface.is_transient_for().is_some())
+}
+
 pub fn metadata(window: &Window) -> Option<(String, String)> {
     let surface = window.x11_surface()?;
     Some((surface.title(), surface.class()))

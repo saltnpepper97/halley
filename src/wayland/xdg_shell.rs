@@ -19,7 +19,7 @@ pub enum ToplevelCommit {
     Layer,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ToplevelCommitContext<'a> {
     pub cameras: &'a OutputCameras,
     pub primary_output: &'a Output,
@@ -187,6 +187,7 @@ pub fn handle_commit(
                 window: Some(&window),
                 window_size: outer_size,
                 placement: rule.spawn_placement,
+                output_name: rule.open_on_output.as_deref(),
                 cursor_position,
                 gap,
             },
@@ -195,6 +196,11 @@ pub fn handle_commit(
             .unmapped_locations
             .remove(surface)
             .unwrap_or_else(|| {
+                if let Some(location) = rule.open_position.and_then(|p| {
+                    crate::window::routing::rule_position(wayland, &placement.output, p)
+                }) {
+                    return location;
+                }
                 crate::titlebar::client_location_for_outer(
                     &window,
                     placement.location,
@@ -219,7 +225,14 @@ pub fn handle_commit(
         // New windows steal focus - matches most WMs' default behavior.
         // Also raises+activates via `focus_and_raise`, same as clicking a
         // window now does.
-        crate::window::focus_and_raise(wayland, &window);
+        let selected_output =
+            crate::wayland::focus::output_for_new_surface(wayland, None, primary_output);
+        let focus = rule
+            .open_focused
+            .unwrap_or(rule.open_on_output.is_none() || placement.output == selected_output);
+        if focus {
+            crate::window::focus_and_raise(wayland, &window);
+        }
         return ToplevelCommit::Mapped(surface.clone());
     }
 
