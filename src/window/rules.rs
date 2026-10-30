@@ -207,6 +207,8 @@ impl WindowRulesState {
         true
     }
 
+    // Wayland object equality and hashing use stable object identity, not liveness.
+    #[allow(clippy::mutable_key_type)]
     pub fn set_casts(&mut self, casts: HashSet<WlSurface>) -> bool {
         if self.casts == casts {
             return false;

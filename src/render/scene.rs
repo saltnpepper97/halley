@@ -38,7 +38,7 @@ use capture_ui::capture_overlay_elements;
 use cluster_composer::cluster_composer_elements;
 use clusters::{ClusterElementContext, cluster_elements};
 use effects::{
-    OverlayEffectStyle, append_compositor_overlay_blur, append_overlay_shadows,
+    LayerSceneStyle, OverlayEffectStyle, append_compositor_overlay_blur, append_overlay_shadows,
     layer_surface_scene_elements,
 };
 use nodes::{NodeElementContext, node_elements};
@@ -353,11 +353,16 @@ fn build_logical(
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Overlay,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: block_screencast && !screenshot,
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     let mut focus_cycle = focus_cycle_elements(
@@ -416,11 +421,16 @@ fn build_logical(
         elements.extend(layer_surface_scene_elements(
             renderer,
             output,
-            output_geometry,
             Layer::Top,
-            request.desktop.layer_rules,
-            block_screencast && !screenshot,
-            request.visuals.blur,
+            LayerSceneStyle {
+                output_geometry,
+
+                layer_rules: request.desktop.layer_rules,
+
+                block_screencast: block_screencast && !screenshot,
+
+                blur: request.visuals.blur,
+            },
             request.resources.backdrop_blur_renderer,
         )?);
     }
@@ -925,21 +935,31 @@ fn build_logical(
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Bottom,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: block_screencast && !screenshot,
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Background,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: block_screencast && !screenshot,
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     append_background(

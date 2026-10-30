@@ -848,7 +848,8 @@ fn constrain_relative_motion(
     let bottom = source.loc.y + source.size.h;
     let dx = position.0 - previous.0;
     let dy = position.1 - previous.1;
-    let mut best: Option<(f64, f64, (f64, f64), Rectangle<i32, Logical>)> = None;
+    type EdgeCrossing = (f64, f64, (f64, f64), Rectangle<i32, Logical>);
+    let mut best: Option<EdgeCrossing> = None;
     for output in outputs {
         let rect = output.to_f64();
         let end_x = rect.loc.x + rect.size.w;

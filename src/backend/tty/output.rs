@@ -76,14 +76,18 @@ fn matching_mode_index(
         .map(|(index, _, _, _)| index)
 }
 
+pub(super) struct VrrInfo {
+    pub configured: halley_config::Vrr,
+    pub supported: bool,
+    pub active: bool,
+}
+
 pub(super) fn connector_output_info(
     name: String,
     connector: &connector::Info,
     current_mode: Option<Mode>,
     offset: (i32, i32),
-    vrr: halley_config::Vrr,
-    vrr_supported: bool,
-    vrr_active: bool,
+    vrr: VrrInfo,
     scale: f64,
 ) -> halley_ipc::OutputInfo {
     let modes = connector
@@ -105,9 +109,9 @@ pub(super) fn connector_output_info(
         current_mode,
         offset_x: offset.0,
         offset_y: offset.1,
-        vrr: crate::ipc::vrr_str(vrr).to_string(),
-        vrr_supported,
-        vrr_active,
+        vrr: crate::ipc::vrr_str(vrr.configured).to_string(),
+        vrr_supported: vrr.supported,
+        vrr_active: vrr.active,
         scale,
     }
 }

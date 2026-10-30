@@ -87,6 +87,8 @@ impl ScreencastState {
         self.window_casts.insert(client_id, surface);
     }
 
+    // Wayland object equality and hashing use stable object identity, not liveness.
+    #[allow(clippy::mutable_key_type)]
     pub fn window_cast_targets(
         &self,
     ) -> std::collections::HashSet<

@@ -338,9 +338,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 .or_else(|| output_at_pointer(&session.wayland.space, position_after));
             if let Some((output, output_geometry)) = drag_output {
                 let output_name = output.name();
-                let Some(camera) = session.cameras.get(&output_name) else {
-                    return None;
-                };
+                let camera = session.cameras.get(&output_name)?;
                 let output_changed = edge_pan.is_none()
                     && wayland::window_output_name(&window).as_deref()
                         != Some(output_name.as_str());
