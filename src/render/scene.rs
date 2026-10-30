@@ -32,6 +32,7 @@ mod clusters;
 mod effects;
 pub(crate) mod nodes;
 mod overview;
+mod privacy;
 mod replacement;
 mod windows;
 
@@ -46,6 +47,7 @@ use nodes::{NodeElementContext, node_elements};
 use overview::{
     FocusCycleRenderContext, apogee_elements, focus_cycle_elements, hover_preview_elements,
 };
+use privacy::CapturePrivacy;
 pub(crate) use windows::append_titlebar_elements;
 use windows::{
     LiveWindowContext, LiveWindowRenderers, LiveWindowScene, StackGroup, live_window_elements,
@@ -152,8 +154,7 @@ fn build_logical(
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
     request: &mut RenderRequest<'_>,
-    block_screencast: bool,
-    screenshot: bool,
+    privacy: CapturePrivacy,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request
@@ -224,16 +225,9 @@ fn build_logical(
             .window_decoration_renderer
             .available(renderer);
     }
-    let privacy_active = block_screencast
-        && (request.desktop.window_rules.has_capture_blocks(screenshot)
-            || request
-                .desktop
-                .layer_rules
-                .iter()
-                .any(|rule| !screenshot && rule.block_screencast));
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
-    if privacy_active
+    if privacy.redact_cached_scene()
         && (request.overlays.apogee.is_active()
             || request.overlays.focus_cycle.is_active()
             || request
@@ -360,7 +354,7 @@ fn build_logical(
 
             layer_rules: request.desktop.layer_rules,
 
-            block_screencast: block_screencast && !screenshot,
+            block_screencast: privacy.redact_layers(),
 
             blur: request.visuals.blur,
         },
@@ -428,7 +422,7 @@ fn build_logical(
 
                 layer_rules: request.desktop.layer_rules,
 
-                block_screencast: block_screencast && !screenshot,
+                block_screencast: privacy.redact_layers(),
 
                 blur: request.visuals.blur,
             },
@@ -471,7 +465,7 @@ fn build_logical(
         request.resources.shadow_renderer,
         &mut hover_preview,
     )?;
-    if !privacy_active {
+    if !privacy.redact_cached_scene() {
         elements.extend(hover_preview);
     }
 
@@ -509,7 +503,7 @@ fn build_logical(
             shadow_style: request.visuals.shadows.window,
             cameras: request.desktop.cameras,
             now: request.frame.target_presentation_time,
-            redact: block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot),
+            redact: privacy.redact_cached_windows(),
         },
     )?;
     stack.extend(node_scene.groups);
@@ -622,18 +616,17 @@ fn build_logical(
                 window_shaders: request.resources.window_shaders,
             },
         )?;
-        let protected = block_screencast
-            && (window.wl_surface().is_some_and(|surface| {
-                request
-                    .desktop
-                    .window_rules
-                    .applied(surface.as_ref())
-                    .blocks_capture(screenshot)
-            }) || (request.desktop.window_rules.has_capture_blocks(screenshot)
-                && crate::xwayland::is_override_redirect(window)));
+        let protected = if privacy.enabled() {
+            let rule = window
+                .wl_surface()
+                .map(|surface| request.desktop.window_rules.applied(surface.as_ref()));
+            privacy.redact_window(rule.as_ref(), crate::xwayland::is_override_redirect(window))
+        } else {
+            false
+        };
         if protected {
             omit_window_scene(&mut window_scene);
-        } else if !block_screencast
+        } else if !privacy.enabled()
             && window
                 .wl_surface()
                 .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
@@ -679,7 +672,7 @@ fn build_logical(
             )?;
             if protected {
                 omit_window_scene(&mut extra_scene);
-            } else if !block_screencast
+            } else if !privacy.enabled()
                 && window.wl_surface().is_some_and(|surface| {
                     request.desktop.screencast.is_window_cast(surface.as_ref())
                 })
@@ -783,17 +776,13 @@ fn build_logical(
                 .rev()
                 .flat_map(|(_, scene)| scene.elements),
         );
-        let exclusive_is_protected = block_screencast
-            && request
+        let exclusive_is_protected =
+            request
                 .desktop
                 .nodes
                 .record(exclusive.member)
                 .is_some_and(|record| {
-                    request
-                        .desktop
-                        .window_rules
-                        .applied(&record.surface)
-                        .blocks_capture(screenshot)
+                    privacy.redact_rule(&request.desktop.window_rules.applied(&record.surface))
                 });
         if exclusive.progress > 0.0 && !exclusive_is_protected {
             foreground.push(SceneElement::Border(super::solid_color_element(
@@ -837,7 +826,7 @@ fn build_logical(
 
             layer_rules: request.desktop.layer_rules,
 
-            block_screencast: block_screencast && !screenshot,
+            block_screencast: privacy.redact_layers(),
 
             blur: request.visuals.blur,
         },
@@ -852,7 +841,7 @@ fn build_logical(
 
             layer_rules: request.desktop.layer_rules,
 
-            block_screencast: block_screencast && !screenshot,
+            block_screencast: privacy.redact_layers(),
 
             blur: request.visuals.blur,
         },
