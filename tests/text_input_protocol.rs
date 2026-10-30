@@ -1,5 +1,5 @@
 //! Basic IME support and Halley lock policy over real Wayland sockets.
-#[path = "../src/wayland/ime_clients.rs"]
+#[path = "../src/wayland/input/ime_clients.rs"]
 mod ime_clients;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;

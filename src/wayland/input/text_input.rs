@@ -16,7 +16,7 @@ use smithay::wayland::seat::WaylandFocus;
 
 use crate::session::{Session, SessionDriver};
 
-use super::{WaylandState, compositor};
+use super::super::{WaylandState, compositor};
 
 /// Chooses a surface-local parent rectangle for IME popup placement.
 ///
@@ -113,7 +113,7 @@ fn session_parent_geometry<D: SessionDriver>(
 fn output_for_parent<D: SessionDriver>(session: &Session<D>, parent: &WlSurface) -> Option<Output> {
     let root = compositor::root_surface(parent);
     if let Some(window) = window_for_surface(&session.wayland, parent)
-        && let Some(name) = super::window_output_name(window)
+        && let Some(name) = super::super::window_output_name(window)
         && let Some(output) = session
             .wayland
             .space

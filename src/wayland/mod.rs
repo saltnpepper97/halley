@@ -1,35 +1,30 @@
-pub mod background_effect;
-pub mod buffer_readiness;
-pub(crate) mod clipboard_helper;
-pub mod commit_timing;
+mod capture;
+mod data_transfer;
+mod desktop;
+mod input;
+mod output;
+mod session;
+mod surface;
+
 pub mod compositor;
-pub mod decoration;
-pub mod display_scale;
-pub mod dmabuf;
-pub mod dnd;
-pub mod ext_image_copy_capture;
-pub mod ext_workspace;
-pub mod fifo;
-pub mod focus;
-pub mod foreign_toplevel;
-pub mod frame_callbacks;
-pub mod fullscreen;
-pub mod idle_inhibit;
-mod ime_clients;
-pub mod layer_shell;
-mod output_protocols;
 pub mod permissions;
-pub mod popup;
-pub mod presentation;
-pub(crate) mod screenshot_clipboard;
-pub mod selection;
-pub mod session_lock;
-mod surface_scale;
-pub mod text_input;
-mod virtual_keyboard;
-pub use output_protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
-pub mod wlr_screencopy;
-pub mod xdg_shell;
+
+// Keep the established Wayland module paths available to the rest of Halley.
+pub use capture::{ext_image_copy_capture, wlr_screencopy};
+pub(crate) use data_transfer::{clipboard_helper, screenshot_clipboard};
+pub use data_transfer::{dnd, selection};
+pub use desktop::{
+    decoration, ext_workspace, foreign_toplevel, fullscreen, layer_shell, popup, xdg_shell,
+};
+use input::ime_clients;
+pub use input::{focus, text_input};
+pub use output::display_scale;
+pub use output::protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
+use output::surface_scale;
+pub use session::session_lock;
+pub use surface::{
+    background_effect, buffer_readiness, commit_timing, dmabuf, fifo, frame_callbacks, presentation,
+};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};

@@ -5,9 +5,9 @@ use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::seat::WaylandFocus;
 
-use super::WaylandState;
+use super::super::WaylandState;
 
-pub use super::surface_scale::send_tree;
+pub use super::super::surface_scale::send_tree;
 
 pub fn send_window(window: &Window, output: &Output) {
     if let Some(root) = window.wl_surface() {
@@ -19,7 +19,7 @@ pub fn send_window(window: &Window, output: &Output) {
 }
 
 pub fn output_for_surface(wayland: &WaylandState, surface: &WlSurface) -> Option<Output> {
-    let root = super::compositor::root_surface(surface);
+    let root = super::super::compositor::root_surface(surface);
     let root = wayland
         .popup_manager
         .find_popup(&root)
@@ -35,7 +35,7 @@ pub fn output_for_surface(wayland: &WaylandState, surface: &WlSurface) -> Option
                 .wl_surface()
                 .is_some_and(|candidate| candidate.as_ref() == &root)
         })
-        .and_then(super::window_output_name)
+        .and_then(super::super::window_output_name)
     {
         return wayland
             .space
@@ -64,7 +64,7 @@ pub fn refresh(wayland: &WaylandState, primary: &Output) {
         let output = wayland
             .space
             .outputs()
-            .find(|output| super::window_is_on_output(window, output, primary))
+            .find(|output| super::super::window_is_on_output(window, output, primary))
             .unwrap_or(primary);
         send_window(window, output);
     }

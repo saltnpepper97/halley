@@ -3,7 +3,7 @@ use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 
-use super::WaylandState;
+use super::super::WaylandState;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyboardFocus {
@@ -28,7 +28,7 @@ impl KeyboardFocus {
 /// Bottom/Background surfaces only win when no window is focused.
 pub fn current(
     wayland: &WaylandState,
-    fullscreen: &super::fullscreen::FullscreenManager,
+    fullscreen: &super::super::fullscreen::FullscreenManager,
     clusters: &crate::clusters::ClusterSystem,
     nodes: &crate::nodes::NodesState,
     now: std::time::Duration,

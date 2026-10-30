@@ -45,7 +45,9 @@ state do not share implementation files.
 - Cluster activation, window presentation, and workspace dragging are grouped
   in their respective `clusters` modules. Capture request setup lives in
   `capture::requests`; the Wayland output-control protocols are grouped under
-  `wayland::output_protocols`.
+  the `wayland/output/protocols` directory. Wayland capture, data transfer,
+  desktop, input, output, session, and surface implementations each have their
+  own folder; established module paths remain available to callers.
 - Fullscreen request handling separates native and external clients, while
   their transaction helpers live alongside shared presentation state. Scene
   entry points apply capture privacy and output scaling before assembly.

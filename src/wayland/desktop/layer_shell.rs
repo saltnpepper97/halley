@@ -5,7 +5,7 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::wlr_layer::{LayerSurface as WlrLayerSurface, LayerSurfaceData};
 
-use super::WaylandState;
+use super::super::WaylandState;
 
 /// Registers a protocol layer surface with the output-local Smithay map.
 ///
@@ -27,7 +27,7 @@ pub fn new_surface(
     let layer = LayerSurface::new(surface, namespace);
     match layer_map_for_output(&output).map_layer(&layer) {
         Ok(()) => {
-            super::display_scale::send_tree(&wl_surface, &output);
+            super::super::display_scale::send_tree(&wl_surface, &output);
             wayland.unmapped_layers.insert(wl_surface);
         }
         Err(err) => {
@@ -52,7 +52,7 @@ pub fn handle_commit(wayland: &mut WaylandState, root: &WlSurface) -> bool {
 
     let mut map = layer_map_for_output(&output);
     map.arrange();
-    super::display_scale::send_tree(root, &output);
+    super::super::display_scale::send_tree(root, &output);
 
     let has_buffer =
         with_renderer_surface_state(root, |state| state.buffer().is_some()).unwrap_or(false);
@@ -60,7 +60,7 @@ pub fn handle_commit(wayland: &mut WaylandState, root: &WlSurface) -> bool {
         wayland.unmapped_layers.remove(root);
     } else {
         wayland.unmapped_layers.insert(root.clone());
-        super::focus::forget_layer(wayland, root);
+        super::super::focus::forget_layer(wayland, root);
 
         if !initial_configure_sent(root) {
             layer.layer_surface().send_configure();
@@ -72,7 +72,7 @@ pub fn handle_commit(wayland: &mut WaylandState, root: &WlSurface) -> bool {
 
 pub fn destroyed(wayland: &mut WaylandState, surface: &WlrLayerSurface) {
     wayland.unmapped_layers.remove(surface.wl_surface());
-    super::focus::forget_layer(wayland, surface.wl_surface());
+    super::super::focus::forget_layer(wayland, surface.wl_surface());
 
     let found = wayland.space.outputs().find_map(|output| {
         let map = layer_map_for_output(output);
@@ -100,9 +100,11 @@ pub fn send_frames(output: &Output, elapsed: Duration, sequence: u32) {
         layer.send_frame(
             output,
             elapsed,
-            super::frame_callbacks::FALLBACK_THROTTLE,
+            super::super::frame_callbacks::FALLBACK_THROTTLE,
             |surface, states| {
-                super::frame_callbacks::callback_output(surface, states, output, sequence, true)
+                super::super::frame_callbacks::callback_output(
+                    surface, states, output, sequence, true,
+                )
             },
         );
     }

@@ -1,15 +1,15 @@
 //! Client compatibility requests through the production upstream dispatcher.
-#[path = "../src/wayland/buffer_readiness.rs"]
+#[path = "../src/wayland/surface/buffer_readiness.rs"]
 mod buffer_readiness;
-#[path = "../src/wayland/clipboard_helper.rs"]
+#[path = "../src/wayland/data_transfer/clipboard_helper.rs"]
 mod clipboard_helper;
-#[path = "../src/wayland/fifo.rs"]
+#[path = "../src/wayland/surface/fifo.rs"]
 mod fifo_state;
 #[path = "support/fifo.rs"]
 mod fifo_tests;
-#[path = "../src/wayland/surface_scale.rs"]
+#[path = "../src/wayland/output/surface_scale.rs"]
 mod surface_scale;
-#[path = "../src/wayland/commit_timing.rs"]
+#[path = "../src/wayland/surface/commit_timing.rs"]
 mod timing_state;
 #[path = "support/commit_timing.rs"]
 mod timing_tests;
