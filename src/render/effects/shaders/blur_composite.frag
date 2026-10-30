@@ -37,6 +37,14 @@ void main() {
         discard;
     }
     vec2 px = local_uv * size;
+    // A bottom-rounded clip belongs to content beneath a titlebar. Where the
+    // blur patch starts at that join, keep its shared top edge fully covered.
+    float patch_top = patch_origin_uv.y * (size.y / max(patch_size_uv.y, 0.000001));
+    bool joined_top = use_clip > 0.5 && clip_radii.x == 0.0 && clip_radii.y > 0.0
+        && abs(patch_top - clip_origin.y) < 0.01;
+    if (joined_top) {
+        px.y = max(px.y, 0.75);
+    }
 
     float radius = min(max(corner_radius, 0.0), min(size.x, size.y) * 0.5);
     float dist = rounded_rect_sdf(px - size * 0.5, size, radius);
@@ -46,6 +54,9 @@ void main() {
         // pixels directly rather than deriving them from the patch-local quad.
         vec2 output_px = v_coords * (rect_size / max(patch_size_uv, vec2(0.000001)));
         vec2 clip_local = output_px - clip_origin;
+        if (joined_top) {
+            clip_local.y = max(clip_local.y, 0.75);
+        }
         float clip_r = clip_local.y < clip_size.y * 0.5 ? clip_radii.x : clip_radii.y;
         clip_r = min(max(clip_r, 0.0), min(clip_size.x, clip_size.y) * 0.5);
         float clip_dist = rounded_rect_sdf(
