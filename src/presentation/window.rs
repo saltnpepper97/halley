@@ -175,6 +175,64 @@ pub(crate) struct WindowVisualContext<'a> {
     pub now: std::time::Duration,
 }
 
+impl WindowVisualContext<'_> {
+    /// Landmarks remain usable outside the live bounds of presentations above Field.
+    pub(crate) fn covers_field_point(
+        self,
+        primary_output: &Output,
+        position: Point<f64, Logical>,
+    ) -> bool {
+        let Some(geometry) = self.space.output_geometry(self.output) else {
+            return false;
+        };
+        let local = position - geometry.loc.to_f64();
+        self.space.elements().any(|window| {
+            if !crate::wayland::window_is_on_output(window, self.output, primary_output) {
+                return false;
+            }
+            let Some(surface) = window.wl_surface() else {
+                return false;
+            };
+            if self
+                .fullscreen
+                .presentation(surface.as_ref(), self.output, self.now)
+                .is_none()
+                && self
+                    .maximize
+                    .presentation(surface.as_ref(), self.output, geometry, self.now)
+                    .is_none()
+                && crate::wayland::window_presentation_owner(window).is_none()
+            {
+                return false;
+            }
+            let Some(visual) = window_visual_state(self, window) else {
+                return false;
+            };
+            let rect = visual.animated_rect.to_logical(1);
+            let rect = if visual.fullscreen.is_none() {
+                crate::titlebar::outer_rect_for_client(window, rect, self.decorations, self.font)
+            } else {
+                rect
+            };
+            presentation_hit_contains(
+                visual.above_field_landmarks,
+                visual.opening_alpha,
+                rect,
+                local,
+            )
+        })
+    }
+}
+
+fn presentation_hit_contains(
+    above_field_landmarks: bool,
+    opening_alpha: f32,
+    rect: Rectangle<i32, Logical>,
+    position: Point<f64, Logical>,
+) -> bool {
+    above_field_landmarks && opening_alpha > 0.01 && rect.to_f64().contains(position)
+}
+
 pub(crate) fn window_visual_state(
     context: WindowVisualContext<'_>,
     window: &Window,
@@ -769,6 +827,36 @@ pub(crate) fn popup_constraint_in_parent(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn field_landmark_hit_test_uses_visible_presentation_bounds() {
+        use super::presentation_hit_contains;
+        let rect = smithay::utils::Rectangle::new((10, 20).into(), (100, 50).into());
+        assert!(presentation_hit_contains(
+            true,
+            1.0,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            false,
+            1.0,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            true,
+            0.01,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            true,
+            1.0,
+            rect,
+            (110.0, 21.0).into()
+        ));
+    }
+
     use super::*;
 
     fn transform(

@@ -223,60 +223,20 @@ pub(super) fn presentation_covers_field_point<D: SessionDriver>(
     position: Point<f64, Logical>,
     now: std::time::Duration,
 ) -> bool {
-    let Some(geometry) = session.wayland.space.output_geometry(output) else {
-        return false;
-    };
-    let local = position - geometry.loc.to_f64();
-    session.wayland.space.elements().any(|window| {
-        if !crate::wayland::window_is_on_output(window, output, session.driver.primary_output()) {
-            return false;
-        }
-        let Some(surface) = window.wl_surface() else {
-            return false;
-        };
-        if session
-            .fullscreen
-            .presentation(surface.as_ref(), output, now)
-            .is_none()
-            && session
-                .maximize
-                .presentation(surface.as_ref(), output, geometry, now)
-                .is_none()
-            && crate::wayland::window_presentation_owner(window).is_none()
-        {
-            return false;
-        }
-        let Some(visual) = crate::presentation::window::window_visual_state(
-            crate::presentation::window::WindowVisualContext {
-                space: &session.wayland.space,
-                cameras: &session.cameras,
-                clusters: Some(&session.clusters),
-                nodes: Some(&session.nodes),
-                output,
-                window_animations: &session.window_animations,
-                fullscreen: &session.fullscreen,
-                maximize: &session.maximize,
-                decorations: &session.settings.decorations,
-                font: &session.settings.font,
-                now,
-            },
-            window,
-        ) else {
-            return false;
-        };
-        let rect = visual.animated_rect.to_logical(1);
-        let rect = if visual.fullscreen.is_none() {
-            crate::titlebar::outer_rect_for_client(
-                window,
-                rect,
-                &session.settings.decorations,
-                &session.settings.font,
-            )
-        } else {
-            rect
-        };
-        visual.above_field_landmarks && visual.opening_alpha > 0.01 && rect.to_f64().contains(local)
-    })
+    crate::presentation::window::WindowVisualContext {
+        space: &session.wayland.space,
+        cameras: &session.cameras,
+        clusters: Some(&session.clusters),
+        nodes: Some(&session.nodes),
+        output,
+        window_animations: &session.window_animations,
+        fullscreen: &session.fullscreen,
+        maximize: &session.maximize,
+        decorations: &session.settings.decorations,
+        font: &session.settings.font,
+        now,
+    }
+    .covers_field_point(session.driver.primary_output(), position)
 }
 
 fn route_client_at<D: SessionDriver>(
