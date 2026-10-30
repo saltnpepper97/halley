@@ -1,0 +1,47 @@
+name: XWayland
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  nested:
+    name: Headless XWayland regressions
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: xwayland
+      - name: Install headless graphics stack
+        run: |
+          sudo apt-get install --no-install-recommends -y \
+            weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core
+      - name: Run nested XWayland tests on software rendering
+        run: dbus-run-session -- bash .github/scripts/test-xwayland.sh
+      - name: Save compositor and test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xwayland-diagnostics
+          path: target/ci-xwayland/
+          if-no-files-found: ignore
+          retention-days: 7

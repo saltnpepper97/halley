@@ -2,8 +2,11 @@
 
 ## Continuous integration
 
-[GitHub Actions](../.github/workflows/ci.yml) runs on pull requests, pushes to
-`main` and `dev`, and manual dispatch. Each job uses a fresh GitHub-hosted VM.
+Three GitHub Actions workflows run on pull requests, pushes to `main` and `dev`,
+and manual dispatch: [Rust](../.github/workflows/rust.yml),
+[Nix](../.github/workflows/nix.yml), and
+[XWayland](../.github/workflows/xwayland.yml).
+Each job uses a fresh GitHub-hosted VM.
 The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
 
 The checks cover:
@@ -16,6 +19,10 @@ The checks cover:
   desktop feature set.
 - `nix flake check` on native x86_64 and aarch64 runners, including the package,
   its workspace tests, installed resources and NixOS module assertions.
+- Seven nested XWayland regressions covering disconnect cleanup, dialog focus
+  and stacking, offscreen pointer capture, fullscreen repainting and geometry,
+  and minimize/remap. They run sequentially under headless Weston and Mesa
+  llvmpipe, on a private D-Bus session, without a physical display or GPU.
 
 Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
 lock-file updates. Rust checks use Rust 1.97.1, matching the current development
@@ -44,11 +51,25 @@ dinit (put Cargo flags before Clippy's `-- -D warnings`). On Ubuntu 26.04,
 the native build and test packages. On a Nix-enabled host, run
 `nix flake check --no-update-lock-file --print-build-logs`.
 
-CI runs the non-ignored tests. Display-dependent tests and subprocess helpers
-remain ignored unless explicitly invoked by their fixtures. Nested graphical
-tests below need a Wayland session, EGL and their listed tools; physical GPU,
-DRM/KMS, multi-monitor and real-application behavior still need separate live
-testing. The workflow does not publish or install Halley on your machine.
+Rust and Nix run the non-ignored tests. XWayland explicitly selects seven ignored
+tests; other display-dependent tests and subprocess helpers remain ignored
+unless invoked by their fixtures. To reproduce the headless suite on Ubuntu
+26.04, install `weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core`
+alongside the build dependencies, select Rust 1.97.1, then run:
+
+```sh
+dbus-run-session -- bash .github/scripts/test-xwayland.sh
+```
+
+The script checks that every selected test exists, discovers the private server
+executable through Cargo, and owns its temporary Weston process and sockets.
+On failure, CI retains Weston logs, test output and failed fixture directories
+as `xwayland-diagnostics` for seven days.
+
+The remaining nested tests below need a Wayland session, EGL and their listed
+tools. Physical GPU, DRM/KMS, multi-monitor and real-application behavior still
+need separate live testing. These workflows do not publish or install Halley on
+your machine.
 
 ## Orca accessibility
 

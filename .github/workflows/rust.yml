@@ -1,4 +1,4 @@
-name: CI
+name: Rust
 
 on:
   pull_request:
@@ -96,23 +96,3 @@ jobs:
           target/release/halley --version
           target/release/halleyctl --help
           test -x target/release/xdg-desktop-portal-halley
-
-  nix:
-    name: Nix (${{ matrix.system }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - system: x86_64-linux
-            runner: ubuntu-26.04
-          - system: aarch64-linux
-            runner: ubuntu-26.04-arm
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      - name: Check package, workspace tests, and NixOS module
-        run: nix flake check --no-update-lock-file --print-build-logs
