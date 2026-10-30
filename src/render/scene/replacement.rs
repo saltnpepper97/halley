@@ -94,54 +94,14 @@ pub(super) fn cluster_composer(
     )?;
     elements.splice(0..0, naming);
 
-    let mut overlay_elements = crate::render::overlays::shell::elements(
-        renderer,
-        output_geometry,
-        overlay_snapshot,
-        request.overlays.overlay_config,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-    )?;
-    append_compositor_overlay_blur(
+    chrome::prepend_common_overlays(
         renderer,
         output,
-        OverlayEffectStyle {
-            output_size: output_geometry.size,
-            identity: "shell-overlay",
-            blur: request.visuals.blur,
-            shadow: request.visuals.shadows.overlay,
-        },
-        request.resources.backdrop_blur_renderer,
-        request.resources.shadow_renderer,
-        &mut overlay_elements,
+        output_geometry,
+        request,
+        overlay_snapshot,
+        &mut elements,
     )?;
-    elements.splice(0..0, overlay_elements);
-    if request.visuals.debug.overlay_fps {
-        let mut fps_elements = crate::render::overlays::fps::elements(
-            renderer,
-            &output.name(),
-            request.frame.target_presentation_time,
-            request.resources.debug_fps_overlay,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "debug-fps",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut fps_elements,
-        )?;
-        elements.splice(0..0, fps_elements);
-    }
     prepend_pointer_elements(
         renderer,
         output,
@@ -211,54 +171,14 @@ pub(super) fn apogee(
         },
         &mut elements,
     );
-    let mut overlay_elements = crate::render::overlays::shell::elements(
-        renderer,
-        output_geometry,
-        overlay_snapshot,
-        request.overlays.overlay_config,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-    )?;
-    append_compositor_overlay_blur(
+    chrome::prepend_common_overlays(
         renderer,
         output,
-        OverlayEffectStyle {
-            output_size: output_geometry.size,
-            identity: "shell-overlay",
-            blur: request.visuals.blur,
-            shadow: request.visuals.shadows.overlay,
-        },
-        request.resources.backdrop_blur_renderer,
-        request.resources.shadow_renderer,
-        &mut overlay_elements,
+        output_geometry,
+        request,
+        overlay_snapshot,
+        &mut elements,
     )?;
-    elements.splice(0..0, overlay_elements);
-    if request.visuals.debug.overlay_fps {
-        let mut fps_elements = crate::render::overlays::fps::elements(
-            renderer,
-            &output.name(),
-            request.frame.target_presentation_time,
-            request.resources.debug_fps_overlay,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "debug-fps",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut fps_elements,
-        )?;
-        elements.splice(0..0, fps_elements);
-    }
     prepend_pointer_elements(
         renderer,
         output,
