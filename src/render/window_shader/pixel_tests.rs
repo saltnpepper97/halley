@@ -247,6 +247,93 @@ fn pixels(
 
 #[test]
 #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+fn titlebar_and_content_join_has_no_backdrop_seam() {
+    use crate::render::window_decoration::{CornerRadii, WindowDecorationRenderer};
+
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+    let context = EGLContext::new(&display).unwrap();
+    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+    let size: Size<i32, Physical> = (64, 64).into();
+    let mut target = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+        &mut renderer,
+        Fourcc::Abgr8888,
+        size.to_logical(1).to_buffer(1, Transform::Normal),
+    )
+    .unwrap();
+    let title = Rectangle::new((8, 8).into(), (48, 12).into());
+    let content = Rectangle::new((8, 20).into(), (48, 36).into());
+    let mut decorations = WindowDecorationRenderer::default();
+    let mut effects = BackdropBlurRenderer::default();
+
+    for blurred in [false, true] {
+        effects.begin_scene("titlebar-join");
+        let mut scene = vec![
+            SceneElement::RoundedTexture(
+                decorations
+                    .tint_element_with_radii(
+                        &mut renderer,
+                        Id::new(),
+                        title,
+                        CornerRadii::top(8.0),
+                        Color32F::new(0.0, 0.8, 0.0, 1.0),
+                        1.0,
+                    )
+                    .unwrap(),
+            ),
+            SceneElement::RoundedTexture(
+                decorations
+                    .tint_element_with_radii(
+                        &mut renderer,
+                        Id::new(),
+                        content,
+                        CornerRadii::bottom(8.0),
+                        Color32F::new(0.0, 0.0, 0.8, 1.0),
+                        0.9,
+                    )
+                    .unwrap(),
+            ),
+        ];
+        if blurred {
+            scene.push(SceneElement::BackdropBlur(
+                effects
+                    .blur_element(
+                        &mut renderer,
+                        "titlebar-join",
+                        BlurIdentity::Overlay("join"),
+                        size.to_logical(1),
+                        vec![BlurPatch {
+                            rect: content,
+                            radius: 0.0,
+                            alpha: 0.9,
+                            clip: Some((content, CornerRadii::bottom(8.0))),
+                        }],
+                        halley_config::Blur {
+                            noise: 0.0,
+                            ..Default::default()
+                        },
+                        0,
+                        Transform::Normal,
+                    )
+                    .unwrap()
+                    .unwrap(),
+            ));
+        }
+        scene.push(solid(
+            Rectangle::from_size(size),
+            Color32F::new(0.8, 0.1, 0.1, 1.0),
+            0,
+        ));
+        let image = pixels(&mut renderer, &mut target, size, Transform::Normal, &scene);
+        let at = |x: usize, y: usize| &image[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
+        assert_eq!(at(32, 19), at(32, 18), "titlebar edge, blur={blurred}");
+        assert_eq!(at(32, 20), at(32, 21), "content edge, blur={blurred}");
+        assert_ne!(at(8, 8), at(32, 8), "top corner must remain rounded");
+        assert_ne!(at(8, 55), at(32, 55), "bottom corner must remain rounded");
+    }
+}
+
+#[test]
+#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
 fn opening_endpoint_matches_live_blur_shadow_chrome_and_opacity() {
     let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
     let context = EGLContext::new(&display).unwrap();

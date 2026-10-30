@@ -196,6 +196,13 @@ uniform vec4 content_color;
 // invisible while the radius stays large - a radius animating to zero, as the
 // fullscreen transition does, dims the entire window just before it lands.
 float rounded_alpha(vec2 coords, vec2 size, vec2 radii) {
+    // A square edge paired with rounded corners on the opposite edge joins
+    // titlebar and content. Do not fade that shared edge into the backdrop.
+    if (radii.x == 0.0 && radii.y > 0.0) {
+        coords.y = max(coords.y, 0.75);
+    } else if (radii.y == 0.0 && radii.x > 0.0) {
+        coords.y = min(coords.y, size.y - 0.75);
+    }
     float radius = coords.y < size.y * 0.5 ? radii.x : radii.y;
     radius = clamp(radius, 0.0, min(size.x, size.y) * 0.5);
     vec2 half_size = size * 0.5;
