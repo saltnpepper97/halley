@@ -337,9 +337,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         session_lock,
         start_time: Instant::now(),
         wayland_display: None,
-        config_path: config_path.clone(),
-        config_watcher: None,
-        startup_config_diagnostic: initial.diagnostic,
+        config_source: super::config_source::ConfigSource::new(
+            config_path.clone(),
+            initial.diagnostic,
+        ),
         shell: crate::shell::state::ShellState::new(&runtime_config),
         settings: super::RuntimeSettings::new_with_color_scheme(
             &runtime_config,
@@ -447,7 +448,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     }
     if let Some(path) = config_path {
         match crate::config::watch(&event_loop.handle(), path, apply_runtime_config) {
-            Ok(watcher) => app.config_watcher = Some(watcher),
+            Ok(watcher) => app.config_source.set_watcher(watcher),
             Err(err) => eventline::warn!("config: failed to start watcher: {err}"),
         }
     }
@@ -684,8 +685,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             shadows: app.settings.effects.shadows,
                             background: &app.settings.background,
                             background_base: app
-                                .config_path
-                                .as_deref()
+                                .config_source
+                                .path()
                                 .and_then(std::path::Path::parent),
                         },
                         resources: crate::render::resources::RenderResources::from(&mut app.render),

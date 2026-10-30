@@ -21,6 +21,8 @@ pub(crate) mod closing;
 mod cluster_runtime;
 #[path = "protocol/commit_timing.rs"]
 mod commit_timing;
+#[path = "startup/config_source.rs"]
+mod config_source;
 #[path = "input/cursor.rs"]
 mod cursor;
 #[path = "onboarding/decay_notice.rs"]

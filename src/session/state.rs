@@ -1,5 +1,4 @@
 use std::ffi::OsStr;
-use std::path::PathBuf;
 
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufSource};
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -126,9 +125,7 @@ pub struct Session<D: SessionDriver> {
     pub session_lock: crate::wayland::session_lock::State,
     pub start_time: std::time::Instant,
     pub(crate) wayland_display: Option<std::ffi::OsString>,
-    pub config_path: Option<PathBuf>,
-    pub(crate) config_watcher: Option<crate::config::ConfigWatcher>,
-    pub startup_config_diagnostic: Option<halley_config::ConfigDiagnostic>,
+    pub(crate) config_source: super::config_source::ConfigSource,
     pub shell: crate::shell::state::ShellState,
     pub settings: super::RuntimeSettings,
     pub nodes: crate::nodes::NodesState,
@@ -211,13 +208,13 @@ impl<D: SessionDriver> Session<D> {
     pub fn initialize_config_notification(&mut self) {
         let now = crate::frame_clock::monotonic_now();
         let output = self.notification_output_name();
-        if self.startup_config_diagnostic.take().is_some() {
+        if self.config_source.take_startup_error() {
             self.shell.overlays.show_config_error(
                 output,
                 self.settings.overlays.notifications.error_duration_ms,
                 now,
             );
-        } else if let Some(path) = self.config_path.as_deref() {
+        } else if let Some(path) = self.config_source.path() {
             self.shell.overlays.show_config_success(
                 output,
                 path,
@@ -303,7 +300,7 @@ impl<D: SessionDriver> Session<D> {
     /// native session can offer the one-time basics card. Existing configs and
     /// explicitly selected paths never reach this path.
     pub fn record_fresh_config(&mut self, fresh: bool) {
-        let Some(config_path) = self.config_path.clone() else {
+        let Some(config_path) = self.config_source.path().map(std::path::Path::to_path_buf) else {
             return;
         };
         if fresh {

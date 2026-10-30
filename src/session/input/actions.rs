@@ -489,9 +489,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
             focus_output_target(session, target)
         }
         super::dispatch::SessionControl::Reload => {
-            if let Some(watcher) = session.config_watcher.as_ref() {
-                watcher.request_reload();
-            } else {
+            if !session.config_source.request_reload() {
                 eventline::warn!("config: manual reload requested without a watched file");
             }
         }
