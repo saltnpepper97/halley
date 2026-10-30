@@ -37,6 +37,18 @@ state do not share implementation files.
   button, wheel, keyboard, and configured action handling live in separate
   modules. Button ownership and suppressed releases stay with the interaction
   that claimed the press; client grabs retain their forwarding path.
+  Field and cluster hit testing lives in `session::input::hit_test`; cluster
+  activation, creation, and bloom coordination live in `cluster_interaction`.
+- `session::cluster_runtime` reconciles cluster state with live surfaces and
+  outputs. `session::window_presentation` coordinates fullscreen and maximize
+  handoffs, while `session::node_controls` owns focused-node pin controls.
+- Cluster activation, window presentation, and workspace dragging are grouped
+  in their respective `clusters` modules. Capture request setup lives in
+  `capture::requests`; the Wayland output-control protocols are grouped under
+  `wayland::output_protocols`.
+- Fullscreen request handling separates native and external clients, while
+  their transaction helpers live alongside shared presentation state. Scene
+  entry points apply capture privacy and output scaling before assembly.
 - `animation` owns pure timelines. Rendering consumes animation output but
   animation code does not know about GLES or backends.
 - `halley-cli` separates command parsing, help, response presentation,
@@ -65,9 +77,10 @@ a category below 8.
 
 The scores are deliberately close to the threshold rather than aspirational.
 Smithay protocol handlers still require the complete session type, and the
-remaining large orchestration files are `session/input.rs`,
-`wayland/fullscreen.rs`, `clusters/mod.rs`, `render/scene.rs`, and the TTY
-session/backend drivers. Pointer button and motion handling remain substantial
+remaining large orchestration files include `session/input.rs`,
+`session/mod.rs`, `render/scene.rs`, and the TTY session/backend drivers.
+The scene assembler in particular is still a long function and needs careful
+work to separate its ordered rendering stages without changing their behavior. Pointer button and motion handling remain substantial
 within their respective input modules. Future feature work should add narrow
 policy or transaction objects instead of growing those assemblers in place.
 

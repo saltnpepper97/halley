@@ -17,6 +17,7 @@ pub mod fullscreen;
 pub mod idle_inhibit;
 mod ime_clients;
 pub mod layer_shell;
+mod output_protocols;
 pub mod permissions;
 pub mod popup;
 pub mod presentation;
@@ -26,9 +27,7 @@ pub mod session_lock;
 mod surface_scale;
 pub mod text_input;
 mod virtual_keyboard;
-pub mod wlr_gamma_control;
-pub mod wlr_output_management;
-pub mod wlr_output_power;
+pub use output_protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
 pub mod wlr_screencopy;
 pub mod xdg_shell;
 
