@@ -1,8 +1,12 @@
 mod external;
+mod external_state;
 mod native;
+mod native_state;
 mod presentation;
 mod state;
 
+use external_state::*;
+use native_state::*;
 use state::*;
 
 use std::collections::HashMap;
