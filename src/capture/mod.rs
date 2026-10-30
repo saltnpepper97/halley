@@ -1,3 +1,5 @@
+mod jobs;
+pub(crate) use jobs::ScreenshotJobs;
 mod requests;
 pub use requests::*;
 pub mod encoder;
@@ -1007,27 +1009,14 @@ fn queue_capture<D: SessionDriver>(
     captured: Result<screenshot::CapturedImage, Box<dyn std::error::Error>>,
     reply: PendingCaptureReply,
 ) {
-    let submitted =
-        captured.and_then(|image| {
+    match captured {
+        Ok(image) => {
             let directory = screenshot_directory(&session.settings.screenshot.directory);
-            let encoder = session.screenshot_encoder.as_mut().ok_or_else(
-                || -> Box<dyn std::error::Error> { "screenshot encoder is not running".into() },
-            )?;
-            encoder
-                .submit(
-                    directory,
-                    image.width,
-                    image.height,
-                    image.pixels,
-                    matches!(&reply, PendingCaptureReply::Local { .. }),
-                )
-                .map_err(|err| -> Box<dyn std::error::Error> { err.into() })
-        });
-    match submitted {
-        Ok(id) => {
-            session.pending_captures.insert(id, reply);
+            if let Err((reply, error)) = session.screenshot_jobs.submit(directory, image, reply) {
+                finish_capture_reply(session, reply, Err(error));
+            }
         }
-        Err(err) => finish_capture_reply(session, reply, Err(err.to_string())),
+        Err(error) => finish_capture_reply(session, reply, Err(error.to_string())),
     }
 }
 
@@ -1080,7 +1069,7 @@ pub fn finish_encode<D: SessionDriver>(
     session: &mut Session<D>,
     done: crate::capture::encoder::EncodeDone,
 ) {
-    let Some(reply) = session.pending_captures.remove(&done.id) else {
+    let Some(reply) = session.screenshot_jobs.take_reply(done.id) else {
         eventline::warn!("screenshot: completion for unknown job {}", done.id);
         return;
     };

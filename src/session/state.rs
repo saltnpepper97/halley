@@ -169,9 +169,7 @@ pub struct Session<D: SessionDriver> {
         crate::window::recovery::PresentationCloseSizeRecovery,
     pub cameras: OutputCameras,
     pub capture: crate::capture::CaptureState,
-    /// Screenshots waiting on the encoder worker, keyed by job id.
-    pub pending_captures: std::collections::HashMap<u64, crate::capture::PendingCaptureReply>,
-    pub screenshot_encoder: Option<crate::capture::encoder::ScreenshotEncoder>,
+    pub(crate) screenshot_jobs: crate::capture::ScreenshotJobs,
     pub screencast: crate::capture::screencast::ScreencastState,
     pub interactions: super::InteractionState,
     pub(super) touch: super::touch::TouchState,

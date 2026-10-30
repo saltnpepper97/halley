@@ -362,8 +362,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::window::recovery::PresentationCloseSizeRecovery::default(),
         cameras,
         capture: crate::capture::CaptureState::default(),
-        pending_captures: std::collections::HashMap::new(),
-        screenshot_encoder: None,
+        screenshot_jobs: crate::capture::ScreenshotJobs::default(),
         screencast: crate::capture::screencast::ScreencastState::default(),
         interactions: super::InteractionState::default(),
         touch: super::touch::TouchState::default(),
@@ -444,7 +443,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         &event_loop.handle(),
         |app: &mut App, done| crate::capture::finish_encode(app, done),
     ) {
-        Ok(encoder) => app.screenshot_encoder = Some(encoder),
+        Ok(encoder) => app.screenshot_jobs.set_encoder(encoder),
         Err(err) => eventline::error!("screenshot: failed to start encoder: {err}"),
     }
     if let Some(path) = config_path {
