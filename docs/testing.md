@@ -11,7 +11,7 @@ The checks cover:
 - Rust formatting and GitHub Actions workflow linting.
 - Strict Clippy across the workspace, all targets and all features, plus Rustdoc
   with warnings treated as errors.
-- Workspace tests, checks for every target, release builds and binary smoke
+- Workspace tests, strict Clippy for every target, release builds and binary smoke
   tests with default features, no default features, and the documented dinit
   desktop feature set.
 - `nix flake check` on native x86_64 and aarch64 runners, including the package,
@@ -31,13 +31,14 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
 cargo test --locked --workspace
-cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --release --workspace
 ```
 
 Repeat the last three commands with `--no-default-features` for the minimal
 build, or with `--no-default-features --features dbus,dinit,xwayland,winit` for
-dinit. On Ubuntu 26.04, `bash .github/scripts/install-dependencies.sh` installs
+dinit (put Cargo flags before Clippy's `-- -D warnings`). On Ubuntu 26.04,
+`bash .github/scripts/install-dependencies.sh` installs
 the native build and test packages. On a Nix-enabled host, run
 `nix flake check --no-update-lock-file --print-build-logs`.
 

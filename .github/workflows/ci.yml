@@ -78,12 +78,12 @@ jobs:
         run: |
           read -r -a cargo_args <<< "$CARGO_ARGS"
           cargo test --locked --workspace "${cargo_args[@]}"
-      - name: Check every target
+      - name: Lint every target with this feature set
         env:
           CARGO_ARGS: ${{ matrix.cargo-args }}
         run: |
           read -r -a cargo_args <<< "$CARGO_ARGS"
-          cargo check --locked --workspace --all-targets "${cargo_args[@]}"
+          cargo clippy --locked --workspace --all-targets "${cargo_args[@]}" -- -D warnings
       - name: Build release binaries
         env:
           CARGO_ARGS: ${{ matrix.cargo-args }}
