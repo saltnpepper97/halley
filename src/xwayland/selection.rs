@@ -119,10 +119,10 @@ impl<D: SessionDriver> super::State<D> {
         target: SelectionTarget,
         mime_types: Option<Vec<String>>,
     ) {
-        if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.new_selection(target, mime_types) {
-                eventline::warn!("xwayland: failed to update {target:?} selection: {err}");
-            }
+        if let Some(xwm) = self.xwm.as_mut()
+            && let Err(err) = xwm.new_selection(target, mime_types)
+        {
+            eventline::warn!("xwayland: failed to update {target:?} selection: {err}");
         }
     }
 
@@ -133,10 +133,10 @@ impl<D: SessionDriver> super::State<D> {
         mime_type: String,
         fd: OwnedFd,
     ) {
-        if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.send_selection(target, mime_type, fd) {
-                eventline::warn!("xwayland: failed to request {target:?} selection: {err}");
-            }
+        if let Some(xwm) = self.xwm.as_mut()
+            && let Err(err) = xwm.send_selection(target, mime_type, fd)
+        {
+            eventline::warn!("xwayland: failed to request {target:?} selection: {err}");
         }
     }
 }

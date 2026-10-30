@@ -352,17 +352,17 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
     let mut matches_any = Vec::new();
     let mut excludes = Vec::new();
     for item in fields {
-        if let ObjectItem::Assign(key, value) = item {
-            if key == "match" || key == "exclude" {
-                let Value::Object(group) = value else {
-                    return Err(WindowRuleParseError(format!("{key} must be an object")));
-                };
-                let matcher = parse_matcher(group)?;
-                if key == "match" {
-                    matches_any.push(matcher);
-                } else {
-                    excludes.push(matcher);
-                }
+        if let ObjectItem::Assign(key, value) = item
+            && (key == "match" || key == "exclude")
+        {
+            let Value::Object(group) = value else {
+                return Err(WindowRuleParseError(format!("{key} must be an object")));
+            };
+            let matcher = parse_matcher(group)?;
+            if key == "match" {
+                matches_any.push(matcher);
+            } else {
+                excludes.push(matcher);
             }
         }
     }

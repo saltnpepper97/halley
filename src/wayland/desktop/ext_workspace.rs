@@ -1089,7 +1089,7 @@ mod tests {
     #[test]
     fn dead_targets_are_discarded() {
         let owners = owners(&[(1, "DP-1")]);
-        let active = vec![("DP-1".to_string(), None)];
+        let active = [("DP-1".to_string(), None)];
 
         let plan = reduce_transaction(
             &[

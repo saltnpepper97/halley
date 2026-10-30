@@ -884,12 +884,12 @@ fn constrain_relative_motion(
         } else {
             None
         };
-        if let Some((time, gap, landing)) = crossing {
-            if best.as_ref().is_none_or(|(best_time, best_gap, _, _)| {
+        if let Some((time, gap, landing)) = crossing
+            && best.as_ref().is_none_or(|(best_time, best_gap, _, _)| {
                 time < *best_time || (time == *best_time && gap < *best_gap)
-            }) {
-                best = Some((time, gap, landing, *output));
-            }
+            })
+        {
+            best = Some((time, gap, landing, *output));
         }
     }
     best.map_or_else(

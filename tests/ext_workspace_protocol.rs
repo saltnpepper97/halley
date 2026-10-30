@@ -1051,7 +1051,7 @@ fn an_unmapped_output_retires_the_group_then_its_workspaces() {
         "a returned output must not revive stale handles"
     );
     assert!(
-        f.state.descriptions("group_workspace_enter=").len() >= 1,
+        !f.state.descriptions("group_workspace_enter=").is_empty(),
         "the returned workspace is claimed by the new group: {:?}",
         f.events()
     );

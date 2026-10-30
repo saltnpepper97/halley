@@ -170,12 +170,12 @@ fn x11_lock_state_survives_keyboard_reload() {
         tap(&input, 30);
         wait_for("X11 letter and lock flags", || {
             while let Some(event) = connection.poll_for_event().unwrap() {
-                if let Event::KeyPress(event) = event {
-                    if event.detail == 38 {
-                        return Some(
-                            u16::from(event.state & (KeyButMask::LOCK | KeyButMask::MOD2)) as u64,
-                        );
-                    }
+                if let Event::KeyPress(event) = event
+                    && event.detail == 38
+                {
+                    return Some(
+                        u16::from(event.state & (KeyButMask::LOCK | KeyButMask::MOD2)) as u64,
+                    );
                 }
             }
             None

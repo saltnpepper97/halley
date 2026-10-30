@@ -213,7 +213,7 @@ fn scenario(x11_source: bool, game: bool, owner: &str, second: bool) {
         .find(|o| o.name == output_name)
         .unwrap();
     let mode = output.modes[output.current_mode.unwrap()];
-    let full_size = (mode.width as i32, mode.height as i32);
+    let full_size = (mode.width, mode.height);
     if let Some((connection, window)) = &x11 {
         let atom = |name: &[u8]| {
             connection

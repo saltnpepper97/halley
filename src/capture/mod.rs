@@ -957,17 +957,15 @@ pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
             height,
             ..
         } = &mut source
-        {
-            if let Some(output) = session
+            && let Some(output) = session
                 .wayland
                 .space
                 .outputs()
                 .find(|output| output.name() == *name)
-            {
-                let size = crate::render::output_physical_size(output);
-                *width = size.w;
-                *height = size.h;
-            }
+        {
+            let size = crate::render::output_physical_size(output);
+            *width = size.w;
+            *height = size.h;
         }
         if let PendingCapture::Source { reply, .. } = accepted.pending {
             let _ = reply.send(

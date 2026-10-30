@@ -276,6 +276,89 @@ impl NodesState {
     }
 }
 
+impl NodesState {
+    /// Exact placement validates only the requested endpoint, without searching
+    /// nearby coordinates (which would silently change an exact request).
+    pub(super) fn exact_position_is_free(
+        &self,
+        id: NodeId,
+        desired: Point<i32, Logical>,
+        scale: f32,
+        cores: &[Vec2],
+        chrome: PlacementContext<'_>,
+    ) -> bool {
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let scale = scale.max(0.05);
+        let clearance = (NODE_DIAMETER_PX * 0.5 + self.landmarks.gap_px) / scale;
+        let nodes = self.movement_landmarks(id, &record.output, cores);
+        if record.collapsed {
+            let point = Vec2 {
+                x: desired.x as f32,
+                y: desired.y as f32,
+            };
+            let spacing = (NODE_DIAMETER_PX + self.landmarks.gap_px) / scale;
+            if point.x as i64 != i64::from(desired.x)
+                || point.y as i64 != i64::from(desired.y)
+                || [point.x, point.y].into_iter().any(|value| {
+                    f64::from(value) - f64::from(spacing) < f64::from(i32::MIN)
+                        || f64::from(value) + f64::from(spacing) > f64::from(i32::MAX)
+                })
+            {
+                return false;
+            }
+            nodes.iter().all(|other| {
+                let dx = point.x - other.x;
+                let dy = point.y - other.y;
+                dx * dx + dy * dy >= spacing * spacing
+            }) && self
+                .records
+                .values()
+                .filter(|other| {
+                    other.id != id
+                        && other.attached
+                        && !other.collapsed
+                        && other.output == record.output
+                        && chrome.includes_window(&other.surface)
+                })
+                .all(|other| {
+                    !super::circle_intersects_rect(
+                        point,
+                        clearance,
+                        crate::titlebar::outer_rect_for_client(
+                            &other.window,
+                            other.geometry,
+                            chrome.decorations,
+                            chrome.font,
+                        ),
+                    )
+                })
+        } else {
+            let (left, right, top, bottom) =
+                crate::titlebar::frame_extents(&record.window, chrome.decorations, chrome.font);
+            let x = i64::from(desired.x);
+            let y = i64::from(desired.y);
+            if x - i64::from(left) < i64::from(i32::MIN)
+                || y - i64::from(top) < i64::from(i32::MIN)
+                || x + i64::from(record.geometry.size.w) + i64::from(right) > i64::from(i32::MAX)
+                || y + i64::from(record.geometry.size.h) + i64::from(bottom) > i64::from(i32::MAX)
+            {
+                return false;
+            }
+            let outer = crate::titlebar::outer_rect_for_client(
+                &record.window,
+                Rectangle::new(desired, record.geometry.size),
+                chrome.decorations,
+                chrome.font,
+            );
+            nodes
+                .iter()
+                .all(|node| !super::circle_intersects_rect(*node, clearance, outer))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,89 +529,6 @@ mod tests {
             if delta.1 > 0 {
                 assert_eq!(moved.loc.y, i32::MAX - client.size.h);
             }
-        }
-    }
-}
-
-impl NodesState {
-    /// Exact placement validates only the requested endpoint, without searching
-    /// nearby coordinates (which would silently change an exact request).
-    pub(super) fn exact_position_is_free(
-        &self,
-        id: NodeId,
-        desired: Point<i32, Logical>,
-        scale: f32,
-        cores: &[Vec2],
-        chrome: PlacementContext<'_>,
-    ) -> bool {
-        let Some(record) = self.record(id) else {
-            return false;
-        };
-        let scale = scale.max(0.05);
-        let clearance = (NODE_DIAMETER_PX * 0.5 + self.landmarks.gap_px) / scale;
-        let nodes = self.movement_landmarks(id, &record.output, cores);
-        if record.collapsed {
-            let point = Vec2 {
-                x: desired.x as f32,
-                y: desired.y as f32,
-            };
-            let spacing = (NODE_DIAMETER_PX + self.landmarks.gap_px) / scale;
-            if point.x as i64 != i64::from(desired.x)
-                || point.y as i64 != i64::from(desired.y)
-                || [point.x, point.y].into_iter().any(|value| {
-                    f64::from(value) - f64::from(spacing) < f64::from(i32::MIN)
-                        || f64::from(value) + f64::from(spacing) > f64::from(i32::MAX)
-                })
-            {
-                return false;
-            }
-            nodes.iter().all(|other| {
-                let dx = point.x - other.x;
-                let dy = point.y - other.y;
-                dx * dx + dy * dy >= spacing * spacing
-            }) && self
-                .records
-                .values()
-                .filter(|other| {
-                    other.id != id
-                        && other.attached
-                        && !other.collapsed
-                        && other.output == record.output
-                        && chrome.includes_window(&other.surface)
-                })
-                .all(|other| {
-                    !super::circle_intersects_rect(
-                        point,
-                        clearance,
-                        crate::titlebar::outer_rect_for_client(
-                            &other.window,
-                            other.geometry,
-                            chrome.decorations,
-                            chrome.font,
-                        ),
-                    )
-                })
-        } else {
-            let (left, right, top, bottom) =
-                crate::titlebar::frame_extents(&record.window, chrome.decorations, chrome.font);
-            let x = i64::from(desired.x);
-            let y = i64::from(desired.y);
-            if x - i64::from(left) < i64::from(i32::MIN)
-                || y - i64::from(top) < i64::from(i32::MIN)
-                || x + i64::from(record.geometry.size.w) + i64::from(right) > i64::from(i32::MAX)
-                || y + i64::from(record.geometry.size.h) + i64::from(bottom) > i64::from(i32::MAX)
-            {
-                return false;
-            }
-            let outer = crate::titlebar::outer_rect_for_client(
-                &record.window,
-                Rectangle::new(desired, record.geometry.size),
-                chrome.decorations,
-                chrome.font,
-            );
-            nodes
-                .iter()
-                .all(|node| !super::circle_intersects_rect(*node, clearance, outer))
         }
     }
 }

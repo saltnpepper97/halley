@@ -744,7 +744,7 @@ pub(crate) fn capture_cursor_surface_tree(
         .into_iter()
         .map(|element| {
             crate::render::display_scale::element(
-                crate::render::scene::SceneElement::Cursor(element.into()),
+                crate::render::scene::SceneElement::Cursor(element),
                 scale,
                 true,
             )
