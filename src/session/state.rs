@@ -658,7 +658,8 @@ impl<D: SessionDriver> Session<D> {
             changed |= before.opacity != after.opacity
                 || before.blur != after.blur
                 || before.shadow != after.shadow
-                || before.corner_radius != after.corner_radius;
+                || before.corner_radius != after.corner_radius
+                || before.border != after.border;
         }
         changed
     }

@@ -75,6 +75,7 @@ pub struct WindowRule {
     pub initial_size: (Option<u32>, Option<u32>),
     pub opacity: Option<f32>,
     pub shadow: Option<bool>,
+    pub border: Option<bool>,
     pub corner_radius: Option<i32>,
     pub blur: Option<bool>,
     pub block_screencast: Option<bool>,
@@ -285,6 +286,7 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
                 | "height"
                 | "opacity"
                 | "shadow"
+                | "border"
                 | "corner-radius"
                 | "blur"
                 | "block-screencast"
@@ -435,6 +437,9 @@ fn parse_rule(fields: &[ObjectItem]) -> Result<WindowRule, WindowRuleParseError>
         titles,
         initial_size,
         opacity,
+        border: field(fields, &["border"])
+            .map(|v| boolean(v, "border"))
+            .transpose()?,
         corner_radius: field(fields, &["corner-radius"])
             .map(parse_corner_radius)
             .transpose()?,

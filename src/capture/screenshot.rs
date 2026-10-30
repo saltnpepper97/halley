@@ -627,6 +627,9 @@ where
     let focused = window
         .wl_surface()
         .is_some_and(|surface| session.wayland.focused_window.as_ref() == Some(surface.as_ref()));
+    let draw_border = window
+        .wl_surface()
+        .is_none_or(|surface| session.window_rules.applied(surface.as_ref()).border != Some(false));
     let maximized = window
         .wl_surface()
         .is_some_and(|surface| session.maximize.contains(surface.as_ref()));
@@ -652,6 +655,7 @@ where
             focused,
             chrome_visible,
             maximized,
+            draw_border,
             &mut resources.titlebar_renderer,
             &mut resources.window_decoration_renderer,
             &mut resources.node_renderer,

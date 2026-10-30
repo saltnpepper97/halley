@@ -624,7 +624,11 @@ pub(super) fn live_window_elements(
 
     let is_focused = Some(window_surface.as_ref()) == context.focused;
     let border_color = crate::render::window_border_color(context.decorations, is_focused);
-    if managed && border_width > 0 && chrome_alpha > 0.0 {
+    if managed
+        && context.window_rules.applied(window_surface.as_ref()).border != Some(false)
+        && border_width > 0
+        && chrome_alpha > 0.0
+    {
         if rounded_available
             && let Some(border) = if server_titlebar {
                 window_decoration_renderer.body_border_element(
