@@ -847,7 +847,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 orca_supervisor =
                     crate::accessibility::start_configured_orca(app, &orca_wayland_display);
             }
-            app.launch.autostart.reap_finished();
+            app.launch.reap_finished();
             if !app.driver.pause_reasons.any() {
                 redraw_queued_outputs(app, &loop_handle);
             }
@@ -863,7 +863,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     eventline::info!("quit requested, exiting cleanly");
     #[cfg(feature = "dbus")]
     drop(orca_supervisor);
-    app.launch.autostart.shutdown();
+    app.launch.shutdown();
     super::environment::shutdown_session();
     app.idle_service.take();
     // Notifiers retain the DRM device. Release them before the backend drops

@@ -97,7 +97,7 @@ pub fn activate<D: SessionDriver>(session: &mut Session<D>, hit: Hit) {
                         display,
                         x11_display.as_deref(),
                         session.cursor.size(),
-                        &session.launch.environment,
+                        session.launch.environment(),
                     )
                 });
             match result {

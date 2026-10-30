@@ -321,7 +321,7 @@ impl<D: super::SessionDriver> super::Session<D> {
                 &wayland_display,
                 x11_display.as_deref(),
                 self.cursor.size(),
-                &self.launch.environment,
+                self.launch.environment(),
                 &[
                     ("XDG_ACTIVATION_TOKEN", token.as_str()),
                     (LAUNCH_ID_ENV, launch_id.as_str()),

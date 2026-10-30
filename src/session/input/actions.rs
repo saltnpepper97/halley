@@ -251,7 +251,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
             socket_name,
             x11_display: x11_display.as_deref(),
             cursor_size: session.cursor.size(),
-            environment: &session.launch.environment,
+            environment: session.launch.environment(),
         },
         camera,
         &session.settings.zoom,
