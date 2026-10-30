@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 - Add portal screencast privacy rules for windows and layer surfaces, plus a local indicator for directly shared windows.
 
+### Fixed
+- Keep the rest of a monitor visible when a screencast-blocked window uses backdrop blur.
+
 ### Added
 - Add isolated two-output Alt+Tab integration tests covering native and XWayland
   apps and game windows, client/compositor/overlapping fullscreen ownership,

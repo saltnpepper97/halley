@@ -22,6 +22,89 @@ const SIZE: (i32, i32) = (641, 481);
 /// Explicit before/after extraction check on the same renderer/font installation.
 /// Record before changing a renderer, then compare using the same baseline file.
 #[test]
+#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
+fn protected_blurred_window_does_not_black_out_the_background() {
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
+    let context = EGLContext::new(&display).unwrap();
+    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
+    let size = (128, 96);
+    let window = Rectangle::<i32, Physical>::new((32, 24).into(), (48, 40).into());
+    let mut blur_renderer = BackdropBlurRenderer::default();
+    blur_renderer.begin_scene("privacy-test");
+    let blur = blur_renderer
+        .blur_element(
+            &mut renderer,
+            "privacy-test",
+            crate::render::effects::backdrop_blur::BlurIdentity::Overlay("privacy-test"),
+            size.into(),
+            vec![crate::render::effects::backdrop_blur::BlurPatch {
+                rect: window,
+                radius: 0.0,
+                alpha: 1.0,
+                clip: None,
+            }],
+            halley_config::Blur::default(),
+            0,
+            Transform::Normal,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        blur.geometry(Scale::from(1.0)),
+        Rectangle::from_size(size.into())
+    );
+    let mut protected = vec![
+        SceneElement::Border(crate::render::solid_color_element(
+            Id::new(),
+            window,
+            Color32F::new(1.0, 0.0, 0.0, 1.0),
+        )),
+        SceneElement::BackdropBlur(blur),
+    ];
+    super::redact_elements(&mut protected);
+    let foreground = Rectangle::<i32, Physical>::new((40, 30).into(), (8, 8).into());
+    protected.insert(
+        0,
+        SceneElement::Border(crate::render::solid_color_element(
+            Id::new(),
+            foreground,
+            Color32F::new(0.0, 0.0, 1.0, 1.0),
+        )),
+    );
+    protected.push(SceneElement::Border(crate::render::solid_color_element(
+        Id::new(),
+        Rectangle::from_size(size.into()),
+        Color32F::new(0.0, 1.0, 0.0, 1.0),
+    )));
+    let mut target = renderer
+        .create_buffer(Fourcc::Abgr8888, size.into())
+        .unwrap();
+    let (pixels, _) = read_pixels(
+        &mut renderer,
+        &mut target,
+        &mut OutputDamageTracker::new(size, 1.0, Transform::Normal),
+        &protected,
+        0,
+    );
+    let pixel = |x: usize, y: usize| &pixels[(y * size.0 as usize + x) * 4..][..4];
+    assert_eq!(
+        pixel(4, 4),
+        &[0, 255, 0, 255],
+        "wallpaper outside the window must stay visible"
+    );
+    assert_eq!(
+        pixel(35, 27),
+        &[0, 0, 0, 255],
+        "protected window must be black"
+    );
+    assert_eq!(
+        pixel(42, 32),
+        &[0, 0, 255, 255],
+        "an unrelated foreground window must stay visible"
+    );
+}
+
+#[test]
 #[ignore = "requires surfaceless GLES and HALLEY_UI_PARITY_BASELINE plus HALLEY_UI_PARITY_MODE=record|compare"]
 fn ui_library_migration_matches_recorded_frames() {
     use halley_config::NotificationPosition::*;

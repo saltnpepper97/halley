@@ -130,16 +130,27 @@ fn indicate_window_cast(scene: &mut LiveWindowScene, decorations: &halley_config
     }
 }
 
-fn redact_window_scene(scene: &mut LiveWindowScene) {
-    for elements in [&mut scene.elements, &mut scene.popup_elements] {
-        for element in elements.iter_mut() {
-            *element = SceneElement::Border(super::solid_color_element(
-                Id::new(),
-                element.geometry(Scale::from(1.0)),
-                smithay::backend::renderer::Color32F::BLACK,
-            ));
-        }
+fn redact_elements(elements: &mut Vec<SceneElement>) {
+    // Effects may cover the entire output even when their visible contribution
+    // is confined to a small window. Drop them instead of masking their bounds.
+    elements.retain(|element| {
+        !matches!(
+            element,
+            SceneElement::BackdropBlur(_) | SceneElement::Shadow(_)
+        )
+    });
+    for element in elements.iter_mut() {
+        *element = SceneElement::Border(super::solid_color_element(
+            Id::new(),
+            element.geometry(Scale::from(1.0)),
+            smithay::backend::renderer::Color32F::BLACK,
+        ));
     }
+}
+
+fn redact_window_scene(scene: &mut LiveWindowScene) {
+    redact_elements(&mut scene.elements);
+    redact_elements(&mut scene.popup_elements);
 }
 
 pub fn build(
