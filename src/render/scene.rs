@@ -30,6 +30,7 @@ mod close_stack;
 mod cluster_composer;
 mod clusters;
 mod effects;
+mod live_collection;
 pub(crate) mod nodes;
 mod overview;
 mod privacy;
@@ -587,103 +588,28 @@ fn build_logical(
         titlebar_hovered: request.desktop.titlebar_hovered,
         titlebar_pressed: request.desktop.titlebar_pressed,
     };
-    let mut live_windows = Vec::new();
-    let mut exclusive_windows = Vec::new();
-    for (stack_index, window) in request.desktop.space.elements().enumerate() {
-        if !crate::wayland::window_is_on_output(window, output, primary_output) {
-            continue;
-        }
-        if window.wl_surface().is_some_and(|surface| {
-            let animations = &request.resources.window_close_animations;
-            animations.has_pending(surface.as_ref()) || animations.is_active(surface.as_ref())
-        }) {
-            continue;
-        }
-        let mut window_scene = live_window_elements(
-            renderer,
-            window,
-            context,
-            LiveWindowRenderers {
-                arrange_textures: request.resources.arrange_textures,
-                fullscreen_textures: request.resources.fullscreen_textures,
-                backdrop_blur: request.resources.backdrop_blur_renderer,
-                shadow: request.resources.shadow_renderer,
-                decoration: request.resources.window_decoration_renderer,
-                titlebar: request.resources.titlebar_renderer,
-                node: request.resources.node_renderer,
-                text: request.resources.ui_text,
-                pin: request.resources.pin_renderer,
-                window_shaders: request.resources.window_shaders,
-            },
-        )?;
-        let protected = if privacy.enabled() {
-            let rule = window
-                .wl_surface()
-                .map(|surface| request.desktop.window_rules.applied(surface.as_ref()));
-            privacy.redact_window(rule.as_ref(), crate::xwayland::is_override_redirect(window))
-        } else {
-            false
-        };
-        if protected {
-            omit_window_scene(&mut window_scene);
-        } else if !privacy.enabled()
-            && window
-                .wl_surface()
-                .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
-        {
-            indicate_window_cast(&mut window_scene, request.visuals.decorations);
-        }
-        if window_scene.cluster_exclusive {
-            exclusive_windows.push((stack_index, window_scene));
-        } else if !window_scene.elements.is_empty() || !window_scene.popup_elements.is_empty() {
-            live_windows.push((stack_index, window_scene));
-        }
-        let extra_presentation = window
-            .wl_surface()
-            .and_then(|surface| request.desktop.nodes.id_for_surface(surface.as_ref()))
-            .and_then(|id| {
-                request.desktop.clusters.extra_window_presentation(
-                    id,
-                    &output.name(),
-                    request.frame.target_presentation_time,
-                )
-            });
-        if let Some(extra_presentation) = extra_presentation {
-            let mut extra_scene = live_window_elements(
-                renderer,
-                window,
-                LiveWindowContext {
-                    cluster_presentation_override: Some(extra_presentation),
-                    instance_identity: Some("stack-cycle-extra"),
-                    ..context
-                },
-                LiveWindowRenderers {
-                    arrange_textures: request.resources.arrange_textures,
-                    fullscreen_textures: request.resources.fullscreen_textures,
-                    backdrop_blur: request.resources.backdrop_blur_renderer,
-                    shadow: request.resources.shadow_renderer,
-                    decoration: request.resources.window_decoration_renderer,
-                    titlebar: request.resources.titlebar_renderer,
-                    node: request.resources.node_renderer,
-                    text: request.resources.ui_text,
-                    pin: request.resources.pin_renderer,
-                    window_shaders: request.resources.window_shaders,
-                },
-            )?;
-            if protected {
-                omit_window_scene(&mut extra_scene);
-            } else if !privacy.enabled()
-                && window.wl_surface().is_some_and(|surface| {
-                    request.desktop.screencast.is_window_cast(surface.as_ref())
-                })
-            {
-                indicate_window_cast(&mut extra_scene, request.visuals.decorations);
-            }
-            if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
-                live_windows.push((stack_index, extra_scene));
-            }
-        }
-    }
+    let collection = live_collection::collect(
+        renderer,
+        primary_output,
+        context,
+        LiveWindowRenderers {
+            arrange_textures: request.resources.arrange_textures,
+            fullscreen_textures: request.resources.fullscreen_textures,
+            backdrop_blur: request.resources.backdrop_blur_renderer,
+            shadow: request.resources.shadow_renderer,
+            decoration: request.resources.window_decoration_renderer,
+            titlebar: request.resources.titlebar_renderer,
+            node: request.resources.node_renderer,
+            text: request.resources.ui_text,
+            pin: request.resources.pin_renderer,
+            window_shaders: request.resources.window_shaders,
+        },
+        request.resources.window_close_animations,
+        request.desktop.screencast,
+        privacy,
+    )?;
+    let live_windows = collection.normal;
+    let mut exclusive_windows = collection.exclusive;
     let exclusive_anchor = exclusive_windows
         .iter()
         .map(|(stack_index, _)| *stack_index)

@@ -41,6 +41,23 @@ pub(super) struct LiveWindowRenderers<'a> {
     pub window_shaders: &'a mut crate::render::window_shader::WindowAnimationShaders,
 }
 
+impl LiveWindowRenderers<'_> {
+    pub(super) fn reborrow(&mut self) -> LiveWindowRenderers<'_> {
+        LiveWindowRenderers {
+            arrange_textures: &mut *self.arrange_textures,
+            fullscreen_textures: &mut *self.fullscreen_textures,
+            backdrop_blur: &mut *self.backdrop_blur,
+            shadow: &mut *self.shadow,
+            decoration: &mut *self.decoration,
+            titlebar: &mut *self.titlebar,
+            node: &mut *self.node,
+            text: &mut *self.text,
+            pin: &mut *self.pin,
+            window_shaders: &mut *self.window_shaders,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct LiveWindowContext<'a> {
     pub(super) space: &'a smithay::desktop::Space<smithay::desktop::Window>,
