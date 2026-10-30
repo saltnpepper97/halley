@@ -54,7 +54,7 @@ def run_session(runtime):
     wrapper = runtime / "orca-test"
     wrapper.write_text(f"#!/bin/sh\nexec /usr/bin/orca --debug-file '{debug}'\n")
     wrapper.chmod(0o700)
-    config.write_text(f'env:\n  HALLEY_ORCA_PATH "{wrapper}"\nend\nkeybinds:\nend\n')
+    config.write_text(f'env:\n  HALLEY_ORCA_PATH "{wrapper}"\nend\nkeybinds:\n  "alt+o" "apogee"\nend\n')
     env = os.environ.copy()
     env.pop("HALLEY_ORCA_PATH", None)
     env.update(HALLEY_TEST_WINIT_CONFIG=str(config), HALLEY_TEST_WINIT_CONTROL=str(runtime / "input.sock"), HALLEY_TEST_ACCESSIBILITY="1")
@@ -90,6 +90,32 @@ def run_session(runtime):
                 wait_for("spoken screenshot selection", lambda: "SPEECH OUTPUT: 'Screenshot, monitor." in debug.read_text(errors="replace"))
                 key(1, "down"); key(1, "up")
                 capture.wait(timeout=5)
+                if shutil.which("kitty"):
+                    nested_display = wait_for("nested Wayland socket", lambda: next((p for p in runtime.glob("wayland-*") if not p.name.endswith(".lock")), None))
+                    app_env = env.copy()
+                    app_env["WAYLAND_DISPLAY"] = str(nested_display)
+                    app_env.pop("DISPLAY", None)
+                    apps = [subprocess.Popen(["kitty", "--config", "NONE", "--title", title, "sleep", "60"], env=app_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for title in ["Orca Alpha", "Orca Beta"]]
+                    try:
+                        def both_windows():
+                            result = subprocess.run([str(ROOT / "target/debug/halleyctl"), "node", "list"], env=env, capture_output=True, text=True)
+                            return "Orca Alpha" in result.stdout and "Orca Beta" in result.stdout
+                        wait_for("two application windows", both_windows)
+                        key(56, "down"); key(24, "down"); key(24, "up"); key(56, "up")
+                        wait_for("spoken Apogee", lambda: "SPEECH OUTPUT: 'Apogee, no selection." in debug.read_text(errors="replace"))
+                        key(106, "down"); key(106, "up")
+                        wait_for("spoken Apogee selection", lambda: "SPEECH OUTPUT: 'Apogee, Orca " in debug.read_text(errors="replace"))
+                        for direction in [106, 108, 105, 103, 106, 108, 105, 103]:
+                            key(direction, "down"); key(direction, "up")
+                            time.sleep(0.2)
+                            if all(f"SPEECH OUTPUT: 'Apogee, Orca {name}" in debug.read_text(errors="replace") for name in ["Alpha", "Beta"]):
+                                break
+                        wait_for("both spoken Apogee selections", lambda: all(f"SPEECH OUTPUT: 'Apogee, Orca {name}" in debug.read_text(errors="replace") for name in ["Alpha", "Beta"]))
+                        key(1, "down"); key(1, "up")
+                    finally:
+                        for app in apps:
+                            if app.poll() is None:
+                                app.terminate(); app.wait(timeout=5)
             finally:
                 if capture.poll() is None:
                     capture.terminate(); capture.wait(timeout=5)

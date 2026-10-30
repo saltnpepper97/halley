@@ -15,6 +15,8 @@ The script starts a nested compositor on private D-Bus and AT-SPI buses. It
 checks the spoken basics card, screenshot menu selection and configuration
 error, rejects an
 unapproved keyboard-monitor client, and restarts the supervised Orca process.
+If `kitty` is installed, it also opens two nested windows and checks spoken
+Apogee selection changes.
 It does not publish the nested compositor to the host accessibility bus.
 The ignored `accessible_capture` tests in `xwayland_disconnect` exercise
 keyboard monitor selection and screenshot-region movement in a nested session.
