@@ -106,3 +106,63 @@ pub(super) fn collect_dynamics_bodies(
     ));
     bodies
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halley_core::cluster::layout::ClusterWorkspaceLayoutKind;
+
+    #[test]
+    fn cluster_cores_use_override_only_on_the_selected_output() {
+        let config = halley_config::RuntimeConfig::default();
+        let mut nodes = NodesState::new(&config);
+        let mut clusters = crate::clusters::ClusterSystem::new(
+            config.clusters.clone(),
+            config.animations.cluster.clone(),
+        );
+        for output in ["DP-1", "DP-2"] {
+            let member = nodes.field.spawn_surface(
+                output,
+                Vec2 { x: 0.0, y: 0.0 },
+                Vec2 { x: 200.0, y: 150.0 },
+            );
+            clusters
+                .create_collapsed_cluster(
+                    &mut nodes.field,
+                    output.into(),
+                    output.into(),
+                    ClusterWorkspaceLayoutKind::Tiling,
+                    vec![member],
+                    Vec2 { x: 0.0, y: 0.0 },
+                )
+                .expect("collapsed cluster");
+        }
+        let cameras = crate::presentation::camera::OutputCameras::default();
+        let fullscreen =
+            crate::wayland::fullscreen::FullscreenManager::new(config.animations.clone());
+        let maximize = crate::presentation::maximize::FieldMaximizeManager::new(
+            config.field.clone(),
+            config.animations.clone(),
+        );
+        let bodies = collect_dynamics_bodies(
+            DynamicsBodyContext {
+                nodes: &nodes,
+                clusters: &clusters,
+                cameras: &cameras,
+                placement: PlacementContext {
+                    decorations: &config.decorations,
+                    font: &config.font,
+                    fullscreen: &fullscreen,
+                    maximize: &maximize,
+                },
+            },
+            Some(("DP-1", 2.0)),
+        );
+        assert_eq!(bodies.len(), 2);
+        let first = bodies.iter().find(|body| body.output == "DP-1").unwrap();
+        let second = bodies.iter().find(|body| body.output == "DP-2").unwrap();
+        assert_eq!(first.kind, dynamics::BodyKind::Node);
+        assert_eq!(first.extents.left * 2.0, second.extents.left);
+        assert_eq!(first.gap * 2.0, second.gap);
+    }
+}
