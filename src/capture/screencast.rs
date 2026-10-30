@@ -17,6 +17,7 @@ use crate::session::{Session, SessionDriver};
 #[derive(Default)]
 pub struct ScreencastState {
     buffers: HashMap<(u64, String, u64), Dmabuf>,
+    window_casts: HashMap<u64, smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
 }
 
 impl ScreencastState {
@@ -74,8 +75,24 @@ impl ScreencastState {
         Ok(())
     }
 
-    pub fn disconnect(&mut self, client_id: u64) {
+    pub fn disconnect(&mut self, client_id: u64) -> bool {
         self.buffers.retain(|key, _| key.0 != client_id);
+        self.window_casts.remove(&client_id).is_some()
+    }
+
+    pub fn begin_window_cast(
+        &mut self,
+        client_id: u64,
+        surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        self.window_casts.insert(client_id, surface);
+    }
+
+    pub fn is_window_cast(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> bool {
+        self.window_casts.values().any(|target| target == surface)
     }
 
     pub fn remove(&mut self, client_id: u64, stream_handle: &str, buffer_id: u64) {

@@ -94,6 +94,39 @@ render_elements! {
     Layer=WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
+fn indicate_window_cast(scene: &mut LiveWindowScene) {
+    let bounds = scene
+        .elements
+        .iter()
+        .filter(|element| {
+            !matches!(
+                element,
+                SceneElement::Shadow(_) | SceneElement::BackdropBlur(_)
+            )
+        })
+        .map(|element| element.geometry(Scale::from(1.0)))
+        .reduce(|a, b| a.merge(b));
+    if let Some(bounds) = bounds {
+        let width = 4.min(bounds.size.w / 2).min(bounds.size.h / 2);
+        if width == 0 {
+            return;
+        }
+        let inner = Rectangle::new(
+            (bounds.loc.x + width, bounds.loc.y + width).into(),
+            (bounds.size.w - 2 * width, bounds.size.h - 2 * width).into(),
+        );
+        let border = super::border_strips(
+            std::array::from_fn(|_| Id::new()),
+            inner,
+            width,
+            smithay::backend::renderer::Color32F::new(0.94, 0.20, 0.24, 1.0),
+        );
+        scene
+            .elements
+            .splice(0..0, border.into_iter().map(SceneElement::Border));
+    }
+}
+
 fn redact_window_scene(scene: &mut LiveWindowScene) {
     for elements in [&mut scene.elements, &mut scene.popup_elements] {
         for element in elements.iter_mut() {
@@ -942,6 +975,12 @@ fn build_logical(
             });
         if protected {
             redact_window_scene(&mut window_scene);
+        } else if !block_screencast
+            && window
+                .wl_surface()
+                .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
+        {
+            indicate_window_cast(&mut window_scene);
         }
         if window_scene.cluster_exclusive {
             exclusive_windows.push((stack_index, window_scene));
@@ -982,6 +1021,12 @@ fn build_logical(
             )?;
             if protected {
                 redact_window_scene(&mut extra_scene);
+            } else if !block_screencast
+                && window.wl_surface().is_some_and(|surface| {
+                    request.desktop.screencast.is_window_cast(surface.as_ref())
+                })
+            {
+                indicate_window_cast(&mut extra_scene);
             }
             if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
                 live_windows.push((stack_index, extra_scene));

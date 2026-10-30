@@ -414,7 +414,9 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            app.screencast.disconnect(client_id);
+            if app.screencast.disconnect(client_id) {
+                app.request_redraw();
+            }
             app.api_subscriptions.disconnect(client_id);
         },
     ) {
@@ -635,6 +637,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             nodes: &app.nodes,
                             clusters: &app.clusters,
                             window_rules: &app.window_rules,
+                            screencast: &app.screencast,
                             layer_rules: &app.settings.layer_rules,
                             node_grab_active: app.interactions.grab.landmark_active(),
                             titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),

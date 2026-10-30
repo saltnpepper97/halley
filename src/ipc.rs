@@ -1,3 +1,4 @@
+use smithay::wayland::seat::WaylandFocus;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -659,6 +660,26 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 halley_ipc::Response::Ack
             } else {
                 halley_ipc::Response::Error("source chooser is not active".to_string())
+            }
+        }
+        halley_ipc::Request::BeginWindowCast { surface_id } => {
+            match crate::capture::resolve_source_window(&app.wayland.space, surface_id) {
+                Ok(window) => {
+                    if let Some(surface) = window.wl_surface().map(|surface| surface.into_owned()) {
+                        if app.window_rules.applied(&surface).block_screencast {
+                            halley_ipc::Response::Error(
+                                "window is protected from screencasting".to_string(),
+                            )
+                        } else {
+                            app.screencast.begin_window_cast(client_id, surface);
+                            app.request_redraw();
+                            halley_ipc::Response::Ack
+                        }
+                    } else {
+                        halley_ipc::Response::Error("window is no longer available".to_string())
+                    }
+                }
+                Err(err) => halley_ipc::Response::Error(err.to_string()),
             }
         }
         halley_ipc::Request::RegisterDmabuf(request) => {

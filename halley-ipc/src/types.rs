@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// the end of `Request`/`Response` silently breaks wire-compatibility with
 /// a differently-versioned build - worth remembering as this grows, not
 /// solved here (this first pass has nothing to negotiate against yet).
-pub const HALLEY_IPC_VERSION: u32 = 27;
+pub const HALLEY_IPC_VERSION: u32 = 28;
 pub const HALLEY_API_VERSION: u32 = 1;
 
 /// A request from `halleyctl`, the portal backend, or another local client.
@@ -50,6 +50,9 @@ pub enum Request {
     CaptureWithOptions {
         target: CaptureRequest,
         silent: bool,
+    },
+    BeginWindowCast {
+        surface_id: u32,
     },
 }
 

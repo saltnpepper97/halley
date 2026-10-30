@@ -58,6 +58,10 @@ pub fn connect() -> Result<Connection, String> {
     Connection::connect().map_err(|err| format!("connect to compositor: {err}"))
 }
 
+pub fn begin_window_cast(connection: &mut Connection, surface_id: u32) -> Result<(), String> {
+    request_ack_on(connection, Request::BeginWindowCast { surface_id }, &[])
+}
+
 pub fn capture_capabilities(
     connection: &mut Connection,
 ) -> Result<halley_ipc::CaptureCapabilities, String> {

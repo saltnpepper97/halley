@@ -154,6 +154,7 @@ fn save_region_inner<D: SessionDriver>(
                             nodes,
                             clusters,
                             window_rules,
+                            screencast: &session.screencast,
                             layer_rules: &session.settings.layer_rules,
                             node_grab_active,
                             titlebar_hovered: session.interactions.titlebar_hovered.as_ref(),
@@ -431,6 +432,7 @@ where
                     nodes,
                     clusters,
                     window_rules,
+                    screencast: &session.screencast,
                     layer_rules: &session.settings.layer_rules,
                     node_grab_active,
                     titlebar_hovered: session.interactions.titlebar_hovered.as_ref(),
@@ -543,7 +545,7 @@ pub(crate) fn render_monitor_region_dmabuf<D: SessionDriver>(
     )
 }
 
-fn resolve_source_window(
+pub(crate) fn resolve_source_window(
     space: &smithay::desktop::Space<smithay::desktop::Window>,
     surface_id: u32,
 ) -> Result<smithay::desktop::Window, Box<dyn Error>> {

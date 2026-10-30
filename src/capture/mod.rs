@@ -17,7 +17,7 @@ use menu::{ScreenshotMenu, ScreenshotMode};
 use picker::RegionPicker;
 pub(crate) use screenshot::screenshot_directory;
 pub(crate) use screenshot::{
-    capture_cursor_surface_tree, capture_source_pixels, render_source_dmabuf,
+    capture_cursor_surface_tree, capture_source_pixels, render_source_dmabuf, resolve_source_window,
 };
 pub(crate) use screenshot::{capture_monitor_region_pixels, render_monitor_region_dmabuf};
 pub use screenshot::{save_area, save_region, save_window};
