@@ -595,7 +595,7 @@ end
     let state = presented();
     let width = state["rect"][2].as_f64().unwrap();
     assert_eq!(state["animating"], true, "{state}");
-    assert!(width >= 360.0 && width < 550.0, "{state}");
+    assert!((360.0..550.0).contains(&width), "{state}");
     thread::sleep(Duration::from_millis(250));
     let state = presented();
     assert_eq!(state["animating"], false, "{state}");

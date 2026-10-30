@@ -158,29 +158,98 @@ fn inherited_visual_rects(
     (camera, presentation, animated)
 }
 
-// Keep this behavior-frozen adapter explicit: render, pointer hit-testing, and
-// pointer constraints must all receive the exact same presentation inputs.
-#[allow(clippy::too_many_arguments)]
+/// Shared inputs for resolving a window's on-screen presentation.
+/// Render, hit-testing, and constraints use the same explicit context.
+#[derive(Clone, Copy)]
+pub(crate) struct WindowVisualContext<'a> {
+    pub space: &'a Space<Window>,
+    pub cameras: &'a OutputCameras,
+    pub clusters: Option<&'a crate::clusters::ClusterSystem>,
+    pub nodes: Option<&'a crate::nodes::NodesState>,
+    pub output: &'a Output,
+    pub window_animations: &'a crate::animation::WindowAnimations,
+    pub fullscreen: &'a crate::wayland::fullscreen::FullscreenManager,
+    pub maximize: &'a crate::presentation::maximize::FieldMaximizeManager,
+    pub decorations: &'a halley_config::Decorations,
+    pub font: &'a halley_config::Font,
+    pub now: std::time::Duration,
+}
+
+impl WindowVisualContext<'_> {
+    /// Landmarks remain usable outside the live bounds of presentations above Field.
+    pub(crate) fn covers_field_point(
+        self,
+        primary_output: &Output,
+        position: Point<f64, Logical>,
+    ) -> bool {
+        let Some(geometry) = self.space.output_geometry(self.output) else {
+            return false;
+        };
+        let local = position - geometry.loc.to_f64();
+        self.space.elements().any(|window| {
+            if !crate::wayland::window_is_on_output(window, self.output, primary_output) {
+                return false;
+            }
+            let Some(surface) = window.wl_surface() else {
+                return false;
+            };
+            if self
+                .fullscreen
+                .presentation(surface.as_ref(), self.output, self.now)
+                .is_none()
+                && self
+                    .maximize
+                    .presentation(surface.as_ref(), self.output, geometry, self.now)
+                    .is_none()
+                && crate::wayland::window_presentation_owner(window).is_none()
+            {
+                return false;
+            }
+            let Some(visual) = window_visual_state(self, window) else {
+                return false;
+            };
+            let rect = visual.animated_rect.to_logical(1);
+            let rect = if visual.fullscreen.is_none() {
+                crate::titlebar::outer_rect_for_client(window, rect, self.decorations, self.font)
+            } else {
+                rect
+            };
+            presentation_hit_contains(
+                visual.above_field_landmarks,
+                visual.opening_alpha,
+                rect,
+                local,
+            )
+        })
+    }
+}
+
+fn presentation_hit_contains(
+    above_field_landmarks: bool,
+    opening_alpha: f32,
+    rect: Rectangle<i32, Logical>,
+    position: Point<f64, Logical>,
+) -> bool {
+    above_field_landmarks && opening_alpha > 0.01 && rect.to_f64().contains(position)
+}
+
 pub(crate) fn window_visual_state(
-    space: &Space<Window>,
-    cameras: &OutputCameras,
-    clusters: Option<&crate::clusters::ClusterSystem>,
-    nodes: Option<&crate::nodes::NodesState>,
+    context: WindowVisualContext<'_>,
     window: &Window,
-    output: &Output,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    now: std::time::Duration,
 ) -> Option<WindowVisualState> {
-    window_visual_state_with_cluster_presentation(
+    window_visual_state_with_cluster_presentation(context, window, None)
+}
+
+pub(crate) fn window_visual_state_with_cluster_presentation(
+    context: WindowVisualContext<'_>,
+    window: &Window,
+    cluster_override: Option<crate::clusters::WindowPresentation>,
+) -> Option<WindowVisualState> {
+    let WindowVisualContext {
         space,
         cameras,
         clusters,
         nodes,
-        window,
         output,
         window_animations,
         fullscreen,
@@ -188,26 +257,7 @@ pub(crate) fn window_visual_state(
         decorations,
         font,
         now,
-        None,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn window_visual_state_with_cluster_presentation(
-    space: &Space<Window>,
-    cameras: &OutputCameras,
-    clusters: Option<&crate::clusters::ClusterSystem>,
-    nodes: Option<&crate::nodes::NodesState>,
-    window: &Window,
-    output: &Output,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    now: std::time::Duration,
-    cluster_override: Option<crate::clusters::WindowPresentation>,
-) -> Option<WindowVisualState> {
+    } = context;
     let output_geometry = space.output_geometry(output)?;
     let output_size = output_geometry.size.to_physical(1);
     let view = cameras.view(&output.name())?;
@@ -417,21 +467,8 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
 
     if let Some(owner_xid) = crate::wayland::window_presentation_owner(window)
         && let Some(owner) = crate::xwayland::window_for_xid(space, owner_xid)
-        && let Some(owner_visual) = window_visual_state_with_cluster_presentation(
-            space,
-            cameras,
-            clusters,
-            nodes,
-            &owner,
-            output,
-            window_animations,
-            fullscreen,
-            maximize,
-            decorations,
-            font,
-            now,
-            None,
-        )
+        && let Some(owner_visual) =
+            window_visual_state_with_cluster_presentation(context, &owner, None)
     {
         let source = source_geometry.to_physical(1);
         let owner_source = owner_visual.source_geometry.to_physical(1);
@@ -518,18 +555,20 @@ impl WindowPresentation {
         let root = window.wl_surface()?.into_owned();
         let output_geometry = space.output_geometry(output)?;
         let visual = window_visual_state(
-            space,
-            cameras,
-            clusters,
-            nodes,
+            crate::presentation::window::WindowVisualContext {
+                space,
+                cameras,
+                clusters,
+                nodes,
+                output,
+                window_animations,
+                fullscreen,
+                maximize,
+                decorations,
+                font,
+                now,
+            },
             window,
-            output,
-            window_animations,
-            fullscreen,
-            maximize,
-            decorations,
-            font,
-            now,
         )?;
         let source_geometry = visual.source_geometry;
         let source_bbox = space.element_bbox(window)?;
@@ -788,6 +827,36 @@ pub(crate) fn popup_constraint_in_parent(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn field_landmark_hit_test_uses_visible_presentation_bounds() {
+        use super::presentation_hit_contains;
+        let rect = smithay::utils::Rectangle::new((10, 20).into(), (100, 50).into());
+        assert!(presentation_hit_contains(
+            true,
+            1.0,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            false,
+            1.0,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            true,
+            0.01,
+            rect,
+            (11.0, 21.0).into()
+        ));
+        assert!(!presentation_hit_contains(
+            true,
+            1.0,
+            rect,
+            (110.0, 21.0).into()
+        ));
+    }
+
     use super::*;
 
     fn transform(

@@ -89,16 +89,26 @@ pub(super) fn append_overlay_shadows(
     Ok(())
 }
 
+pub(super) struct LayerSceneStyle<'a> {
+    pub output_geometry: Rectangle<i32, Logical>,
+    pub layer_rules: &'a [halley_config::LayerRule],
+    pub block_screencast: bool,
+    pub blur: halley_config::Blur,
+}
+
 pub(super) fn layer_surface_scene_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
     layer: Layer,
-    layer_rules: &[halley_config::LayerRule],
-    block_screencast: bool,
-    blur_config: halley_config::Blur,
+    style: LayerSceneStyle<'_>,
     backdrop_blur_renderer: &mut crate::render::effects::backdrop_blur::BackdropBlurRenderer,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    let LayerSceneStyle {
+        output_geometry,
+        layer_rules,
+        block_screencast,
+        blur: blur_config,
+    } = style;
     let map = layer_map_for_output(output);
     let scale = Scale::from(1.0);
     let output_bounds = Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1));

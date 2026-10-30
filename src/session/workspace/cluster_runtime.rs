@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// Applies cluster workspace geometry at the client protocol boundary.
+///
+/// ClusterSystem owns the layout and deduplication; Session owns Smithay
+/// surfaces and X11 configure calls. Field remains unaware of workspace sizes.
 pub(crate) fn reconcile_cluster_surfaces<D: SessionDriver>(
     session: &mut Session<D>,
     output_name: &str,

@@ -41,8 +41,8 @@ use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
 use self::composition::ComposedFrame;
 use self::output::{
-    OutputState as HardwareOutputState, connector_name, connector_output_info, default_mode,
-    drm_output_mode, output_diff, output_target,
+    OutputState as HardwareOutputState, VrrInfo, connector_name, connector_output_info,
+    default_mode, drm_output_mode, output_diff, output_target,
 };
 use self::presentation::{DeferredFrame, Readiness};
 use super::{FrameSubmission, RenderOutcome, RenderRequest, RenderStatus, Renderable};
@@ -368,215 +368,223 @@ impl TtyBackend {
             };
             let mut session_fd = Some(fd);
             let mut added_render_node = None;
-            let probe =
-                (|| -> Result<(TtyGpu, Vec<DrmOutputEntry>, Vec<Output>), Box<dyn Error>> {
-                    let node = DrmNode::from_path(&gpu_path)?;
-                    let render_node = node
-                        .node_with_type(NodeType::Render)
-                        .and_then(Result::ok)
-                        .unwrap_or(node);
-                    let drm_fd = DrmDeviceFd::new(DeviceFd::from(
-                        session_fd
-                            .as_ref()
-                            .expect("session fd remains owned during GPU probe")
-                            .try_clone()?,
-                    ));
-                    let (drm, notifier) = DrmDevice::new(drm_fd.clone(), false)?;
-                    let mut scanner: DrmScanner = DrmScanner::new();
-                    let connected = scanner
-                        .scan_connectors(&drm)?
-                        .into_iter()
-                        .filter_map(|event| match event {
-                            DrmScanEvent::Connected { connector, crtc } => Some((connector, crtc)),
-                            DrmScanEvent::Disconnected { .. } => None,
-                            DrmScanEvent::Changed { .. } => None,
-                        })
-                        .collect::<Vec<_>>();
-                    if connected.is_empty() {
-                        return Err("no connected connector found".into());
-                    }
+            type GpuProbe = (TtyGpu, Vec<DrmOutputEntry>, Vec<Output>);
+            let probe = (|| -> Result<GpuProbe, Box<dyn Error>> {
+                let node = DrmNode::from_path(&gpu_path)?;
+                let render_node = node
+                    .node_with_type(NodeType::Render)
+                    .and_then(Result::ok)
+                    .unwrap_or(node);
+                let drm_fd = DrmDeviceFd::new(DeviceFd::from(
+                    session_fd
+                        .as_ref()
+                        .expect("session fd remains owned during GPU probe")
+                        .try_clone()?,
+                ));
+                let (drm, notifier) = DrmDevice::new(drm_fd.clone(), false)?;
+                let mut scanner: DrmScanner = DrmScanner::new();
+                let connected = scanner
+                    .scan_connectors(&drm)?
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        DrmScanEvent::Connected { connector, crtc } => Some((connector, crtc)),
+                        DrmScanEvent::Disconnected { .. } => None,
+                        DrmScanEvent::Changed { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
+                if connected.is_empty() {
+                    return Err("no connected connector found".into());
+                }
 
-                    let gbm = GbmDevice::new(drm_fd.clone())?;
-                    gpu_manager.as_mut().add_node(render_node, gbm.clone())?;
-                    added_render_node = Some(render_node);
-                    let renderer_formats = {
-                        let renderer = gpu_manager.single_renderer(&render_node)?;
-                        renderer
-                            .dmabuf_formats()
-                            .iter()
-                            .copied()
-                            .collect::<Vec<_>>()
-                    };
-                    let allocator = GbmAllocator::new(
-                        gbm.clone(),
-                        GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-                    );
-                    let exporter = GbmFramebufferExporter::new(gbm.clone(), NodeFilter::All);
-                    let mut manager = TtyDrmOutputManager::new(
-                        drm,
-                        allocator,
-                        exporter,
-                        Some(gbm),
-                        SUPPORTED_COLOR_FORMATS,
-                        renderer_formats,
-                    );
-                    let gpu_index = gpus.len();
-                    let mut entries = Vec::new();
-                    let mut gpu_outputs = Vec::new();
-                    for (connector, crtc) in connected {
-                        let name = connector_name(&connector);
-                        let configured = outputs_config.iter().find(|cfg| cfg.name == name);
-                        let target = output_target(&connector, configured);
-                        let offset = target.offset;
-                        let vrr = target.vrr;
-                        if connector.modes().is_empty() {
-                            eventline::warn!(
-                                "output {name:?}: connected connector advertises no modes"
-                            );
-                            ipc_output_info.push(connector_output_info(
-                                name,
-                                &connector,
-                                None,
-                                offset,
-                                vrr,
-                                false,
-                                false,
-                                target.scale,
-                            ));
-                            continue;
-                        }
-                        let Some(crtc) = crtc else {
-                            eventline::warn!(
-                                "output {name:?}: connected connector has no available CRTC"
-                            );
-                            ipc_output_info.push(connector_output_info(
-                                name,
-                                &connector,
-                                None,
-                                offset,
-                                vrr,
-                                false,
-                                false,
-                                target.scale,
-                            ));
-                            continue;
-                        };
-                        let mode = target.mode;
-                        let output = Output::new(
-                            name.clone(),
-                            PhysicalProperties {
-                                size: (0, 0).into(),
-                                subpixel: Subpixel::Unknown,
-                                make: "halley-next".into(),
-                                model: "tty".into(),
-                                serial_number: "unknown".into(),
+                let gbm = GbmDevice::new(drm_fd.clone())?;
+                gpu_manager.as_mut().add_node(render_node, gbm.clone())?;
+                added_render_node = Some(render_node);
+                let renderer_formats = {
+                    let renderer = gpu_manager.single_renderer(&render_node)?;
+                    renderer
+                        .dmabuf_formats()
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>()
+                };
+                let allocator = GbmAllocator::new(
+                    gbm.clone(),
+                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+                );
+                let exporter = GbmFramebufferExporter::new(gbm.clone(), NodeFilter::All);
+                let mut manager = TtyDrmOutputManager::new(
+                    drm,
+                    allocator,
+                    exporter,
+                    Some(gbm),
+                    SUPPORTED_COLOR_FORMATS,
+                    renderer_formats,
+                );
+                let gpu_index = gpus.len();
+                let mut entries = Vec::new();
+                let mut gpu_outputs = Vec::new();
+                for (connector, crtc) in connected {
+                    let name = connector_name(&connector);
+                    let configured = outputs_config.iter().find(|cfg| cfg.name == name);
+                    let target = output_target(&connector, configured);
+                    let offset = target.offset;
+                    let vrr = target.vrr;
+                    if connector.modes().is_empty() {
+                        eventline::warn!(
+                            "output {name:?}: connected connector advertises no modes"
+                        );
+                        ipc_output_info.push(connector_output_info(
+                            name,
+                            &connector,
+                            None,
+                            offset,
+                            VrrInfo {
+                                configured: vrr,
+                                supported: false,
+                                active: false,
                             },
+                            target.scale,
+                        ));
+                        continue;
+                    }
+                    let Some(crtc) = crtc else {
+                        eventline::warn!(
+                            "output {name:?}: connected connector has no available CRTC"
                         );
-                        output.change_current_state(
-                            Some(drm_output_mode(&mode)),
-                            Some(target.transform),
-                            Some(smithay::output::Scale::Fractional(target.scale)),
-                            Some(offset.into()),
-                        );
-                        output.set_preferred(drm_output_mode(&default_mode(&connector)));
-                        let result = {
-                            let mut renderer = gpu_manager.single_renderer(&render_node)?;
-                            manager
-                                .lock()
-                                .initialize_output::<GlesRenderer, SolidColorRenderElement>(
-                                    crtc,
-                                    mode,
-                                    &[connector.handle()],
-                                    &output,
-                                    None,
-                                    renderer.as_mut(),
-                                    &DrmOutputRenderElements::default(),
-                                )
-                        };
-                        match result {
-                            Ok(drm_output) => {
-                                let vrr_support =
-                                    query_vrr_support(&drm_output, connector.handle(), &name);
-                                let requested_vrr = configured_vrr_target(vrr, false, vrr_support);
-                                if let Err(err) = drm_output
-                                    .with_compositor(|compositor| compositor.use_vrr(requested_vrr))
-                                {
-                                    eventline::warn!(
-                                        "output {name:?}: failed to set initial VRR state to {requested_vrr}: {err}"
-                                    );
-                                }
-                                let vrr_active = drm_output
-                                    .with_compositor(|compositor| compositor.vrr_enabled());
-                                warn_vrr_configuration(&name, vrr, vrr_support);
-                                primary_output.get_or_insert_with(|| output.clone());
-                                gpu_outputs.push(output.clone());
-                                ipc_output_info.push(connector_output_info(
-                                    name,
-                                    &connector,
-                                    Some(mode),
-                                    offset,
-                                    vrr,
-                                    vrr_is_supported(vrr_support),
-                                    vrr_active,
-                                    target.scale,
-                                ));
-                                let gamma = gamma::GammaState::new(manager.device(), crtc);
-                                entries.push(DrmOutputEntry {
-                                    gpu_index,
-                                    render_node,
-                                    crtc,
-                                    connector,
-                                    current_mode: mode,
-                                    configured_vrr: vrr,
-                                    vrr_support,
-                                    vrr_active,
-                                    vrr_failure_warned_for: None,
-                                    direct_scanout_active: None,
-                                    output,
-                                    drm_output,
-                                    dmabuf_feedback: None,
-                                    pending: false,
-                                    deferred_frame: None,
-                                    dpms_enabled: true,
-                                    enabled: true,
-                                    gamma,
-                                    composed_frame: None,
-                                });
+                        ipc_output_info.push(connector_output_info(
+                            name,
+                            &connector,
+                            None,
+                            offset,
+                            VrrInfo {
+                                configured: vrr,
+                                supported: false,
+                                active: false,
+                            },
+                            target.scale,
+                        ));
+                        continue;
+                    };
+                    let mode = target.mode;
+                    let output = Output::new(
+                        name.clone(),
+                        PhysicalProperties {
+                            size: (0, 0).into(),
+                            subpixel: Subpixel::Unknown,
+                            make: "halley-next".into(),
+                            model: "tty".into(),
+                            serial_number: "unknown".into(),
+                        },
+                    );
+                    output.change_current_state(
+                        Some(drm_output_mode(&mode)),
+                        Some(target.transform),
+                        Some(smithay::output::Scale::Fractional(target.scale)),
+                        Some(offset.into()),
+                    );
+                    output.set_preferred(drm_output_mode(&default_mode(&connector)));
+                    let result = {
+                        let mut renderer = gpu_manager.single_renderer(&render_node)?;
+                        manager
+                            .lock()
+                            .initialize_output::<GlesRenderer, SolidColorRenderElement>(
+                                crtc,
+                                mode,
+                                &[connector.handle()],
+                                &output,
+                                None,
+                                renderer.as_mut(),
+                                &DrmOutputRenderElements::default(),
+                            )
+                    };
+                    match result {
+                        Ok(drm_output) => {
+                            let vrr_support =
+                                query_vrr_support(&drm_output, connector.handle(), &name);
+                            let requested_vrr = configured_vrr_target(vrr, false, vrr_support);
+                            if let Err(err) = drm_output
+                                .with_compositor(|compositor| compositor.use_vrr(requested_vrr))
+                            {
+                                eventline::warn!(
+                                    "output {name:?}: failed to set initial VRR state to {requested_vrr}: {err}"
+                                );
                             }
-                            Err(err) => {
-                                eventline::error!("failed to initialize output {name:?}: {err}");
-                                ipc_output_info.push(connector_output_info(
-                                    name,
-                                    &connector,
-                                    None,
-                                    offset,
-                                    vrr,
-                                    false,
-                                    false,
-                                    target.scale,
-                                ));
-                            }
+                            let vrr_active =
+                                drm_output.with_compositor(|compositor| compositor.vrr_enabled());
+                            warn_vrr_configuration(&name, vrr, vrr_support);
+                            primary_output.get_or_insert_with(|| output.clone());
+                            gpu_outputs.push(output.clone());
+                            ipc_output_info.push(connector_output_info(
+                                name,
+                                &connector,
+                                Some(mode),
+                                offset,
+                                VrrInfo {
+                                    configured: vrr,
+                                    supported: vrr_is_supported(vrr_support),
+                                    active: vrr_active,
+                                },
+                                target.scale,
+                            ));
+                            let gamma = gamma::GammaState::new(manager.device(), crtc);
+                            entries.push(DrmOutputEntry {
+                                gpu_index,
+                                render_node,
+                                crtc,
+                                connector,
+                                current_mode: mode,
+                                configured_vrr: vrr,
+                                vrr_support,
+                                vrr_active,
+                                vrr_failure_warned_for: None,
+                                direct_scanout_active: None,
+                                output,
+                                drm_output,
+                                dmabuf_feedback: None,
+                                pending: false,
+                                deferred_frame: None,
+                                dpms_enabled: true,
+                                enabled: true,
+                                gamma,
+                                composed_frame: None,
+                            });
+                        }
+                        Err(err) => {
+                            eventline::error!("failed to initialize output {name:?}: {err}");
+                            ipc_output_info.push(connector_output_info(
+                                name,
+                                &connector,
+                                None,
+                                offset,
+                                VrrInfo {
+                                    configured: vrr,
+                                    supported: false,
+                                    active: false,
+                                },
+                                target.scale,
+                            ));
                         }
                     }
-                    if entries.is_empty() {
-                        return Err("no output could be initialized".into());
-                    }
-                    Ok((
-                        TtyGpu {
-                            render_node,
-                            session_fd: Some(
-                                session_fd
-                                    .take()
-                                    .expect("session fd is transferred to the live GPU"),
-                            ),
-                            drm_fd,
-                            drm_output_manager: manager,
-                            notifier: Some(notifier),
-                        },
-                        entries,
-                        gpu_outputs,
-                    ))
-                })();
+                }
+                if entries.is_empty() {
+                    return Err("no output could be initialized".into());
+                }
+                Ok((
+                    TtyGpu {
+                        render_node,
+                        session_fd: Some(
+                            session_fd
+                                .take()
+                                .expect("session fd is transferred to the live GPU"),
+                        ),
+                        drm_fd,
+                        drm_output_manager: manager,
+                        notifier: Some(notifier),
+                    },
+                    entries,
+                    gpu_outputs,
+                ))
+            })();
             match probe {
                 Ok((gpu, entries, gpu_outputs)) => {
                     if primary_render_node.is_none() {
@@ -1280,9 +1288,11 @@ impl TtyBackend {
                     let location = output.current_location();
                     (location.x, location.y)
                 },
-                configured_vrr,
-                vrr_supported,
-                vrr_active,
+                VrrInfo {
+                    configured: configured_vrr,
+                    supported: vrr_supported,
+                    active: vrr_active,
+                },
                 output.current_scale().fractional_scale(),
             );
             if let Some(existing) = self

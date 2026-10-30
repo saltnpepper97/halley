@@ -223,58 +223,20 @@ pub(super) fn presentation_covers_field_point<D: SessionDriver>(
     position: Point<f64, Logical>,
     now: std::time::Duration,
 ) -> bool {
-    let Some(geometry) = session.wayland.space.output_geometry(output) else {
-        return false;
-    };
-    let local = position - geometry.loc.to_f64();
-    session.wayland.space.elements().any(|window| {
-        if !crate::wayland::window_is_on_output(window, output, session.driver.primary_output()) {
-            return false;
-        }
-        let Some(surface) = window.wl_surface() else {
-            return false;
-        };
-        if session
-            .fullscreen
-            .presentation(surface.as_ref(), output, now)
-            .is_none()
-            && session
-                .maximize
-                .presentation(surface.as_ref(), output, geometry, now)
-                .is_none()
-            && crate::wayland::window_presentation_owner(window).is_none()
-        {
-            return false;
-        }
-        let Some(visual) = crate::presentation::window::window_visual_state(
-            &session.wayland.space,
-            &session.cameras,
-            Some(&session.clusters),
-            Some(&session.nodes),
-            window,
-            output,
-            &session.window_animations,
-            &session.fullscreen,
-            &session.maximize,
-            &session.settings.decorations,
-            &session.settings.font,
-            now,
-        ) else {
-            return false;
-        };
-        let rect = visual.animated_rect.to_logical(1);
-        let rect = if visual.fullscreen.is_none() {
-            crate::titlebar::outer_rect_for_client(
-                window,
-                rect,
-                &session.settings.decorations,
-                &session.settings.font,
-            )
-        } else {
-            rect
-        };
-        visual.above_field_landmarks && visual.opening_alpha > 0.01 && rect.to_f64().contains(local)
-    })
+    crate::presentation::window::WindowVisualContext {
+        space: &session.wayland.space,
+        cameras: &session.cameras,
+        clusters: Some(&session.clusters),
+        nodes: Some(&session.nodes),
+        output,
+        window_animations: &session.window_animations,
+        fullscreen: &session.fullscreen,
+        maximize: &session.maximize,
+        decorations: &session.settings.decorations,
+        font: &session.settings.font,
+        now,
+    }
+    .covers_field_point(session.driver.primary_output(), position)
 }
 
 fn route_client_at<D: SessionDriver>(
@@ -849,6 +811,27 @@ pub(super) fn apply_position_hint<D: SessionDriver>(
     constraints::apply_position_hint(session, surface, pointer, location);
 }
 
+/// Transfer handoffs must not interrupt an existing drag or constrained pointer.
+pub(crate) fn transfer_pointer_available<D: SessionDriver>(session: &Session<D>) -> bool {
+    matches!(session.interactions.grab, crate::input::grab::Grab::None)
+        && !session
+            .seat
+            .get_pointer()
+            .is_some_and(|pointer| pointer.is_grabbed())
+        && !has_active_constraint(session)
+}
+
+/// Refresh pointer delivery without treating a compositor warp as hover input.
+pub(crate) fn warp_after_transfer<D: SessionDriver>(
+    session: &mut Session<D>,
+    position: (f64, f64),
+) {
+    session.pointer.set_position(position);
+    session.cursor_policy.pointer_activity();
+    update_client_state(session, session.start_time.elapsed().as_millis() as u32);
+    session.request_redraw();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1049,25 +1032,4 @@ mod tests {
         assert!(!cursor_presentation_visible(true, false));
         assert!(!cursor_presentation_visible(false, false));
     }
-}
-
-/// Transfer handoffs must not interrupt an existing drag or constrained pointer.
-pub(crate) fn transfer_pointer_available<D: SessionDriver>(session: &Session<D>) -> bool {
-    matches!(session.interactions.grab, crate::input::grab::Grab::None)
-        && !session
-            .seat
-            .get_pointer()
-            .is_some_and(|pointer| pointer.is_grabbed())
-        && !has_active_constraint(session)
-}
-
-/// Refresh pointer delivery without treating a compositor warp as hover input.
-pub(crate) fn warp_after_transfer<D: SessionDriver>(
-    session: &mut Session<D>,
-    position: (f64, f64),
-) {
-    session.pointer.set_position(position);
-    session.cursor_policy.pointer_activity();
-    update_client_state(session, session.start_time.elapsed().as_millis() as u32);
-    session.request_redraw();
 }

@@ -572,6 +572,8 @@ impl WindowAnimations {
     }
 }
 
+// Wayland object equality and hashing use stable object identity, not liveness.
+#[allow(clippy::mutable_key_type)]
 pub(crate) fn reassociate_entry<T>(
     entries: &mut HashMap<WlSurface, T>,
     previous: &WlSurface,

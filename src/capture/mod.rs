@@ -1,3 +1,7 @@
+mod jobs;
+pub(crate) use jobs::ScreenshotJobs;
+mod window_geometry;
+pub(crate) use window_geometry::WindowCaptureContext;
 mod requests;
 pub use requests::*;
 pub mod encoder;
@@ -27,114 +31,10 @@ use source_chooser::{SourceChooser, SourceMode, SourcePhase};
 
 use crate::session::{Session, SessionDriver};
 
-pub(crate) fn window_chrome_visible<D: SessionDriver>(
-    session: &Session<D>,
-    window: &Window,
-) -> bool {
-    !crate::xwayland::is_fullscreen(window)
-        && window
-            .wl_surface()
-            .is_none_or(|surface| !session.fullscreen.suppresses_chrome(surface.as_ref()))
-}
-
-pub(crate) fn window_capture_size<D: SessionDriver>(
-    session: &Session<D>,
-    window: &Window,
-) -> smithay::utils::Size<i32, smithay::utils::Physical> {
-    let client = window.geometry().size;
-    let size = if window_chrome_visible(session, window) {
-        crate::titlebar::outer_size_for_client(
-            window,
-            client,
-            &session.settings.decorations,
-            &session.settings.font,
-        )
-    } else {
-        client
-    };
-    size.to_f64()
-        .to_physical(window_display_scale(session, window))
-        .to_i32_round()
-}
-
-pub(crate) fn window_display_scale<D: SessionDriver>(session: &Session<D>, window: &Window) -> f64 {
-    window
-        .wl_surface()
-        .and_then(|surface| {
-            crate::wayland::display_scale::output_for_surface(&session.wayland, surface.as_ref())
-        })
-        .unwrap_or_else(|| session.driver.primary_output().clone())
-        .current_scale()
-        .fractional_scale()
-}
-
-pub(crate) fn window_capture_client_offset<D: SessionDriver>(
-    session: &Session<D>,
-    window: &Window,
-) -> Point<i32, Logical> {
-    if !window_chrome_visible(session, window) {
-        return (0, 0).into();
-    }
-    let outer = crate::titlebar::outer_rect_for_client(
-        window,
-        Rectangle::new((0, 0).into(), window.geometry().size),
-        &session.settings.decorations,
-        &session.settings.font,
-    );
-    (-outer.loc.x, -outer.loc.y).into()
-}
-
-pub(crate) fn window_capture_visual_geometry<D: SessionDriver>(
-    session: &Session<D>,
-    window: &Window,
-    client: Rectangle<i32, Logical>,
-) -> Rectangle<i32, Logical> {
-    if !window_chrome_visible(session, window) {
-        return client;
-    }
-    let native_client = Rectangle::<i32, Logical>::from_size(window.geometry().size);
-    let native_outer = crate::titlebar::outer_rect_for_client(
-        window,
-        native_client,
-        &session.settings.decorations,
-        &session.settings.font,
-    );
-    let scale_x = client.size.w as f64 / native_client.size.w.max(1) as f64;
-    let scale_y = client.size.h as f64 / native_client.size.h.max(1) as f64;
-    let left = ((native_client.loc.x - native_outer.loc.x) as f64 * scale_x).round() as i32;
-    let right = ((native_outer.size.w
-        - native_client.size.w
-        - (native_client.loc.x - native_outer.loc.x)) as f64
-        * scale_x)
-        .round() as i32;
-    let top = ((native_client.loc.y - native_outer.loc.y) as f64 * scale_y).round() as i32;
-    let bottom = ((native_outer.size.h
-        - native_client.size.h
-        - (native_client.loc.y - native_outer.loc.y)) as f64
-        * scale_y)
-        .round() as i32;
-    Rectangle::new(
-        (client.loc.x - left, client.loc.y - top).into(),
-        (
-            client
-                .size
-                .w
-                .saturating_add(left)
-                .saturating_add(right)
-                .max(1),
-            client
-                .size
-                .h
-                .saturating_add(top)
-                .saturating_add(bottom)
-                .max(1),
-        )
-            .into(),
-    )
-}
-
 #[derive(Default)]
 pub struct CaptureState {
+    pub(crate) jobs: ScreenshotJobs,
+    pub(crate) screencast: screencast::ScreencastState,
     picker: RegionPicker,
     source_chooser: SourceChooser,
     selection: Option<Selection>,
@@ -852,13 +752,11 @@ fn window_selection_candidates<D: SessionDriver>(
                 output,
                 now,
             )?;
-            let geometry = window_capture_visual_geometry(
-                session,
-                &record.window,
-                presentation.visual_geometry(),
-            );
+            let geometry = session
+                .window_capture_context()
+                .visual_geometry(&record.window, presentation.visual_geometry());
             geometry.intersection(output_geometry)?;
-            let size = window_capture_size(session, &record.window);
+            let size = session.window_capture_context().size(&record.window);
             Some(WindowSelectionCandidate {
                 surface: record.surface.clone(),
                 geometry,
@@ -955,17 +853,15 @@ pub fn accept_selected<D: SessionDriver>(session: &mut Session<D>) -> bool {
             height,
             ..
         } = &mut source
-        {
-            if let Some(output) = session
+            && let Some(output) = session
                 .wayland
                 .space
                 .outputs()
                 .find(|output| output.name() == *name)
-            {
-                let size = crate::render::output_physical_size(output);
-                *width = size.w;
-                *height = size.h;
-            }
+        {
+            let size = crate::render::output_physical_size(output);
+            *width = size.w;
+            *height = size.h;
         }
         if let PendingCapture::Source { reply, .. } = accepted.pending {
             let _ = reply.send(
@@ -1007,27 +903,14 @@ fn queue_capture<D: SessionDriver>(
     captured: Result<screenshot::CapturedImage, Box<dyn std::error::Error>>,
     reply: PendingCaptureReply,
 ) {
-    let submitted =
-        captured.and_then(|image| {
+    match captured {
+        Ok(image) => {
             let directory = screenshot_directory(&session.settings.screenshot.directory);
-            let encoder = session.screenshot_encoder.as_mut().ok_or_else(
-                || -> Box<dyn std::error::Error> { "screenshot encoder is not running".into() },
-            )?;
-            encoder
-                .submit(
-                    directory,
-                    image.width,
-                    image.height,
-                    image.pixels,
-                    matches!(&reply, PendingCaptureReply::Local { .. }),
-                )
-                .map_err(|err| -> Box<dyn std::error::Error> { err.into() })
-        });
-    match submitted {
-        Ok(id) => {
-            session.pending_captures.insert(id, reply);
+            if let Err((reply, error)) = session.capture.jobs.submit(directory, image, reply) {
+                finish_capture_reply(session, reply, Err(error));
+            }
         }
-        Err(err) => finish_capture_reply(session, reply, Err(err.to_string())),
+        Err(error) => finish_capture_reply(session, reply, Err(error.to_string())),
     }
 }
 
@@ -1080,7 +963,7 @@ pub fn finish_encode<D: SessionDriver>(
     session: &mut Session<D>,
     done: crate::capture::encoder::EncodeDone,
 ) {
-    let Some(reply) = session.pending_captures.remove(&done.id) else {
+    let Some(reply) = session.capture.jobs.take_reply(done.id) else {
         eventline::warn!("screenshot: completion for unknown job {}", done.id);
         return;
     };

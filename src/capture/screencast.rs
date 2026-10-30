@@ -87,6 +87,8 @@ impl ScreencastState {
         self.window_casts.insert(client_id, surface);
     }
 
+    // Wayland object equality and hashing use stable object identity, not liveness.
+    #[allow(clippy::mutable_key_type)]
     pub fn window_cast_targets(
         &self,
     ) -> std::collections::HashSet<
@@ -204,6 +206,7 @@ pub fn capture_frame<D: SessionDriver>(
             }
             let key = (client_id, request.stream_handle.clone(), buffer_id);
             let mut dmabuf = session
+                .capture
                 .screencast
                 .buffers
                 .remove(&key)
@@ -215,7 +218,7 @@ pub fn capture_frame<D: SessionDriver>(
                 &mut dmabuf,
             )
             .map_err(|err| err.to_string());
-            session.screencast.buffers.insert(key, dmabuf);
+            session.capture.screencast.buffers.insert(key, dmabuf);
             Some(result?)
         }
     };
@@ -300,7 +303,7 @@ fn cursor_metadata<D: SessionDriver>(
                 *window_id,
             )
             .ok()?;
-            crate::capture::window_display_scale(session, &window)
+            session.window_capture_context().display_scale(&window)
         }
     };
     let presentation_override = crate::session::cursor_override(session);
@@ -448,8 +451,8 @@ fn cursor_position<D: SessionDriver>(
                 return None;
             }
             let location = session.wayland.space.element_location(&window)?;
-            let client_offset = crate::capture::window_capture_client_offset(session, &window);
-            let scale = crate::capture::window_display_scale(session, &window);
+            let client_offset = session.window_capture_context().client_offset(&window);
+            let scale = session.window_capture_context().display_scale(&window);
             Some((
                 ((route.location.x - f64::from(location.x) + f64::from(client_offset.x)) * scale)
                     .round() as i32,

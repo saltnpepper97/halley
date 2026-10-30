@@ -15,28 +15,33 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use smithay::wayland::shell::xdg::dialog::ToplevelDialogHint;
 
 mod dynamics;
+mod dynamics_inputs;
 pub(crate) mod ipc;
 mod keyboard_navigation;
 mod movement;
 mod session_ops;
+mod session_physics;
 pub(crate) use keyboard_navigation::{pan_field, transfer_window};
 
 pub use ipc::handle_request;
 pub(crate) use ipc::move_selected_direction;
 pub(crate) use ipc::resize_selected_direction;
 #[cfg(test)]
-use session_ops::{
-    centered_rect, landmark_reveal_delta, minimal_reveal_delta, physics_frame_delta,
-};
+use session_ops::{centered_rect, landmark_reveal_delta, minimal_reveal_delta};
 pub use session_ops::{
     close, close_focused_on_output, collapse, focus_and_center_node, focus_cycle_node,
-    focus_or_reveal_node, pan_after_close_restore, reconcile_landmarks, restore, restore_for_close,
-    reveal_cluster_core, reveal_collapsed_node, tick_decay, toggle_focused_on_output,
+    focus_or_reveal_node, pan_after_close_restore, restore, restore_for_close, reveal_cluster_core,
+    reveal_collapsed_node, tick_decay, toggle_focused_on_output,
 };
-pub(crate) use session_ops::{
+pub(crate) use session_ops::{restore_for_cluster_join, set_collapsed_output};
+
+#[cfg(test)]
+use session_physics::physics_frame_delta;
+pub use session_physics::reconcile_landmarks;
+pub(crate) use session_physics::{
     displace_landmarks_for_new_window, move_cluster_core_rigid, move_grabbed_body_rigid,
-    reconcile_landmarks_for_zoom, resolve_new_cluster_core, restore_for_cluster_join,
-    restore_landmarks_for_zoom, set_collapsed_output, tick_physics,
+    reconcile_landmarks_for_zoom, resolve_new_cluster_core, restore_landmarks_for_zoom,
+    tick_physics,
 };
 
 const OUTSIDE_THRESHOLD: f32 = 0.90;

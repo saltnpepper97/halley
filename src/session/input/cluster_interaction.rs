@@ -283,7 +283,7 @@ pub(crate) fn finish_cluster_creation<D: SessionDriver>(session: &mut Session<D>
                     &wayland_display,
                     x11_display.as_deref(),
                     session.cursor.size(),
-                    &session.launch_environment,
+                    session.launch.environment(),
                 );
             }
         }

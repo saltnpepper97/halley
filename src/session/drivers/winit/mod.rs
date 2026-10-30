@@ -316,14 +316,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             launch_path.as_deref(),
         ),
         key_repeat: super::input::repeat::Policy::new(event_loop.handle()),
-        launch_environment,
-        autostart: super::autostart::Autostart::disabled(),
-        startup_clusters: super::startup_clusters::StartupClusters::default(),
+        launch: super::launch::LaunchState::new(
+            launch_environment,
+            super::autostart::Autostart::disabled(),
+            false,
+        ),
         user_state: super::basics::UserState::load(),
         pointer: Pointer::new((100.0, 100.0)),
         cursor: CursorManager::new(&runtime_config.cursor),
         cursor_policy: super::cursor::Policy::new(&runtime_config.cursor, event_loop.handle()),
-        publish_session_environment: false,
         wayland,
         seat_state,
         seat,
@@ -336,9 +337,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         session_lock,
         start_time: Instant::now(),
         wayland_display: None,
-        config_path: config_path.clone(),
-        config_watcher: None,
-        startup_config_diagnostic: initial.diagnostic,
+        config_source: super::config_source::ConfigSource::new(
+            config_path.clone(),
+            initial.diagnostic,
+        ),
         shell: crate::shell::state::ShellState::new(&runtime_config),
         settings: super::RuntimeSettings::new_with_color_scheme(
             &runtime_config,
@@ -362,9 +364,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::window::recovery::PresentationCloseSizeRecovery::default(),
         cameras,
         capture: crate::capture::CaptureState::default(),
-        pending_captures: std::collections::HashMap::new(),
-        screenshot_encoder: None,
-        screencast: crate::capture::screencast::ScreencastState::default(),
         interactions: super::InteractionState::default(),
         touch: super::touch::TouchState::default(),
         gestures: super::gesture::GestureState::default(),
@@ -430,7 +429,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            if app.screencast.disconnect(client_id) {
+            if app.capture.screencast.disconnect(client_id) {
                 app.refresh_window_cast_rules();
                 app.request_redraw();
             }
@@ -444,12 +443,12 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         &event_loop.handle(),
         |app: &mut App, done| crate::capture::finish_encode(app, done),
     ) {
-        Ok(encoder) => app.screenshot_encoder = Some(encoder),
+        Ok(encoder) => app.capture.jobs.set_encoder(encoder),
         Err(err) => eventline::error!("screenshot: failed to start encoder: {err}"),
     }
     if let Some(path) = config_path {
         match crate::config::watch(&event_loop.handle(), path, apply_runtime_config) {
-            Ok(watcher) => app.config_watcher = Some(watcher),
+            Ok(watcher) => app.config_source.set_watcher(watcher),
             Err(err) => eventline::warn!("config: failed to start watcher: {err}"),
         }
     }
@@ -654,7 +653,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             nodes: &app.nodes,
                             clusters: &app.clusters,
                             window_rules: &app.window_rules,
-                            screencast: &app.screencast,
+                            screencast: &app.capture.screencast,
                             layer_rules: &app.settings.layer_rules,
                             node_grab_active: app.interactions.grab.landmark_active(),
                             titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
@@ -686,8 +685,8 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             shadows: app.settings.effects.shadows,
                             background: &app.settings.background,
                             background_base: app
-                                .config_path
-                                .as_deref()
+                                .config_source
+                                .path()
                                 .and_then(std::path::Path::parent),
                         },
                         resources: crate::render::resources::RenderResources::from(&mut app.render),

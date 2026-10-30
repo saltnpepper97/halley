@@ -2865,9 +2865,7 @@ fn portal_monitor_capture_redacts_protected_window() {
     });
     assert!(
         matches!(
-            fixture.request(Request::BeginWindowCast {
-                window_id: window_id,
-            }),
+            fixture.request(Request::BeginWindowCast { window_id }),
             Response::Error(_)
         ),
         "protected direct window cast must be rejected"

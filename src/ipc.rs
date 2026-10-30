@@ -671,7 +671,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                                 "window is protected from screencasting".to_string(),
                             )
                         } else {
-                            app.screencast.begin_window_cast(client_id, surface);
+                            app.capture.screencast.begin_window_cast(client_id, surface);
                             app.refresh_window_cast_rules();
                             app.request_redraw();
                             halley_ipc::Response::Ack
@@ -684,7 +684,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             }
         }
         halley_ipc::Request::RegisterDmabuf(request) => {
-            match app.screencast.register(client_id, request, fds) {
+            match app.capture.screencast.register(client_id, request, fds) {
                 Ok(()) => halley_ipc::Response::Ack,
                 Err(message) => halley_ipc::Response::Error(message),
             }
@@ -693,7 +693,9 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             stream_handle,
             buffer_id,
         } => {
-            app.screencast.remove(client_id, &stream_handle, buffer_id);
+            app.capture
+                .screencast
+                .remove(client_id, &stream_handle, buffer_id);
             halley_ipc::Response::Ack
         }
         halley_ipc::Request::CaptureFrame(request) => {
@@ -754,8 +756,8 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             halley_ipc::Response::Ack
         }
         halley_ipc::Request::ConfigPath => halley_ipc::Response::ConfigPath(
-            app.config_path
-                .as_ref()
+            app.config_source
+                .path()
                 .map(|path| path.to_string_lossy().into_owned()),
         ),
         halley_ipc::Request::Dpms { command, output } => {
@@ -813,12 +815,9 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             }
         }
         halley_ipc::Request::Subscribe(_) => unreachable!(),
-        halley_ipc::Request::ConfigReload => match app.config_watcher.as_ref() {
-            Some(watcher) => {
-                watcher.request_reload();
-                halley_ipc::Response::Ack
-            }
-            None => halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
+        halley_ipc::Request::ConfigReload => match app.config_source.request_reload() {
+            true => halley_ipc::Response::Ack,
+            false => halley_ipc::Response::ApiError(halley_ipc::ServerError::new(
                 halley_ipc::ServerErrorKind::NotFound,
                 "no configuration file is being watched",
             )),
@@ -1062,8 +1061,8 @@ fn api_snapshot<D: crate::session::SessionDriver>(
         nodes,
         clusters,
         config_path: app
-            .config_path
-            .as_ref()
+            .config_source
+            .path()
             .map(|path| path.to_string_lossy().into_owned()),
     }
 }

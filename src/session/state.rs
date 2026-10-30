@@ -1,5 +1,4 @@
 use std::ffi::OsStr;
-use std::path::PathBuf;
 
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufSource};
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -9,36 +8,10 @@ use smithay::output::Output;
 use smithay::reexports::wayland_server::Client;
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::wayland::background_effect::BackgroundEffectState;
-use smithay::wayland::compositor::CompositorState;
-use smithay::wayland::content_type::ContentTypeState;
-use smithay::wayland::cursor_shape::CursorShapeManagerState;
-use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::drm_syncobj::{DrmSyncPointSource, DrmSyncobjState};
-use smithay::wayland::fractional_scale::FractionalScaleManagerState;
-use smithay::wayland::idle_inhibit::IdleInhibitManagerState;
 use smithay::wayland::idle_notify::IdleNotifierState;
-use smithay::wayland::input_method::InputMethodManagerState;
-use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState;
-use smithay::wayland::output::OutputManagerState;
-use smithay::wayland::pointer_constraints::PointerConstraintsState;
-use smithay::wayland::pointer_gestures::PointerGesturesState;
 use smithay::wayland::presentation::PresentationState;
-use smithay::wayland::relative_pointer::RelativePointerManagerState;
 use smithay::wayland::seat::WaylandFocus;
-use smithay::wayland::selection::data_device::DataDeviceState;
-use smithay::wayland::selection::ext_data_control::DataControlState;
-use smithay::wayland::selection::primary_selection::PrimarySelectionState;
-use smithay::wayland::shell::wlr_layer::WlrLayerShellState;
-use smithay::wayland::shell::xdg::XdgShellState;
-use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
-use smithay::wayland::shm::ShmState;
-use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
-use smithay::wayland::text_input::TextInputManagerState;
-use smithay::wayland::viewporter::ViewporterState;
-use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
-use smithay::wayland::xdg_activation::XdgActivationState;
-use smithay::wayland::xdg_toplevel_icon::XdgToplevelIconManager;
 
 use super::output::{OutputChange, OutputConfiguration, OutputState};
 use crate::cursor::CursorManager;
@@ -134,15 +107,12 @@ pub struct Session<D: SessionDriver> {
     pub driver: D,
     pub keyboard: Keyboard,
     pub(crate) key_repeat: super::input::repeat::Policy<D>,
-    pub(super) launch_environment: super::environment::LaunchEnvironment,
-    pub(super) autostart: super::autostart::Autostart,
-    pub(super) startup_clusters: super::startup_clusters::StartupClusters,
+    pub(super) launch: super::launch::LaunchState,
     /// One-time onboarding state, persisted outside the configuration.
     pub(super) user_state: super::basics::UserState,
     pub pointer: Pointer,
     pub cursor: CursorManager,
     pub(crate) cursor_policy: super::cursor::Policy<D>,
-    pub(super) publish_session_environment: bool,
     pub wayland: WaylandState,
     pub seat_state: SeatState<Self>,
     pub seat: Seat<Self>,
@@ -155,9 +125,7 @@ pub struct Session<D: SessionDriver> {
     pub session_lock: crate::wayland::session_lock::State,
     pub start_time: std::time::Instant,
     pub(crate) wayland_display: Option<std::ffi::OsString>,
-    pub config_path: Option<PathBuf>,
-    pub(crate) config_watcher: Option<crate::config::ConfigWatcher>,
-    pub startup_config_diagnostic: Option<halley_config::ConfigDiagnostic>,
+    pub(crate) config_source: super::config_source::ConfigSource,
     pub shell: crate::shell::state::ShellState,
     pub settings: super::RuntimeSettings,
     pub nodes: crate::nodes::NodesState,
@@ -169,10 +137,6 @@ pub struct Session<D: SessionDriver> {
         crate::window::recovery::PresentationCloseSizeRecovery,
     pub cameras: OutputCameras,
     pub capture: crate::capture::CaptureState,
-    /// Screenshots waiting on the encoder worker, keyed by job id.
-    pub pending_captures: std::collections::HashMap<u64, crate::capture::PendingCaptureReply>,
-    pub screenshot_encoder: Option<crate::capture::encoder::ScreenshotEncoder>,
-    pub screencast: crate::capture::screencast::ScreencastState,
     pub interactions: super::InteractionState,
     pub(super) touch: super::touch::TouchState,
     pub(super) gestures: super::gesture::GestureState,
@@ -187,126 +151,35 @@ pub struct Session<D: SessionDriver> {
 }
 
 impl<D: SessionDriver> Session<D> {
+    pub(crate) fn window_capture_context(&self) -> crate::capture::WindowCaptureContext<'_> {
+        crate::capture::WindowCaptureContext::new(
+            &self.wayland,
+            self.driver.primary_output(),
+            &self.fullscreen,
+            &self.settings.decorations,
+            &self.settings.font,
+        )
+    }
+
     pub(crate) fn launch_environment(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
-        self.launch_environment.iter()
+        self.launch.environment().iter()
     }
 
     pub(crate) fn arm_autostart_once(&mut self, wayland_display: &OsStr, commands: Vec<String>) {
-        self.autostart.arm_once(wayland_display, commands);
+        self.launch.arm_once(wayland_display, commands);
     }
 
     pub(crate) fn run_autostart_once(&mut self) {
         let x11_display = self.xwayland.display_name();
-        self.autostart.run_once(
-            x11_display.as_deref(),
-            self.cursor.size(),
-            &self.launch_environment,
-        );
+        self.launch
+            .run_once(x11_display.as_deref(), self.cursor.size());
         self.run_startup_cluster_commands();
     }
 
     pub(crate) fn run_autostart_reload(&mut self, commands: &[String]) {
         let x11_display = self.xwayland.display_name();
-        self.autostart.run_reload(
-            commands,
-            x11_display.as_deref(),
-            self.cursor.size(),
-            &self.launch_environment,
-        );
-    }
-
-    pub fn create_wayland_state(display_handle: DisplayHandle, driver: &mut D) -> WaylandState {
-        let capabilities = driver.dmabuf_capabilities();
-        let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global = crate::wayland::dmabuf::create_global::<Self>(
-            &mut dmabuf_state,
-            &display_handle,
-            &capabilities,
-        );
-        let primary_selection_state = PrimarySelectionState::new::<Self>(&display_handle);
-        let ext_data_control_state = DataControlState::new::<Self, _>(
-            &display_handle,
-            Some(&primary_selection_state),
-            |client| {
-                crate::wayland::permissions::allowed(
-                    client,
-                    crate::wayland::permissions::Capability::Clipboard,
-                )
-            },
-        );
-
-        WaylandState::new(
-            display_handle.clone(),
-            CompositorState::new_v6::<Self>(&display_handle),
-            smithay::wayland::fifo::FifoManagerState::new::<Self>(&display_handle),
-            smithay::wayland::commit_timing::CommitTimingManagerState::unmanaged::<Self>(
-                &display_handle,
-            ),
-            dmabuf_state,
-            dmabuf_global,
-            XdgShellState::new::<Self>(&display_handle),
-            smithay::wayland::shell::xdg::dialog::XdgDialogState::new::<Self>(&display_handle),
-            smithay::wayland::xdg_foreign::XdgForeignState::new::<Self>(&display_handle),
-            XdgActivationState::new::<Self>(&display_handle),
-            WlrLayerShellState::new::<Self>(&display_handle),
-            BackgroundEffectState::new::<Self>(&display_handle),
-            SinglePixelBufferState::new::<Self>(&display_handle),
-            ContentTypeState::new::<Self>(&display_handle),
-            XdgToplevelIconManager::new::<Self>(&display_handle),
-            XdgDecorationState::new::<Self>(&display_handle),
-            ViewporterState::new::<Self>(&display_handle),
-            FractionalScaleManagerState::new::<Self>(&display_handle),
-            IdleInhibitManagerState::new::<Self>(&display_handle),
-            RelativePointerManagerState::new::<Self>(&display_handle),
-            PointerConstraintsState::new::<Self>(&display_handle),
-            smithay::wayland::pointer_warp::PointerWarpManager::new::<Self>(&display_handle),
-            PointerGesturesState::new::<Self>(&display_handle),
-            CursorShapeManagerState::new::<Self>(&display_handle),
-            VirtualKeyboardManagerState::new::<Self, _>(&display_handle, |client| {
-                crate::wayland::permissions::allowed(
-                    client,
-                    crate::wayland::permissions::Capability::VirtualKeyboard,
-                )
-            }),
-            TextInputManagerState::new::<Self>(&display_handle),
-            InputMethodManagerState::new::<Self, _>(&display_handle, |client| {
-                crate::wayland::permissions::allowed(
-                    client,
-                    crate::wayland::permissions::Capability::InputMethod,
-                )
-            }),
-            KeyboardShortcutsInhibitState::new::<Self>(&display_handle),
-            ShmState::new::<Self>(&display_handle, vec![]),
-            OutputManagerState::new_with_xdg_output::<Self>(&display_handle),
-            crate::wayland::wlr_output_management::State::new::<Self>(&display_handle),
-            crate::wayland::wlr_gamma_control::State::new::<Self>(
-                &display_handle,
-                D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty,
-            ),
-            crate::wayland::wlr_output_power::State::new::<Self>(
-                &display_handle,
-                D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty,
-                |client| {
-                    crate::wayland::permissions::allowed(
-                        client,
-                        crate::wayland::permissions::Capability::OutputPower,
-                    )
-                },
-            ),
-            crate::wayland::wlr_screencopy::State::new::<Self>(&display_handle),
-            crate::wayland::ext_image_copy_capture::State::new::<Self>(&display_handle, |client| {
-                crate::wayland::permissions::allowed(
-                    client,
-                    crate::wayland::permissions::Capability::Capture,
-                )
-            }),
-            std::collections::HashMap::new(),
-            DataDeviceState::new::<Self>(&display_handle),
-            primary_selection_state,
-            ext_data_control_state,
-            crate::wayland::ext_workspace::State::new::<Self>(&display_handle),
-            crate::wayland::foreign_toplevel::State::new::<Self>(&display_handle),
-        )
+        self.launch
+            .run_reload(commands, x11_display.as_deref(), self.cursor.size());
     }
 
     pub fn request_redraw(&mut self) {
@@ -335,13 +208,13 @@ impl<D: SessionDriver> Session<D> {
     pub fn initialize_config_notification(&mut self) {
         let now = crate::frame_clock::monotonic_now();
         let output = self.notification_output_name();
-        if self.startup_config_diagnostic.take().is_some() {
+        if self.config_source.take_startup_error() {
             self.shell.overlays.show_config_error(
                 output,
                 self.settings.overlays.notifications.error_duration_ms,
                 now,
             );
-        } else if let Some(path) = self.config_path.as_deref() {
+        } else if let Some(path) = self.config_source.path() {
             self.shell.overlays.show_config_success(
                 output,
                 path,
@@ -427,7 +300,7 @@ impl<D: SessionDriver> Session<D> {
     /// native session can offer the one-time basics card. Existing configs and
     /// explicitly selected paths never reach this path.
     pub fn record_fresh_config(&mut self, fresh: bool) {
-        let Some(config_path) = self.config_path.clone() else {
+        let Some(config_path) = self.config_source.path().map(std::path::Path::to_path_buf) else {
             return;
         };
         if fresh {
@@ -536,10 +409,9 @@ impl<D: SessionDriver> Session<D> {
         if cancel_gestures {
             super::gesture::cancel_all(self);
         }
-        self.launch_environment.reload(&config.env);
-        self.launch_environment
-            .set_cursor_theme(&config.cursor.theme);
-        let launch_path = self.launch_environment.path();
+        let launch_path = self
+            .launch
+            .reload_environment(&config.env, &config.cursor.theme);
         self.keyboard
             .reload(&config.keybinds, D::BACKEND_KIND, launch_path.as_deref());
         crate::input::config::reload(self, &config.input);
@@ -549,8 +421,9 @@ impl<D: SessionDriver> Session<D> {
             self.xwayland.sync_cursor(&self.cursor);
         }
         let cursor_visibility_changed = self.cursor_policy.reload(&config.cursor);
-        if cursor_changed && self.publish_session_environment {
-            super::environment::publish_cursor_settings(&config.cursor.theme, config.cursor.size);
+        if cursor_changed {
+            self.launch
+                .publish_cursor_settings(&config.cursor.theme, config.cursor.size);
         }
         let window_rules_redraw = self.window_rules_reload_changes_visuals(&config.window_rules);
         let decorations_changed =
@@ -669,7 +542,7 @@ impl<D: SessionDriver> Session<D> {
     pub(crate) fn refresh_window_cast_rules(&mut self) {
         if self
             .window_rules
-            .set_casts(self.screencast.window_cast_targets())
+            .set_casts(self.capture.screencast.window_cast_targets())
         {
             self.refresh_dynamic_window_rules();
         }

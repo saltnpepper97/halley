@@ -668,7 +668,7 @@ fn sync_group<D>(
     display: &DisplayHandle,
     client: &Client,
     binding: u64,
-    groups: &mut Vec<GroupBinding>,
+    groups: &mut [GroupBinding],
     index: usize,
     workspaces: &mut Vec<WorkspaceBinding>,
     manager: &ExtWorkspaceManagerV1,
@@ -1089,7 +1089,7 @@ mod tests {
     #[test]
     fn dead_targets_are_discarded() {
         let owners = owners(&[(1, "DP-1")]);
-        let active = vec![("DP-1".to_string(), None)];
+        let active = [("DP-1".to_string(), None)];
 
         let plan = reduce_transaction(
             &[

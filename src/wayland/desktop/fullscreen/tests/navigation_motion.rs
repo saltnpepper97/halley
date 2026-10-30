@@ -398,7 +398,8 @@ fn compositor_fullscreen_requires_an_attached_repaint_buffer() {
 fn constrained_native_client_settles_after_a_bounded_size_wait() {
     let mut entry = pending_compositor_entry();
     let started = Duration::from_secs(1);
-    let size = Some((800, 600).into());
+    let client_size = (800, 600).into();
+    let size = Some(client_size);
     assert!(!native_visual_commit_ready(
         &mut entry,
         Some(20.into()),
@@ -421,8 +422,7 @@ fn constrained_native_client_settles_after_a_bounded_size_wait() {
         started + NATIVE_SIZE_WAIT,
     ));
     assert_eq!(
-        entry.fullscreen_size,
-        size.unwrap(),
+        entry.fullscreen_size, client_size,
         "letterbox the client's chosen size"
     );
     settle_visual_commit(
@@ -521,8 +521,10 @@ fn unchanged_native_exit_can_release_its_camera_ownership() {
         true,
         NATIVE_SIZE_WAIT
     ));
-    let mut animations = Animations::default();
-    animations.enabled = false;
+    let animations = Animations {
+        enabled: false,
+        ..Animations::default()
+    };
     settle_visual_commit(&mut entry, &animations, NATIVE_SIZE_WAIT, false);
     assert!(!entry.active);
     assert!(!entry.presented);

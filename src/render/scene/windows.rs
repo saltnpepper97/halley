@@ -41,6 +41,23 @@ pub(super) struct LiveWindowRenderers<'a> {
     pub window_shaders: &'a mut crate::render::window_shader::WindowAnimationShaders,
 }
 
+impl LiveWindowRenderers<'_> {
+    pub(super) fn reborrow(&mut self) -> LiveWindowRenderers<'_> {
+        LiveWindowRenderers {
+            arrange_textures: &mut *self.arrange_textures,
+            fullscreen_textures: &mut *self.fullscreen_textures,
+            backdrop_blur: &mut *self.backdrop_blur,
+            shadow: &mut *self.shadow,
+            decoration: &mut *self.decoration,
+            titlebar: &mut *self.titlebar,
+            node: &mut *self.node,
+            text: &mut *self.text,
+            pin: &mut *self.pin,
+            window_shaders: &mut *self.window_shaders,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct LiveWindowContext<'a> {
     pub(super) space: &'a smithay::desktop::Space<smithay::desktop::Window>,
@@ -168,18 +185,20 @@ pub(super) fn live_window_elements(
                 .join_ready_for(member, &context.output.name())
         });
     let Some(visual) = window_visual_state_with_cluster_presentation(
-        context.space,
-        context.cameras,
-        Some(context.clusters),
-        Some(context.nodes),
+        crate::presentation::window::WindowVisualContext {
+            space: context.space,
+            cameras: context.cameras,
+            clusters: Some(context.clusters),
+            nodes: Some(context.nodes),
+            output: context.output,
+            window_animations: context.window_animations,
+            fullscreen: context.fullscreen,
+            maximize: context.maximize,
+            decorations: context.decorations,
+            font: context.font,
+            now: context.target_presentation_time,
+        },
         window,
-        context.output,
-        context.window_animations,
-        context.fullscreen,
-        context.maximize,
-        context.decorations,
-        context.font,
-        context.target_presentation_time,
         context.cluster_presentation_override,
     ) else {
         return Ok(LiveWindowScene {

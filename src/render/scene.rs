@@ -25,24 +25,32 @@ use crate::presentation::window::{
 mod animation_pixels;
 mod apogee_clusters;
 mod capture_ui;
+mod chrome;
+mod close_stack;
 mod cluster_composer;
 mod clusters;
+mod desktop;
 mod effects;
+mod live_collection;
 pub(crate) mod nodes;
 mod overview;
+mod privacy;
+mod replacement;
+mod window_stack;
 mod windows;
 
 use capture_ui::capture_overlay_elements;
 use cluster_composer::cluster_composer_elements;
 use clusters::{ClusterElementContext, cluster_elements};
 use effects::{
-    OverlayEffectStyle, append_compositor_overlay_blur, append_overlay_shadows,
+    LayerSceneStyle, OverlayEffectStyle, append_compositor_overlay_blur, append_overlay_shadows,
     layer_surface_scene_elements,
 };
 use nodes::{NodeElementContext, node_elements};
 use overview::{
     FocusCycleRenderContext, apogee_elements, focus_cycle_elements, hover_preview_elements,
 };
+use privacy::CapturePrivacy;
 pub(crate) use windows::append_titlebar_elements;
 use windows::{
     LiveWindowContext, LiveWindowRenderers, LiveWindowScene, StackGroup, live_window_elements,
@@ -149,8 +157,7 @@ fn build_logical(
     primary_output: &Output,
     output_geometry: Rectangle<i32, Logical>,
     request: &mut RenderRequest<'_>,
-    block_screencast: bool,
-    screenshot: bool,
+    privacy: CapturePrivacy,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     request.resources.node_renderer.poll_icons(renderer);
     request
@@ -221,16 +228,9 @@ fn build_logical(
             .window_decoration_renderer
             .available(renderer);
     }
-    let privacy_active = block_screencast
-        && (request.desktop.window_rules.has_capture_blocks(screenshot)
-            || request
-                .desktop
-                .layer_rules
-                .iter()
-                .any(|rule| !screenshot && rule.block_screencast));
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
-    if privacy_active
+    if privacy.redact_cached_scene()
         && (request.overlays.apogee.is_active()
             || request.overlays.focus_cycle.is_active()
             || request
@@ -249,15 +249,6 @@ fn build_logical(
         .overlays
         .overlays
         .snapshot(&output.name(), request.frame.target_presentation_time);
-    let cluster_exclusive = crate::presentation::window::cluster_exclusive_presentation(
-        request.desktop.clusters,
-        request.desktop.nodes,
-        request.desktop.fullscreen,
-        request.desktop.maximize,
-        output,
-        output_geometry,
-        request.frame.target_presentation_time,
-    );
 
     // Cluster Composer owns only its initiating output. It replaces that
     // output's desktop with a stable mosaic while other outputs keep their
@@ -268,263 +259,20 @@ fn build_logical(
         .replacement_output()
         .is_some_and(|name| name == output.name())
     {
-        let mut elements = cluster_composer_elements(
+        return replacement::cluster_composer(
             renderer,
             output,
             output_geometry,
-            request.overlays.cluster_composer,
-            request.desktop.clusters,
-            request.overlays.apogee_config,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.visuals.font,
-            request.desktop.space,
-            request.desktop.cameras,
-            request.desktop.nodes,
-            request.resources.node_renderer,
-            request.resources.cluster_renderer,
-            request.resources.titlebar_renderer,
-            request.resources.window_decoration_renderer,
-            request.resources.ui_text,
-            request.desktop.window_animations,
-            request.desktop.fullscreen,
-            request.desktop.maximize,
-            request.resources.overlay_previews,
-            request.frame.target_presentation_time,
-        )?;
-        append_overlay_shadows(
-            renderer,
-            output,
-            "cluster-composer",
-            request.visuals.shadows.overlay,
-            request.resources.shadow_renderer,
-            &mut elements,
-        )?;
-        elements.extend(
-            super::layer_surface_elements(renderer, output, Layer::Background)
-                .into_iter()
-                .map(SceneElement::Layer),
-        );
-        append_background(
-            renderer,
-            request.resources.background_renderer,
-            BackgroundSceneRequest {
-                output,
-                output_geometry,
-                cameras: request.desktop.cameras,
-                config: request.visuals.background,
-                config_dir: request.visuals.background_base,
-                now: request.frame.target_presentation_time,
-            },
-            &mut elements,
-        );
-
-        let mut naming = super::overlays::cluster_creation::elements(
-            renderer,
-            request.resources.cluster_creation_overlay,
-            output,
-            output_geometry,
-            request.desktop.clusters.creation(),
-            request.cursor.cursor_position,
-            request
-                .overlays
-                .cluster_composer
-                .session()
-                .map_or(1.0, |session| {
-                    session.naming_alpha(request.frame.target_presentation_time)
-                }),
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "cluster-creation",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut naming,
-        )?;
-        elements.splice(0..0, naming);
-
-        let mut overlay_elements = super::overlays::shell::elements(
-            renderer,
-            output_geometry,
+            request,
             overlay_snapshot,
-            request.overlays.overlay_config,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "shell-overlay",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut overlay_elements,
-        )?;
-        elements.splice(0..0, overlay_elements);
-        if request.visuals.debug.overlay_fps {
-            let mut fps_elements = super::overlays::fps::elements(
-                renderer,
-                &output.name(),
-                request.frame.target_presentation_time,
-                request.resources.debug_fps_overlay,
-                request.overlays.overlay_config,
-                request.visuals.decorations,
-                request.resources.node_renderer,
-                request.resources.ui_text,
-            )?;
-            append_compositor_overlay_blur(
-                renderer,
-                output,
-                OverlayEffectStyle {
-                    output_size: output_geometry.size,
-                    identity: "debug-fps",
-                    blur: request.visuals.blur,
-                    shadow: request.visuals.shadows.overlay,
-                },
-                request.resources.backdrop_blur_renderer,
-                request.resources.shadow_renderer,
-                &mut fps_elements,
-            )?;
-            elements.splice(0..0, fps_elements);
-        }
-        prepend_pointer_elements(
-            renderer,
-            output,
-            output_geometry,
-            &request.cursor,
-            request.frame.target_presentation_time,
-            true,
-            &mut elements,
-        )?;
-        return Ok(elements);
+        );
     }
 
     // Apogee is a replacement scene, not a translucent layer over the live
     // desktop. Keep only its tiles and the wallpaper layer behind them; normal
     // windows, nodes, panels, and desktop overlays must not bleed through.
     if request.overlays.apogee.is_active() {
-        let mut elements = apogee_elements(
-            renderer,
-            output,
-            output_geometry,
-            request.overlays.apogee,
-            request.overlays.apogee_config,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.visuals.font,
-            request.desktop.space,
-            request.desktop.cameras,
-            request.desktop.nodes,
-            request.desktop.clusters,
-            request.resources.node_renderer,
-            request.resources.cluster_renderer,
-            request.resources.titlebar_renderer,
-            request.resources.window_decoration_renderer,
-            request.resources.ui_text,
-            request.desktop.window_animations,
-            request.desktop.fullscreen,
-            request.desktop.maximize,
-            request.resources.overlay_previews,
-            request.frame.target_presentation_time,
-        )?;
-        append_overlay_shadows(
-            renderer,
-            output,
-            "apogee",
-            request.visuals.shadows.overlay,
-            request.resources.shadow_renderer,
-            &mut elements,
-        )?;
-        elements.extend(
-            super::layer_surface_elements(renderer, output, Layer::Background)
-                .into_iter()
-                .map(SceneElement::Layer),
-        );
-        append_background(
-            renderer,
-            request.resources.background_renderer,
-            BackgroundSceneRequest {
-                output,
-                output_geometry,
-                cameras: request.desktop.cameras,
-                config: request.visuals.background,
-                config_dir: request.visuals.background_base,
-                now: request.frame.target_presentation_time,
-            },
-            &mut elements,
-        );
-        let mut overlay_elements = super::overlays::shell::elements(
-            renderer,
-            output_geometry,
-            overlay_snapshot,
-            request.overlays.overlay_config,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "shell-overlay",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut overlay_elements,
-        )?;
-        elements.splice(0..0, overlay_elements);
-        if request.visuals.debug.overlay_fps {
-            let mut fps_elements = super::overlays::fps::elements(
-                renderer,
-                &output.name(),
-                request.frame.target_presentation_time,
-                request.resources.debug_fps_overlay,
-                request.overlays.overlay_config,
-                request.visuals.decorations,
-                request.resources.node_renderer,
-                request.resources.ui_text,
-            )?;
-            append_compositor_overlay_blur(
-                renderer,
-                output,
-                OverlayEffectStyle {
-                    output_size: output_geometry.size,
-                    identity: "debug-fps",
-                    blur: request.visuals.blur,
-                    shadow: request.visuals.shadows.overlay,
-                },
-                request.resources.backdrop_blur_renderer,
-                request.resources.shadow_renderer,
-                &mut fps_elements,
-            )?;
-            elements.splice(0..0, fps_elements);
-        }
-        prepend_pointer_elements(
-            renderer,
-            output,
-            output_geometry,
-            &request.cursor,
-            request.frame.target_presentation_time,
-            true,
-            &mut elements,
-        )?;
-        return Ok(elements);
+        return replacement::apogee(renderer, output, output_geometry, request, overlay_snapshot);
     }
 
     let mut elements = capture_overlay_elements(
@@ -594,11 +342,16 @@ fn build_logical(
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Overlay,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: privacy.redact_layers(),
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     let mut focus_cycle = focus_cycle_elements(
@@ -657,11 +410,16 @@ fn build_logical(
         elements.extend(layer_surface_scene_elements(
             renderer,
             output,
-            output_geometry,
             Layer::Top,
-            request.desktop.layer_rules,
-            block_screencast && !screenshot,
-            request.visuals.blur,
+            LayerSceneStyle {
+                output_geometry,
+
+                layer_rules: request.desktop.layer_rules,
+
+                block_screencast: privacy.redact_layers(),
+
+                blur: request.visuals.blur,
+            },
             request.resources.backdrop_blur_renderer,
         )?);
     }
@@ -671,516 +429,48 @@ fn build_logical(
     // from its ordinary cluster stack without duplicating it.
     let desktop_foreground_index = elements.len();
 
-    let mut hover_preview = hover_preview_elements(
+    desktop::append(
         renderer,
         output,
+        primary_output,
         output_geometry,
-        request.desktop.nodes,
-        request.desktop.cameras,
-        request.resources.overlay_previews,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-        request.resources.window_decoration_renderer,
-        request.resources.titlebar_renderer,
-        request.overlays.overlay_config,
-        request.visuals.decorations,
-        request.visuals.font,
-        request.desktop.fullscreen,
-        request.frame.target_presentation_time,
-    )?;
-    append_compositor_overlay_blur(
-        renderer,
-        output,
-        OverlayEffectStyle {
-            output_size: output_geometry.size,
-            identity: "node-hover-preview",
-            blur: request.visuals.blur,
-            shadow: request.visuals.shadows.overlay,
+        request,
+        desktop::DesktopPlacement {
+            popup: popup_foreground_index,
+            desktop: desktop_foreground_index,
+            privacy,
         },
-        request.resources.backdrop_blur_renderer,
-        request.resources.shadow_renderer,
-        &mut hover_preview,
+        &mut elements,
     )?;
-    if !privacy_active {
-        elements.extend(hover_preview);
-    }
-
-    let node_scene = node_elements(
-        renderer,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-        NodeElementContext {
-            output,
-            output_geometry,
-            nodes: request.desktop.nodes,
-            node_grab_active: request.desktop.node_grab_active,
-            cameras: request.desktop.cameras,
-            decorations: request.visuals.decorations,
-            pins: request.visuals.pins,
-            overlays: request.overlays.overlay_config,
-            pin_renderer: request.resources.pin_renderer,
-            debug: request.visuals.debug,
-            shadow_config: request.visuals.shadows.node,
-            shadow_renderer: request.resources.shadow_renderer,
-            now: request.frame.target_presentation_time,
-        },
-    )?;
-    elements.extend(node_scene.overlay);
-
-    let mut stack = request
-        .resources
-        .window_close_animations
-        .renders_for_output(
-            renderer,
-            request.resources.window_shaders,
-            output,
-            output_geometry,
-            request.desktop.cameras,
-            request.frame.target_presentation_time,
-        )
-        .into_iter()
-        .map(|closing| -> Result<StackGroup, Box<dyn Error>> {
-            if block_screencast && request.desktop.window_rules.has_capture_blocks(screenshot) {
-                return Ok(StackGroup {
-                    window: None,
-                    stack_index: closing.stack_index,
-                    order: closing.order,
-                    elements: Vec::new(),
-                });
-            }
-            let mut elements = Vec::new();
-            let shader = closing.shader;
-            let shader_active = shader.is_some();
-            let shadow_alpha = closing.texture.alpha();
-            let border_width = closing.border.map(|border| border.width).unwrap_or(0);
-            let rounded = shader.is_none()
-                && closing.content_radius > 0.0
-                && request
-                    .resources
-                    .window_decoration_renderer
-                    .available(renderer);
-            if let Some(border) = closing.border {
-                if rounded
-                    && let Some(border) =
-                        request.resources.window_decoration_renderer.border_element(
-                            renderer,
-                            closing.border_id.clone(),
-                            closing.destination,
-                            border.width,
-                            closing.content_radius,
-                            border.color,
-                            1.0,
-                        )
-                {
-                    elements.push(SceneElement::WindowBorder(border));
-                } else {
-                    elements.extend(
-                        super::border_strips(
-                            std::array::from_fn(|index| closing.border_id.namespaced(100 + index)),
-                            closing.destination,
-                            border.width,
-                            border.color,
-                        )
-                        .into_iter()
-                        .map(SceneElement::Border),
-                    );
-                }
-            }
-            if let Some(shader) = shader {
-                elements.push(SceneElement::WindowShader(shader));
-            } else if rounded {
-                let texture = request
-                    .resources
-                    .window_decoration_renderer
-                    .texture_element(
-                        renderer,
-                        closing.texture,
-                        closing.source_texture,
-                        closing.destination,
-                        closing.content_radius,
-                    )
-                    .expect("rounded resources were checked above");
-                elements.push(SceneElement::RoundedTexture(texture));
-            } else {
-                elements.push(SceneElement::Closing(closing.texture));
-            }
-            let caster = Rectangle::new(
-                (
-                    closing.destination.loc.x - border_width,
-                    closing.destination.loc.y - border_width,
-                )
-                    .into(),
-                (
-                    closing.destination.size.w + border_width * 2,
-                    closing.destination.size.h + border_width * 2,
-                )
-                    .into(),
-            );
-            // The rectangular caster cannot follow an arbitrary shader's
-            // fragment silhouette. Let the shader own the complete close
-            // visual instead of leaving a detached shadow on the trajectory.
-            let mut shadow_config = request.visuals.shadows.window;
-            if let Some(enabled) = closing.shadow {
-                shadow_config.enabled = enabled;
-            }
-            if !shader_active
-                && let Some(shadow) = request.resources.shadow_renderer.element(
-                    renderer,
-                    format!("{}:closing:{}", output.name(), closing.order),
-                    caster,
-                    if rounded {
-                        closing.content_radius + border_width as f32
-                    } else {
-                        0.0
-                    },
-                    shadow_alpha,
-                    shadow_config,
-                )?
-            {
-                elements.push(SceneElement::Shadow(shadow));
-            }
-            Ok(StackGroup {
-                window: None,
-                stack_index: closing.stack_index,
-                order: closing.order,
-                elements,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    stack.extend(node_scene.groups);
-    let cluster_scene = cluster_elements(
-        renderer,
-        request.resources.cluster_renderer,
-        ClusterElementContext {
-            output,
-            primary_output,
-            output_geometry,
-            space: request.desktop.space,
-            clusters: request.desktop.clusters,
-            nodes: request.desktop.nodes,
-            cameras: request.desktop.cameras,
-            window_animations: request.desktop.window_animations,
-            fullscreen: request.desktop.fullscreen,
-            maximize: request.desktop.maximize,
-            decorations: request.visuals.decorations,
-            font: request.visuals.font,
-            pins: request.visuals.pins,
-            overlays: request.overlays.overlay_config,
-            pin_renderer: request.resources.pin_renderer,
-            shadow_config: request.visuals.shadows.node,
-            shadow_renderer: request.resources.shadow_renderer,
-            node_grab_active: request.desktop.node_grab_active,
-            now: request.frame.target_presentation_time,
-            node_renderer: request.resources.node_renderer,
-            ui_text: request.resources.ui_text,
-        },
-    )?;
-    let cluster_bloom = super::overlays::cluster_bloom::elements(
-        renderer,
-        super::overlays::cluster_bloom::BloomElementContext {
-            output,
-            output_geometry,
-            clusters: request.desktop.clusters,
-            nodes: request.desktop.nodes,
-            cameras: request.desktop.cameras,
-            now: request.frame.target_presentation_time,
-            cluster_renderer: request.resources.cluster_renderer,
-            node_renderer: request.resources.node_renderer,
-            ui_text: request.resources.ui_text,
-        },
-    )?;
-    elements.extend(cluster_bloom);
-    let cluster_overflow = super::overlays::cluster_overflow::elements(
-        renderer,
-        super::overlays::cluster_overflow::OverflowElementContext {
-            output,
-            clusters: request.desktop.clusters,
-            nodes: request.desktop.nodes,
-            config: request.overlays.overlay_config,
-            now: request.frame.target_presentation_time,
-            node_renderer: request.resources.node_renderer,
-            ui_text: request.resources.ui_text,
-        },
-    )?;
-    elements.extend(cluster_overflow);
-    stack.extend(cluster_scene);
-    let context = LiveWindowContext {
-        space: request.desktop.space,
-        output,
-        output_geometry,
-        cameras: request.desktop.cameras,
-        clusters: request.desktop.clusters,
-        nodes: request.desktop.nodes,
-        target_presentation_time: request.frame.target_presentation_time,
-        focused: request.desktop.focused,
-        decorations: request.visuals.decorations,
-        pins: request.visuals.pins,
-        overlays: request.overlays.overlay_config,
-        font: request.visuals.font,
-        blur: request.visuals.blur,
-        shadow_config: request.visuals.shadows.window,
-        window_animations: request.desktop.window_animations,
-        fullscreen: request.desktop.fullscreen,
-        maximize: request.desktop.maximize,
-        window_rules: request.desktop.window_rules,
-        cluster_presentation_override: None,
-        instance_identity: None,
-        titlebar_hovered: request.desktop.titlebar_hovered,
-        titlebar_pressed: request.desktop.titlebar_pressed,
-    };
-    let mut live_windows = Vec::new();
-    let mut exclusive_windows = Vec::new();
-    for (stack_index, window) in request.desktop.space.elements().enumerate() {
-        if !crate::wayland::window_is_on_output(window, output, primary_output) {
-            continue;
-        }
-        if window.wl_surface().is_some_and(|surface| {
-            let animations = &request.resources.window_close_animations;
-            animations.has_pending(surface.as_ref()) || animations.is_active(surface.as_ref())
-        }) {
-            continue;
-        }
-        let mut window_scene = live_window_elements(
-            renderer,
-            window,
-            context,
-            LiveWindowRenderers {
-                arrange_textures: request.resources.arrange_textures,
-                fullscreen_textures: request.resources.fullscreen_textures,
-                backdrop_blur: request.resources.backdrop_blur_renderer,
-                shadow: request.resources.shadow_renderer,
-                decoration: request.resources.window_decoration_renderer,
-                titlebar: request.resources.titlebar_renderer,
-                node: request.resources.node_renderer,
-                text: request.resources.ui_text,
-                pin: request.resources.pin_renderer,
-                window_shaders: request.resources.window_shaders,
-            },
-        )?;
-        let protected = block_screencast
-            && (window.wl_surface().is_some_and(|surface| {
-                request
-                    .desktop
-                    .window_rules
-                    .applied(surface.as_ref())
-                    .blocks_capture(screenshot)
-            }) || (request.desktop.window_rules.has_capture_blocks(screenshot)
-                && crate::xwayland::is_override_redirect(window)));
-        if protected {
-            omit_window_scene(&mut window_scene);
-        } else if !block_screencast
-            && window
-                .wl_surface()
-                .is_some_and(|surface| request.desktop.screencast.is_window_cast(surface.as_ref()))
-        {
-            indicate_window_cast(&mut window_scene, request.visuals.decorations);
-        }
-        if window_scene.cluster_exclusive {
-            exclusive_windows.push((stack_index, window_scene));
-        } else if !window_scene.elements.is_empty() || !window_scene.popup_elements.is_empty() {
-            live_windows.push((stack_index, window_scene));
-        }
-        let extra_presentation = window
-            .wl_surface()
-            .and_then(|surface| request.desktop.nodes.id_for_surface(surface.as_ref()))
-            .and_then(|id| {
-                request.desktop.clusters.extra_window_presentation(
-                    id,
-                    &output.name(),
-                    request.frame.target_presentation_time,
-                )
-            });
-        if let Some(extra_presentation) = extra_presentation {
-            let mut extra_scene = live_window_elements(
-                renderer,
-                window,
-                LiveWindowContext {
-                    cluster_presentation_override: Some(extra_presentation),
-                    instance_identity: Some("stack-cycle-extra"),
-                    ..context
-                },
-                LiveWindowRenderers {
-                    arrange_textures: request.resources.arrange_textures,
-                    fullscreen_textures: request.resources.fullscreen_textures,
-                    backdrop_blur: request.resources.backdrop_blur_renderer,
-                    shadow: request.resources.shadow_renderer,
-                    decoration: request.resources.window_decoration_renderer,
-                    titlebar: request.resources.titlebar_renderer,
-                    node: request.resources.node_renderer,
-                    text: request.resources.ui_text,
-                    pin: request.resources.pin_renderer,
-                    window_shaders: request.resources.window_shaders,
-                },
-            )?;
-            if protected {
-                omit_window_scene(&mut extra_scene);
-            } else if !block_screencast
-                && window.wl_surface().is_some_and(|surface| {
-                    request.desktop.screencast.is_window_cast(surface.as_ref())
-                })
-            {
-                indicate_window_cast(&mut extra_scene, request.visuals.decorations);
-            }
-            if !extra_scene.elements.is_empty() || !extra_scene.popup_elements.is_empty() {
-                live_windows.push((stack_index, extra_scene));
-            }
-        }
-    }
-    let exclusive_anchor = exclusive_windows
-        .iter()
-        .map(|(stack_index, _)| *stack_index)
-        .max();
-    let (mut floating_foreground, mut live_windows) = match exclusive_anchor {
-        Some(exclusive_anchor) => live_windows.into_iter().partition(|(stack_index, scene)| {
-            cluster_float_is_above_exclusive(scene.cluster_floating, *stack_index, exclusive_anchor)
-        }),
-        None => (Vec::new(), live_windows),
-    };
-    // A cluster workspace is one coherent stack. Preserve its position
-    // relative to non-cluster windows at the topmost member's existing Space
-    // slot, then use the layout's explicit depth for member overlap.
-    let cluster_anchor = live_windows
-        .iter()
-        .filter_map(|(stack_index, scene)| scene.cluster_depth.map(|_| *stack_index))
-        .max();
-    let mut popup_stack = Vec::new();
-    let landmark_ceiling = live_windows
-        .iter()
-        .filter(|(_, scene)| scene.above_field_landmarks)
-        .map(|(stack_index, _)| *stack_index)
-        .min();
-    for (stack_index, window_scene) in &mut live_windows {
-        if !window_scene.popup_elements.is_empty() {
-            popup_stack.push(StackGroup {
-                window: Some(window_scene.window.clone()),
-                stack_index: window_scene
-                    .cluster_depth
-                    .and(cluster_anchor)
-                    .unwrap_or(*stack_index),
-                order: window_scene
-                    .cluster_depth
-                    .map_or(u64::MAX, |depth| depth as u64),
-                elements: std::mem::take(&mut window_scene.popup_elements),
-            });
-        }
-    }
-    for (stack_index, window_scene) in live_windows {
-        stack.push(StackGroup {
-            window: Some(window_scene.window),
-            stack_index: window_scene
-                .cluster_depth
-                .and(cluster_anchor)
-                .unwrap_or(stack_index),
-            order: window_scene
-                .cluster_depth
-                .map_or(u64::MAX, |depth| depth as u64),
-            elements: window_scene.elements,
-        });
-    }
-    if let Some(ceiling) = landmark_ceiling {
-        // Collapsed nodes remember their old Space slot, which can now be
-        // higher than every remaining live window. Temporarily place desktop
-        // objects below presentations without changing their saved Field depth.
-        for group in stack.iter_mut().filter(|group| group.window.is_none()) {
-            group.stack_index = group.stack_index.min(ceiling);
-        }
-    }
-    sort_stack_groups(&mut stack);
-    crate::window::stacking::sort_above_parents(request.desktop.space, &mut stack, |group| {
-        group.window.as_ref()
-    });
-    elements.extend(stack.into_iter().rev().flat_map(|group| group.elements));
-
-    if let Some(exclusive) = cluster_exclusive {
-        // Popups owned by the selected X11 member inherit the exclusive flag.
-        // Keep every such scene and retain normal front-to-back Space order.
-        for (stack_index, scene) in floating_foreground
-            .iter_mut()
-            .chain(exclusive_windows.iter_mut())
-        {
-            if !scene.popup_elements.is_empty() {
-                popup_stack.push(StackGroup {
-                    window: Some(scene.window.clone()),
-                    stack_index: *stack_index,
-                    order: scene.cluster_depth.map_or(u64::MAX, |depth| depth as u64),
-                    elements: std::mem::take(&mut scene.popup_elements),
-                });
-            }
-        }
-        let mut foreground = floating_foreground
-            .into_iter()
-            .rev()
-            .flat_map(|(_, scene)| scene.elements)
-            .collect::<Vec<_>>();
-        foreground.extend(
-            exclusive_windows
-                .into_iter()
-                .rev()
-                .flat_map(|(_, scene)| scene.elements),
-        );
-        let exclusive_is_protected = block_screencast
-            && request
-                .desktop
-                .nodes
-                .record(exclusive.member)
-                .is_some_and(|record| {
-                    request
-                        .desktop
-                        .window_rules
-                        .applied(&record.surface)
-                        .blocks_capture(screenshot)
-                });
-        if exclusive.progress > 0.0 && !exclusive_is_protected {
-            foreground.push(SceneElement::Border(super::solid_color_element(
-                request.resources.node_renderer.slot_id(
-                    &output.name(),
-                    super::node::NodeSlot::ClusterExclusiveBackdrop,
-                ),
-                Rectangle::from_size(output_geometry.size.to_physical(1)),
-                smithay::backend::renderer::Color32F::new(
-                    0.0,
-                    0.0,
-                    0.0,
-                    exclusive.progress.clamp(0.0, 1.0),
-                ),
-            )));
-        }
-        elements.splice(
-            desktop_foreground_index..desktop_foreground_index,
-            foreground,
-        );
-    }
-
-    sort_stack_groups(&mut popup_stack);
-    crate::window::stacking::sort_above_parents(request.desktop.space, &mut popup_stack, |group| {
-        group.window.as_ref()
-    });
-    elements.splice(
-        popup_foreground_index..popup_foreground_index,
-        popup_stack
-            .into_iter()
-            .rev()
-            .flat_map(|group| group.elements),
-    );
 
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Bottom,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: privacy.redact_layers(),
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
-        output_geometry,
         Layer::Background,
-        request.desktop.layer_rules,
-        block_screencast && !screenshot,
-        request.visuals.blur,
+        LayerSceneStyle {
+            output_geometry,
+
+            layer_rules: request.desktop.layer_rules,
+
+            block_screencast: privacy.redact_layers(),
+
+            blur: request.visuals.blur,
+        },
         request.resources.backdrop_blur_renderer,
     )?);
     append_background(
@@ -1197,55 +487,14 @@ fn build_logical(
         &mut elements,
     );
 
-    let mut overlay_elements = super::overlays::shell::elements(
-        renderer,
-        output_geometry,
-        overlay_snapshot,
-        request.overlays.overlay_config,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-    )?;
-    append_compositor_overlay_blur(
+    chrome::prepend_common_overlays(
         renderer,
         output,
-        OverlayEffectStyle {
-            output_size: output_geometry.size,
-            identity: "shell-overlay",
-            blur: request.visuals.blur,
-            shadow: request.visuals.shadows.overlay,
-        },
-        request.resources.backdrop_blur_renderer,
-        request.resources.shadow_renderer,
-        &mut overlay_elements,
+        output_geometry,
+        request,
+        overlay_snapshot,
+        &mut elements,
     )?;
-    elements.splice(0..0, overlay_elements);
-
-    if request.visuals.debug.overlay_fps {
-        let mut fps_elements = super::overlays::fps::elements(
-            renderer,
-            &output.name(),
-            request.frame.target_presentation_time,
-            request.resources.debug_fps_overlay,
-            request.overlays.overlay_config,
-            request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
-        )?;
-        append_compositor_overlay_blur(
-            renderer,
-            output,
-            OverlayEffectStyle {
-                output_size: output_geometry.size,
-                identity: "debug-fps",
-                blur: request.visuals.blur,
-                shadow: request.visuals.shadows.overlay,
-            },
-            request.resources.backdrop_blur_renderer,
-            request.resources.shadow_renderer,
-            &mut fps_elements,
-        )?;
-        elements.splice(0..0, fps_elements);
-    }
 
     if request.overlays.cluster_composer.reveal_on(&output.name())
         && let Some(session) = request.overlays.cluster_composer.session()

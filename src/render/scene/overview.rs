@@ -335,18 +335,20 @@ pub(super) fn overview_window_source_rect(
         let chrome_visible = preview_chrome_visible(&record.window, fullscreen);
         Some(
             window_visual_state(
-                space,
-                cameras,
-                None,
-                None,
+                crate::presentation::window::WindowVisualContext {
+                    space,
+                    cameras,
+                    clusters: None,
+                    nodes: None,
+                    output,
+                    window_animations,
+                    fullscreen,
+                    maximize,
+                    decorations,
+                    font,
+                    now,
+                },
                 &record.window,
-                output,
-                window_animations,
-                fullscreen,
-                maximize,
-                decorations,
-                font,
-                now,
             )
             .map(|visual| {
                 preview_visual_outer_rect(&record.window, visual, decorations, font, chrome_visible)

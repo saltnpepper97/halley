@@ -474,14 +474,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             launch_path.as_deref(),
         ),
         key_repeat: super::input::repeat::Policy::new(loop_handle.clone()),
-        launch_environment,
-        autostart: super::autostart::Autostart::enabled(),
-        startup_clusters: super::startup_clusters::StartupClusters::default(),
+        launch: super::launch::LaunchState::new(
+            launch_environment,
+            super::autostart::Autostart::enabled(),
+            true,
+        ),
         user_state: super::basics::UserState::load(),
         pointer: Pointer::new((100.0, 100.0)),
         cursor: CursorManager::new(&runtime_config.cursor),
         cursor_policy: super::cursor::Policy::new(&runtime_config.cursor, loop_handle.clone()),
-        publish_session_environment: true,
         wayland,
         seat_state,
         seat,
@@ -494,9 +495,10 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         session_lock,
         start_time: Instant::now(),
         wayland_display: None,
-        config_path: config_path.clone(),
-        config_watcher: None,
-        startup_config_diagnostic: initial.diagnostic,
+        config_source: super::config_source::ConfigSource::new(
+            config_path.clone(),
+            initial.diagnostic,
+        ),
         shell: crate::shell::state::ShellState::new(&runtime_config),
         settings: super::RuntimeSettings::new_with_color_scheme(
             &runtime_config,
@@ -520,9 +522,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::window::recovery::PresentationCloseSizeRecovery::default(),
         cameras: crate::presentation::camera::OutputCameras::default(),
         capture: crate::capture::CaptureState::default(),
-        pending_captures: std::collections::HashMap::new(),
-        screenshot_encoder: None,
-        screencast: crate::capture::screencast::ScreencastState::default(),
         interactions: super::InteractionState::default(),
         touch: super::touch::TouchState::default(),
         gestures: super::gesture::GestureState::default(),
@@ -590,7 +589,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            if app.screencast.disconnect(client_id) {
+            if app.capture.screencast.disconnect(client_id) {
                 app.refresh_window_cast_rules();
                 app.request_redraw();
             }
@@ -604,7 +603,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         &event_loop.handle(),
         |app: &mut TtyApp, done| crate::capture::finish_encode(app, done),
     ) {
-        Ok(encoder) => app.screenshot_encoder = Some(encoder),
+        Ok(encoder) => app.capture.jobs.set_encoder(encoder),
         Err(err) => eventline::error!("screenshot: failed to start encoder: {err}"),
     }
     if let Err(err) = crate::wayland::wlr_gamma_control::init_reader(&mut app, &event_loop.handle())
@@ -631,7 +630,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     super::environment::refresh_portals();
     if let Some(path) = config_path {
         match crate::config::watch(&event_loop.handle(), path, apply_runtime_config) {
-            Ok(watcher) => app.config_watcher = Some(watcher),
+            Ok(watcher) => app.config_source.set_watcher(watcher),
             Err(err) => eventline::warn!("config: failed to start watcher: {err}"),
         }
     }
@@ -849,7 +848,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 orca_supervisor =
                     crate::accessibility::start_configured_orca(app, &orca_wayland_display);
             }
-            app.autostart.reap_finished();
+            app.launch.reap_finished();
             if !app.driver.pause_reasons.any() {
                 redraw_queued_outputs(app, &loop_handle);
             }
@@ -865,7 +864,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     eventline::info!("quit requested, exiting cleanly");
     #[cfg(feature = "dbus")]
     drop(orca_supervisor);
-    app.autostart.shutdown();
+    app.launch.shutdown();
     super::environment::shutdown_session();
     app.idle_service.take();
     // Notifiers retain the DRM device. Release them before the backend drops
@@ -1517,7 +1516,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
                 nodes: &app.nodes,
                 clusters: &app.clusters,
                 window_rules: &app.window_rules,
-                screencast: &app.screencast,
+                screencast: &app.capture.screencast,
                 layer_rules: &app.settings.layer_rules,
                 node_grab_active: app.interactions.grab.landmark_active(),
                 titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
@@ -1548,7 +1547,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
                 blur: app.settings.effects.blur,
                 shadows: app.settings.effects.shadows,
                 background: &app.settings.background,
-                background_base: app.config_path.as_deref().and_then(std::path::Path::parent),
+                background_base: app.config_source.path().and_then(std::path::Path::parent),
             },
             resources: crate::render::resources::RenderResources::from(&mut app.render),
         },
@@ -1681,7 +1680,8 @@ fn auto_vrr_eligible(app: &TtyApp, output: &Output, now: Duration) -> bool {
             )
         })
         .is_some_and(|surface| {
-            app.window_rules.opacity(surface) >= 0.999 && !app.screencast.is_window_cast(surface)
+            app.window_rules.opacity(surface) >= 0.999
+                && !app.capture.screencast.is_window_cast(surface)
         })
 }
 

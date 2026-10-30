@@ -20,7 +20,7 @@ All notable changes to this project will be documented in this file.
   [-o OUTPUT]` and `Client::move_node_to`. Accept signed coordinates relative to
   the window's monitor Field origin and reject blocked destinations. Preserve
   directional syntax and distance behavior; advertise `node-move-to-v1` and
-  append the request in private IPC version 27, keeping public API version 1.
+  append the request to private IPC, keeping public API version 1.
 - Support authorized output capture through `ext-image-capture-source-v1` and
   `ext-image-copy-capture-v1` on native and nested backends. Copy native-size
   XRGB8888 SHM buffers with optional embedded cursors and full-frame damage,
@@ -50,7 +50,7 @@ All notable changes to this project will be documented in this file.
   distances move along the requested axis and stop at landmark obstructions
   without jumping sideways or tunneling through them. Existing commands and
   bindings retain their 80-Field-unit nearest-free placement. Advertise the
-  optional `node-move-distance-v1` capability; the private IPC version is 26.
+  optional `node-move-distance-v1` capability.
 - Support focused surface-local cursor requests through `pointer-warp-v1`,
   following Field, fullscreen, and output-scale presentation. Reject stale
   serials, hidden or out-of-bounds targets, and compositor-owned interactions;
@@ -80,9 +80,20 @@ All notable changes to this project will be documented in this file.
   compositor UI, pointer coordinates, and native-resolution captures together;
   report the effective scale in `halleyctl outputs`. Bootstrap and examples
   include `scale 1.0`; existing configs keep that default when omitted. The
-  private IPC wire version is now 23; rebuild companion tools with Halley.
+  private IPC protocol changed; rebuild companion tools with Halley.
 
 ### Changed
+- Organize fullscreen, Wayland, and session code by responsibility, including
+  separate capture, input, desktop, output, startup, and workspace modules.
+- Separate replacement, closing-window, live-window, and stack scene stages;
+  centralize capture privacy and share shell overlay assembly. Give screenshot
+  jobs, capture geometry, and session startup state explicit owners, and share
+  window presentation inputs between rendering and input. Separate desktop
+  scene assembly, landmark physics, pointer grabs, frame timing, and Wayland
+  global setup; give configuration reload its own state and narrow physics
+  and window-capture inputs.
+- Update private IPC to version 28 for shared-window capture indicators; rebuild
+  companion tools with Halley. The public API remains version 1.
 - Separate input dispatch from modal, pointer motion, button, and wheel handling while retaining event ownership and routing order.
 - Add isolated two-output Alt+Tab integration tests covering native and XWayland
   apps and game windows, client/compositor/overlapping fullscreen ownership,
@@ -91,6 +102,8 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Use the Nix-provided sleep executable for the accessibility supervisor test,
+  allowing it to run in Nix build environments.
 - Fix builds without default features by routing XWayland window checks through
   the feature-independent compatibility layer.
 - Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.

@@ -296,18 +296,20 @@ fn runtime_state<D: SessionDriver>(session: &Session<D>, window: &Window) -> Opt
             .window_presentation(id, &output_name, work_area, None, now)
     });
     let visual = crate::presentation::window::window_visual_state(
-        &session.wayland.space,
-        &session.cameras,
-        Some(&session.clusters),
-        Some(&session.nodes),
+        crate::presentation::window::WindowVisualContext {
+            space: &session.wayland.space,
+            cameras: &session.cameras,
+            clusters: Some(&session.clusters),
+            nodes: Some(&session.nodes),
+            output: &output,
+            window_animations: &session.window_animations,
+            fullscreen: &session.fullscreen,
+            maximize: &session.maximize,
+            decorations: &session.settings.decorations,
+            font: &session.settings.font,
+            now,
+        },
         window,
-        &output,
-        &session.window_animations,
-        &session.fullscreen,
-        &session.maximize,
-        &session.settings.decorations,
-        &session.settings.font,
-        now,
     );
     let presentation = crate::presentation::window::WindowPresentation::for_window(
         &session.wayland.space,
