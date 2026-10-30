@@ -182,13 +182,14 @@ pub(crate) fn build_with_screenshot_privacy(
     output_geometry: Rectangle<i32, Logical>,
     request: RenderRequest<'_>,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    let protect = request.desktop.window_rules.has_capture_blocks(true);
     build_with_capture_privacy(
         renderer,
         output,
         primary_output,
         output_geometry,
         request,
-        true,
+        protect,
         true,
     )
 }
