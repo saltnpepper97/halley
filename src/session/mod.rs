@@ -42,6 +42,8 @@ pub(crate) mod gesture;
 #[path = "capture/image_copy_capture.rs"]
 mod image_copy_capture;
 pub(crate) mod input;
+#[path = "startup/state.rs"]
+mod launch;
 #[path = "windows/lifecycle.rs"]
 mod lifecycle;
 #[path = "workspace/navigation.rs"]

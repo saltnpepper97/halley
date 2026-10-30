@@ -1193,7 +1193,7 @@ impl<D: SessionDriver> XdgActivationHandler for Session<D> {
             .get::<super::startup_clusters::ActivationAttribution>()
             .and_then(|attribution| {
                 let client_id = root.client().map(|client| client.id());
-                self.startup_clusters.remember_activation(
+                self.launch.clusters.remember_activation(
                     root.clone(),
                     client_id,
                     &attribution.launch_id,

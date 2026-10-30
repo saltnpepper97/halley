@@ -271,7 +271,7 @@ impl<D: super::SessionDriver> super::Session<D> {
                     crate::nodes::resolve_new_cluster_core(self, cluster);
                     if launch_members {
                         for command in &declaration.members {
-                            self.startup_clusters.queue(cluster, command.clone());
+                            self.launch.clusters.queue(cluster, command.clone());
                         }
                     }
                 }
@@ -290,12 +290,13 @@ impl<D: super::SessionDriver> super::Session<D> {
         let Some(wayland_display) = self.wayland_display.clone() else {
             return;
         };
-        let pending = self.startup_clusters.take_pending();
+        let pending = self.launch.clusters.take_pending();
         let x11_display = self.xwayland.display_name();
         for launch in pending {
             let now = crate::frame_clock::monotonic_now();
             let launch_id =
-                self.startup_clusters
+                self.launch
+                    .clusters
                     .begin_launch(launch.cluster, launch.command.clone(), now);
             let token_data = smithay::wayland::xdg_activation::XdgActivationTokenData::default();
             token_data
@@ -320,7 +321,7 @@ impl<D: super::SessionDriver> super::Session<D> {
                 &wayland_display,
                 x11_display.as_deref(),
                 self.cursor.size(),
-                &self.launch_environment,
+                &self.launch.environment,
                 &[
                     ("XDG_ACTIVATION_TOKEN", token.as_str()),
                     (LAUNCH_ID_ENV, launch_id.as_str()),
@@ -333,7 +334,7 @@ impl<D: super::SessionDriver> super::Session<D> {
         &mut self,
         surface: &WlSurface,
     ) -> Option<ClusterId> {
-        self.startup_clusters.cluster_for_wayland_surface(
+        self.launch.clusters.cluster_for_wayland_surface(
             surface,
             &self.wayland.display_handle,
             crate::frame_clock::monotonic_now(),
@@ -341,7 +342,8 @@ impl<D: super::SessionDriver> super::Session<D> {
     }
 
     pub(crate) fn startup_cluster_for_x11_pid(&mut self, pid: u32) -> Option<ClusterId> {
-        self.startup_clusters
+        self.launch
+            .clusters
             .cluster_for_pid(pid, crate::frame_clock::monotonic_now())
     }
 }

@@ -134,15 +134,12 @@ pub struct Session<D: SessionDriver> {
     pub driver: D,
     pub keyboard: Keyboard,
     pub(crate) key_repeat: super::input::repeat::Policy<D>,
-    pub(super) launch_environment: super::environment::LaunchEnvironment,
-    pub(super) autostart: super::autostart::Autostart,
-    pub(super) startup_clusters: super::startup_clusters::StartupClusters,
+    pub(super) launch: super::launch::LaunchState,
     /// One-time onboarding state, persisted outside the configuration.
     pub(super) user_state: super::basics::UserState,
     pub pointer: Pointer,
     pub cursor: CursorManager,
     pub(crate) cursor_policy: super::cursor::Policy<D>,
-    pub(super) publish_session_environment: bool,
     pub wayland: WaylandState,
     pub seat_state: SeatState<Self>,
     pub seat: Seat<Self>,
@@ -186,30 +183,30 @@ pub struct Session<D: SessionDriver> {
 
 impl<D: SessionDriver> Session<D> {
     pub(crate) fn launch_environment(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
-        self.launch_environment.iter()
+        self.launch.environment.iter()
     }
 
     pub(crate) fn arm_autostart_once(&mut self, wayland_display: &OsStr, commands: Vec<String>) {
-        self.autostart.arm_once(wayland_display, commands);
+        self.launch.autostart.arm_once(wayland_display, commands);
     }
 
     pub(crate) fn run_autostart_once(&mut self) {
         let x11_display = self.xwayland.display_name();
-        self.autostart.run_once(
+        self.launch.autostart.run_once(
             x11_display.as_deref(),
             self.cursor.size(),
-            &self.launch_environment,
+            &self.launch.environment,
         );
         self.run_startup_cluster_commands();
     }
 
     pub(crate) fn run_autostart_reload(&mut self, commands: &[String]) {
         let x11_display = self.xwayland.display_name();
-        self.autostart.run_reload(
+        self.launch.autostart.run_reload(
             commands,
             x11_display.as_deref(),
             self.cursor.size(),
-            &self.launch_environment,
+            &self.launch.environment,
         );
     }
 
@@ -534,10 +531,11 @@ impl<D: SessionDriver> Session<D> {
         if cancel_gestures {
             super::gesture::cancel_all(self);
         }
-        self.launch_environment.reload(&config.env);
-        self.launch_environment
+        self.launch.environment.reload(&config.env);
+        self.launch
+            .environment
             .set_cursor_theme(&config.cursor.theme);
-        let launch_path = self.launch_environment.path();
+        let launch_path = self.launch.environment.path();
         self.keyboard
             .reload(&config.keybinds, D::BACKEND_KIND, launch_path.as_deref());
         crate::input::config::reload(self, &config.input);
@@ -547,7 +545,7 @@ impl<D: SessionDriver> Session<D> {
             self.xwayland.sync_cursor(&self.cursor);
         }
         let cursor_visibility_changed = self.cursor_policy.reload(&config.cursor);
-        if cursor_changed && self.publish_session_environment {
+        if cursor_changed && self.launch.publish_environment {
             super::environment::publish_cursor_settings(&config.cursor.theme, config.cursor.size);
         }
         let window_rules_redraw = self.window_rules_reload_changes_visuals(&config.window_rules);

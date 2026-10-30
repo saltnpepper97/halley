@@ -474,14 +474,15 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             launch_path.as_deref(),
         ),
         key_repeat: super::input::repeat::Policy::new(loop_handle.clone()),
-        launch_environment,
-        autostart: super::autostart::Autostart::enabled(),
-        startup_clusters: super::startup_clusters::StartupClusters::default(),
+        launch: super::launch::LaunchState::new(
+            launch_environment,
+            super::autostart::Autostart::enabled(),
+            true,
+        ),
         user_state: super::basics::UserState::load(),
         pointer: Pointer::new((100.0, 100.0)),
         cursor: CursorManager::new(&runtime_config.cursor),
         cursor_policy: super::cursor::Policy::new(&runtime_config.cursor, loop_handle.clone()),
-        publish_session_environment: true,
         wayland,
         seat_state,
         seat,
@@ -848,7 +849,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 orca_supervisor =
                     crate::accessibility::start_configured_orca(app, &orca_wayland_display);
             }
-            app.autostart.reap_finished();
+            app.launch.autostart.reap_finished();
             if !app.driver.pause_reasons.any() {
                 redraw_queued_outputs(app, &loop_handle);
             }
@@ -864,7 +865,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
     eventline::info!("quit requested, exiting cleanly");
     #[cfg(feature = "dbus")]
     drop(orca_supervisor);
-    app.autostart.shutdown();
+    app.launch.autostart.shutdown();
     super::environment::shutdown_session();
     app.idle_service.take();
     // Notifiers retain the DRM device. Release them before the backend drops
