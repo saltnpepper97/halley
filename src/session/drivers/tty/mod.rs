@@ -521,8 +521,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::window::recovery::PresentationCloseSizeRecovery::default(),
         cameras: crate::presentation::camera::OutputCameras::default(),
         capture: crate::capture::CaptureState::default(),
-        screenshot_jobs: crate::capture::ScreenshotJobs::default(),
-        screencast: crate::capture::screencast::ScreencastState::default(),
         interactions: super::InteractionState::default(),
         touch: super::touch::TouchState::default(),
         gestures: super::gesture::GestureState::default(),
@@ -590,7 +588,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            if app.screencast.disconnect(client_id) {
+            if app.capture.screencast.disconnect(client_id) {
                 app.refresh_window_cast_rules();
                 app.request_redraw();
             }
@@ -604,7 +602,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         &event_loop.handle(),
         |app: &mut TtyApp, done| crate::capture::finish_encode(app, done),
     ) {
-        Ok(encoder) => app.screenshot_jobs.set_encoder(encoder),
+        Ok(encoder) => app.capture.jobs.set_encoder(encoder),
         Err(err) => eventline::error!("screenshot: failed to start encoder: {err}"),
     }
     if let Err(err) = crate::wayland::wlr_gamma_control::init_reader(&mut app, &event_loop.handle())
@@ -1517,7 +1515,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
                 nodes: &app.nodes,
                 clusters: &app.clusters,
                 window_rules: &app.window_rules,
-                screencast: &app.screencast,
+                screencast: &app.capture.screencast,
                 layer_rules: &app.settings.layer_rules,
                 node_grab_active: app.interactions.grab.landmark_active(),
                 titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
@@ -1681,7 +1679,8 @@ fn auto_vrr_eligible(app: &TtyApp, output: &Output, now: Duration) -> bool {
             )
         })
         .is_some_and(|surface| {
-            app.window_rules.opacity(surface) >= 0.999 && !app.screencast.is_window_cast(surface)
+            app.window_rules.opacity(surface) >= 0.999
+                && !app.capture.screencast.is_window_cast(surface)
         })
 }
 

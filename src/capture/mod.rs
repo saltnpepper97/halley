@@ -137,6 +137,8 @@ pub(crate) fn window_capture_visual_geometry<D: SessionDriver>(
 
 #[derive(Default)]
 pub struct CaptureState {
+    pub(crate) jobs: ScreenshotJobs,
+    pub(crate) screencast: screencast::ScreencastState,
     picker: RegionPicker,
     source_chooser: SourceChooser,
     selection: Option<Selection>,
@@ -1010,7 +1012,7 @@ fn queue_capture<D: SessionDriver>(
     match captured {
         Ok(image) => {
             let directory = screenshot_directory(&session.settings.screenshot.directory);
-            if let Err((reply, error)) = session.screenshot_jobs.submit(directory, image, reply) {
+            if let Err((reply, error)) = session.capture.jobs.submit(directory, image, reply) {
                 finish_capture_reply(session, reply, Err(error));
             }
         }
@@ -1067,7 +1069,7 @@ pub fn finish_encode<D: SessionDriver>(
     session: &mut Session<D>,
     done: crate::capture::encoder::EncodeDone,
 ) {
-    let Some(reply) = session.screenshot_jobs.take_reply(done.id) else {
+    let Some(reply) = session.capture.jobs.take_reply(done.id) else {
         eventline::warn!("screenshot: completion for unknown job {}", done.id);
         return;
     };

@@ -166,8 +166,6 @@ pub struct Session<D: SessionDriver> {
         crate::window::recovery::PresentationCloseSizeRecovery,
     pub cameras: OutputCameras,
     pub capture: crate::capture::CaptureState,
-    pub(crate) screenshot_jobs: crate::capture::ScreenshotJobs,
-    pub screencast: crate::capture::screencast::ScreencastState,
     pub interactions: super::InteractionState,
     pub(super) touch: super::touch::TouchState,
     pub(super) gestures: super::gesture::GestureState,
@@ -665,7 +663,7 @@ impl<D: SessionDriver> Session<D> {
     pub(crate) fn refresh_window_cast_rules(&mut self) {
         if self
             .window_rules
-            .set_casts(self.screencast.window_cast_targets())
+            .set_casts(self.capture.screencast.window_cast_targets())
         {
             self.refresh_dynamic_window_rules();
         }

@@ -206,6 +206,7 @@ pub fn capture_frame<D: SessionDriver>(
             }
             let key = (client_id, request.stream_handle.clone(), buffer_id);
             let mut dmabuf = session
+                .capture
                 .screencast
                 .buffers
                 .remove(&key)
@@ -217,7 +218,7 @@ pub fn capture_frame<D: SessionDriver>(
                 &mut dmabuf,
             )
             .map_err(|err| err.to_string());
-            session.screencast.buffers.insert(key, dmabuf);
+            session.capture.screencast.buffers.insert(key, dmabuf);
             Some(result?)
         }
     };

@@ -671,7 +671,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                                 "window is protected from screencasting".to_string(),
                             )
                         } else {
-                            app.screencast.begin_window_cast(client_id, surface);
+                            app.capture.screencast.begin_window_cast(client_id, surface);
                             app.refresh_window_cast_rules();
                             app.request_redraw();
                             halley_ipc::Response::Ack
@@ -684,7 +684,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             }
         }
         halley_ipc::Request::RegisterDmabuf(request) => {
-            match app.screencast.register(client_id, request, fds) {
+            match app.capture.screencast.register(client_id, request, fds) {
                 Ok(()) => halley_ipc::Response::Ack,
                 Err(message) => halley_ipc::Response::Error(message),
             }
@@ -693,7 +693,9 @@ pub fn handle_request<D: crate::session::SessionDriver>(
             stream_handle,
             buffer_id,
         } => {
-            app.screencast.remove(client_id, &stream_handle, buffer_id);
+            app.capture
+                .screencast
+                .remove(client_id, &stream_handle, buffer_id);
             halley_ipc::Response::Ack
         }
         halley_ipc::Request::CaptureFrame(request) => {

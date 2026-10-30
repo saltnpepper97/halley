@@ -363,8 +363,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::window::recovery::PresentationCloseSizeRecovery::default(),
         cameras,
         capture: crate::capture::CaptureState::default(),
-        screenshot_jobs: crate::capture::ScreenshotJobs::default(),
-        screencast: crate::capture::screencast::ScreencastState::default(),
         interactions: super::InteractionState::default(),
         touch: super::touch::TouchState::default(),
         gestures: super::gesture::GestureState::default(),
@@ -430,7 +428,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             crate::ipc::handle_request(app, request);
         },
         |app, client_id| {
-            if app.screencast.disconnect(client_id) {
+            if app.capture.screencast.disconnect(client_id) {
                 app.refresh_window_cast_rules();
                 app.request_redraw();
             }
@@ -444,7 +442,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         &event_loop.handle(),
         |app: &mut App, done| crate::capture::finish_encode(app, done),
     ) {
-        Ok(encoder) => app.screenshot_jobs.set_encoder(encoder),
+        Ok(encoder) => app.capture.jobs.set_encoder(encoder),
         Err(err) => eventline::error!("screenshot: failed to start encoder: {err}"),
     }
     if let Some(path) = config_path {
@@ -654,7 +652,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             nodes: &app.nodes,
                             clusters: &app.clusters,
                             window_rules: &app.window_rules,
-                            screencast: &app.screencast,
+                            screencast: &app.capture.screencast,
                             layer_rules: &app.settings.layer_rules,
                             node_grab_active: app.interactions.grab.landmark_active(),
                             titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
