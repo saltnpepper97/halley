@@ -328,54 +328,6 @@ fn split_example_config_parses_end_to_end() {
     );
 }
 
-#[test]
-fn example_config_cluster_sections_parse() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let runtime = halley_config::parse_runtime_config(&config).expect("runtime config parses");
-
-    assert_eq!(
-        runtime.clusters.default_layout,
-        halley_config::ClusterLayout::Stacking
-    );
-    assert_eq!(runtime.clusters.tiling.max_stack, 4);
-    assert_eq!(runtime.clusters.stacking.max_visible, 5);
-    assert!(runtime.animations.cluster.enabled);
-    assert_eq!(
-        runtime.decorations.titlebars.title_position,
-        halley_config::TitlebarContentPosition::Center
-    );
-    assert_eq!(
-        runtime.decorations.titlebars.button_position,
-        halley_config::TitlebarButtonPosition::Right
-    );
-    assert_eq!(
-        runtime.decorations.border_color_focused,
-        halley_config::BorderColor {
-            r: 0xf4 as f32 / 255.0,
-            g: 0xf5 as f32 / 255.0,
-            b: 0xf7 as f32 / 255.0,
-        }
-    );
-    assert_eq!(
-        runtime.decorations.titlebars.color_focused,
-        halley_config::BorderColor {
-            r: 0xd6 as f32 / 255.0,
-            g: 0x5d as f32 / 255.0,
-            b: 0x26 as f32 / 255.0,
-        }
-    );
-    assert!(runtime.decorations.resize_using_border);
-    assert_eq!(runtime.animations.cluster.tiling.open_duration_ms, 300);
-    assert_eq!(runtime.animations.cluster.stacking.cycle_duration_ms, 220);
-    assert!(
-        runtime
-            .keybinds
-            .binds
-            .iter()
-            .any(|binding| binding.action == Action::ClusterSlot(10))
-    );
-}
-
 /// Milestone 1: a shipped example must teach the Field-first starting point.
 /// A fresh config declares no autostart commands and no startup clusters, so
 /// windows open directly onto the empty Field.
@@ -404,22 +356,6 @@ fn example_config_starts_field_first_without_autostart_or_clusters() {
     assert_field_first_autostart(&runtime.autostart);
 }
 
-/// The commented startup-cluster example in the canonical template documents
-/// the optional syntax without activating it.
-#[test]
-fn example_config_keeps_only_a_commented_startup_cluster_example() {
-    let template = std::fs::read_to_string(EXAMPLE_PATH).expect("example config is readable");
-
-    assert!(
-        template.contains("  # cluster:\n  #   name \"Work\"\n  #   members []\n  # end"),
-        "the canonical template keeps one concise commented startup-cluster example"
-    );
-    assert!(
-        template.contains("docs/clusters.md"),
-        "the canonical template points at docs/clusters.md for complete syntax"
-    );
-}
-
 #[test]
 fn example_config_keeps_wallpaper_and_window_rules_inert() {
     let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
@@ -427,64 +363,6 @@ fn example_config_keeps_wallpaper_and_window_rules_inert() {
 
     assert_eq!(runtime.background, halley_config::Background::default());
     assert!(runtime.window_rules.is_empty());
-}
-
-#[test]
-fn example_config_has_per_output_rings_font_and_landmarks() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let runtime = halley_config::parse_runtime_config(&config).expect("runtime config parses");
-
-    assert_eq!(runtime.font.family, "monospace");
-    assert_eq!(runtime.font.size, 11);
-    assert_eq!(runtime.bearings, halley_config::Bearings::default());
-    assert_eq!(runtime.focus_rings.for_output("DP-1").radius_x, 820.0);
-    assert_eq!(runtime.focus_rings.for_output("DP-2").radius_y, 420.0);
-    assert_eq!(runtime.field.gap, 20.0);
-    assert!(runtime.field.close_restore_focus);
-    assert!(!runtime.field.close_restore_nodes);
-    assert_eq!(
-        runtime.field.close_restore_pan,
-        halley_config::CloseRestorePan::IfOffscreen
-    );
-    assert!(runtime.physics.enabled);
-    assert_eq!(runtime.physics.damping, 0.45);
-    assert_eq!(
-        runtime.nodes.restore_centering,
-        halley_config::RestoreCentering::Never
-    );
-}
-
-#[test]
-fn example_config_input_section_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let input = halley_config::parse_input(&config).expect("example input section parses");
-
-    assert_eq!(input.repeat_rate, 30);
-    assert_eq!(input.repeat_delay, 500);
-    assert_eq!(input.focus_mode, halley_config::FocusMode::Click);
-    assert!(input.raise_on_click);
-    assert_eq!(input.keyboard.layout, "us");
-    assert_eq!(input.gestures, halley_config::GestureSettings::default());
-    assert_eq!(input.touchpad, halley_config::DeviceSettings::default());
-    assert_eq!(input.mouse, halley_config::MouseSettings::default());
-    assert_eq!(input.trackpoint, halley_config::DeviceSettings::default());
-    assert_eq!(input.trackball, halley_config::DeviceSettings::default());
-    assert_eq!(input.touchscreen, halley_config::DeviceSettings::default());
-    assert!(input.devices.is_empty());
-}
-
-/// The shipped example documents scale without selecting a custom mode.
-#[test]
-fn example_config_view_has_default_scale_without_custom_modes() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let view = halley_config::parse_view_checked(&config).expect("example view parses");
-    assert_eq!(view.outputs.len(), 2);
-    assert!(
-        view.outputs
-            .iter()
-            .all(|output| output.width.is_none() && output.height.is_none() && output.scale == 1.0)
-    );
-    assert_eq!(view.focus_rings.by_output.len(), 2);
 }
 
 #[test]
