@@ -716,9 +716,19 @@ fn unavailable_second_ime_cannot_replace_or_destroy_the_active_one() {
             .iter()
             .any(|(id, event)| *id == original && matches!(event, im::Event::Unavailable))
     );
+    f.enable();
+    second.commit_string("unauthorized".into());
+    second.commit(f.state.ime_serial);
+    let _unavailable_grab = second.grab_keyboard(&f.queue.handle(), ());
+    f.sync();
+    assert!(
+        !f.state
+            .text
+            .iter()
+            .any(|(_, event)| matches!(event, ti::Event::CommitString { .. }))
+    );
     second.destroy();
     f.sync();
-    f.enable();
     f.ime.commit_string("still-active".into());
     f.ime.commit(f.state.ime_serial);
     f.sync();

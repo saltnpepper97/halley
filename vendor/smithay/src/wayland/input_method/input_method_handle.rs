@@ -34,6 +34,8 @@ pub(crate) struct InputMethod {
     pub keyboard_grab: InputMethodKeyboardGrab,
     suspended: bool,
     pending: PendingText,
+    // A delayed reply from before lock must not reach a newly focused field.
+    // Unlike ordinary stale serials, those replies are deliberately discarded.
     recovery_serial: Option<u32>,
     needs_recovery_serial: bool,
 }
@@ -169,6 +171,8 @@ impl InputMethodHandle {
                 return;
             }
             if im.needs_recovery_serial {
+                // The next done completes this activation. Only responses that
+                // observed it can belong to the post-unlock text input.
                 im.recovery_serial = im
                     .instance
                     .as_ref()
@@ -319,6 +323,8 @@ where
                         && inner.instance.as_ref().is_some_and(|i| i.object == *seat)
                         && inner
                             .recovery_serial
+                            // Serial numbers wrap. Treat values within the next
+                            // half of the u32 range as at or after the floor.
                             .is_none_or(|floor| serial.wrapping_sub(floor) < (1 << 31));
                     (std::mem::take(&mut inner.pending), valid)
                 };
