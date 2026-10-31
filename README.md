@@ -6,7 +6,6 @@
   <a href="https://saltnpepper97.github.io/halley-site/"><strong>Website</strong></a>
 </p>
 
-[![Sponsor](https://img.shields.io/badge/%E2%9D%A4-Support_Halley-ff69b4?style=for-the-badge)](#support-halley)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blueviolet?style=for-the-badge)
 ![Status](https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge)
 ![Wayland](https://img.shields.io/badge/display-Wayland-blue?style=for-the-badge)
@@ -48,8 +47,8 @@ cargo build --release --workspace
 ```
 
 The compositor workspace builds Halley, its CLI, and its portal. Install
-[Lift](https://github.com/saltnpepper97/halley-lift) separately with
-`cargo install halley-lift --version 0.3.0 --locked`, or through its own package.
+[Lift separately](https://github.com/saltnpepper97/halley-lift#install);
+it provides the default application launcher.
 
 The build produces:
 
@@ -115,9 +114,6 @@ daily workflow is one loop:
 6. **Use clusters later, only when deliberately configured.** A cluster is an
    optional named context, not the way Halley expects you to organize windows.
 
-Each monitor has its own Field. Clusters and their numbered slots are optional;
-you can declare them in your configuration or create them as needed.
-
 ### Retrieval
 
 Halley keeps five retrieval mechanisms because they answer five different
@@ -131,7 +127,6 @@ questions. They are layers, not replacements for each other.
 | Apogee | `Super+O` | Visual inventory across monitors — what is open on every display? |
 | Lift | `Super+D` | Direct search by application, node, cluster, or compositor action — what is this called? |
 
-
 ---
 
 ## Concepts
@@ -141,7 +136,7 @@ questions. They are layers, not replacements for each other.
 | **Field** | An infinite, zoomable 2D canvas with an independent camera on each monitor. |
 | **Node** | A managed window's stable identity and its collapsed representation on the Field. |
 | **Focus Ring** | An elliptical active region used by decay and navigation policy. |
-| **Decay** | Configurable transitions that collapse inactive windows outside the focus ring. |
+| **Decay** | Configurable timers that collapse inactive windows into nodes. |
 | **Landmark** | A collapsed or pinned object that remains spatially meaningful while ordinary windows overlap freely. |
 | **Cluster** | A group of windows that opens into its own tiling or stacking workspace. |
 | **Core** | The collapsed Field representation of a cluster. |
@@ -182,29 +177,13 @@ See [nodes and decay](docs/nodes.md) for configuration and behavior.
 
 ## Clusters
 
-Clusters are optional named contexts that you configure deliberately. A runtime-created cluster is a named context assembled from windows that
-are already on the Field; nothing creates a cluster implicitly, and a session
-without clusters is a complete Halley session. You can instead declare a
-startup cluster explicitly under `autostart`.
+Clusters are optional named contexts assembled from windows on the Field or
+declared at startup. Each cluster opens into a monitor-local workspace with a
+tiling or stacking layout, leaving the Field behind it intact.
 
-Enter cluster mode to open the Cluster Composer on the selected monitor.
-Eligible windows and collapsed nodes animate into a stable, non-overlapping
-mosaic. Use the arrow keys or pointer to focus a card, `Space` or left click to
-toggle membership, `Enter` to name the draft, and `Escape` to step back or
-cancel. Selected cards keep a persistent tint and checkmark distinct from the
-focus frame. Confirming creates a core on the Field; hovering a core can bloom
-member previews around it, and opening it enters a monitor-local workspace
-while leaving the Field geometry intact behind it.
-
-Two layouts are available:
-
-- **Tiling** — a master-and-stack layout with directional focus, tile swaps,
-  overflow, and per-member floating.
-- **Stacking** — an overlapping deck with focused-card cycling and retained
-  order.
-
-Cluster slots are per monitor. Opening the active slot again returns to the
-unchanged Field.
+Use `Super+Shift+C` to open the Cluster Composer and select windows for a new
+cluster. See [clusters](docs/clusters.md) for creation, layouts, and startup
+configuration.
 
 ---
 
@@ -283,21 +262,9 @@ one atomic snapshot; invalid edits leave the last valid runtime state active.
 Nested Rune `gather` dependencies are watched recursively, including missing
 dependencies that are created after startup.
 
-Per-monitor display scaling uses a numeric multiplier: `scale 1.0` means
-100%, `scale 1.5` means 150%. It changes the size of applications and Halley
-UI while retaining the native display resolution. See [display scaling](docs/display-scale.md)
-for mixed-monitor positioning and examples.
-
-A freshly generated config declares no startup clusters, so windows begin on the
-empty Field. The optional `autostart` section can still declare persistent named
-clusters using compact command arrays, including empty `members []`
-declarations. See
-[startup clusters](docs/clusters.md#startup-clusters) for syntax, launch
-attribution, output placement, and restart behavior.
-
-Autostart command output and exit status are saved in private, bounded logs
-under `~/.local/state/halley/autostart` (or `$XDG_STATE_HOME/halley/autostart`).
-See [autostart logs](docs/autostart.md) for startup diagnostics and retention.
+See [display scaling](docs/display-scale.md),
+[startup clusters](docs/clusters.md#startup-clusters), and
+[autostart logs](docs/autostart.md) for more configuration details.
 
 Useful controls:
 
@@ -307,18 +274,8 @@ halleyctl config edit
 halleyctl reload
 ```
 
-`halleyctl` also exposes output and DPMS state, capture modes, node and cluster
-control, Trail, named-monitor focus, stack/tile navigation, Bearings, and portal
-diagnostics. Run `halleyctl --help` for the current command surface.
-
-For automated screenshots, use `halleyctl capture screen -o OUTPUT`,
-`halleyctl capture window NODE_ID` (IDs from `halleyctl node list`), or
-`halleyctl capture region -o OUTPUT --rect X Y WIDTH HEIGHT`. These save
-immediately without confirmation and show the normal saved-image notification.
-Add `--silent` to suppress the notification. Rectangle coordinates
-are output-relative logical pixels. Omit `--rect` for interactive region
-selection, or use `halleyctl capture menu` for the native menu. See the
-[capture API](docs/api.md#screenshots-and-automation).
+Run `halleyctl --help` for compositor controls, or see the
+[capture API](docs/api.md#screenshots-and-automation) for automated screenshots.
 
 ---
 
@@ -389,15 +346,10 @@ halleyctl portal status
 
 ---
 
-<a id="support-halley"></a>
-
 ## Community / Support
 
 Join the [Halley Discord](https://discord.gg/J2ec3nbHYs) for support,
 configuration help, bug reports, packaging, and release updates.
-
-Sponsorship helps fund documentation, testing, packaging, compatibility, and
-ongoing development. Halley remains maintainer-directed.
 
 ---
 
