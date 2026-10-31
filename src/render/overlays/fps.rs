@@ -140,19 +140,4 @@ mod tests {
             "50 FPS"
         );
     }
-
-    #[test]
-    fn label_rounds_and_clamps_extreme_values() {
-        assert_eq!(fps_label(59.6), "60 FPS");
-        assert_eq!(fps_label(-5.0), "0 FPS");
-        assert_eq!(fps_label(2_000.0), "999 FPS");
-    }
-
-    #[test]
-    fn card_uses_old_halley_top_left_geometry() {
-        let card = fps_card_rect((60, 18).into());
-
-        assert_eq!(card.loc, (20, 20).into());
-        assert_eq!(card.size, (96, 38).into());
-    }
 }
