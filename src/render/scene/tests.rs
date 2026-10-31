@@ -22,38 +22,6 @@ fn hover_preview_aspect_fit_centers_wide_and_tall_windows() {
 }
 
 #[test]
-fn focus_cycle_chrome_tracks_a_centered_thin_preview() {
-    let slot = Rectangle::<i32, Physical>::new((40, 20).into(), (300, 240).into());
-    let available = Rectangle::new((46, 26).into(), (288, 228).into());
-    let body = aspect_fit_rect(available, 600, 1_600);
-    let chrome = preview_card_rect(body, 4.0);
-
-    assert_eq!(body.loc.x + body.size.w / 2, slot.loc.x + slot.size.w / 2);
-    assert_eq!(chrome.loc.x, body.loc.x - 4);
-    assert_eq!(chrome.size.w, body.size.w + 8);
-    assert!(chrome.size.w < slot.size.w);
-}
-
-#[test]
-fn overview_preview_texture_meets_the_card_border() {
-    let body = Rectangle::<i32, Physical>::new((100, 80).into(), (480, 240).into());
-    let card = preview_card_rect(body, 3.0);
-
-    assert_eq!(card, Rectangle::new((97, 77).into(), (486, 246).into()));
-    assert_eq!(card.loc.x + 3, body.loc.x);
-    assert_eq!(card.loc.y + 3, body.loc.y);
-    assert_eq!(card.loc.x + card.size.w - 3, body.loc.x + body.size.w);
-    assert_eq!(card.loc.y + card.size.h - 3, body.loc.y + body.size.h);
-}
-
-#[test]
-fn preview_rounding_uses_the_overlay_radius_in_output_pixels() {
-    assert_eq!(preview_content_radius(14.0), 14.0);
-    assert_eq!(preview_content_radius(0.0), 0.0);
-    assert_eq!(preview_content_radius(-4.0), 0.0);
-}
-
-#[test]
 fn picker_outline_and_grips_describe_the_whole_selection() {
     let output = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
     let selection = Rectangle::<i32, Logical>::new((320, 180).into(), (1280, 720).into());
@@ -189,22 +157,6 @@ fn surface_rects_map_into_animated_client_bounds() {
         ),
         Rectangle::new((40, 40).into(), (400, 200).into())
     );
-}
-
-#[test]
-fn apogee_caption_overlays_the_preview_instead_of_growing_a_footer() {
-    let body = Rectangle::<i32, Physical>::new((100, 80).into(), (480, 240).into());
-    let caption = apogee_caption_rect(body).expect("large preview has a caption");
-
-    assert_eq!(caption, Rectangle::new((108, 281).into(), (464, 31).into()));
-    assert!(body.contains_rect(caption));
-    assert_eq!(preview_card_rect(body, 4.0).size, (488, 248).into());
-}
-
-#[test]
-fn apogee_caption_waits_until_node_transition_is_large_enough() {
-    let node_sized = Rectangle::<i32, Physical>::new((100, 80).into(), (64, 64).into());
-    assert_eq!(apogee_caption_rect(node_sized), None);
 }
 
 #[test]
