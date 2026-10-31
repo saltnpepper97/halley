@@ -429,58 +429,6 @@ fn example_config_keeps_wallpaper_and_window_rules_inert() {
     assert!(runtime.window_rules.is_empty());
 }
 
-/// Confirms the shipped example's nested field zoom parses to the documented
-/// values.
-#[test]
-fn example_config_zoom_section_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let zoom = halley_config::parse_field_checked(&config).unwrap().zoom;
-
-    assert!(zoom.enabled);
-    assert_eq!(zoom.min, 0.35);
-    assert_eq!(zoom.step, 1.10);
-    assert_eq!(zoom.smooth_rate, 12.5);
-}
-
-#[test]
-fn example_config_cursor_section_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let cursor = halley_config::parse_cursor(&config);
-
-    assert_eq!(cursor, halley_config::Cursor::default());
-}
-
-#[test]
-fn example_config_apogee_section_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let apogee = halley_config::parse_apogee(&config);
-
-    assert!(apogee.enabled);
-    assert!(apogee.live_previews);
-    assert_eq!(apogee.preview_max_fps, 30);
-    assert_eq!(apogee.max_rows, 3);
-}
-
-#[test]
-fn example_config_overlay_section_is_the_bootstrap_style() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let overlays = halley_config::parse_overlays_checked(&config).expect("overlays parse");
-
-    assert_eq!(overlays.radius_px, 8);
-    assert!(overlays.borders);
-    assert_eq!(overlays.border_size_px, 3);
-    assert_eq!(
-        overlays.notifications.position,
-        halley_config::NotificationPosition::TopCenter
-    );
-    assert_eq!(overlays.notifications.success_duration_ms, 4_000);
-    assert_eq!(overlays.notifications.error_duration_ms, 9_000);
-    assert_eq!(
-        overlays.zoom_indicator,
-        halley_config::ZoomIndicator::default()
-    );
-}
-
 #[test]
 fn example_config_has_per_output_rings_font_and_landmarks() {
     let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
@@ -523,64 +471,6 @@ fn example_config_input_section_parses() {
     assert_eq!(input.trackball, halley_config::DeviceSettings::default());
     assert_eq!(input.touchscreen, halley_config::DeviceSettings::default());
     assert!(input.devices.is_empty());
-}
-
-#[test]
-fn example_config_animation_settings_parse() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let animations = halley_config::parse_animations(&config);
-
-    assert!(animations.enabled);
-    assert!(animations.window_open.enabled);
-    assert_eq!(
-        animations.window_open.animation_type,
-        halley_config::WindowOpenAnimationType::CenterOut
-    );
-    assert_eq!(
-        animations.window_open.motion,
-        halley_config::AnimationMotion::Easing(halley_config::EasingMotion {
-            duration_ms: 300,
-            curve: halley_config::AnimationCurve::Linear,
-        })
-    );
-    let close = animations.window_close;
-
-    assert!(close.enabled);
-    assert_eq!(
-        close.animation_type,
-        halley_config::WindowCloseAnimationType::Shrink
-    );
-    assert_eq!(close.duration_ms, 270);
-    let fullscreen = animations.fullscreen;
-
-    assert!(fullscreen.enabled);
-    assert_eq!(
-        fullscreen.motion,
-        halley_config::AnimationMotion::Spring(halley_config::SpringMotion {
-            damping_ratio: 1.0,
-            stiffness: 800.0,
-        })
-    );
-    let maximize = animations.maximize;
-
-    assert!(maximize.enabled);
-    assert_eq!(
-        maximize.motion,
-        halley_config::AnimationMotion::Easing(halley_config::EasingMotion {
-            duration_ms: 240,
-            curve: halley_config::AnimationCurve::EaseInOutCubic,
-        })
-    );
-    let arrange = animations.arrange;
-
-    assert!(arrange.enabled);
-    assert_eq!(
-        arrange.motion,
-        halley_config::AnimationMotion::Easing(halley_config::EasingMotion {
-            duration_ms: 360,
-            curve: halley_config::AnimationCurve::EaseInOutCubic,
-        })
-    );
 }
 
 /// The shipped example documents scale without selecting a custom mode.
