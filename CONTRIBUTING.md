@@ -11,12 +11,14 @@ or branch is merged:
 | [Nix](.github/workflows/nix.yml) | Package build, workspace tests, installed-resource checks and NixOS module checks on both x86_64-linux and aarch64-linux |
 | [XWayland](.github/workflows/xwayland.yml) | All seven headless XWayland regressions |
 
-All three workflows run on every push to every branch, including
-documentation-only changes, and on pull requests. Keep that coverage intact;
-do not add path filters that bypass these checks. Fix failing checks and wait
-for the new runs after pushing changes. Pending, failed, cancelled or
-skipped checks do not count as passing, and results from an older revision do
-not satisfy this requirement.
+All three workflows run on pull requests and on pushes to `main` and `dev`,
+including documentation-only changes. A feature branch is checked when its
+pull request opens or changes, rather than also running the same workflows on
+its push. Branches without a pull request can use manual workflow dispatch.
+Do not add path filters that bypass these checks. Fix failing checks and wait
+for the new runs after pushing changes. Pending, failed, cancelled or skipped
+checks do not count as passing, and results from an older revision do not
+satisfy this requirement.
 
 See [Testing](docs/testing.md) for the pinned Rust toolchain, local commands,
 headless test setup and hardware testing boundaries. Passing CI does not replace

@@ -2,11 +2,13 @@
 
 ## Continuous integration
 
-Three GitHub Actions workflows run on pull requests, pushes to every branch,
-and manual dispatch: [Rust](../.github/workflows/rust.yml),
+Three GitHub Actions workflows run on pull requests, pushes to `main` and
+`dev`, and manual dispatch: [Rust](../.github/workflows/rust.yml),
 [Nix](../.github/workflows/nix.yml), and
 [XWayland](../.github/workflows/xwayland.yml).
-Each job uses a fresh GitHub-hosted VM.
+Feature-branch pushes are checked through their pull request rather than
+starting a duplicate set of workflow runs. A branch without a pull request
+can be checked with manual dispatch. Each job uses a fresh GitHub-hosted VM.
 The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
 
 The checks cover:
