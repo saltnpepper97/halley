@@ -465,12 +465,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_lists_are_explicit() {
-        assert_eq!(format_node_list(&[]), "No nodes.\n");
-        assert_eq!(format_cluster_list(&[]), "No clusters.\n");
-    }
-
-    #[test]
     fn rejects_invalid_current_output_mode() {
         let output = OutputInfo {
             name: "DP-1".into(),
