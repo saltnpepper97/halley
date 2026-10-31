@@ -69,7 +69,18 @@ The capture grant controls visibility of `zwlr_screencopy_manager_v1`,
 `ext_output_image_capture_source_manager_v1`. The ext protocols use the same
 executable identity checks and do not grant a new client capture access.
 
-For example: `HALLEY_ALLOW_INPUT_METHOD=/usr/bin/fcitx5 halley`.
+Fcitx5's native Wayland input-method frontend also requires the virtual-keyboard
+protocol to forward keys it does not consume. Grant both capabilities to the
+Fcitx5 executable before launching Halley:
+
+```sh
+HALLEY_ALLOW_INPUT_METHOD=/usr/bin/fcitx5 \
+HALLEY_ALLOW_VIRTUAL_KEYBOARD=/usr/bin/fcitx5 halley
+```
+
+The virtual-keyboard grant allows that executable to send synthetic keyboard
+input while the session is unlocked. Halley blocks those requests during
+session lock. Use the installed executable's absolute path if it differs.
 For standard output power tools, approve the installed executable with
 `HALLEY_ALLOW_OUTPUT_POWER=/usr/bin/wlopm` before starting the native session.
 This grants visibility of `zwlr_output_power_manager_v1`; the nested backend

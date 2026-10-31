@@ -152,6 +152,8 @@ screen. Pending composition is discarded. After unlock the existing IME can
 resume when a desktop text field is focused and enabled. A partly composed
 string may need to be entered again. X11 applications continue to use their
 X11 IME. The existing input-method executable grant remains necessary.
+Fcitx5 also needs the separate virtual-keyboard grant to forward keys; see
+[sensitive Wayland protocols](security.md#sensitive-wayland-protocols).
 
 Halley advertises `ext_background_effect_manager_v1` version 1 with the blur
 capability. A committed `set_blur_region` is clipped to the requesting
