@@ -606,30 +606,6 @@ fn example_config_view_has_default_scale_without_custom_modes() {
 }
 
 #[test]
-fn all_templates_ship_explicit_node_collapse_duration() {
-    for path in [EXAMPLE_PATH, SPLIT_EXAMPLE_PATH] {
-        let config = RuneConfig::from_file(path).unwrap();
-        assert_eq!(
-            config
-                .get_optional::<u32>("animations.node.collapse-duration-ms")
-                .unwrap(),
-            Some(280)
-        );
-        assert_eq!(
-            halley_config::parse_animations(&config).node.duration_ms,
-            280
-        );
-    }
-    let config = RuneConfig::from_str(halley_config::DEFAULT_CONFIG).unwrap();
-    assert_eq!(
-        config
-            .get_optional::<u32>("animations.node.collapse-duration-ms")
-            .unwrap(),
-        Some(280)
-    );
-}
-
-#[test]
 fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
     let canonical = RuneConfig::from_file(EXAMPLE_PATH).unwrap();
     let split = RuneConfig::from_file(SPLIT_EXAMPLE_PATH).unwrap();
@@ -660,6 +636,7 @@ fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
                 .unwrap(),
             280
         );
+        assert_eq!(runtime.animations.node.duration_ms, 280);
         assert_eq!(
             config.get::<u64>("animations.arrange.duration-ms").unwrap(),
             360
