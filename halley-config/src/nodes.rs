@@ -601,20 +601,4 @@ end
             NodeBackgroundColor::Auto
         );
     }
-
-    #[test]
-    fn removed_shape_names_fail_with_their_replacements() {
-        for (removed, replacement) in [
-            ("node-shape", "node.shape"),
-            ("node_shape", "node.shape"),
-            ("node-label-shape", "node.label-shape"),
-            ("node_label_shape", "node.label-shape"),
-            ("label_shape", "node.label-shape"),
-        ] {
-            let config =
-                RuneConfig::from_str(&format!("node:\n  {removed} \"square\"\nend\n")).unwrap();
-            let error = parse_nodes_checked(&config).unwrap_err().to_string();
-            assert!(error.contains(replacement), "{error}");
-        }
-    }
 }

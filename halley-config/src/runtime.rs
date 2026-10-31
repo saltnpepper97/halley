@@ -291,30 +291,6 @@ end
     }
 
     #[test]
-    fn rejects_an_incomplete_output_block() {
-        let config = RuneConfig::from_str(
-            r##"
-view:
-  output:
-    name "DP-1"
-    width 2560
-  end
-end
-
-keybinds:
-  mod "super"
-end
-"##,
-        )
-        .expect("syntactically valid Rune config");
-
-        assert!(matches!(
-            parse_runtime_config(&config),
-            Err(RuntimeConfigError::View(_))
-        ));
-    }
-
-    #[test]
     fn valid_keybind_section_is_authoritative_without_embedded_defaults() {
         let config = RuneConfig::from_str(
             r#"

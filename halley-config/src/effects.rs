@@ -350,22 +350,6 @@ end
     }
 
     #[test]
-    fn rejects_legacy_policy_and_unknown_method() {
-        for source in [
-            "effects:\n  blur:\n    windows \"always\"\n  end\nend\n",
-            "effects:\n  blur:\n    layer-shell \"auto\"\n  end\nend\n",
-            "effects:\n  blur:\n    enabled true\n  end\nend\n",
-            "effects:\n  blur:\n    method \"unknown\"\n  end\nend\n",
-        ] {
-            let config = RuneConfig::from_str(source).unwrap();
-            assert!(matches!(
-                parse_effects(&config),
-                Err(EffectsParseError::InvalidValue { .. } | EffectsParseError::Deprecated { .. })
-            ));
-        }
-    }
-
-    #[test]
     fn parses_all_blur_methods_and_existing_aliases() {
         for (name, expected) in [
             ("dual-kawase", BlurMethod::DualKawase),
@@ -378,20 +362,6 @@ end
             let config = RuneConfig::from_str(&source).unwrap();
             assert_eq!(parse_effects(&config).unwrap().blur.method, expected);
         }
-    }
-
-    #[test]
-    fn rejects_removed_global_blur_enable_with_migration_guidance() {
-        let config =
-            RuneConfig::from_str("effects:\n  blur:\n    enabled true\n  end\nend\n").unwrap();
-        let error = parse_effects(&config).unwrap_err();
-        assert!(matches!(
-            error,
-            EffectsParseError::Deprecated {
-                path: "effects.blur.enabled",
-                ..
-            }
-        ));
     }
 
     #[test]

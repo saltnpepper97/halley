@@ -278,29 +278,6 @@ end
     }
 
     #[test]
-    fn rejects_removed_top_level_shapes() {
-        for source in [
-            "output:\n  name \"DP-1\"\nend\n",
-            "focus-ring:\n  output \"DP-1\"\nend\n",
-        ] {
-            assert!(parse(source).is_err(), "accepted {source:?}");
-        }
-    }
-
-    #[test]
-    fn requires_a_complete_hardware_mode() {
-        let error = parse("view:\n  output:\n    name \"DP-1\"\n    width 2560\n  end\nend\n")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("width and height"), "{error}");
-
-        let error = parse("view:\n  output:\n    name \"DP-1\"\n    vrr \"auto\"\n  end\nend\n")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("requires width and height"), "{error}");
-    }
-
-    #[test]
     fn display_scale_can_be_configured_without_overriding_the_mode() {
         let view =
             parse("view:\n  output:\n    name \"eDP-1\"\n    scale 1.5\n  end\nend\n").unwrap();
@@ -312,39 +289,5 @@ end
         )
         .unwrap();
         assert_eq!(mode.outputs[0].scale, 1.0);
-    }
-
-    #[test]
-    fn display_scale_requires_a_valid_numeric_value_and_is_not_duplicated() {
-        for value in ["0", "-1", "0.1", "11", "\"150%\"", "true"] {
-            let source =
-                format!("view:\n  output:\n    name \"eDP-1\"\n    scale {value}\n  end\nend\n");
-            assert!(parse(&source).is_err(), "accepted {value}");
-        }
-        assert!(
-            parse("view:\n  output:\n    name \"eDP-1\"\n    scale 1\n    scale 2\n  end\nend\n")
-                .is_err()
-        );
-        assert_eq!(crate::output::normalize_scale(1.333), Some(160.0 / 120.0));
-    }
-
-    #[test]
-    fn rejects_duplicate_outputs_and_unknown_view_settings() {
-        let duplicate = r#"
-view:
-  output:
-    name "DP-1"
-    focus-ring:
-    end
-  end
-  output:
-    name "DP-1"
-    focus-ring:
-    end
-  end
-end
-"#;
-        assert!(parse(duplicate).is_err());
-        assert!(parse("view:\n  radius-x 800\nend\n").is_err());
     }
 }

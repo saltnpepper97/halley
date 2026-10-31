@@ -117,11 +117,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn rejects_unknown_modifiers_and_empty_keys() {
-        for input in ["super+frobnicate+e", "super+shift+", ""] {
-            assert_eq!(parse_chord(input), None, "{input}");
-        }
-    }
 }

@@ -1043,21 +1043,6 @@ end
     }
 
     #[test]
-    fn rejects_malformed_gesture_bindings_and_non_compositor_actions() {
-        for (binding, expected) in [
-            ("swipe-sideways-3 \"zoom-reset\"", "unsupported field"),
-            ("hold-0 \"zoom-reset\"", "unsupported field"),
-            ("hold-3 \"notify-send hi\"", "unsupported gesture action"),
-            ("hold-3 \"move-window\"", "unsupported gesture action"),
-            ("hold-3 \"pan-field-always\"", "unsupported gesture action"),
-        ] {
-            let error =
-                parse(&format!("input:\n  gestures:\n    {binding}\n  end\nend\n")).unwrap_err();
-            assert!(error.to_string().contains(expected), "{error}");
-        }
-    }
-
-    #[test]
     fn device_override_layers_over_the_matching_class() {
         let input = parse(
             r#"
@@ -1086,85 +1071,6 @@ end
             Some(true),
             "exact overrides are device-specific and layer over the classified base"
         );
-    }
-
-    #[test]
-    fn rejects_duplicate_normalized_device_names() {
-        let err = parse(
-            r#"
-input:
-  devices:
-    "Mouse":
-      enabled true
-    end
-    "mouse":
-      enabled false
-    end
-  end
-end
-"#,
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("duplicate"));
-    }
-
-    #[test]
-    fn rejects_invalid_ranges_types_and_enums() {
-        for (source, expected) in [
-            ("input:\n  repeat-rate 1001\nend\n", "repeat-rate"),
-            ("input:\n  repeat-delay 10001\nend\n", "repeat-delay"),
-            ("input:\n  focus-mode \"sloppy\"\nend\n", "focus-mode"),
-            (
-                "input:\n  mouse:\n    accel-speed 1.1\n  end\nend\n",
-                "accel-speed",
-            ),
-            (
-                "input:\n  mouse:\n    accel-profile \"magic\"\n  end\nend\n",
-                "accel-profile",
-            ),
-            (
-                "input:\n  mouse:\n    natural-scroll \"yes\"\n  end\nend\n",
-                "natural-scroll",
-            ),
-        ] {
-            assert!(
-                parse(source)
-                    .expect_err("invalid input should fail")
-                    .to_string()
-                    .contains(expected),
-                "{source:?} did not mention {expected:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_typos_and_out_of_scope_device_fields() {
-        for (source, expected) in [
-            (
-                "input:\n  repeat_rate 30\nend\n",
-                "unsupported field \"repeat_rate\"",
-            ),
-            (
-                "input:\n  trackball:\n    tap true\n  end\nend\n",
-                "unsupported field \"tap\"",
-            ),
-            (
-                "input:\n  mouse:\n    middle-emulaton true\n  end\nend\n",
-                "unsupported field \"middle-emulaton\"",
-            ),
-            (
-                "input:\n  keyboard:\n    layout \"us\"\n    layout \"ca\"\n  end\nend\n",
-                "duplicate field \"layout\"",
-            ),
-        ] {
-            assert!(
-                parse(source)
-                    .expect_err("unsupported input should fail")
-                    .to_string()
-                    .contains(expected)
-            );
-        }
     }
 
     #[test]

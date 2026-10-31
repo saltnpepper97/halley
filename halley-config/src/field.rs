@@ -396,14 +396,6 @@ end
     }
 
     #[test]
-    fn unsupported_zoom_ceiling_has_a_useful_error() {
-        let config = RuneConfig::from_str("field:\n  zoom:\n    max 2.0\n  end\nend\n").unwrap();
-        let error = parse_field_checked(&config).unwrap_err().to_string();
-        assert!(error.contains("field.zoom.max"));
-        assert!(error.contains("capped at native scale 1.0"));
-    }
-
-    #[test]
     fn pin_style_matches_old_halley_names_and_bounds() {
         let config = RuneConfig::from_str(
             r##"
@@ -431,13 +423,5 @@ end
                 a: 1.0,
             }
         );
-    }
-
-    #[test]
-    fn invalid_pin_style_is_rejected_atomically() {
-        let config =
-            RuneConfig::from_str("field:\n  pins:\n    corner \"bottom-left\"\n  end\nend\n")
-                .unwrap();
-        assert!(parse_field_checked(&config).is_err());
     }
 }

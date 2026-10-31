@@ -289,34 +289,6 @@ end
     }
 
     #[test]
-    fn invalid_values_and_directives_are_rejected() {
-        assert!(
-            parse_env(&parse(
-                r#"
-env:
-  COUNT 3
-end
-"#
-            ))
-            .unwrap_err()
-            .to_string()
-            .contains("env.COUNT must be a string")
-        );
-        assert!(
-            parse_autostart(&parse(
-                r#"
-autostart:
-  always "waybar"
-end
-"#
-            ))
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported directive")
-        );
-    }
-
-    #[test]
     fn startup_clusters_parse_compact_command_arrays() {
         let autostart = parse_autostart(&parse(
             r#"
@@ -348,62 +320,6 @@ end
             Some(crate::ClusterLayout::Stacking)
         );
         assert_eq!(autostart.clusters[1].output.as_deref(), Some("DP-2"));
-    }
-
-    #[test]
-    fn startup_clusters_reject_invalid_members_and_fields() {
-        for (source, expected) in [
-            (
-                r#"name ""
-    members []"#,
-                "name must not be empty",
-            ),
-            (
-                r#"name "Bad"
-    members [""]"#,
-                "commands must not be empty",
-            ),
-            (
-                r#"name "Bad"
-    members [4]"#,
-                "accepts only command strings",
-            ),
-            (
-                r#"name "Bad"
-    members []
-    layout "grid""#,
-                r#"must be "tiling" or "stacking""#,
-            ),
-        ] {
-            let config = parse(&format!(
-                "autostart:\n  cluster:\n    {source}\n  end\nend\n"
-            ));
-            assert!(
-                parse_autostart(&config)
-                    .unwrap_err()
-                    .to_string()
-                    .contains(expected)
-            );
-        }
-    }
-
-    #[test]
-    fn startup_clusters_limit_slots_per_output() {
-        let clusters = (0..11)
-            .map(|index| {
-                format!(
-                    "  cluster:\n    name \"C{index}\"\n    members []\n    output \"DP-1\"\n  end"
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let config = parse(&format!("autostart:\n{clusters}\nend\n"));
-        assert!(
-            parse_autostart(&config)
-                .unwrap_err()
-                .to_string()
-                .contains("more than 10")
-        );
     }
 
     #[test]

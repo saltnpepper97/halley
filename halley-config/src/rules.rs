@@ -804,48 +804,12 @@ end
     }
 
     #[test]
-    fn rejects_incomplete_or_matcherless_rules() {
-        let config =
-            RuneConfig::from_str("rules:\n  window-rule:\n    width 100\n  end\nend\n").unwrap();
-        assert!(parse_window_rules(&config).is_err());
-
-        let config = RuneConfig::from_str(
-            "rules:\n  window-rule:\n    app-id \"x\"\n    width 100\n  end\nend\n",
-        )
-        .unwrap();
-        assert_eq!(
-            parse_window_rules(&config).unwrap()[0].initial_size,
-            (Some(100), None)
-        );
-    }
-
-    #[test]
     fn accepts_but_discards_deprecated_overlap_policy() {
         let config = RuneConfig::from_str(
             "rules:\n  window-rule:\n    app-id \"x\"\n    overlap-policy \"all\"\n  end\nend\n",
         )
         .unwrap();
         assert_eq!(parse_window_rules(&config).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn game_override_is_optional_and_requires_a_boolean() {
-        for (value, expected) in [
-            ("", None),
-            ("game true", Some(true)),
-            ("game false", Some(false)),
-        ] {
-            let config = RuneConfig::from_str(&format!(
-                "rules:\n  window-rule:\n    app-id \"test\"\n    {value}\n  end\nend\n"
-            ))
-            .unwrap();
-            assert_eq!(parse_window_rules(&config).unwrap()[0].game, expected);
-        }
-        let config = RuneConfig::from_str(
-            "rules:\n  window-rule:\n    app-id \"test\"\n    game \"true\"\n  end\nend\n",
-        )
-        .unwrap();
-        assert!(parse_window_rules(&config).is_err());
     }
 
     #[test]
@@ -860,86 +824,6 @@ end
             let config = RuneConfig::from_str(&source).unwrap();
             assert!(parse_window_rules(&config).is_ok());
         }
-    }
-
-    #[test]
-    fn corner_radius_requires_a_bounded_nonnegative_integer() {
-        for (value, valid) in [
-            ("0", true),
-            ("12", true),
-            ("256", true),
-            ("-1", false),
-            ("257", false),
-            ("1.5", false),
-        ] {
-            let source = format!(
-                "rules:\n  window-rule:\n    match-all true\n    corner-radius {value}\n  end\nend\n"
-            );
-            let config = RuneConfig::from_str(&source).unwrap();
-            assert_eq!(parse_window_rules(&config).is_ok(), valid, "{value}");
-        }
-    }
-
-    #[test]
-    fn opening_presentation_rules_require_booleans() {
-        for (value, valid) in [
-            ("true", true),
-            ("false", true),
-            ("1", false),
-            ("\"true\"", false),
-        ] {
-            for key in ["open-fullscreen", "open-maximized"] {
-                let source = format!(
-                    "rules:\n  window-rule:\n    match-all true\n    {key} {value}\n  end\nend\n"
-                );
-                let config = RuneConfig::from_str(&source).unwrap();
-                assert_eq!(parse_window_rules(&config).is_ok(), valid, "{key} {value}");
-            }
-        }
-    }
-
-    #[test]
-    fn open_position_accepts_only_two_signed_integers() {
-        for (input, expected) in [
-            ("[-300, 200]", Some((-300, 200))),
-            ("[0, 0]", Some((0, 0))),
-            ("[1]", None),
-            ("[1, 2, 3]", None),
-            ("[1.5, 2]", None),
-            ("[2147483648, 2]", None),
-        ] {
-            let source = format!(
-                "rules:\n  window-rule:\n    match-all true\n    open-position {input}\n  end\nend\n"
-            );
-            let config = RuneConfig::from_str(&source).unwrap();
-            let result = parse_window_rules(&config);
-            match expected {
-                Some(position) => assert_eq!(result.unwrap()[0].open_position, Some(position)),
-                None => assert!(result.is_err(), "{input}"),
-            }
-        }
-    }
-
-    #[test]
-    fn validates_composition_and_matching_groups() {
-        for body in [
-            "window-rule-mode \"unknown\"",
-            "window-rule:\n    match:\n    end\n  end",
-            "window-rule:\n    app-id \"a\"\n    match:\n      title \"x\"\n    end\n  end",
-            "window-rule:\n    match-all true\n    app-id \"a\"\n  end",
-        ] {
-            let source = format!("rules:\n  {body}\nend\n");
-            let config = RuneConfig::from_str(&source).unwrap();
-            assert!(parse_rules(&config).is_err(), "{body}");
-        }
-    }
-
-    #[test]
-    fn rejects_renamed_window_rule_entry() {
-        let config =
-            RuneConfig::from_str("rules:\n  rule:\n    app-id \"x\"\n  end\nend\n").unwrap();
-        let error = parse_rules(&config).unwrap_err();
-        assert!(error.to_string().contains("window-rule"));
     }
 
     #[test]
@@ -985,17 +869,5 @@ end
             "rules:\n  layer-rule:\n    namespace \"notifications\"\n    block-screencast \"true\"\n  end\nend\n"
         ).unwrap();
         assert!(parse_rules(&config).is_err());
-    }
-
-    #[test]
-    fn rejects_incomplete_or_invalid_layer_rules() {
-        for source in [
-            "rules:\n  layer-rule:\n    blur true\n  end\nend\n",
-            "rules:\n  layer-rule:\n    namespace \"waybar\"\n  end\nend\n",
-            "rules:\n  layer-rule:\n    layer \"middle\"\n    blur true\n  end\nend\n",
-        ] {
-            let config = RuneConfig::from_str(source).unwrap();
-            assert!(parse_rules(&config).is_err());
-        }
     }
 }

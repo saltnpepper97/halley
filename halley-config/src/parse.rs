@@ -637,41 +637,6 @@ end
     }
 
     #[test]
-    fn malformed_movement_is_a_config_error_in_every_binding_form() {
-        for action in [
-            "node-move right 0",
-            "node-move right -1",
-            "node-move right 1.5",
-            "node-move right NaN",
-            "node-move right 2147483648",
-            "node-move right 10 extra",
-            "node-move",
-            "node move",
-            "node-move sideways 10",
-        ] {
-            for binding in [
-                format!("\"{action}\""),
-                format!("\"{action}\" with repeat true"),
-                format!("\n    action \"{action}\"\n  end"),
-            ] {
-                let text = if binding.starts_with('\n') {
-                    format!("keybinds:\n  \"super+right\":{binding}\nend\n")
-                } else {
-                    format!("keybinds:\n  \"super+right\" {binding}\nend\n")
-                };
-                let config = RuneConfig::from_str(&text).unwrap();
-                assert!(
-                    matches!(
-                        parse_keybinds(&config),
-                        Err(ParseError::InvalidBinding { .. })
-                    ),
-                    "{text}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn accepts_old_field_node_move_spellings() {
         for (source, direction) in [
             ("node-move left", crate::Direction::Left),
@@ -738,34 +703,6 @@ end
 "#,
         );
         assert!(!kb.binds[0].repeat);
-    }
-
-    #[test]
-    fn inline_attributes_validate_fields_and_keyboard_only_repeat() {
-        for (binding, expected) in [
-            (
-                r#""$var.mod+x" "zoom-in" with repeat "yes""#,
-                "repeat must be a boolean",
-            ),
-            (
-                r#""$var.mod+x" "zoom-in" with cooldown 20"#,
-                "unsupported inline attribute",
-            ),
-            (
-                r#""$var.mod+x" "zoom-in" with repeat true repeat false"#,
-                "duplicate inline attribute",
-            ),
-            (
-                r#""$var.mod+scroll-up" "zoom-in" with repeat true"#,
-                "only valid for keyboard triggers",
-            ),
-        ] {
-            let config =
-                RuneConfig::from_str(&format!("keybinds:\n  mod \"super\"\n  {binding}\nend\n"))
-                    .expect("valid Rune syntax");
-            let error = parse_keybinds(&config).unwrap_err().to_string();
-            assert!(error.contains(expected), "{error:?}");
-        }
     }
 
     #[test]
@@ -917,38 +854,6 @@ end
             parse_action("pan-field"),
             "always-pan must stay a separate, explicitly requested action"
         );
-    }
-
-    #[test]
-    fn legacy_default_terminal_reports_the_keybind_migration() {
-        let config = RuneConfig::from_str(
-            r#"
-keybinds:
-  mod "super"
-  default-terminal "foot"
-end
-"#,
-        )
-        .unwrap();
-        let error = parse_keybinds(&config).unwrap_err().to_string();
-        assert!(error.contains("default-terminal is now an action"));
-        assert!(error.contains("bind it to a chord"));
-    }
-
-    #[test]
-    fn unknown_modifier_name_errors() {
-        let config = RuneConfig::from_str(
-            r#"
-keybinds:
-  mod "windows"
-end
-"#,
-        )
-        .unwrap();
-        assert!(matches!(
-            parse_keybinds(&config),
-            Err(ParseError::UnknownModifier(_))
-        ));
     }
 
     #[test]

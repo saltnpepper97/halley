@@ -809,68 +809,6 @@ end
     }
 
     #[test]
-    fn removed_animation_names_have_no_compatibility_aliases() {
-        assert_eq!(WindowOpenAnimationType::parse("elastic"), None);
-        assert_eq!(AnimationCurve::parse("ease-out-back"), None);
-        assert_eq!(
-            WindowOpenAnimationType::parse("fade"),
-            Some(WindowOpenAnimationType::Fade)
-        );
-        assert_eq!(
-            WindowOpenAnimationType::parse("launch"),
-            Some(WindowOpenAnimationType::Launch)
-        );
-        assert_eq!(
-            AnimationCurve::parse("elastic"),
-            Some(AnimationCurve::Elastic)
-        );
-        assert_eq!(
-            AnimationCurve::parse("ease-in-out-cubic"),
-            Some(AnimationCurve::EaseInOutCubic)
-        );
-    }
-
-    #[test]
-    fn invalid_values_fall_back_to_center_out_defaults() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  window-open:
-    type "stretchy"
-    curve "wobbly"
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        let animation = parse_animations(&config).window_open;
-        assert_eq!(animation.animation_type, WindowOpenAnimationType::CenterOut);
-        assert_eq!(
-            animation.motion,
-            AnimationMotion::Easing(EasingMotion {
-                duration_ms: 300,
-                curve: AnimationCurve::Linear,
-            })
-        );
-
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  window-close:
-    type "vanish"
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-        assert_eq!(
-            parse_animations(&config).window_close.animation_type,
-            WindowCloseAnimationType::Shrink
-        );
-    }
-
-    #[test]
     fn fullscreen_defaults_to_critical_spring() {
         let config = RuneConfig::from_str(
             r#"

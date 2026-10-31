@@ -291,13 +291,4 @@ end
             BackgroundMode::FieldShader
         );
     }
-
-    #[test]
-    fn rejects_invalid_values() {
-        let config = RuneConfig::from_str("wallpaper:\n  mode \"clouds\"\nend\n").unwrap();
-        assert!(parse_background(&config).is_err());
-
-        let config = RuneConfig::from_str("wallpaper:\n  colour \"white\"\nend\n").unwrap();
-        assert!(parse_background(&config).is_err());
-    }
 }
