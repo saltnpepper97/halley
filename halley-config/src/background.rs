@@ -253,12 +253,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_disabled() {
-        let config = RuneConfig::from_str("").unwrap();
-        assert_eq!(parse_background(&config).unwrap(), Background::default());
-    }
-
-    #[test]
     fn parses_canonical_wallpaper_section() {
         let config = RuneConfig::from_str(
             r##"

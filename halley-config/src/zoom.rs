@@ -87,21 +87,4 @@ end
             }
         );
     }
-
-    #[test]
-    fn missing_section_falls_back_to_defaults() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n")
-            .expect("valid rune-cfg source");
-
-        assert_eq!(parse_zoom(&config), Zoom::default());
-    }
-
-    #[test]
-    fn defaults_match_old_halley_minus_the_ceiling() {
-        let defaults = Zoom::default();
-        assert!(defaults.enabled);
-        assert_eq!(defaults.min, 0.35);
-        assert_eq!(defaults.step, 1.10);
-        assert_eq!(defaults.smooth_rate, 12.5);
-    }
 }

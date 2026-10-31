@@ -105,14 +105,6 @@ end
     }
 
     #[test]
-    fn missing_section_uses_portable_defaults() {
-        let config =
-            RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").expect("valid Rune config");
-
-        assert_eq!(parse_cursor(&config), Cursor::default());
-    }
-
-    #[test]
     fn zero_timeout_disables_inactivity_hiding() {
         let config = RuneConfig::from_str(
             "cursor:\n  hide-after-ms 0\nend\nkeybinds:\n  mod \"super\"\nend\n",

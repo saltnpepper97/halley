@@ -478,14 +478,6 @@ end
     }
 
     #[test]
-    fn missing_section_falls_back_to_defaults() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n")
-            .expect("valid rune-cfg source");
-
-        assert_eq!(parse_decorations(&config), Decorations::default());
-    }
-
-    #[test]
     fn defaults_use_neutral_border_orange_titlebar_and_right_controls() {
         let defaults = Decorations::default();
         assert_eq!(defaults.border_width_px, 3);

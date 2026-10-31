@@ -327,6 +327,13 @@ end
         .expect("valid Rune config");
 
         let runtime = parse_runtime_config(&config).unwrap();
+        assert_eq!(runtime.physics, crate::Physics::default());
+        assert_eq!(runtime.trail, crate::Trail::default());
+        assert_eq!(runtime.background, crate::Background::default());
+        assert_eq!(runtime.screenshot, crate::Screenshot::default());
+        assert_eq!(runtime.cursor, crate::Cursor::default());
+        assert_eq!(runtime.decorations, crate::Decorations::default());
+        assert_eq!(runtime.field.zoom, crate::Zoom::default());
         assert_eq!(runtime.keybinds.binds.len(), 1);
         assert_eq!(runtime.keybinds.binds[0].key, "x");
         assert_eq!(

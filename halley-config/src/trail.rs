@@ -35,14 +35,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_old_halley() {
-        assert_eq!(
-            parse_trail(&RuneConfig::from_str("").unwrap()),
-            Trail::default()
-        );
-    }
-
-    #[test]
     fn parses_and_clamps_history_length() {
         let low = RuneConfig::from_str("trail:\n  history-length 0\n  wrap false\nend\n").unwrap();
         assert_eq!(parse_trail(&low).history_length, MIN_HISTORY_LENGTH);

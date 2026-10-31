@@ -43,10 +43,4 @@ end
             }
         );
     }
-
-    #[test]
-    fn missing_section_uses_default() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").unwrap();
-        assert_eq!(parse_screenshot(&config), Screenshot::default());
-    }
 }
