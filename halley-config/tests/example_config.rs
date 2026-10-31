@@ -534,7 +534,7 @@ fn example_config_input_section_parses() {
 }
 
 #[test]
-fn example_config_window_open_animation_parses() {
+fn example_config_animation_settings_parse() {
     let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
     let animations = halley_config::parse_animations(&config);
 
@@ -551,12 +551,7 @@ fn example_config_window_open_animation_parses() {
             curve: halley_config::AnimationCurve::Linear,
         })
     );
-}
-
-#[test]
-fn example_config_window_close_animation_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let close = halley_config::parse_animations(&config).window_close;
+    let close = animations.window_close;
 
     assert!(close.enabled);
     assert_eq!(
@@ -564,12 +559,7 @@ fn example_config_window_close_animation_parses() {
         halley_config::WindowCloseAnimationType::Shrink
     );
     assert_eq!(close.duration_ms, 270);
-}
-
-#[test]
-fn example_config_fullscreen_animation_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let fullscreen = halley_config::parse_animations(&config).fullscreen;
+    let fullscreen = animations.fullscreen;
 
     assert!(fullscreen.enabled);
     assert_eq!(
@@ -579,12 +569,7 @@ fn example_config_fullscreen_animation_parses() {
             stiffness: 800.0,
         })
     );
-}
-
-#[test]
-fn example_config_maximize_animation_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let maximize = halley_config::parse_animations(&config).maximize;
+    let maximize = animations.maximize;
 
     assert!(maximize.enabled);
     assert_eq!(
@@ -594,12 +579,7 @@ fn example_config_maximize_animation_parses() {
             curve: halley_config::AnimationCurve::EaseInOutCubic,
         })
     );
-}
-
-#[test]
-fn example_config_arrange_animation_parses() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let arrange = halley_config::parse_animations(&config).arrange;
+    let arrange = animations.arrange;
 
     assert!(arrange.enabled);
     assert_eq!(
