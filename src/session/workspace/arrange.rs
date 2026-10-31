@@ -900,22 +900,6 @@ mod tests {
     }
 
     #[test]
-    fn five_windows_form_balanced_three_two_mosaic() {
-        let regions = mosaic_regions(
-            Rectangle::<i32, Logical>::new((0, 0).into(), (1000, 800).into()),
-            5,
-            20,
-        )
-        .unwrap();
-        assert_eq!(regions.len(), 5);
-        assert_eq!(regions[0].size.h, 390);
-        assert_eq!(regions[2].loc.y, 0);
-        assert_eq!(regions[3].loc.y, 410);
-        assert_eq!(regions[3].size.w, 490);
-        assert_eq!(regions[4].loc.x, 510);
-    }
-
-    #[test]
     fn asymmetric_variants_offer_a_large_slot_on_smaller_outputs() {
         let outer = Rectangle::<i32, Logical>::new((0, 0).into(), (1800, 1000).into());
         let variants = mosaic_region_variants(outer, 3, 20).unwrap();

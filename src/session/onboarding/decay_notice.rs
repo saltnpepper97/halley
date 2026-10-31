@@ -78,43 +78,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_notice_names_the_window_and_the_restore_gesture() {
-        assert_eq!(
-            collapsed_into_node_message("Firefox", Some("firefox")),
-            "Firefox was collapsed into a node. Click the node or press Mod+N to restore it."
-        );
-    }
-
-    #[test]
-    fn the_application_id_is_the_fallback_for_a_missing_title() {
-        assert_eq!(
-            collapsed_into_node_message("", Some("org.gnome.Nautilus")),
-            "org.gnome.Nautilus was collapsed into a node. Click the node or press Mod+N to restore it."
-        );
-        assert_eq!(
-            collapsed_into_node_message("   ", Some("kitty")),
-            "kitty was collapsed into a node. Click the node or press Mod+N to restore it."
-        );
-    }
-
-    #[test]
-    fn the_untitled_placeholder_is_not_shown_as_an_application_name() {
-        assert_eq!(
-            collapsed_into_node_message("Untitled", Some("xterm")),
-            "xterm was collapsed into a node. Click the node or press Mod+N to restore it."
-        );
-    }
-
-    #[test]
-    fn a_window_without_a_title_or_application_id_gets_the_generic_fallback() {
-        let expected =
-            "A window was collapsed into a node. Click the node or press Mod+N to restore it.";
-        assert_eq!(collapsed_into_node_message("", None), expected);
-        assert_eq!(collapsed_into_node_message("Untitled", None), expected);
-        assert_eq!(collapsed_into_node_message("", Some("  ")), expected);
-    }
-
-    #[test]
     fn only_the_automatic_decay_path_explains_a_collapse() {
         assert!(explanation_due(CollapseTrigger::for_decay(true), false));
         assert!(

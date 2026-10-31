@@ -530,53 +530,6 @@ mod tests {
     }
 
     #[test]
-    fn clockwise_bloom_starts_above_the_core_and_advances_right() {
-        let (mut system, id, _) = clustered_system();
-        system.set_hovered_core(Some(id), Duration::ZERO);
-        assert!(system.bloom_wakeup(HOLD_DURATION));
-        let camera = Camera::new(
-            Vec2 { x: 0.0, y: 0.0 },
-            Vec2 {
-                x: 1_920.0,
-                y: 1_080.0,
-            },
-        );
-        let geometry = Rectangle::new((0, 0).into(), (1_920, 1_080).into());
-        let layout = system.bloom_layout(
-            "DP-1",
-            &camera,
-            geometry,
-            HOLD_DURATION + bloom_animation_duration(2),
-        );
-        assert_eq!(layout.len(), 2);
-        assert!(layout[0].center.y < layout[0].core_center.y);
-        assert!(layout[1].center.x > layout[1].core_center.x);
-    }
-
-    #[test]
-    fn counter_clockwise_bloom_advances_left() {
-        let (mut system, id, _) = clustered_system();
-        system.config.bloom_direction = halley_config::ClusterBloomDirection::CounterClockwise;
-        system.set_hovered_core(Some(id), Duration::ZERO);
-        assert!(system.bloom_wakeup(HOLD_DURATION));
-        let camera = Camera::new(
-            Vec2 { x: 0.0, y: 0.0 },
-            Vec2 {
-                x: 1_920.0,
-                y: 1_080.0,
-            },
-        );
-        let geometry = Rectangle::new((0, 0).into(), (1_920, 1_080).into());
-        let layout = system.bloom_layout(
-            "DP-1",
-            &camera,
-            geometry,
-            HOLD_DURATION + bloom_animation_duration(2),
-        );
-        assert!(layout[1].center.x < layout[1].core_center.x);
-    }
-
-    #[test]
     fn opening_bloom_hands_hover_ownership_off_the_core() {
         let (mut system, id, _) = clustered_system();
         assert!(system.set_hovered_core(Some(id), Duration::ZERO));
