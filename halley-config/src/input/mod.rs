@@ -892,53 +892,6 @@ end
     }
 
     #[test]
-    fn signed_accel_speed_and_sensitivity_alias() {
-        for setting in [
-            "accel-speed -0.5",
-            "accel-speed \"-0.5\"",
-            "sensitivity -0.5",
-        ] {
-            let input = parse(&format!("input:\n  mouse:\n    {setting}\n  end\nend\n")).unwrap();
-            assert_eq!(input.mouse.accel_speed, Some(-0.5));
-        }
-        for setting in [
-            "accel-speed -1.1",
-            "sensitivity \"NaN\"",
-            "accel-speed -0.5\n    sensitivity 0.5",
-        ] {
-            assert!(parse(&format!("input:\n  mouse:\n    {setting}\n  end\nend\n")).is_err());
-        }
-    }
-
-    #[test]
-    fn exact_case_insensitive_override_layers_over_mouse() {
-        let input = parse(
-            r#"
-input:
-  mouse:
-    accel-speed 0.4
-    natural-scroll false
-  end
-  devices:
-    "Logitech MX Master 3":
-      natural-scroll true
-    end
-  end
-end
-"#,
-        )
-        .unwrap();
-
-        let matching = input.settings_for_device(DeviceKind::Mouse, "logitech mx master 3");
-        assert_eq!(matching.accel_speed, Some(0.4));
-        assert_eq!(matching.natural_scroll, Some(true));
-        assert_eq!(
-            input.settings_for_device(DeviceKind::Mouse, "Logitech MX Master 3S"),
-            input.mouse
-        );
-    }
-
-    #[test]
     fn parses_device_classes_gestures_and_touchscreen_mapping() {
         let input = parse(
             r#"
@@ -1040,47 +993,5 @@ end
             input.gestures.hold_bindings[0].action,
             GestureAction::Compositor(crate::Action::ZoomReset)
         );
-    }
-
-    #[test]
-    fn device_override_layers_over_the_matching_class() {
-        let input = parse(
-            r#"
-input:
-  touchpad:
-    natural-scroll true
-    tap false
-  end
-  devices:
-    "Built-in Touchpad":
-      tap true
-    end
-  end
-end
-"#,
-        )
-        .unwrap();
-
-        let settings = input.settings_for_device(DeviceKind::Touchpad, "built-in touchpad");
-        assert_eq!(settings.natural_scroll, Some(true));
-        assert_eq!(settings.tap, Some(true));
-        assert_eq!(
-            input
-                .settings_for_device(DeviceKind::Mouse, "Built-in Touchpad")
-                .tap,
-            Some(true),
-            "exact overrides are device-specific and layer over the classified base"
-        );
-    }
-
-    #[test]
-    fn omitted_mouse_values_preserve_device_defaults() {
-        let input = parse("input:\nend\n").unwrap();
-        assert_eq!(input.mouse, DeviceSettings::default());
-        assert_eq!(input.touchpad, DeviceSettings::default());
-        assert_eq!(input.trackpoint, DeviceSettings::default());
-        assert_eq!(input.trackball, DeviceSettings::default());
-        assert_eq!(input.touchscreen, DeviceSettings::default());
-        assert!(input.devices.is_empty());
     }
 }

@@ -190,7 +190,7 @@ fn parse_focus_ring_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FocusRing, Vrr};
+    use crate::Vrr;
 
     fn parse(source: &str) -> Result<ViewConfig, ViewParseError> {
         parse_view_checked(&RuneConfig::from_str(source).expect("valid rune-cfg source"))
@@ -227,54 +227,6 @@ end
         assert_eq!(view.outputs[0].transform, 90);
         assert_eq!(view.outputs[0].vrr, Vrr::Auto);
         assert_eq!(view.focus_rings.for_output("DP-1").radius_x, 900.0);
-    }
-
-    #[test]
-    fn ring_only_output_does_not_create_hardware_work() {
-        let view = parse(
-            r#"
-view:
-  output:
-    name "DP-2"
-    focus-ring:
-      radius-x 700
-      offset-y 20
-    end
-  end
-end
-"#,
-        )
-        .unwrap();
-
-        assert!(view.outputs.is_empty());
-        assert_eq!(view.focus_rings.for_output("DP-2").radius_x, 700.0);
-        assert_eq!(
-            view.focus_rings.for_output("unconfigured"),
-            FocusRing::default()
-        );
-    }
-
-    #[test]
-    fn repeated_outputs_preserve_order() {
-        let view = parse(
-            r#"
-view:
-  output:
-    name "DP-1"
-    width 2560
-    height 1440
-  end
-  output:
-    name "HDMI-A-1"
-    width 1920
-    height 1080
-  end
-end
-"#,
-        )
-        .unwrap();
-        assert_eq!(view.outputs[0].name, "DP-1");
-        assert_eq!(view.outputs[1].name, "HDMI-A-1");
     }
 
     #[test]

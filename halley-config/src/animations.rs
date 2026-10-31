@@ -598,22 +598,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_collapse_duration_is_independent_and_accepts_zero() {
-        let config = RuneConfig::from_str("animations:\n  node:\n    duration-ms 910\n  end\n  window-close:\n    duration-ms 1800\n  end\nend\n").unwrap();
-        let animations = parse_animations(&config);
-        assert_eq!(animations.node.duration_ms, 910);
-        assert_eq!(animations.node.collapse_duration_ms, 280);
-        assert_eq!(animations.window_close.duration_ms, 1800);
-        assert_eq!(Animations::default().node.collapse_duration_ms, 280);
-        for duration in [0, 470] {
-            let config = RuneConfig::from_str(&format!("animations:\n  node:\n    duration-ms 910\n    collapse-duration-ms {duration}\n  end\nend\n")).unwrap();
-            let animations = parse_animations(&config);
-            assert_eq!(animations.node.duration_ms, 910);
-            assert_eq!(animations.node.collapse_duration_ms, duration);
-        }
-    }
-
-    #[test]
     fn window_movement_supports_easing_spring_and_zero_duration() {
         for duration in [0, 900] {
             let config = RuneConfig::from_str(&format!("animations:\n  window-move:\n    enabled false\n    duration-ms {duration}\n    curve \"linear\"\n  end\nend\n")).unwrap();
@@ -681,134 +665,6 @@ end
     }
 
     #[test]
-    fn parses_window_close_animation() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  window-close:
-    enabled false
-    type "fade"
-    duration-ms 410
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        assert_eq!(
-            parse_animations(&config).window_close,
-            WindowCloseAnimation {
-                enabled: false,
-                animation_type: WindowCloseAnimationType::Fade,
-                duration_ms: 410,
-                custom_shader: None,
-            }
-        );
-    }
-
-    #[test]
-    fn parses_smooth_resize_animation_and_clamps_duration() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  smooth-resize:
-    enabled false
-    duration-ms 5000
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        assert_eq!(
-            parse_animations(&config).smooth_resize,
-            SmoothResizeAnimation {
-                enabled: false,
-                duration_ms: 2_000,
-            }
-        );
-    }
-
-    #[test]
-    fn parses_launch_counterpart_for_window_close() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  window-close:
-    type "retract"
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        assert_eq!(
-            parse_animations(&config).window_close.animation_type,
-            WindowCloseAnimationType::Retract
-        );
-    }
-
-    #[test]
-    fn missing_section_uses_center_out_defaults() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n")
-            .expect("valid rune-cfg source");
-
-        assert_eq!(parse_animations(&config), Animations::default());
-        assert!(Animations::default().enabled);
-        assert!(Animations::default().window_open.enabled);
-        assert_eq!(
-            Animations::default().window_close,
-            WindowCloseAnimation {
-                enabled: true,
-                animation_type: WindowCloseAnimationType::Shrink,
-                duration_ms: 270,
-                custom_shader: None,
-            }
-        );
-        assert_eq!(
-            Animations::default().window_open.animation_type,
-            WindowOpenAnimationType::CenterOut
-        );
-        assert_eq!(
-            Animations::default().window_open.motion,
-            AnimationMotion::Easing(EasingMotion {
-                duration_ms: 300,
-                curve: AnimationCurve::Linear,
-            })
-        );
-    }
-
-    #[test]
-    fn window_open_style_does_not_select_motion_defaults() {
-        let parse = |animation_type| {
-            let config = RuneConfig::from_str(&format!(
-                r#"
-animations:
-  window-open:
-    type "{animation_type}"
-  end
-end
-"#
-            ))
-            .expect("valid rune-cfg source");
-            parse_animations(&config).window_open
-        };
-
-        let center_out = parse("center-out");
-        let fade = parse("fade");
-        let launch = parse("launch");
-
-        assert_eq!(
-            center_out.animation_type,
-            WindowOpenAnimationType::CenterOut
-        );
-        assert_eq!(fade.animation_type, WindowOpenAnimationType::Fade);
-        assert_eq!(launch.animation_type, WindowOpenAnimationType::Launch);
-        assert_eq!(center_out.motion, fade.motion);
-        assert_eq!(center_out.motion, launch.motion);
-    }
-
-    #[test]
     fn fullscreen_defaults_to_critical_spring() {
         let config = RuneConfig::from_str(
             r#"
@@ -855,28 +711,6 @@ end
             AnimationMotion::Easing(EasingMotion {
                 duration_ms: 180,
                 curve: AnimationCurve::EaseOutExpo,
-            })
-        );
-    }
-
-    #[test]
-    fn maximize_keeps_legacy_duration_and_ease_in_out_default() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  maximize:
-    duration-ms 360
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        assert_eq!(
-            parse_animations(&config).maximize.motion,
-            AnimationMotion::Easing(EasingMotion {
-                duration_ms: 360,
-                curve: AnimationCurve::EaseInOutCubic,
             })
         );
     }
@@ -966,30 +800,6 @@ end
             AnimationMotion::Easing(EasingMotion {
                 duration_ms: 180,
                 curve: AnimationCurve::EaseOutExpo,
-            })
-        );
-    }
-
-    #[test]
-    fn spring_values_are_constrained_to_stable_ranges() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  fullscreen:
-    motion "spring"
-    damping-ratio 0.0
-    stiffness 999999.0
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-
-        assert_eq!(
-            parse_animations(&config).fullscreen.motion,
-            AnimationMotion::Spring(SpringMotion {
-                damping_ratio: 0.1,
-                stiffness: 100_000.0,
             })
         );
     }

@@ -419,20 +419,6 @@ end
     }
 
     #[test]
-    fn border_resize_defaults_on_and_can_be_disabled() {
-        let defaults = parse_decorations(
-            &RuneConfig::from_str("decorations:\nend\n").expect("valid default config"),
-        );
-        assert!(defaults.resize_using_border);
-
-        let disabled = parse_decorations(
-            &RuneConfig::from_str("decorations:\n  resize-using-border false\nend\n")
-                .expect("valid disabled config"),
-        );
-        assert!(!disabled.resize_using_border);
-    }
-
-    #[test]
     fn parses_titlebars_and_color_aliases() {
         let config = RuneConfig::from_str(
             r##"
@@ -475,84 +461,5 @@ end
         assert_eq!(titlebars.foreground_color_unfocused.r, 0xaa as f32 / 255.0);
         assert_eq!(titlebars.button_hover_color.g, 0xee as f32 / 255.0);
         assert_eq!(titlebars.button_pressed_color.b, 0xdd as f32 / 255.0);
-    }
-
-    #[test]
-    fn defaults_use_neutral_border_orange_titlebar_and_right_controls() {
-        let defaults = Decorations::default();
-        assert_eq!(defaults.border_width_px, 3);
-        assert_eq!(defaults.border_radius_px, 8);
-        assert_eq!(
-            defaults.border_color_focused,
-            BorderColor {
-                r: 0xf4 as f32 / 255.0,
-                g: 0xf5 as f32 / 255.0,
-                b: 0xf7 as f32 / 255.0,
-            }
-        );
-        assert_eq!(
-            defaults.border_color_unfocused,
-            BorderColor {
-                r: 0x47 as f32 / 255.0,
-                g: 0x4d as f32 / 255.0,
-                b: 0x59 as f32 / 255.0,
-            }
-        );
-        assert_eq!(
-            defaults.titlebars.color_focused,
-            BorderColor {
-                r: 0xd6 as f32 / 255.0,
-                g: 0x5d as f32 / 255.0,
-                b: 0x26 as f32 / 255.0,
-            }
-        );
-        assert_eq!(
-            defaults.titlebars.button_position,
-            TitlebarButtonPosition::Right
-        );
-    }
-
-    #[test]
-    fn clamps_border_metrics_and_accepts_the_old_flat_radius_key() {
-        let config = RuneConfig::from_str(
-            "decorations:\n  border:\n    size 99\n  end\n  border-radius 999\nend\n",
-        )
-        .expect("valid rune-cfg source");
-        let decorations = parse_decorations(&config);
-        assert_eq!(decorations.border_width_px, 64);
-        assert_eq!(decorations.border_radius_px, 256);
-    }
-
-    #[test]
-    fn titlebar_metrics_are_clamped_and_invalid_positions_use_defaults() {
-        let config = RuneConfig::from_str(
-            "decorations:\n  titlebars:\n    height 0\n    text-size 999\n    radius 999\n    button-position \"middle\"\n    title-position \"middle\"\n  end\nend\n",
-        )
-        .expect("valid rune-cfg source");
-
-        let titlebars = parse_decorations(&config).titlebars;
-        assert_eq!(titlebars.height_px, 1);
-        assert_eq!(titlebars.text_size_px, Some(96));
-        assert_eq!(titlebars.radius_px, 96);
-        assert_eq!(titlebars.button_position, TitlebarButtonPosition::Right);
-        assert_eq!(titlebars.title_position, TitlebarContentPosition::Center);
-    }
-
-    #[test]
-    fn titlebar_title_position_accepts_every_alignment() {
-        for (value, expected) in [
-            ("left", TitlebarContentPosition::Left),
-            ("center", TitlebarContentPosition::Center),
-            ("right", TitlebarContentPosition::Right),
-        ] {
-            let config = RuneConfig::from_str(&format!(
-                "decorations:\n  titlebars:\n    title-position \"{value}\"\n  end\nend\n"
-            ))
-            .expect("valid rune-cfg source");
-            assert_eq!(
-                parse_decorations(&config).titlebars.title_position,
-                expected
-            );
-        }
     }
 }

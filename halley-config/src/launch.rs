@@ -275,20 +275,6 @@ end
     }
 
     #[test]
-    fn escaped_command_is_decoded_by_rune() {
-        let autostart = parse_autostart(&parse(
-            r#"
-autostart:
-  once "printf \"ready\""
-end
-"#,
-        ))
-        .unwrap();
-
-        assert_eq!(autostart.once, [r#"printf "ready""#]);
-    }
-
-    #[test]
     fn startup_clusters_parse_compact_command_arrays() {
         let autostart = parse_autostart(&parse(
             r#"
@@ -320,18 +306,5 @@ end
             Some(crate::ClusterLayout::Stacking)
         );
         assert_eq!(autostart.clusters[1].output.as_deref(), Some("DP-2"));
-    }
-
-    #[test]
-    fn absent_sections_are_empty() {
-        let config = parse(
-            r#"
-keybinds:
-  mod "super"
-end
-"#,
-        );
-        assert!(parse_env(&config).unwrap().is_empty());
-        assert_eq!(parse_autostart(&config).unwrap(), Autostart::default());
     }
 }

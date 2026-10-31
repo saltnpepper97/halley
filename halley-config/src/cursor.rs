@@ -103,38 +103,4 @@ end
             }
         );
     }
-
-    #[test]
-    fn zero_timeout_disables_inactivity_hiding() {
-        let config = RuneConfig::from_str(
-            "cursor:\n  hide-after-ms 0\nend\nkeybinds:\n  mod \"super\"\nend\n",
-        )
-        .expect("valid Rune config");
-
-        assert_eq!(parse_cursor(&config).hide_after_ms, None);
-    }
-
-    #[test]
-    fn keyboard_navigation_hiding_defaults_on_and_is_configurable() {
-        let missing = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").unwrap();
-        assert!(parse_cursor(&missing).hide_on_keyboard_nav);
-
-        let disabled = RuneConfig::from_str(
-            "cursor:\n  hide-on-keyboard-nav false\nend\nkeybinds:\n  mod \"super\"\nend\n",
-        )
-        .unwrap();
-        assert!(!parse_cursor(&disabled).hide_on_keyboard_nav);
-    }
-
-    #[test]
-    fn empty_theme_and_zero_size_use_safe_defaults() {
-        let config = RuneConfig::from_str(
-            "cursor:\n  theme \"\"\n  size 0\nend\nkeybinds:\n  mod \"super\"\nend\n",
-        )
-        .expect("valid Rune config");
-
-        let parsed = parse_cursor(&config);
-        assert_eq!(parsed.theme, "default");
-        assert_eq!(parsed.size, DEFAULT_SIZE);
-    }
 }

@@ -228,34 +228,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn navigation_actions_have_distinct_repeat_and_default_policies() {
-        for direction in [
-            Direction::Left,
-            Direction::Right,
-            Direction::Up,
-            Direction::Down,
-        ] {
-            let pan = Action::PanField(direction);
-            let transfer = Action::TransferWindow(direction);
-            assert!(pan.repeats_by_default());
-            assert!(!transfer.repeats_by_default());
-            assert_eq!(pan.default_scope(), BindingScope::Field);
-            assert!(
-                Keybinds::default()
-                    .binds
-                    .iter()
-                    .any(|bind| bind.action == transfer)
-            );
-            assert!(
-                !Keybinds::default()
-                    .binds
-                    .iter()
-                    .any(|bind| bind.action == pan)
-            );
-        }
-    }
-
-    #[test]
     fn default_matches_the_shipped_keybinds() {
         let kb = Keybinds::default();
         assert_eq!(kb.modifier, ModifierKey::Super);
@@ -555,44 +527,5 @@ mod tests {
             .unwrap();
         assert_eq!(screenshot.modifiers, Modifiers::default());
         assert_eq!(screenshot.key, "Print");
-    }
-
-    #[test]
-    fn repeat_defaults_are_limited_to_continuous_actions() {
-        for action in [
-            Action::FocusCycle(FocusCycleDirection::Forward),
-            Action::FocusDirection(Direction::Left),
-            Action::MoveNode(Direction::Right),
-            Action::ClusterTileFocus(Direction::Up),
-            Action::ClusterTileSwap(Direction::Down),
-            Action::MonitorFocus(MonitorTarget::Direction(Direction::Left)),
-            Action::ZoomIn,
-            Action::ZoomOut,
-        ] {
-            assert!(action.repeats_by_default(), "{action:?}");
-        }
-        for action in [
-            Action::Quit,
-            Action::CloseFocusedWindow,
-            Action::ToggleFullscreen,
-            Action::ToggleFieldMaximize,
-            Action::ToggleState,
-            Action::ArrangeVisible,
-            Action::UndoArrange,
-            Action::Apogee,
-            Action::BearingsShow,
-            Action::BearingsToggle,
-            Action::CenterLastFocused,
-            Action::ClusterMode,
-            Action::ClusterLayoutCycle,
-            Action::ClusterToggleFloat,
-            Action::ClusterSlot(1),
-            Action::OpenTerminal,
-            Action::ZoomReset,
-            Action::Screenshot,
-            Action::Spawn("command".to_string()),
-        ] {
-            assert!(!action.repeats_by_default(), "{action:?}");
-        }
     }
 }

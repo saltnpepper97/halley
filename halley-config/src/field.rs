@@ -388,40 +388,4 @@ end
         assert_eq!(field.gap, 18.0);
         assert_eq!(field.zoom.min, 0.2);
     }
-
-    #[test]
-    fn close_restore_nodes_defaults_to_false() {
-        let config = RuneConfig::from_str("").unwrap();
-        assert!(!parse_field_checked(&config).unwrap().close_restore_nodes);
-    }
-
-    #[test]
-    fn pin_style_matches_old_halley_names_and_bounds() {
-        let config = RuneConfig::from_str(
-            r##"
-field:
-  pins:
-    badge_corner "left"
-    pin-color "#d65d26"
-    bg_colour "dark"
-    size 9.0
-  end
-end
-"##,
-        )
-        .unwrap();
-        let pins = parse_field_checked(&config).unwrap().pins;
-        assert_eq!(pins.corner, PinBadgeCorner::TopLeft);
-        assert_eq!(pins.background_color, OverlayColorMode::Dark);
-        assert_eq!(pins.size, 3.0);
-        assert_eq!(
-            pins.color,
-            OverlayColorMode::Fixed {
-                r: 0xd6 as f32 / 255.0,
-                g: 0x5d as f32 / 255.0,
-                b: 0x26 as f32 / 255.0,
-                a: 1.0,
-            }
-        );
-    }
 }

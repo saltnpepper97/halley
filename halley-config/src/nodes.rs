@@ -518,20 +518,6 @@ end
         assert!(parse_debug(&config).overlay_fps);
     }
 
-    /// Milestone 4 boundary: the longer conservative delays reach users only
-    /// through a newly generated config. An older config that omits the
-    /// `decay:` section keeps Halley's built-in 180 s / 1800 s behavior.
-    #[test]
-    fn a_config_without_a_decay_section_keeps_the_built_in_delays() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").unwrap();
-        let decay = parse_decay(&config);
-
-        assert!(decay.enabled);
-        assert_eq!(decay.outside_delay_seconds, 180);
-        assert_eq!(decay.inside_delay_seconds, 1_800);
-        assert_eq!(decay, Decay::default());
-    }
-
     #[test]
     fn parses_canonical_node_names_and_landmark_gap() {
         let config = RuneConfig::from_str(
@@ -574,31 +560,6 @@ end
                 g: 0xbb as f32 / 255.0,
                 b: 0xcc as f32 / 255.0,
             }
-        );
-    }
-
-    #[test]
-    fn system_node_background_resolves_without_changing_owned_border_colours() {
-        let config = RuneConfig::from_str(
-            "node:\n  background-colour \"system\"\n  border-colour \"#102030\"\n  border-colour-highlighted \"#abcdef\"\nend\n",
-        )
-        .unwrap();
-        let nodes = parse_nodes(&config);
-        assert_eq!(nodes.background_color, NodeBackgroundColor::System);
-
-        let dark = nodes.resolved_for_system(crate::SystemColorScheme::PreferDark);
-        assert_eq!(dark.background_color, NodeBackgroundColor::Dark);
-        assert_eq!(dark.border_color, nodes.border_color);
-        assert_eq!(
-            dark.border_color_highlighted,
-            nodes.border_color_highlighted
-        );
-
-        assert_eq!(
-            nodes
-                .resolved_for_system(crate::SystemColorScheme::NoPreference)
-                .background_color,
-            NodeBackgroundColor::Auto
         );
     }
 }

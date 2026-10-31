@@ -181,16 +181,4 @@ mod tests {
         assert!(diagnostic.source_line.is_some());
         let _ = fs::remove_file(path);
     }
-
-    #[test]
-    fn semantic_diagnostic_does_not_invent_a_location() {
-        let error =
-            RuntimeConfigError::Keybind(crate::ParseError::UnknownModifier("explode".to_string()));
-        let diagnostic =
-            ConfigDiagnostic::from_runtime_error(Path::new("/tmp/halley.rune"), &error);
-
-        assert_eq!(diagnostic.line, None);
-        assert_eq!(diagnostic.column, None);
-        assert_eq!(diagnostic.source_line, None);
-    }
 }

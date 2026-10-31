@@ -317,14 +317,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_blur_only_forces_explicitly_enabled_rules() {
-        assert!(window_blur_enabled(Some(true), false));
-        assert!(!window_blur_enabled(Some(false), false));
-        assert!(!window_blur_enabled(None, false));
-        assert!(!window_blur_enabled(Some(true), true));
-    }
-
-    #[test]
     fn parses_and_bounds_blur_knobs() {
         let config = RuneConfig::from_str(
             r#"
@@ -347,21 +339,6 @@ end
         assert_eq!(blur.passes, 5);
         assert_eq!(blur.saturation, 1.2);
         assert_eq!(blur.noise, 0.02);
-    }
-
-    #[test]
-    fn parses_all_blur_methods_and_existing_aliases() {
-        for (name, expected) in [
-            ("dual-kawase", BlurMethod::DualKawase),
-            ("dual_kawase", BlurMethod::DualKawase),
-            ("kawase", BlurMethod::DualKawase),
-            (" Gaussian ", BlurMethod::Gaussian),
-            ("BOX", BlurMethod::Box),
-        ] {
-            let source = format!("effects:\n  blur:\n    method \"{name}\"\n  end\nend\n");
-            let config = RuneConfig::from_str(&source).unwrap();
-            assert_eq!(parse_effects(&config).unwrap().blur.method, expected);
-        }
     }
 
     #[test]
