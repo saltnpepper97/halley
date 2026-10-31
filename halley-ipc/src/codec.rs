@@ -510,81 +510,70 @@ mod tests {
     }
 
     #[test]
-    fn bearings_status_round_trips_through_postcard() {
-        let response = Response::BearingsStatus(crate::BearingsStatusResponse { visible: true });
-        let bytes = encode_response(&response).unwrap();
-        let decoded = decode_response(&bytes).unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{response:?}"));
-    }
-
-    #[test]
-    fn config_path_response_round_trips_through_postcard() {
-        let response =
-            Response::ConfigPath(Some("/home/test/.config/halley/halley.rune".to_string()));
-        let bytes = encode_response(&response).unwrap();
-        let decoded = decode_response(&bytes).unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{response:?}"));
-    }
-
-    #[test]
-    fn screenshot_response_round_trips_through_postcard() {
-        let response = Response::Screenshot(crate::ScreenshotResponse::Saved {
-            path: "/tmp/halley screenshot.png".to_string(),
-        });
-        let bytes = encode_response(&response).unwrap();
-        let decoded = decode_response(&bytes).unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{response:?}"));
-    }
-
-    #[test]
-    fn screencast_response_round_trips_through_postcard() {
-        let response = Response::Frame(crate::CaptureFrameResponse {
-            cursor: Some(crate::CursorMetadata {
-                x: 12,
-                y: 34,
-                hotspot_x: 2,
-                hotspot_y: 3,
-                width: 1,
-                height: 1,
-                bgra: vec![10, 20, 30, 255],
-            }),
-        });
-        let bytes = encode_response(&response).unwrap();
-        let decoded = decode_response(&bytes).unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{response:?}"));
-    }
-
-    #[test]
-    fn output_response_round_trips_through_postcard() {
-        let resp = Response::Outputs(crate::OutputsResponse {
-            outputs: vec![crate::OutputInfo {
-                name: "DP-1".to_string(),
-                modes: vec![
-                    crate::ModeInfo {
-                        width: 2560,
-                        height: 1440,
-                        refresh_millihz: 179_998,
-                        preferred: true,
-                    },
-                    crate::ModeInfo {
-                        width: 1920,
-                        height: 1080,
-                        refresh_millihz: 60_000,
-                        preferred: false,
-                    },
-                ],
-                current_mode: Some(0),
-                offset_x: 0,
-                offset_y: 0,
-                scale: 1.0,
-                vrr: "auto".to_string(),
-                vrr_supported: true,
-                vrr_active: true,
-            }],
-        });
-        let bytes = encode_response(&resp).unwrap();
-        let decoded = decode_response(&bytes).unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{resp:?}"));
+    fn responses_round_trip_through_postcard() {
+        for (name, response) in [
+            (
+                "bearings_status",
+                Response::BearingsStatus(crate::BearingsStatusResponse { visible: true }),
+            ),
+            (
+                "config_path_response",
+                Response::ConfigPath(Some("/home/test/.config/halley/halley.rune".to_string())),
+            ),
+            (
+                "screenshot_response",
+                Response::Screenshot(crate::ScreenshotResponse::Saved {
+                    path: "/tmp/halley screenshot.png".to_string(),
+                }),
+            ),
+            (
+                "screencast_response",
+                Response::Frame(crate::CaptureFrameResponse {
+                    cursor: Some(crate::CursorMetadata {
+                        x: 12,
+                        y: 34,
+                        hotspot_x: 2,
+                        hotspot_y: 3,
+                        width: 1,
+                        height: 1,
+                        bgra: vec![10, 20, 30, 255],
+                    }),
+                }),
+            ),
+            (
+                "output_response",
+                Response::Outputs(crate::OutputsResponse {
+                    outputs: vec![crate::OutputInfo {
+                        name: "DP-1".to_string(),
+                        modes: vec![
+                            crate::ModeInfo {
+                                width: 2560,
+                                height: 1440,
+                                refresh_millihz: 179_998,
+                                preferred: true,
+                            },
+                            crate::ModeInfo {
+                                width: 1920,
+                                height: 1080,
+                                refresh_millihz: 60_000,
+                                preferred: false,
+                            },
+                        ],
+                        current_mode: Some(0),
+                        offset_x: 0,
+                        offset_y: 0,
+                        scale: 1.0,
+                        vrr: "auto".to_string(),
+                        vrr_supported: true,
+                        vrr_active: true,
+                    }],
+                }),
+            ),
+        ] {
+            let bytes = encode_response(&response).unwrap();
+            let decoded = decode_response(&bytes).unwrap();
+            assert_eq!(format!("{decoded:?}"), format!("{response:?}"), "{name}");
+        }
     }
 
     #[test]

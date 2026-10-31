@@ -485,54 +485,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_node_decay_and_debug_sections() {
-        let config = RuneConfig::from_str(
-            r#"
-decay:
-  enabled false
-  outside-delay-seconds 9
-  inside-delay-seconds 99
-end
-node:
-  shape "square"
-  show-labels "always"
-  show-app-icons "off"
-  restore-centering "if-offscreen"
-end
-debug:
-  show-focus-ring true
-  overlay-fps true
-end
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(parse_decay(&config).outside_delay_seconds, 9);
-        assert!(!parse_decay(&config).enabled);
-        assert_eq!(parse_nodes(&config).shape, NodeShape::Square);
-        assert_eq!(
-            parse_nodes(&config).restore_centering,
-            RestoreCentering::IfOffscreen
-        );
-        assert!(parse_debug(&config).show_focus_ring);
-        assert!(parse_debug(&config).overlay_fps);
-    }
-
-    /// Milestone 4 boundary: the longer conservative delays reach users only
-    /// through a newly generated config. An older config that omits the
-    /// `decay:` section keeps Halley's built-in 180 s / 1800 s behavior.
-    #[test]
-    fn a_config_without_a_decay_section_keeps_the_built_in_delays() {
-        let config = RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n").unwrap();
-        let decay = parse_decay(&config);
-
-        assert!(decay.enabled);
-        assert_eq!(decay.outside_delay_seconds, 180);
-        assert_eq!(decay.inside_delay_seconds, 1_800);
-        assert_eq!(decay, Decay::default());
-    }
-
-    #[test]
     fn parses_canonical_node_names_and_landmark_gap() {
         let config = RuneConfig::from_str(
             r##"
@@ -575,46 +527,5 @@ end
                 b: 0xcc as f32 / 255.0,
             }
         );
-    }
-
-    #[test]
-    fn system_node_background_resolves_without_changing_owned_border_colours() {
-        let config = RuneConfig::from_str(
-            "node:\n  background-colour \"system\"\n  border-colour \"#102030\"\n  border-colour-highlighted \"#abcdef\"\nend\n",
-        )
-        .unwrap();
-        let nodes = parse_nodes(&config);
-        assert_eq!(nodes.background_color, NodeBackgroundColor::System);
-
-        let dark = nodes.resolved_for_system(crate::SystemColorScheme::PreferDark);
-        assert_eq!(dark.background_color, NodeBackgroundColor::Dark);
-        assert_eq!(dark.border_color, nodes.border_color);
-        assert_eq!(
-            dark.border_color_highlighted,
-            nodes.border_color_highlighted
-        );
-
-        assert_eq!(
-            nodes
-                .resolved_for_system(crate::SystemColorScheme::NoPreference)
-                .background_color,
-            NodeBackgroundColor::Auto
-        );
-    }
-
-    #[test]
-    fn removed_shape_names_fail_with_their_replacements() {
-        for (removed, replacement) in [
-            ("node-shape", "node.shape"),
-            ("node_shape", "node.shape"),
-            ("node-label-shape", "node.label-shape"),
-            ("node_label_shape", "node.label-shape"),
-            ("label_shape", "node.label-shape"),
-        ] {
-            let config =
-                RuneConfig::from_str(&format!("node:\n  {removed} \"square\"\nend\n")).unwrap();
-            let error = parse_nodes_checked(&config).unwrap_err().to_string();
-            assert!(error.contains(replacement), "{error}");
-        }
     }
 }

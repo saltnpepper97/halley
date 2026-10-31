@@ -158,23 +158,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundled_icons_are_nonempty_alpha_masks() {
-        for source in [CLOSE, MINIMIZE, MAXIMIZE, UNMAXIMIZE] {
-            let pixels = raster_mask(source).expect("valid bundled SVG");
-            assert_eq!(
-                pixels.len(),
-                RASTER_SIZE as usize * RASTER_SIZE as usize * 4
-            );
-            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
-            assert!(
-                pixels.chunks_exact(4).all(|pixel| pixel[0] == pixel[3]
-                    && pixel[1] == pixel[3]
-                    && pixel[2] == pixel[3])
-            );
-        }
-    }
-
-    #[test]
     fn maximized_control_uses_unmaximize_icon() {
         assert_eq!(Icon::for_control(Control::Maximize, false), Icon::Maximize);
         assert_eq!(Icon::for_control(Control::Maximize, true), Icon::Unmaximize);

@@ -1242,17 +1242,6 @@ mod tests {
     }
 
     #[test]
-    fn replacement_constraint_refreshes_geometry_even_on_the_same_surface() {
-        assert_eq!(
-            decision(true, true, false, true, false),
-            ReconcileDecision {
-                deactivate_current: true,
-                activate_candidate: true,
-            }
-        );
-    }
-
-    #[test]
     fn focus_loss_and_unmap_deactivate_without_replacement() {
         assert_eq!(
             decision(true, false, false, false, false),

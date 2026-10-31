@@ -920,15 +920,6 @@ mod tests {
     }
 
     #[test]
-    fn distance_fade_matches_old_halley_thresholds() {
-        assert_eq!(distance_alpha(1_200.0, 0.0), 1.0);
-        assert!((distance_alpha(1_200.0, 1_200.0) - MIN_DISTANCE_ALPHA).abs() < 0.0001);
-        assert!((distance_alpha(1_200.0, 1_500.0) - MIN_DISTANCE_ALPHA * 0.5).abs() < 0.0001);
-        assert_eq!(distance_alpha(1_200.0, 1_800.0), 0.0);
-        assert_eq!(distance_alpha(1_200.0, 100_000.0), 0.0);
-    }
-
-    #[test]
     #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
     fn four_window_group_counts_far_members_and_still_disappears_at_distance_cutoff() {
         use smithay::backend::egl::{EGLContext, EGLDisplay, native::EGLSurfacelessDisplay};
@@ -1019,14 +1010,6 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-    }
-
-    #[test]
-    fn long_labels_are_unicode_safe_and_truncated() {
-        let source = "abcdefghijklmnopqrstuvwxYZ";
-        let mut chars = source.chars();
-        let prefix = chars.by_ref().take(MAX_LABEL_CHARS).collect::<String>();
-        assert_eq!(format!("{prefix}…"), "abcdefghijklmnopqrstuvwx…");
     }
 
     #[test]

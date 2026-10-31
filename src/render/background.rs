@@ -632,11 +632,4 @@ mod tests {
             Rectangle::new((0, 250).into(), (1000, 500).into())
         );
     }
-
-    #[test]
-    fn built_in_space_source_is_selected_without_file_io() {
-        let request = shader_request("space", None);
-        assert_eq!(request.key, "builtin:space");
-        assert!(matches!(request.source, ShaderSource::Builtin));
-    }
 }

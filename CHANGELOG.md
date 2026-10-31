@@ -88,8 +88,9 @@ All notable changes to this project will be documented in this file.
   private IPC protocol changed; rebuild companion tools with Halley.
 
 ### Changed
-- Run Rust, Nix and headless XWayland checks on every branch and pull request;
-  document the required checks and local test commands.
+- Run Rust, Nix and headless XWayland checks on pull requests and by manual
+  dispatch, avoiding duplicate runs when branch pushes and merges occur.
+  Document the required checks and local test commands.
 - Present live fullscreen endpoints with a transition timed from client
   acceptance, keeping the outgoing endpoint current while the new one arrives.
 - Organize fullscreen, Wayland, and session code by responsibility, including

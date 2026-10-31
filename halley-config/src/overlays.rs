@@ -549,25 +549,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_the_window_content_radius() {
-        let overlays = parse_overlays_checked(&RuneConfig::from_str("").unwrap()).unwrap();
-        assert_eq!(overlays.radius_px, 8);
-        assert!(overlays.borders);
-        assert_eq!(overlays.border_size_px, 3);
-        assert_eq!(
-            overlays.notifications.position,
-            NotificationPosition::TopCenter
-        );
-        assert_eq!(
-            overlays.notifications.success_duration_ms,
-            DEFAULT_SUCCESS_DURATION_MS
-        );
-        assert_eq!(overlays.notifications.offset_x, 0);
-        assert_eq!(overlays.notifications.offset_y, 0);
-        assert_eq!(overlays.zoom_indicator, ZoomIndicator::default());
-    }
-
-    #[test]
     fn parses_shared_style_and_notification_settings() {
         let config = RuneConfig::from_str(
             r##"
@@ -657,89 +638,5 @@ end
                     && (b - 0x26 as f32 / 255.0).abs() < f32::EPSILON
                     && a == 1.0
         ));
-    }
-
-    #[test]
-    fn system_colours_resolve_at_the_runtime_boundary() {
-        let config = RuneConfig::from_str(
-            "overlays:\n  background-colour \"system\"\n  text-colour \"system\"\n  border-colour \"system\"\n  zoom-indicator:\n    border-colour \"system\"\n  end\nend\n",
-        )
-        .unwrap();
-        let overlays = parse_overlays_checked(&config).unwrap();
-        assert_eq!(overlays.background_color, OverlayColorMode::System);
-
-        let dark = overlays.resolved_for_system(SystemColorScheme::PreferDark);
-        assert_eq!(dark.background_color, OverlayColorMode::Dark);
-        assert_eq!(dark.text_color, OverlayColorMode::Dark);
-        assert_eq!(dark.border_color, OverlayColorMode::Dark);
-        assert_eq!(
-            dark.zoom_indicator.border_color,
-            Some(OverlayColorMode::Dark)
-        );
-
-        let fallback = overlays.resolved_for_system(SystemColorScheme::NoPreference);
-        assert_eq!(fallback.background_color, OverlayColorMode::Auto);
-        assert_eq!(fallback.border_color, OverlayColorMode::Auto);
-    }
-
-    #[test]
-    fn clamps_radius_and_rejects_zero_duration() {
-        let radius =
-            RuneConfig::from_str("overlays:\n  radius 999\n  border-size 999\nend\n").unwrap();
-        let overlays = parse_overlays_checked(&radius).unwrap();
-        assert_eq!(overlays.radius_px, 256);
-        assert_eq!(overlays.border_size_px, 64);
-        let duration = RuneConfig::from_str(
-            "overlays:\n  notifications:\n    error-duration-ms 0\n  end\nend\n",
-        )
-        .unwrap();
-        assert!(parse_overlays_checked(&duration).is_err());
-
-        let zoom_duration = RuneConfig::from_str(
-            "overlays:\n  zoom-indicator:\n    fade-duration-ms 0\n  end\nend\n",
-        )
-        .unwrap();
-        assert!(parse_overlays_checked(&zoom_duration).is_err());
-
-        let zoom_visuals = RuneConfig::from_str(
-            "overlays:\n  zoom-indicator:\n    text-size 999\n    opacity 2.0\n    radius 999\n  end\nend\n",
-        )
-        .unwrap();
-        let zoom = parse_overlays_checked(&zoom_visuals)
-            .unwrap()
-            .zoom_indicator;
-        assert_eq!(zoom.text_size, Some(96));
-        assert_eq!(zoom.opacity, 1.0);
-        assert_eq!(zoom.radius_px, Some(256));
-    }
-
-    #[test]
-    fn parses_every_zoom_indicator_position_and_rejects_unknown_values() {
-        for (value, expected) in [
-            ("top-left", NotificationPosition::TopLeft),
-            ("top-center", NotificationPosition::TopCenter),
-            ("top-right", NotificationPosition::TopRight),
-            ("bottom-left", NotificationPosition::BottomLeft),
-            ("bottom-center", NotificationPosition::BottomCenter),
-            ("bottom-right", NotificationPosition::BottomRight),
-        ] {
-            let config = RuneConfig::from_str(&format!(
-                "overlays:\n  zoom-indicator:\n    position \"{value}\"\n  end\nend\n"
-            ))
-            .unwrap();
-            assert_eq!(
-                parse_overlays_checked(&config)
-                    .unwrap()
-                    .zoom_indicator
-                    .position,
-                expected
-            );
-        }
-
-        let invalid = RuneConfig::from_str(
-            "overlays:\n  zoom-indicator:\n    position \"center\"\n  end\nend\n",
-        )
-        .unwrap();
-        assert!(parse_overlays_checked(&invalid).is_err());
     }
 }

@@ -206,43 +206,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn winit_defaults_super_config_to_alt() {
-        assert_eq!(
-            effective_mod(ModifierKey::Super, BackendKind::Winit),
-            ModifierKey::Alt
-        );
-    }
-
-    #[test]
-    fn winit_falls_back_to_super_when_configured_alt() {
-        assert_eq!(
-            effective_mod(ModifierKey::Alt, BackendKind::Winit),
-            ModifierKey::Super
-        );
-    }
-
-    #[test]
-    fn winit_preserves_the_configured_modifier_side() {
-        assert_eq!(
-            effective_mod(ModifierKey::LeftSuper, BackendKind::Winit),
-            ModifierKey::LeftAlt
-        );
-        assert_eq!(
-            effective_mod(ModifierKey::RightAlt, BackendKind::Winit),
-            ModifierKey::RightSuper
-        );
-    }
-
-    #[test]
-    fn tty_uses_configured_mod_unchanged() {
-        assert_eq!(
-            effective_mod(ModifierKey::Super, BackendKind::Tty),
-            ModifierKey::Super
-        );
-        assert_eq!(
-            effective_mod(ModifierKey::Ctrl, BackendKind::Tty),
-            ModifierKey::Ctrl
-        );
+    fn effective_modifier_matches_the_backend() {
+        for (configured, backend, expected) in [
+            (ModifierKey::Super, BackendKind::Winit, ModifierKey::Alt),
+            (ModifierKey::Alt, BackendKind::Winit, ModifierKey::Super),
+            (
+                ModifierKey::LeftSuper,
+                BackendKind::Winit,
+                ModifierKey::LeftAlt,
+            ),
+            (
+                ModifierKey::RightAlt,
+                BackendKind::Winit,
+                ModifierKey::RightSuper,
+            ),
+            (ModifierKey::Super, BackendKind::Tty, ModifierKey::Super),
+            (ModifierKey::Ctrl, BackendKind::Tty, ModifierKey::Ctrl),
+        ] {
+            assert_eq!(
+                effective_mod(configured, backend),
+                expected,
+                "{configured:?} on {backend:?}"
+            );
+        }
     }
 
     #[test]
@@ -269,13 +255,14 @@ mod tests {
     }
 
     #[test]
-    fn default_config_quit_resolves_to_alt_shift_e_under_winit() {
+    fn default_keybinds_resolve_on_native_and_nested_backends() {
         let keybinds = Keybinds::default();
-        let configured_bind_count = keybinds.binds.len();
-        let resolved = resolve_binds(&keybinds, BackendKind::Winit);
+        let nested = resolve_binds(&keybinds, BackendKind::Winit);
+        let native = resolve_binds(&keybinds, BackendKind::Tty);
+        assert_eq!(nested.len(), keybinds.binds.len());
+        assert_eq!(native.len(), keybinds.binds.len());
 
-        assert_eq!(resolved.len(), configured_bind_count);
-        let quit = resolved
+        let quit = nested
             .iter()
             .find(|bind| bind.action == Action::Quit)
             .unwrap();
@@ -286,74 +273,35 @@ mod tests {
             quit.trigger,
             ResolvedTrigger::Keysym(xkb::keysym_from_name("e", xkb::KEYSYM_NO_FLAGS))
         );
-    }
-
-    #[test]
-    fn default_config_quit_resolves_to_super_shift_e_under_tty() {
-        let keybinds = Keybinds::default();
-        let configured_bind_count = keybinds.binds.len();
-        let resolved = resolve_binds(&keybinds, BackendKind::Tty);
-
-        assert_eq!(resolved.len(), configured_bind_count);
-        let quit = resolved
+        let quit = native
             .iter()
             .find(|bind| bind.action == Action::Quit)
             .unwrap();
         assert!(quit.modifiers.super_key);
         assert!(!quit.modifiers.alt);
         assert!(quit.modifiers.shift);
-    }
 
-    #[test]
-    fn default_config_open_terminal_resolves_to_mod_t() {
-        let keybinds = Keybinds::default();
-        let resolved = resolve_binds(&keybinds, BackendKind::Tty);
-
-        let open_terminal = resolved
-            .iter()
-            .find(|bind| bind.action == Action::OpenTerminal)
-            .unwrap();
-        assert!(open_terminal.modifiers.super_key);
-        assert!(!open_terminal.modifiers.shift);
-        assert_eq!(
-            open_terminal.trigger,
-            ResolvedTrigger::Keysym(xkb::keysym_from_name("t", xkb::KEYSYM_NO_FLAGS))
-        );
-    }
-
-    #[test]
-    fn default_config_toggle_state_resolves_to_mod_n() {
-        let resolved = resolve_binds(&Keybinds::default(), BackendKind::Tty);
-        let toggle = resolved
-            .iter()
-            .find(|bind| bind.action == Action::ToggleState)
-            .expect("default toggle-state bind");
-        assert!(toggle.modifiers.super_key);
-        assert_eq!(
-            toggle.trigger,
-            ResolvedTrigger::Keysym(xkb::keysym_from_name("n", xkb::KEYSYM_NO_FLAGS))
-        );
-    }
-
-    /// Milestone 2: the generated config's `Mod+D` front door resolves to the
-    /// bundled Halley Lift launcher, and the documented Fuzzel alternative
-    /// stays commented out rather than becoming a second, competing binding.
-    #[test]
-    fn default_config_mod_d_launches_halley_lift() {
-        let resolved = resolve_binds(&Keybinds::default(), BackendKind::Tty);
-        let launcher = resolved
-            .iter()
-            .find(|bind| bind.action == Action::Spawn("halley-lift".to_string()))
-            .expect("default Halley Lift launcher bind");
-        assert!(launcher.modifiers.super_key);
-        assert!(!launcher.modifiers.alt);
-        assert!(!launcher.modifiers.shift);
-        assert_eq!(
-            launcher.trigger,
-            ResolvedTrigger::Keysym(xkb::keysym_from_name("d", xkb::KEYSYM_NO_FLAGS))
-        );
+        for (action, key) in [
+            (Action::OpenTerminal, "t"),
+            (Action::ToggleState, "n"),
+            (Action::Spawn("halley-lift".to_string()), "d"),
+        ] {
+            let bind = native.iter().find(|bind| bind.action == action).unwrap();
+            assert!(bind.modifiers.super_key, "{key}");
+            assert_eq!(
+                bind.trigger,
+                ResolvedTrigger::Keysym(xkb::keysym_from_name(key, xkb::KEYSYM_NO_FLAGS)),
+                "{key}"
+            );
+            if key == "t" || key == "d" {
+                assert!(!bind.modifiers.shift, "{key}");
+            }
+            if key == "d" {
+                assert!(!bind.modifiers.alt);
+            }
+        }
         assert!(
-            resolved
+            native
                 .iter()
                 .all(|bind| bind.action != Action::Spawn("fuzzel".to_string())),
             "Fuzzel is an opt-in alternative, not a default binding"

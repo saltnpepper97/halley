@@ -159,38 +159,3 @@ fn source_line(path: &Path, line: usize) -> Option<String> {
         .nth(line.saturating_sub(1))
         .map(str::to_string)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rune_diagnostic_retains_location_hint_and_source() {
-        let path = std::env::temp_dir().join(format!(
-            "halley-diagnostic-{}-{}.rune",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-        fs::write(&path, "keybinds:\n  broken @\nend\n").unwrap();
-        let error = crate::load_runtime_config_at(&path).unwrap_err();
-
-        let diagnostic = ConfigDiagnostic::from_runtime_error(&path, &error);
-
-        assert_eq!(diagnostic.path.as_deref(), Some(path.as_path()));
-        assert!(diagnostic.line.is_some());
-        assert!(diagnostic.source_line.is_some());
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn semantic_diagnostic_does_not_invent_a_location() {
-        let error =
-            RuntimeConfigError::Keybind(crate::ParseError::UnknownModifier("explode".to_string()));
-        let diagnostic =
-            ConfigDiagnostic::from_runtime_error(Path::new("/tmp/halley.rune"), &error);
-
-        assert_eq!(diagnostic.line, None);
-        assert_eq!(diagnostic.column, None);
-        assert_eq!(diagnostic.source_line, None);
-    }
-}

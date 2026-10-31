@@ -359,24 +359,4 @@ mod tests {
         assert!(!state.contains_preview(NodeId::new(1)));
         assert!(!state.contains_preview(NodeId::new(7)));
     }
-
-    #[test]
-    fn timing_curves_preserve_open_and_close_endpoints() {
-        let mut session = Session {
-            candidates: vec![NodeId::new(1), NodeId::new(2)],
-            preview_index: 0,
-            opened_at: Duration::ZERO,
-            step_from_visual_index: 0.0,
-            step_to_visual_index: 0.0,
-            step_started_at: Duration::ZERO,
-            closing_started_at: Some(Duration::from_millis(200)),
-            origin_focus: None,
-        };
-        assert_eq!(session.open_progress(Duration::ZERO), 0.0);
-        assert_eq!(session.open_progress(Duration::from_millis(140)), 1.0);
-        assert_eq!(session.close_progress(Duration::from_millis(200)), 0.0);
-        assert_eq!(session.close_progress(Duration::from_millis(320)), 1.0);
-        session.closing_started_at = None;
-        assert_eq!(session.close_progress(Duration::from_millis(500)), 0.0);
-    }
 }

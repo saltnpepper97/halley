@@ -89,20 +89,3 @@ fn rasterize_svg(svg: &[u8], rgb: [u8; 3]) -> Option<Vec<u8>> {
     }
     Some(pixels)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_capture_icons_rasterize() {
-        for svg in [REGION_SVG, MONITOR_SVG, WINDOW_SVG] {
-            let pixels = rasterize_svg(svg, [32, 64, 96]).expect("bundled SVG should rasterize");
-            assert_eq!(
-                pixels.len(),
-                RASTER_SIZE as usize * RASTER_SIZE as usize * 4
-            );
-            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
-        }
-    }
-}

@@ -75,21 +75,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unknown_refresh_samples_now() {
-        let clock = FrameClock::new(None);
+    fn first_sample_uses_now_with_or_without_a_refresh_rate() {
         let now = Duration::from_secs(12);
-        assert_eq!(clock.next_presentation_time(now), now);
+        for interval in [None, Some(Duration::from_millis(10))] {
+            let clock = FrameClock::new(interval);
+            assert_eq!(clock.next_presentation_time(now), now, "{interval:?}");
+        }
     }
 
     #[test]
-    fn first_fixed_refresh_sample_uses_now() {
-        let clock = FrameClock::new(Some(Duration::from_millis(10)));
-        let now = Duration::from_secs(12);
-        assert_eq!(clock.next_presentation_time(now), now);
-    }
-
-    #[test]
-    fn prediction_stays_aligned_after_missing_cycles() {
+    fn prediction_retains_cadence_after_missing_cycles_or_timestamp() {
         let interval = Duration::from_millis(10);
         let mut clock = FrameClock::new(Some(interval));
         clock.presented(Some(Duration::from_millis(100)));
@@ -102,15 +97,7 @@ mod tests {
             clock.next_presentation_time(Duration::from_millis(125)),
             Duration::from_millis(130)
         );
-    }
-
-    #[test]
-    fn missing_timestamp_does_not_discard_known_cadence() {
-        let interval = Duration::from_millis(10);
-        let mut clock = FrameClock::new(Some(interval));
-        clock.presented(Some(Duration::from_millis(100)));
         clock.presented(None);
-
         assert_eq!(
             clock.next_presentation_time(Duration::from_millis(104)),
             Duration::from_millis(110)

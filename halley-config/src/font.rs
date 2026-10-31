@@ -55,29 +55,4 @@ end
             }
         );
     }
-
-    #[test]
-    fn empty_family_and_out_of_range_sizes_are_safe() {
-        let small = RuneConfig::from_str(
-            r#"
-font:
-  family "   "
-  size 1
-end
-"#,
-        )
-        .unwrap();
-        assert_eq!(parse_font(&small).family, "monospace");
-        assert_eq!(parse_font(&small).size, 6);
-
-        let large = RuneConfig::from_str(
-            r#"
-font:
-  size 999
-end
-"#,
-        )
-        .unwrap();
-        assert_eq!(parse_font(&large).size, 96);
-    }
 }

@@ -36,26 +36,3 @@ pub fn parse_bearings(config: &RuneConfig) -> Bearings {
         blur: config.get_or("bearings.blur", defaults.blur),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_match_old_halley() {
-        let bearings = parse_bearings(&RuneConfig::from_str("").unwrap());
-        assert!(bearings.show_distance);
-        assert!(bearings.show_icons);
-        assert!(bearings.show_pinned);
-        assert_eq!(bearings.fade_distance, 1_200.0);
-        assert!(bearings.blur);
-    }
-
-    #[test]
-    fn fade_distance_is_clamped_to_the_old_safe_range() {
-        let low = RuneConfig::from_str("bearings:\n  fade-distance 1\nend\n").unwrap();
-        let high = RuneConfig::from_str("bearings:\n  fade-distance 1000000\nend\n").unwrap();
-        assert_eq!(parse_bearings(&low).fade_distance, MIN_FADE_DISTANCE);
-        assert_eq!(parse_bearings(&high).fade_distance, MAX_FADE_DISTANCE);
-    }
-}

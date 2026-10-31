@@ -349,84 +349,73 @@ mod tests {
     // decay ticking is exercised wherever the caller does that filtering.
 
     #[test]
-    fn inside_focus_ring_near_center_stays_hot() {
-        let mut f = Field::new();
-        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
+    fn focus_ring_decay_depends_on_position_age_and_focus() {
+        let viewport = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
         let ring = default_focus_ring();
-        let policy = FocusRingDecayPolicy::new();
-
-        tick_decay_focus_ring(&mut f, &vp, 999_999, ring, policy, None);
-
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Hot);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Active);
-    }
-
-    #[test]
-    fn inside_focus_ring_stays_hot_before_threshold() {
-        let mut f = Field::new();
-        let a = f.spawn_surface("A", Vec2 { x: 49.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let ring = default_focus_ring();
-        let mut policy = FocusRingDecayPolicy::new();
-        policy.inside_to_node_ms = 5000;
-
-        tick_decay_focus_ring(&mut f, &vp, 1500, ring, policy, None);
-
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Hot);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Active);
-    }
-
-    #[test]
-    fn inside_focus_ring_can_decay_to_cold() {
-        let mut f = Field::new();
-        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let ring = default_focus_ring();
-        let mut policy = FocusRingDecayPolicy::new();
-        policy.inside_to_node_ms = 5000;
-
-        tick_decay_focus_ring(&mut f, &vp, 7000, ring, policy, None);
-
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Cold);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Node);
-    }
-
-    #[test]
-    fn outside_focus_ring_goes_cold_immediately() {
-        let mut f = Field::new();
-        let a = f.spawn_surface("A", Vec2 { x: 500.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let ring = default_focus_ring();
-        let policy = FocusRingDecayPolicy::new();
-
-        tick_decay_focus_ring(&mut f, &vp, 1000, ring, policy, None);
-
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Cold);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Node);
-    }
-
-    #[test]
-    fn focused_node_stays_hot_with_focus_ring_policy() {
-        let mut f = Field::new();
-        let a = f.spawn_surface("A", Vec2 { x: 500.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let ring = default_focus_ring();
-        let policy = FocusRingDecayPolicy::new();
-
-        tick_decay_focus_ring(&mut f, &vp, 999_999, ring, policy, Some(a));
-
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Hot);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Active);
+        let short_policy = FocusRingDecayPolicy {
+            inside_to_node_ms: 5000,
+            ..FocusRingDecayPolicy::new()
+        };
+        for (name, x, now, policy, focused, expected_decay, expected_state) in [
+            (
+                "center before default threshold",
+                0.0,
+                999_999,
+                FocusRingDecayPolicy::new(),
+                false,
+                DecayLevel::Hot,
+                NodeState::Active,
+            ),
+            (
+                "ring edge before threshold",
+                49.0,
+                1500,
+                short_policy,
+                false,
+                DecayLevel::Hot,
+                NodeState::Active,
+            ),
+            (
+                "center after threshold",
+                0.0,
+                7000,
+                short_policy,
+                false,
+                DecayLevel::Cold,
+                NodeState::Node,
+            ),
+            (
+                "outside ring",
+                500.0,
+                1000,
+                FocusRingDecayPolicy::new(),
+                false,
+                DecayLevel::Cold,
+                NodeState::Node,
+            ),
+            (
+                "focused outside ring",
+                500.0,
+                999_999,
+                FocusRingDecayPolicy::new(),
+                true,
+                DecayLevel::Hot,
+                NodeState::Active,
+            ),
+        ] {
+            let mut field = Field::new();
+            let node = field.spawn_surface("A", Vec2 { x, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+            assert!(field.touch(node, 0), "{name}");
+            tick_decay_focus_ring(
+                &mut field,
+                &viewport,
+                now,
+                ring,
+                policy,
+                focused.then_some(node),
+            );
+            assert_eq!(field.node(node).unwrap().decay, expected_decay, "{name}");
+            assert_eq!(field.node(node).unwrap().state, expected_state, "{name}");
+        }
     }
 }

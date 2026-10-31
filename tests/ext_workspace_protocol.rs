@@ -1,7 +1,7 @@
 //! Real Wayland request/event tests for Halley's staging `ext-workspace-v1`.
 //!
 //! The production protocol module is compiled directly into this test with
-//! `#[path]`, so these tests exercise the same snapshot diff, request queue, and
+//! `include!`, so these tests exercise the same snapshot diff, request queue, and
 //! transaction reducer that the compositor runs - over a real Wayland socket,
 //! with no DRM, EGL, renderer, or `Session`.
 //!
@@ -12,9 +12,14 @@
 // The production protocol module, compiled directly into this test target. It
 // deliberately depends on nothing inside `crate::`, which is what makes this
 // possible without adding a library target to the compositor.
-#[path = "../src/wayland/desktop/ext_workspace.rs"]
 #[allow(dead_code)] // The compositor uses more of this module than these tests do.
-mod ext_workspace;
+mod ext_workspace {
+    include!("../src/wayland/desktop/ext_workspace.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/ext_workspace_unit_tests.rs");
+    }
+}
 
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;

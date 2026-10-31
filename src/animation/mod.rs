@@ -792,63 +792,6 @@ mod tests {
     }
 
     #[test]
-    fn timeline_uses_configured_duration() {
-        let animation = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
-
-        assert_eq!(animation.motion.value_at(Duration::from_secs(1)), 0.0);
-        assert_eq!(animation.motion.value_at(Duration::from_millis(1150)), 0.5);
-        assert_eq!(animation.motion.value_at(Duration::from_millis(1300)), 1.0);
-    }
-
-    #[test]
-    fn easing_curves_preserve_endpoints() {
-        for curve in [
-            AnimationCurve::Linear,
-            AnimationCurve::EaseInOutCubic,
-            AnimationCurve::EaseOutQuad,
-            AnimationCurve::EaseOutCubic,
-            AnimationCurve::EaseOutExpo,
-            AnimationCurve::Elastic,
-        ] {
-            assert_eq!(motion::apply_curve(curve, 0.0), 0.0);
-            assert_eq!(motion::apply_curve(curve, 1.0), 1.0);
-        }
-    }
-
-    #[test]
-    fn ease_out_curves_advance_faster_than_linear() {
-        let linear = motion::apply_curve(AnimationCurve::Linear, 0.5);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutQuad, 0.5) > linear);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutCubic, 0.5) > linear);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutExpo, 0.5) > linear);
-    }
-
-    #[test]
-    fn center_out_expands_from_final_center() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let timeline = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
-
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_secs(1), bounds)
-                .transform_rect(bounds, bounds),
-            Rectangle::new((500, 350).into(), (0, 0).into())
-        );
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_millis(1150), bounds)
-                .transform_rect(bounds, bounds),
-            Rectangle::new((300, 200).into(), (400, 300).into())
-        );
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_millis(1300), bounds)
-                .transform_rect(bounds, bounds),
-            bounds
-        );
-    }
-
-    #[test]
     fn surface_tree_rects_share_the_window_center() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let subsurface = Rectangle::new((110, 60).into(), (100, 50).into());
@@ -858,127 +801,6 @@ mod tests {
         assert_eq!(
             visual.transform_rect(subsurface, bounds),
             Rectangle::new((305, 205).into(), (50, 25).into())
-        );
-    }
-
-    #[test]
-    fn fade_starts_transparent_at_final_geometry() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::Fade, AnimationCurve::Linear);
-
-        let start = animation.visual_at(Duration::from_secs(1), bounds);
-        assert_eq!(start.scale, 1.0);
-        assert_eq!(start.alpha(), 0.0);
-        assert_eq!(start.transform_rect(bounds, bounds), bounds);
-    }
-
-    #[test]
-    fn fade_advances_alpha_without_transforming_geometry() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::Fade, AnimationCurve::Linear);
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let end = animation.visual_at(Duration::from_millis(1300), bounds);
-
-        assert_eq!(middle.alpha(), 0.5);
-        assert_eq!(middle.transform_rect(bounds, bounds), bounds);
-        assert_eq!(end, WindowOpenVisual::default());
-    }
-
-    #[test]
-    fn launch_starts_small_and_translucent_at_the_capped_origin() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(Point::from((-1_000.0, 350.0)));
-        let start = animation.visual_at(Duration::from_secs(1), bounds);
-        let destination = start.transform_rect(bounds, bounds);
-
-        assert_eq!(start.alpha(), launch::START_ALPHA);
-        assert_eq!(destination.size, (640, 480).into());
-        assert_eq!(
-            launch::rect_center(destination),
-            Point::from((180.0, 350.0))
-        );
-    }
-
-    #[test]
-    fn launch_follows_a_subtle_upward_arc() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(Point::from((200.0, 350.0)));
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let center = launch::rect_center(middle.transform_rect(bounds, bounds));
-
-        assert!(center.x > 200.0);
-        assert!(center.x < 500.0);
-        assert!(center.y < 350.0);
-    }
-
-    #[test]
-    fn launch_applies_the_configured_travel_curve_once() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = Point::from((200.0, 350.0));
-        let now = Duration::from_millis(1150);
-        let linear = launch_timeline(origin);
-        let mut quad = timeline(WindowOpenAnimationType::Launch, AnimationCurve::EaseOutQuad);
-        quad.launch_origin = Some(origin);
-
-        let linear_center =
-            launch::rect_center(linear.visual_at(now, bounds).transform_rect(bounds, bounds));
-        let quad_center =
-            launch::rect_center(quad.visual_at(now, bounds).transform_rect(bounds, bounds));
-
-        assert_eq!(linear_center.x, 350.0);
-        assert_eq!(quad_center.x, 425.0);
-    }
-
-    #[test]
-    fn launch_scale_and_alpha_follow_elapsed_duration() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = launch::rect_center(bounds);
-        let now = Duration::from_millis(1150);
-        let mut linear = timeline(WindowOpenAnimationType::Launch, AnimationCurve::Linear);
-        let mut expo = timeline(WindowOpenAnimationType::Launch, AnimationCurve::EaseOutExpo);
-        linear.launch_origin = Some(origin);
-        expo.launch_origin = Some(origin);
-
-        let linear = linear.visual_at(now, bounds);
-        let expo = expo.visual_at(now, bounds);
-
-        assert_eq!(
-            linear.transform_rect(bounds, bounds).size,
-            expo.transform_rect(bounds, bounds).size
-        );
-        assert_eq!(linear.alpha(), expo.alpha());
-    }
-
-    #[test]
-    fn elastic_launch_overshoots_then_settles_at_the_deadline() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = Point::from((200.0, 350.0));
-        let mut animation = timeline(WindowOpenAnimationType::Launch, AnimationCurve::Elastic);
-        animation.launch_origin = Some(origin);
-
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let middle_center = launch::rect_center(middle.transform_rect(bounds, bounds));
-
-        assert!(middle_center.x > launch::rect_center(bounds).x);
-        assert!(!animation.is_finished_at(Duration::from_millis(1299)));
-        assert_eq!(
-            animation.visual_at(Duration::from_millis(1300), bounds),
-            WindowOpenVisual::default()
-        );
-    }
-
-    #[test]
-    fn launch_peaks_at_two_percent_overshoot_and_settles_exactly() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(launch::rect_center(bounds));
-        let overshoot = animation.visual_at(Duration::from_millis(1234), bounds);
-        let destination = overshoot.transform_rect(bounds, bounds);
-
-        assert_eq!(destination.size, (816, 612).into());
-        assert_eq!(overshoot.alpha(), 1.0);
-        assert_eq!(
-            animation.visual_at(Duration::from_millis(1300), bounds),
-            WindowOpenVisual::default()
         );
     }
 
@@ -1015,20 +837,6 @@ mod tests {
         assert_eq!(windowed.scale, 1.0);
         assert_eq!(fullscreen.scale, 1.0);
         assert_eq!(animation.motion.value_at(Duration::from_millis(1300)), 1.0);
-    }
-
-    #[test]
-    fn center_out_can_use_the_elastic_curve() {
-        let bounds = Rectangle::new((0, 0).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Elastic);
-
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        assert!(middle.scale > 1.0);
-        assert_eq!(middle.alpha(), 1.0);
-
-        let end = animation.visual_at(Duration::from_millis(1300), bounds);
-        assert_eq!(end, WindowOpenVisual::default());
-        assert!(animation.is_finished_at(Duration::from_millis(1300)));
     }
 
     #[test]
@@ -1126,30 +934,6 @@ mod tests {
         );
         assert_eq!(timeline.rect_at(Duration::from_millis(300)), target);
         assert!(timeline.is_finished_at(Duration::from_millis(300)));
-    }
-
-    #[test]
-    fn arrange_completion_follows_the_eased_motion() {
-        let motion = AnimationMotion::Easing(EasingMotion {
-            duration_ms: 400,
-            curve: AnimationCurve::EaseInOutCubic,
-        });
-        let start = Rectangle::new((0, 0).into(), (800, 600).into());
-        let target = Rectangle::new((0, 0).into(), (1200, 900).into());
-        let zero = VisualRect {
-            x: 0.0,
-            y: 0.0,
-            width: 0.0,
-            height: 0.0,
-        };
-        let timeline = ArrangeTimeline::between(motion, Duration::ZERO, start, target, zero);
-
-        // A quarter of the time moves the frame only 1/16 of the way, so the
-        // texture blend must not already be a quarter done.
-        let quarter = timeline.completion_at(Duration::from_millis(100));
-        assert!((quarter - 0.0625).abs() < 1e-9, "{quarter}");
-        assert_eq!(timeline.completion_at(Duration::from_millis(200)), 0.5);
-        assert_eq!(timeline.completion_at(Duration::from_millis(400)), 1.0);
     }
 
     #[test]

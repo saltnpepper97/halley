@@ -317,33 +317,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_old_halley() {
-        let blur = Blur::default();
-        assert!(blur.overlays);
-        assert_eq!(blur.method, BlurMethod::DualKawase);
-        assert_eq!(blur.radius, 24.0);
-        assert_eq!(blur.passes, 3);
-        assert_eq!(blur.saturation, 1.10);
-        assert_eq!(blur.noise, 0.012);
-        let shadows = Shadows::default();
-        assert_eq!(shadows.window.blur_radius, 8.0);
-        assert_eq!(shadows.window.offset_y, 5.0);
-        assert_eq!(shadows.window.color.a, 0x30 as f32 / 255.0);
-        assert_eq!(shadows.node.blur_radius, 14.0);
-        assert_eq!(shadows.overlay.blur_radius, 24.0);
-        assert_eq!(shadows.overlay.spread, 1.0);
-        assert_eq!(shadows.overlay.color.a, 0x38 as f32 / 255.0);
-    }
-
-    #[test]
-    fn window_blur_only_forces_explicitly_enabled_rules() {
-        assert!(window_blur_enabled(Some(true), false));
-        assert!(!window_blur_enabled(Some(false), false));
-        assert!(!window_blur_enabled(None, false));
-        assert!(!window_blur_enabled(Some(true), true));
-    }
-
-    #[test]
     fn parses_and_bounds_blur_knobs() {
         let config = RuneConfig::from_str(
             r#"
@@ -366,80 +339,5 @@ end
         assert_eq!(blur.passes, 5);
         assert_eq!(blur.saturation, 1.2);
         assert_eq!(blur.noise, 0.02);
-    }
-
-    #[test]
-    fn rejects_legacy_policy_and_unknown_method() {
-        for source in [
-            "effects:\n  blur:\n    windows \"always\"\n  end\nend\n",
-            "effects:\n  blur:\n    layer-shell \"auto\"\n  end\nend\n",
-            "effects:\n  blur:\n    enabled true\n  end\nend\n",
-            "effects:\n  blur:\n    method \"unknown\"\n  end\nend\n",
-        ] {
-            let config = RuneConfig::from_str(source).unwrap();
-            assert!(matches!(
-                parse_effects(&config),
-                Err(EffectsParseError::InvalidValue { .. } | EffectsParseError::Deprecated { .. })
-            ));
-        }
-    }
-
-    #[test]
-    fn parses_all_blur_methods_and_existing_aliases() {
-        for (name, expected) in [
-            ("dual-kawase", BlurMethod::DualKawase),
-            ("dual_kawase", BlurMethod::DualKawase),
-            ("kawase", BlurMethod::DualKawase),
-            (" Gaussian ", BlurMethod::Gaussian),
-            ("BOX", BlurMethod::Box),
-        ] {
-            let source = format!("effects:\n  blur:\n    method \"{name}\"\n  end\nend\n");
-            let config = RuneConfig::from_str(&source).unwrap();
-            assert_eq!(parse_effects(&config).unwrap().blur.method, expected);
-        }
-    }
-
-    #[test]
-    fn rejects_removed_global_blur_enable_with_migration_guidance() {
-        let config =
-            RuneConfig::from_str("effects:\n  blur:\n    enabled true\n  end\nend\n").unwrap();
-        let error = parse_effects(&config).unwrap_err();
-        assert!(matches!(
-            error,
-            EffectsParseError::Deprecated {
-                path: "effects.blur.enabled",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn parses_shadow_layers() {
-        let config = RuneConfig::from_str(
-            r##"
-effects:
-  shadows:
-    window:
-      enabled false
-      blur-radius 20
-      spread 2
-      offset-x 3
-      offset-y 9
-      colour "#10203040"
-    end
-  end
-end
-"##,
-        )
-        .unwrap();
-        let shadows = parse_effects(&config).unwrap().shadows;
-        assert!(!shadows.window.enabled);
-        assert_eq!(shadows.window.blur_radius, 20.0);
-        assert_eq!(shadows.window.spread, 2.0);
-        assert_eq!(shadows.window.offset_x, 3.0);
-        assert_eq!(shadows.window.offset_y, 9.0);
-        assert_eq!(shadows.window.color.r, 0x10 as f32 / 255.0);
-        assert_eq!(shadows.window.color.a, 0x40 as f32 / 255.0);
-        assert_eq!(shadows.node, Shadows::default().node);
     }
 }

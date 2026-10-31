@@ -1,13 +1,28 @@
 //! Drive the production detached launcher and real logger entry point.
 #![allow(dead_code)]
-#[path = "../src/session/startup/autostart.rs"]
-mod autostart;
-#[path = "../src/autostart_log.rs"]
-mod autostart_log;
+mod autostart {
+    include!("../src/session/startup/autostart.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/autostart_unit_tests.rs");
+    }
+}
+mod autostart_log {
+    include!("../src/autostart_log.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/autostart_log_unit_tests.rs");
+    }
+}
 #[path = "../src/session/startup/environment.rs"]
 mod environment;
-#[path = "../src/session/startup/spawn.rs"]
-mod spawn;
+mod spawn {
+    include!("../src/session/startup/spawn.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/startup_spawn_unit_tests.rs");
+    }
+}
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;

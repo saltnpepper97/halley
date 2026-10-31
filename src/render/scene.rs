@@ -62,10 +62,7 @@ pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
 #[cfg(test)]
 use capture_ui::picker_layout;
 #[cfg(test)]
-use overview::{
-    apogee_caption_rect, apogee_transition_visuals, aspect_fit_rect, preview_card_rect,
-    preview_content_radius, sort_apogee_tiles,
-};
+use overview::{apogee_transition_visuals, aspect_fit_rect, sort_apogee_tiles};
 
 #[cfg(test)]
 use smithay::utils::Point;

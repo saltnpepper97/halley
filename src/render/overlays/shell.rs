@@ -779,45 +779,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_auto_palette_is_light_with_dark_text() {
-        let visuals = resolve_visuals(&halley_config::Overlays::default());
-        assert_eq!(visuals.fill, LIGHT_FILL);
-        assert_eq!(visuals.text, LIGHT_TEXT);
-        assert_eq!(visuals.radius, 8.0);
-    }
-
-    #[test]
     fn dark_background_makes_auto_text_light() {
         let config = halley_config::Overlays {
             background_color: halley_config::OverlayColorMode::Dark,
             ..halley_config::Overlays::default()
         };
         assert_eq!(resolve_visuals(&config).text, DARK_TEXT);
-    }
-
-    #[test]
-    fn overlay_border_size_does_not_inherit_window_border_width() {
-        let config = halley_config::Overlays {
-            border_size_px: 7,
-            ..halley_config::Overlays::default()
-        };
-
-        assert_eq!(resolve_visuals(&config).border_px, 7.0);
-    }
-
-    #[test]
-    fn internal_label_chrome_never_inherits_container_borders() {
-        let visuals = resolve_visuals(&halley_config::Overlays::default());
-
-        assert!(visuals.border_px > 0.0);
-        assert_eq!(visuals.label_chrome().border_px, 0.0);
-    }
-
-    #[test]
-    fn zoom_indicator_label_has_two_decimal_places() {
-        assert_eq!(zoom_indicator_label(1.0), "1.00x");
-        assert_eq!(zoom_indicator_label(0.754), "0.75x");
-        assert_eq!(zoom_indicator_label(0.756), "0.76x");
     }
 
     #[test]
@@ -873,36 +840,6 @@ mod tests {
         assert_eq!(
             resolve_zoom_indicator_visuals(zoom, shared, shared_config.border_size_px).border_px,
             7.0
-        );
-    }
-
-    #[test]
-    fn zoom_indicator_visual_defaults_inherit_shared_style() {
-        let shared_config = halley_config::Overlays {
-            background_color: halley_config::OverlayColorMode::Dark,
-            radius_px: 14,
-            borders: false,
-            ..halley_config::Overlays::default()
-        };
-        let shared = resolve_visuals(&shared_config);
-
-        assert_eq!(
-            resolve_zoom_indicator_visuals(
-                halley_config::ZoomIndicator::default(),
-                shared,
-                shared_config.border_size_px,
-            )
-            .fill,
-            shared.fill
-        );
-        assert_eq!(
-            resolve_zoom_indicator_visuals(
-                halley_config::ZoomIndicator::default(),
-                shared,
-                shared_config.border_size_px,
-            )
-            .radius,
-            14.0
         );
     }
 

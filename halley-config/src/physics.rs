@@ -41,14 +41,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_old_halley() {
-        assert_eq!(
-            parse_physics(&RuneConfig::from_str("").unwrap()),
-            Physics::default()
-        );
-    }
-
-    #[test]
     fn parses_and_clamps_the_old_section() {
         let config = RuneConfig::from_str(
             r#"

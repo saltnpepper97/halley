@@ -2,11 +2,13 @@
 
 ## Continuous integration
 
-Three GitHub Actions workflows run on pull requests, pushes to every branch,
-and manual dispatch: [Rust](../.github/workflows/rust.yml),
+Three GitHub Actions workflows run on pull requests and manual dispatch:
+[Rust](../.github/workflows/rust.yml),
 [Nix](../.github/workflows/nix.yml), and
 [XWayland](../.github/workflows/xwayland.yml).
-Each job uses a fresh GitHub-hosted VM.
+Pull request updates start one set of workflows; direct branch pushes do not.
+A branch without a pull request can be checked with manual dispatch. Each
+job uses a fresh GitHub-hosted VM.
 The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
 
 The checks cover:
@@ -27,7 +29,9 @@ The checks cover:
 Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
 lock-file updates. Rust checks use Rust 1.97.1, matching the current development
 baseline; toolchain upgrades are explicit. Cargo caches are separated by
-job and feature set; only `main` and `dev` save caches. Jobs have read-only
+job and feature set. Same-repository pull requests may save their own scoped
+caches; manual runs on `main` and `dev` may also save caches. Forked pull
+requests do not save them. Jobs have read-only
 repository access, pinned external actions, timeouts, and cancellation when a
 new run supersedes one on the same branch or pull request. Dependabot checks
 action pins weekly.

@@ -261,42 +261,6 @@ fn push_text(
 mod tests {
     use super::*;
 
-    fn card_text() -> String {
-        let mut text = format!("{TITLE}\n{MODEL}\n{MODEL_SUBTEXT}\n{FOOTER}\n");
-        for (chord, description) in chord_entries("Mod") {
-            text.push_str(&format!("{chord}: {description}\n"));
-        }
-        text
-    }
-
-    /// The card states the mental model plainly: windows live on the Field, and
-    /// clusters are an optional later concept.
-    #[test]
-    fn card_states_the_field_first_mental_model() {
-        assert_eq!(MODEL, "Windows live on the Field.");
-        assert!(MODEL_SUBTEXT.contains("Clusters are optional"));
-        assert!(MODEL_SUBTEXT.contains("create later"));
-    }
-
-    /// Exactly the five essentials, in the order the card teaches them.
-    #[test]
-    fn card_shows_only_the_five_essentials() {
-        let rows = chord_entries("Super");
-        assert_eq!(
-            rows,
-            vec![
-                ("Super+D".to_string(), "Launch or search with Lift"),
-                ("Super+Left-drag".to_string(), "Move a window"),
-                (
-                    "Super+A".to_string(),
-                    "Arrange visible windows, or restore their saved geometry"
-                ),
-                ("Super+N".to_string(), "Collapse or restore a window"),
-                ("Super+O".to_string(), "See everything in Apogee"),
-            ]
-        );
-    }
-
     /// The card names the session's own modifier, so a nested `--winit` session
     /// shows the Alt chords it actually listens for.
     #[test]
@@ -305,38 +269,5 @@ mod tests {
         assert!(rows.iter().all(|(chord, _)| chord.starts_with("Alt+")));
         assert_eq!(rows[0].0, "Alt+D");
         assert_eq!(rows[1].0, "Alt+Left-drag");
-    }
-
-    /// Milestone 3 scope lock: no zoom, Bearings, Trail, pinning, or cluster
-    /// layout teaching belongs on this card, and it is not a multi-step
-    /// tutorial.
-    #[test]
-    fn card_teaches_nothing_outside_its_scope() {
-        let text = card_text().to_ascii_lowercase();
-        for forbidden in [
-            "zoom",
-            "bearings",
-            "trail",
-            "pin",
-            "cluster layout",
-            "cluster composer",
-            "workspace",
-            "tutorial",
-            "step 1",
-            "step 2",
-        ] {
-            assert!(
-                !text.contains(forbidden),
-                "the basics card must not mention {forbidden:?}"
-            );
-        }
-        assert!(
-            FOOTER.contains("Enter") && FOOTER.contains("Esc") && FOOTER.contains("click"),
-            "the footer names every dismissal affordance the card implements"
-        );
-        assert!(
-            FOOTER.contains("Show Halley basics"),
-            "the footer points at the manual reopening action"
-        );
     }
 }

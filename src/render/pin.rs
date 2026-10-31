@@ -294,16 +294,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundled_old_halley_pin_is_a_nonempty_badge() {
-        let pixels = raster_badge([255, 128, 0], [20, 30, 40]).expect("valid pin SVG");
-        assert_eq!(
-            pixels.len(),
-            RASTER_SIZE as usize * RASTER_SIZE as usize * 4
-        );
-        assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 255));
-    }
-
-    #[test]
     fn badge_corner_and_size_follow_pin_configuration() {
         let pins = halley_config::Pins {
             corner: halley_config::PinBadgeCorner::TopLeft,

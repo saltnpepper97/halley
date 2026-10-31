@@ -187,25 +187,23 @@ mod tests {
     }
 
     #[test]
-    fn nearest_nominal_size_keeps_all_animation_frames() {
-        let selected = nearest_images(
-            vec![image(24, 24, 10), image(32, 32, 20), image(32, 32, 30)],
-            30,
-        );
-
-        assert_eq!(selected.len(), 2);
-        assert!(selected.iter().all(|image| image.size == 32));
-    }
-
-    #[test]
-    fn nominal_size_does_not_mix_same_dimension_variants() {
-        let selected = nearest_images(
-            vec![image(24, 32, 10), image(32, 32, 20), image(32, 32, 30)],
-            30,
-        );
-
-        assert_eq!(selected.len(), 2);
-        assert!(selected.iter().all(|image| image.size == 32));
+    fn nearest_nominal_size_keeps_frames_without_mixing_variants() {
+        // The smaller nominal size may have either smaller or identical pixel dimensions.
+        for dimensions in [24, 32] {
+            let selected = nearest_images(
+                vec![
+                    image(24, dimensions, 10),
+                    image(32, 32, 20),
+                    image(32, 32, 30),
+                ],
+                30,
+            );
+            assert_eq!(selected.len(), 2, "dimensions={dimensions}");
+            assert!(
+                selected.iter().all(|image| image.size == 32),
+                "dimensions={dimensions}"
+            );
+        }
     }
 
     #[test]

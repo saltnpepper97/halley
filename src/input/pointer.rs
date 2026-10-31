@@ -1439,27 +1439,22 @@ mod tests {
     }
 
     #[test]
-    fn clamp_leaves_positions_on_either_configured_output_unchanged() {
+    fn clamp_respects_configured_outputs_and_their_edges() {
         let outputs = configured_outputs();
-        assert_eq!(clamp_to_outputs((100.0, 200.0), &outputs), (100.0, 200.0));
-        assert_eq!(clamp_to_outputs((3000.0, 800.0), &outputs), (3000.0, 800.0));
-    }
-
-    #[test]
-    fn clamp_crosses_the_shared_edge_between_configured_outputs() {
-        let outputs = configured_outputs();
-        assert_eq!(clamp_to_outputs((2559.0, 600.0), &outputs), (2559.0, 600.0));
-        assert_eq!(clamp_to_outputs((2560.0, 600.0), &outputs), (2560.0, 600.0));
-    }
-
-    #[test]
-    fn clamp_pins_to_the_shorter_secondary_output() {
-        let outputs = configured_outputs();
-        assert_eq!(
-            clamp_to_outputs((3000.0, 1300.0), &outputs),
-            (3000.0, 1199.0)
-        );
-        assert_eq!(clamp_to_outputs((5000.0, -50.0), &outputs), (4479.0, 0.0));
+        for (position, expected) in [
+            ((100.0, 200.0), (100.0, 200.0)),
+            ((3000.0, 800.0), (3000.0, 800.0)),
+            ((2559.0, 600.0), (2559.0, 600.0)),
+            ((2560.0, 600.0), (2560.0, 600.0)),
+            ((3000.0, 1300.0), (3000.0, 1199.0)),
+            ((5000.0, -50.0), (4479.0, 0.0)),
+        ] {
+            assert_eq!(
+                clamp_to_outputs(position, &outputs),
+                expected,
+                "{position:?}"
+            );
+        }
     }
 
     #[test]

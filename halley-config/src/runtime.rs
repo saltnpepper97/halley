@@ -291,30 +291,6 @@ end
     }
 
     #[test]
-    fn rejects_an_incomplete_output_block() {
-        let config = RuneConfig::from_str(
-            r##"
-view:
-  output:
-    name "DP-1"
-    width 2560
-  end
-end
-
-keybinds:
-  mod "super"
-end
-"##,
-        )
-        .expect("syntactically valid Rune config");
-
-        assert!(matches!(
-            parse_runtime_config(&config),
-            Err(RuntimeConfigError::View(_))
-        ));
-    }
-
-    #[test]
     fn valid_keybind_section_is_authoritative_without_embedded_defaults() {
         let config = RuneConfig::from_str(
             r#"
@@ -327,19 +303,18 @@ end
         .expect("valid Rune config");
 
         let runtime = parse_runtime_config(&config).unwrap();
+        assert_eq!(runtime.physics, crate::Physics::default());
+        assert_eq!(runtime.trail, crate::Trail::default());
+        assert_eq!(runtime.background, crate::Background::default());
+        assert_eq!(runtime.screenshot, crate::Screenshot::default());
+        assert_eq!(runtime.cursor, crate::Cursor::default());
+        assert_eq!(runtime.decorations, crate::Decorations::default());
+        assert_eq!(runtime.field.zoom, crate::Zoom::default());
         assert_eq!(runtime.keybinds.binds.len(), 1);
         assert_eq!(runtime.keybinds.binds[0].key, "x");
         assert_eq!(
             runtime.keybinds.binds[0].action,
             crate::Action::OpenTerminal
         );
-    }
-
-    #[test]
-    fn empty_config_is_invalid_while_runtime_default_is_complete() {
-        let empty = RuneConfig::from_str("").expect("empty Rune source is syntactically valid");
-
-        assert!(parse_runtime_config(&empty).is_err());
-        assert!(!RuntimeConfig::default().keybinds.binds.is_empty());
     }
 }

@@ -119,71 +119,24 @@ mod tests {
     }
 
     #[test]
-    fn cardinal_directions() {
+    fn cardinal_and_diagonal_directions() {
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 100.0 });
-
-        assert_eq!(
-            bearing_to_point(&vp, Vec2 { x: 1000.0, y: 0.0 }),
-            Some(Bearing::E)
-        );
-        assert_eq!(
-            bearing_to_point(&vp, Vec2 { x: -1000.0, y: 0.0 }),
-            Some(Bearing::W)
-        );
-        assert_eq!(
-            bearing_to_point(&vp, Vec2 { x: 0.0, y: 1000.0 }),
-            Some(Bearing::S)
-        );
-        assert_eq!(
-            bearing_to_point(&vp, Vec2 { x: 0.0, y: -1000.0 }),
-            Some(Bearing::N)
-        );
-    }
-
-    #[test]
-    fn diagonal_directions() {
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 100.0 });
-
-        assert_eq!(
-            bearing_to_point(
-                &vp,
-                Vec2 {
-                    x: 1000.0,
-                    y: 1000.0
-                }
-            ),
-            Some(Bearing::SE)
-        );
-        assert_eq!(
-            bearing_to_point(
-                &vp,
-                Vec2 {
-                    x: -1000.0,
-                    y: 1000.0
-                }
-            ),
-            Some(Bearing::SW)
-        );
-        assert_eq!(
-            bearing_to_point(
-                &vp,
-                Vec2 {
-                    x: 1000.0,
-                    y: -1000.0
-                }
-            ),
-            Some(Bearing::NE)
-        );
-        assert_eq!(
-            bearing_to_point(
-                &vp,
-                Vec2 {
-                    x: -1000.0,
-                    y: -1000.0
-                }
-            ),
-            Some(Bearing::NW)
-        );
+        for (x, y, expected) in [
+            (1000.0, 0.0, Bearing::E),
+            (-1000.0, 0.0, Bearing::W),
+            (0.0, 1000.0, Bearing::S),
+            (0.0, -1000.0, Bearing::N),
+            (1000.0, 1000.0, Bearing::SE),
+            (-1000.0, 1000.0, Bearing::SW),
+            (1000.0, -1000.0, Bearing::NE),
+            (-1000.0, -1000.0, Bearing::NW),
+        ] {
+            assert_eq!(
+                bearing_to_point(&vp, Vec2 { x, y }),
+                Some(expected),
+                "({x}, {y})"
+            );
+        }
     }
 
     #[test]

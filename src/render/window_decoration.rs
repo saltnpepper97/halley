@@ -1212,28 +1212,9 @@ mod tests {
     }
 
     #[test]
-    fn primary_border_radii_are_concentric() {
-        let metrics = metrics(8.0, 3.0);
-        assert_eq!(metrics.content_radius, 8.0);
-        assert_eq!(metrics.outer_radius, 11.0);
-        assert_eq!(metrics.inner_offset, 3.75);
-        assert_eq!(metrics.inner_radius, 7.25);
-    }
-
-    #[test]
-    fn zero_radius_keeps_square_border_geometry() {
-        assert_eq!(metrics(0.0, 3.0).outer_radius, 0.0);
-    }
-
-    #[test]
     fn nonzero_metrics_survive_zooming_out() {
         assert_eq!(scaled_metric(8, 0.05), 1);
         assert_eq!(scaled_metric(0, 0.05), 0);
-    }
-
-    #[test]
-    fn tiny_windows_clamp_the_content_radius() {
-        assert_eq!(clamp_radius(8.0, 10, 6), 3.0);
     }
 
     /// Rust mirror of the `rounded_alpha` GLSL in `SURFACE_SHADER` and

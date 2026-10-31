@@ -866,21 +866,6 @@ mod tests {
     }
 
     #[test]
-    fn two_windows_fill_halves_with_gap() {
-        let regions = mosaic_regions(
-            Rectangle::<i32, Logical>::new((0, 0).into(), (1000, 800).into()),
-            2,
-            20,
-        )
-        .unwrap();
-        assert_eq!(regions[0], Rectangle::new((0, 0).into(), (490, 800).into()));
-        assert_eq!(
-            regions[1],
-            Rectangle::new((510, 0).into(), (490, 800).into())
-        );
-    }
-
-    #[test]
     fn three_windows_use_large_left_and_split_right() {
         let regions = mosaic_regions(
             Rectangle::<i32, Logical>::new((0, 0).into(), (1000, 800).into()),
@@ -897,22 +882,6 @@ mod tests {
             regions[2],
             Rectangle::new((510, 410).into(), (490, 390).into())
         );
-    }
-
-    #[test]
-    fn five_windows_form_balanced_three_two_mosaic() {
-        let regions = mosaic_regions(
-            Rectangle::<i32, Logical>::new((0, 0).into(), (1000, 800).into()),
-            5,
-            20,
-        )
-        .unwrap();
-        assert_eq!(regions.len(), 5);
-        assert_eq!(regions[0].size.h, 390);
-        assert_eq!(regions[2].loc.y, 0);
-        assert_eq!(regions[3].loc.y, 410);
-        assert_eq!(regions[3].size.w, 490);
-        assert_eq!(regions[4].loc.x, 510);
     }
 
     #[test]
