@@ -238,26 +238,32 @@ mod tests {
     }
 
     #[test]
-    fn ime_popup_sits_below_the_caret_when_it_fits() {
-        let parent = rect(0, 0, 200, 200);
-        let cursor = rect(20, 40, 8, 16);
-        let location = ime_popup_location(parent, cursor, Size::from((80, 40)));
-        assert_eq!(location, Point::from((20, 56)));
-    }
-
-    #[test]
-    fn ime_popup_moves_above_when_below_would_overflow() {
-        let parent = rect(0, 0, 200, 80);
-        let cursor = rect(20, 50, 8, 16);
-        let location = ime_popup_location(parent, cursor, Size::from((80, 40)));
-        assert_eq!(location, Point::from((20, 10)));
-    }
-
-    #[test]
-    fn ime_popup_clamps_horizontally_to_the_parent() {
-        let parent = rect(0, 0, 100, 200);
-        let cursor = rect(70, 20, 8, 16);
-        let location = ime_popup_location(parent, cursor, Size::from((80, 20)));
-        assert_eq!(location, Point::from((20, 36)));
+    fn ime_popup_fits_above_below_and_within_the_parent() {
+        for (name, parent, cursor, popup_size, expected) in [
+            (
+                "below caret",
+                rect(0, 0, 200, 200),
+                rect(20, 40, 8, 16),
+                (80, 40),
+                (20, 56),
+            ),
+            (
+                "above caret",
+                rect(0, 0, 200, 80),
+                rect(20, 50, 8, 16),
+                (80, 40),
+                (20, 10),
+            ),
+            (
+                "horizontal clamp",
+                rect(0, 0, 100, 200),
+                rect(70, 20, 8, 16),
+                (80, 20),
+                (20, 36),
+            ),
+        ] {
+            let location = ime_popup_location(parent, cursor, Size::from(popup_size));
+            assert_eq!(location, Point::from(expected), "{name}");
+        }
     }
 }
