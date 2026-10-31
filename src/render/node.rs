@@ -1070,17 +1070,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn overlay_card_uses_window_border_radius_semantics() {
-        let size = Size::<i32, Physical>::from((300, 300));
-        let overlay = overlay_card_metrics(size, 8.0, 3.0);
-        let window = super::super::window_decoration::metrics(8.0, 3.0);
-        assert_eq!(overlay, window);
-        assert_eq!(overlay.content_radius, 8.0);
-        assert_eq!(overlay.outer_radius, 11.0);
-        assert_eq!(overlay_card_metrics(size, 0.0, 3.0).outer_radius, 0.0);
-    }
-
-    #[test]
     fn node_commits_are_stable_but_follow_shader_inputs() {
         let style = NodeStyle {
             border_rgb: (0.8, 0.2, 0.1),

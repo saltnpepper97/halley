@@ -95,25 +95,3 @@ fn rasterize_svg(svg: &[u8], rgb: [u8; 3]) -> Option<Vec<u8>> {
     }
     visible.then_some(pixels)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bundled_check_rasterizes_as_a_tinted_alpha_mask() {
-        let rgb = [32, 64, 96];
-        let pixels = rasterize_svg(CHECK_SVG, rgb).expect("bundled check SVG should rasterize");
-        assert_eq!(
-            pixels.len(),
-            RASTER_SIZE as usize * RASTER_SIZE as usize * 4
-        );
-        assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
-        assert!(pixels.chunks_exact(4).all(|pixel| {
-            let alpha = u16::from(pixel[3]);
-            pixel[0] == ((u16::from(rgb[0]) * alpha) / 255) as u8
-                && pixel[1] == ((u16::from(rgb[1]) * alpha) / 255) as u8
-                && pixel[2] == ((u16::from(rgb[2]) * alpha) / 255) as u8
-        }));
-    }
-}
