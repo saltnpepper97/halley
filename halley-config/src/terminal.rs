@@ -61,37 +61,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auto_picks_first_available_in_priority_order() {
-        let available = ["kitty", "wezterm"];
-        let resolved = resolve_default_terminal(|name| available.contains(&name));
-        // alacritty leads the priority list but isn't "available" here.
-        assert_eq!(resolved.as_deref(), Some("kitty"));
-    }
-
-    #[test]
-    fn auto_prefers_alacritty_when_available() {
-        let available = ["alacritty", "kitty", "ghostty"];
-        let resolved = resolve_default_terminal(|name| available.contains(&name));
-        assert_eq!(resolved.as_deref(), Some("alacritty"));
-    }
-
-    #[test]
-    fn auto_falls_through_to_later_candidates() {
-        let available = ["contour"];
-        let resolved = resolve_default_terminal(|name| available.contains(&name));
-        assert_eq!(resolved.as_deref(), Some("contour"));
-    }
-
-    #[test]
-    fn auto_returns_none_when_nothing_available() {
-        let resolved = resolve_default_terminal(|_| false);
-        assert_eq!(resolved, None);
-    }
-
-    #[test]
-    fn priority_list_leads_with_alacritty_kitty_then_ghostty() {
-        assert_eq!(TERMINAL_PRIORITY[0], "alacritty");
-        assert_eq!(TERMINAL_PRIORITY[1], "kitty");
-        assert_eq!(TERMINAL_PRIORITY[2], "ghostty");
+    fn terminal_selection_follows_priority_and_handles_missing_candidates() {
+        assert_eq!(&TERMINAL_PRIORITY[..3], &["alacritty", "kitty", "ghostty"]);
+        for (available, expected) in [
+            (&["kitty", "wezterm"][..], Some("kitty")),
+            (&["alacritty", "kitty", "ghostty"][..], Some("alacritty")),
+            (&["contour"][..], Some("contour")),
+            (&[][..], None),
+        ] {
+            let resolved = resolve_default_terminal(|name| available.contains(&name));
+            assert_eq!(resolved.as_deref(), expected, "available: {available:?}");
+        }
     }
 }
