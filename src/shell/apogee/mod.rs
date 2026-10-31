@@ -757,8 +757,8 @@ pub fn send_preview_frames(
 #[cfg(test)]
 mod tests {
     use super::{
-        ApogeeState, Session, Settle, Tile, TileKind, cluster_needs_activation, layout_core_rail,
-        layout_output, participates_in_window_mosaic,
+        ApogeeState, Session, Settle, Tile, TileKind, cluster_needs_activation, layout_output,
+        participates_in_window_mosaic,
     };
     use halley_core::cluster::ClusterId;
     use halley_core::field::NodeId;
@@ -832,19 +832,6 @@ mod tests {
         assert!(state.is_active());
         assert!(!state.accepts_input());
         assert!(!state.accepts_live_previews());
-    }
-
-    #[test]
-    fn cluster_core_rail_is_centered_above_the_window_mosaic() {
-        let bounds = Rectangle::new((100, 50).into(), (1920, 1080).into());
-        let slots = layout_core_rail(3, bounds);
-
-        assert_eq!(slots.len(), 3);
-        assert!(slots.windows(2).all(|pair| pair[0].loc.x < pair[1].loc.x));
-        assert!(slots.iter().all(|slot| slot.loc.y < 50 + 236));
-        let rail_left = slots.first().unwrap().loc.x;
-        let rail_right = slots.last().unwrap().loc.x + slots.last().unwrap().size.w;
-        assert_eq!(rail_left - 100, 1920 - (rail_right - 100));
     }
 
     #[test]

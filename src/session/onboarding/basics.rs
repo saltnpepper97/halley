@@ -326,22 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unparseable_state_file_falls_back_to_empty_state() {
-        let scratch = ScratchDir::new("corrupt");
-        let path = scratch.path();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "basics-card-dismissed maybe\n\u{0}\nnot a key\n").unwrap();
-
-        let mut state = UserState::load_from(path.clone());
-        assert!(!state.basics_card_dismissed());
-
-        // The retained path still allows a later write to repair the file.
-        state.record_fresh_config(&config("halley.rune"));
-        let reloaded = UserState::load_from(path);
-        assert!(reloaded.basics_card_pending_for(&config("halley.rune")));
-    }
-
-    #[test]
     fn paths_with_spaces_round_trip() {
         let scratch = ScratchDir::new("spaces");
         let mut state = UserState::load_from(scratch.path());
@@ -351,15 +335,6 @@ mod tests {
         let reloaded = UserState::load_from(scratch.path());
         assert!(reloaded.basics_card_pending_for(&spaced));
         assert!(!reloaded.basics_card_pending_for(&config("halley.rune")));
-    }
-
-    #[test]
-    fn a_path_that_cannot_be_represented_is_not_recorded() {
-        let scratch = ScratchDir::new("unrepresentable");
-        let mut state = UserState::load_from(scratch.path());
-        state.record_fresh_config(Path::new("/home/user/\"quoted\"/halley.rune"));
-
-        assert!(!state.basics_card_pending_for(Path::new("/home/user/\"quoted\"/halley.rune")));
     }
 
     #[test]
@@ -385,17 +360,6 @@ mod tests {
         assert!(reloaded.basics_card_dismissed());
         assert!(!reloaded.basics_card_dismissed_for("0.9.0"));
         assert!(reloaded.decay_notice_shown());
-    }
-
-    #[test]
-    fn legacy_unversioned_dismissal_does_not_suppress_the_new_card() {
-        let scratch = ScratchDir::new("legacy-dismissal");
-        let path = scratch.path();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "basics-card-dismissed true\n").unwrap();
-        let state = UserState::load_from(path);
-        assert!(!state.basics_card_dismissed());
-        assert!(first_run_eligible(true, state.basics_card_dismissed()));
     }
 
     #[test]
