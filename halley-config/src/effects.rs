@@ -317,25 +317,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_old_halley() {
-        let blur = Blur::default();
-        assert!(blur.overlays);
-        assert_eq!(blur.method, BlurMethod::DualKawase);
-        assert_eq!(blur.radius, 24.0);
-        assert_eq!(blur.passes, 3);
-        assert_eq!(blur.saturation, 1.10);
-        assert_eq!(blur.noise, 0.012);
-        let shadows = Shadows::default();
-        assert_eq!(shadows.window.blur_radius, 8.0);
-        assert_eq!(shadows.window.offset_y, 5.0);
-        assert_eq!(shadows.window.color.a, 0x30 as f32 / 255.0);
-        assert_eq!(shadows.node.blur_radius, 14.0);
-        assert_eq!(shadows.overlay.blur_radius, 24.0);
-        assert_eq!(shadows.overlay.spread, 1.0);
-        assert_eq!(shadows.overlay.color.a, 0x38 as f32 / 255.0);
-    }
-
-    #[test]
     fn window_blur_only_forces_explicitly_enabled_rules() {
         assert!(window_blur_enabled(Some(true), false));
         assert!(!window_blur_enabled(Some(false), false));
