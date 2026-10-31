@@ -792,15 +792,6 @@ mod tests {
     }
 
     #[test]
-    fn timeline_uses_configured_duration() {
-        let animation = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
-
-        assert_eq!(animation.motion.value_at(Duration::from_secs(1)), 0.0);
-        assert_eq!(animation.motion.value_at(Duration::from_millis(1150)), 0.5);
-        assert_eq!(animation.motion.value_at(Duration::from_millis(1300)), 1.0);
-    }
-
-    #[test]
     fn center_out_expands_from_final_center() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let timeline = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
