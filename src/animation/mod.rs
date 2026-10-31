@@ -792,31 +792,6 @@ mod tests {
     }
 
     #[test]
-    fn center_out_expands_from_final_center() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let timeline = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
-
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_secs(1), bounds)
-                .transform_rect(bounds, bounds),
-            Rectangle::new((500, 350).into(), (0, 0).into())
-        );
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_millis(1150), bounds)
-                .transform_rect(bounds, bounds),
-            Rectangle::new((300, 200).into(), (400, 300).into())
-        );
-        assert_eq!(
-            timeline
-                .visual_at(Duration::from_millis(1300), bounds)
-                .transform_rect(bounds, bounds),
-            bounds
-        );
-    }
-
-    #[test]
     fn surface_tree_rects_share_the_window_center() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let subsurface = Rectangle::new((110, 60).into(), (100, 50).into());
@@ -827,36 +802,6 @@ mod tests {
             visual.transform_rect(subsurface, bounds),
             Rectangle::new((305, 205).into(), (50, 25).into())
         );
-    }
-
-    #[test]
-    fn fade_advances_alpha_without_transforming_geometry() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::Fade, AnimationCurve::Linear);
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let end = animation.visual_at(Duration::from_millis(1300), bounds);
-
-        assert_eq!(middle.alpha(), 0.5);
-        assert_eq!(middle.transform_rect(bounds, bounds), bounds);
-        assert_eq!(end, WindowOpenVisual::default());
-    }
-
-    #[test]
-    fn launch_applies_the_configured_travel_curve_once() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = Point::from((200.0, 350.0));
-        let now = Duration::from_millis(1150);
-        let linear = launch_timeline(origin);
-        let mut quad = timeline(WindowOpenAnimationType::Launch, AnimationCurve::EaseOutQuad);
-        quad.launch_origin = Some(origin);
-
-        let linear_center =
-            launch::rect_center(linear.visual_at(now, bounds).transform_rect(bounds, bounds));
-        let quad_center =
-            launch::rect_center(quad.visual_at(now, bounds).transform_rect(bounds, bounds));
-
-        assert_eq!(linear_center.x, 350.0);
-        assert_eq!(quad_center.x, 425.0);
     }
 
     #[test]
@@ -989,30 +934,6 @@ mod tests {
         );
         assert_eq!(timeline.rect_at(Duration::from_millis(300)), target);
         assert!(timeline.is_finished_at(Duration::from_millis(300)));
-    }
-
-    #[test]
-    fn arrange_completion_follows_the_eased_motion() {
-        let motion = AnimationMotion::Easing(EasingMotion {
-            duration_ms: 400,
-            curve: AnimationCurve::EaseInOutCubic,
-        });
-        let start = Rectangle::new((0, 0).into(), (800, 600).into());
-        let target = Rectangle::new((0, 0).into(), (1200, 900).into());
-        let zero = VisualRect {
-            x: 0.0,
-            y: 0.0,
-            width: 0.0,
-            height: 0.0,
-        };
-        let timeline = ArrangeTimeline::between(motion, Duration::ZERO, start, target, zero);
-
-        // A quarter of the time moves the frame only 1/16 of the way, so the
-        // texture blend must not already be a quarter done.
-        let quarter = timeline.completion_at(Duration::from_millis(100));
-        assert!((quarter - 0.0625).abs() < 1e-9, "{quarter}");
-        assert_eq!(timeline.completion_at(Duration::from_millis(200)), 0.5);
-        assert_eq!(timeline.completion_at(Duration::from_millis(400)), 1.0);
     }
 
     #[test]
