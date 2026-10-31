@@ -1,7 +1,12 @@
 //! Exercise the real lifecycle helpers in isolated processes with a fake manager.
 #![allow(dead_code)]
-#[path = "../src/session/startup/environment.rs"]
-mod environment;
+mod environment {
+    include!("../src/session/startup/environment.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/startup_environment_unit_tests.rs");
+    }
+}
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

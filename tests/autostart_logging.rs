@@ -2,8 +2,13 @@
 #![allow(dead_code)]
 #[path = "../src/session/startup/autostart.rs"]
 mod autostart;
-#[path = "../src/autostart_log.rs"]
-mod autostart_log;
+mod autostart_log {
+    include!("../src/autostart_log.rs");
+    #[cfg(test)]
+    mod tests {
+        include!("support/autostart_log_unit_tests.rs");
+    }
+}
 #[path = "../src/session/startup/environment.rs"]
 mod environment;
 #[path = "../src/session/startup/spawn.rs"]
