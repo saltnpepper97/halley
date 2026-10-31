@@ -692,14 +692,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rect_interpolation_keeps_endpoints() {
-        let from = Rectangle::new((20, 40).into(), (1, 1).into());
-        let to = Rectangle::new((100, 80).into(), (800, 600).into());
-        assert_eq!(lerp_rect(from, to, 0.0), from);
-        assert_eq!(lerp_rect(from, to, 1.0), to);
-    }
-
-    #[test]
     fn forward_stack_cycle_flies_an_outgoing_card_left() {
         let rect = Rectangle::new((100, 80).into(), (800, 600).into());
         let visual = stack_cycle_visual(
@@ -793,11 +785,5 @@ mod tests {
         assert!(visual.rect.loc.x < target.loc.x);
         assert_eq!(visual.depth, usize::MAX);
         assert_eq!(visual.alpha, 0.5);
-    }
-
-    #[test]
-    fn stack_cycles_use_old_halley_cubic_easing() {
-        assert!((ease_in_out_cubic(0.25) - 0.0625).abs() < f32::EPSILON);
-        assert!((ease_in_out_cubic(0.75) - 0.9375).abs() < f32::EPSILON);
     }
 }

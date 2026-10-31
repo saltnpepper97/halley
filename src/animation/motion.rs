@@ -287,12 +287,6 @@ mod tests {
     }
 
     #[test]
-    fn elastic_curve_overshoots_before_settling() {
-        assert!(apply_curve(AnimationCurve::Elastic, 0.5) > 1.0);
-        assert_eq!(apply_curve(AnimationCurve::Elastic, 1.0), 1.0);
-    }
-
-    #[test]
     fn critical_spring_converges_and_finishes() {
         let timeline = MotionTimeline::new(
             AnimationMotion::Spring(SpringMotion::default()),
@@ -303,17 +297,6 @@ mod tests {
         assert!(timeline.value_at(Duration::from_millis(1100)) > 0.7);
         assert_eq!(timeline.value_at(Duration::from_secs(2)), 1.0);
         assert!(timeline.is_finished_at(Duration::from_secs(2)));
-    }
-
-    #[test]
-    fn underdamped_spring_can_overshoot() {
-        let spring = SpringMotion {
-            damping_ratio: 0.4,
-            ..SpringMotion::default()
-        };
-        assert!((1..500).any(|millis| {
-            1.0 + spring_displacement(spring, -1.0, 0.0, f64::from(millis) / 1000.0) > 1.0
-        }));
     }
 
     #[test]

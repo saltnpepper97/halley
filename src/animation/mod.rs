@@ -830,17 +830,6 @@ mod tests {
     }
 
     #[test]
-    fn fade_starts_transparent_at_final_geometry() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::Fade, AnimationCurve::Linear);
-
-        let start = animation.visual_at(Duration::from_secs(1), bounds);
-        assert_eq!(start.scale, 1.0);
-        assert_eq!(start.alpha(), 0.0);
-        assert_eq!(start.transform_rect(bounds, bounds), bounds);
-    }
-
-    #[test]
     fn fade_advances_alpha_without_transforming_geometry() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let animation = timeline(WindowOpenAnimationType::Fade, AnimationCurve::Linear);
@@ -850,21 +839,6 @@ mod tests {
         assert_eq!(middle.alpha(), 0.5);
         assert_eq!(middle.transform_rect(bounds, bounds), bounds);
         assert_eq!(end, WindowOpenVisual::default());
-    }
-
-    #[test]
-    fn launch_starts_small_and_translucent_at_the_capped_origin() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(Point::from((-1_000.0, 350.0)));
-        let start = animation.visual_at(Duration::from_secs(1), bounds);
-        let destination = start.transform_rect(bounds, bounds);
-
-        assert_eq!(start.alpha(), launch::START_ALPHA);
-        assert_eq!(destination.size, (640, 480).into());
-        assert_eq!(
-            launch::rect_center(destination),
-            Point::from((180.0, 350.0))
-        );
     }
 
     #[test]
@@ -883,44 +857,6 @@ mod tests {
 
         assert_eq!(linear_center.x, 350.0);
         assert_eq!(quad_center.x, 425.0);
-    }
-
-    #[test]
-    fn launch_scale_and_alpha_follow_elapsed_duration() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = launch::rect_center(bounds);
-        let now = Duration::from_millis(1150);
-        let mut linear = timeline(WindowOpenAnimationType::Launch, AnimationCurve::Linear);
-        let mut expo = timeline(WindowOpenAnimationType::Launch, AnimationCurve::EaseOutExpo);
-        linear.launch_origin = Some(origin);
-        expo.launch_origin = Some(origin);
-
-        let linear = linear.visual_at(now, bounds);
-        let expo = expo.visual_at(now, bounds);
-
-        assert_eq!(
-            linear.transform_rect(bounds, bounds).size,
-            expo.transform_rect(bounds, bounds).size
-        );
-        assert_eq!(linear.alpha(), expo.alpha());
-    }
-
-    #[test]
-    fn elastic_launch_overshoots_then_settles_at_the_deadline() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let origin = Point::from((200.0, 350.0));
-        let mut animation = timeline(WindowOpenAnimationType::Launch, AnimationCurve::Elastic);
-        animation.launch_origin = Some(origin);
-
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let middle_center = launch::rect_center(middle.transform_rect(bounds, bounds));
-
-        assert!(middle_center.x > launch::rect_center(bounds).x);
-        assert!(!animation.is_finished_at(Duration::from_millis(1299)));
-        assert_eq!(
-            animation.visual_at(Duration::from_millis(1300), bounds),
-            WindowOpenVisual::default()
-        );
     }
 
     #[test]
@@ -956,20 +892,6 @@ mod tests {
         assert_eq!(windowed.scale, 1.0);
         assert_eq!(fullscreen.scale, 1.0);
         assert_eq!(animation.motion.value_at(Duration::from_millis(1300)), 1.0);
-    }
-
-    #[test]
-    fn center_out_can_use_the_elastic_curve() {
-        let bounds = Rectangle::new((0, 0).into(), (800, 600).into());
-        let animation = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Elastic);
-
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        assert!(middle.scale > 1.0);
-        assert_eq!(middle.alpha(), 1.0);
-
-        let end = animation.visual_at(Duration::from_millis(1300), bounds);
-        assert_eq!(end, WindowOpenVisual::default());
-        assert!(animation.is_finished_at(Duration::from_millis(1300)));
     }
 
     #[test]

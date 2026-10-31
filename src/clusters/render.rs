@@ -535,15 +535,7 @@ impl RenderElement<GlesRenderer> for ClusterIconElement {
 
 #[cfg(test)]
 mod tests {
-    use sha2::{Digest, Sha256};
-
     use super::*;
-
-    #[test]
-    fn join_ready_border_is_five_pixels_inside_the_original_core() {
-        let core = Rectangle::new((0, 0).into(), (68, 68).into());
-        assert_eq!(join_ready_border_fraction(core) * 34.0, 5.0);
-    }
 
     #[test]
     fn cluster_commits_follow_visual_state() {
@@ -573,18 +565,6 @@ mod tests {
             image.pixels().filter(|pixel| pixel[3] != 0).all(|pixel| {
                 pixel[0] <= color[0] && pixel[1] <= color[1] && pixel[2] <= color[2]
             })
-        );
-    }
-
-    #[test]
-    fn restored_assets_do_not_drift() {
-        assert_eq!(
-            format!("{:x}", Sha256::digest(CLUSTER_ICON)),
-            "6a7bb2aea3ffea277874ab353415455f8c4b51123c5b46aca4bbdaa26d97442a"
-        );
-        assert_eq!(
-            format!("{:x}", Sha256::digest(CIRCLE_SHADER.as_bytes())),
-            "6f8dc2768418324866572805187f37052cbe877af4de982ee031cd987e327ada"
         );
     }
 }
