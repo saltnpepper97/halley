@@ -249,22 +249,7 @@ mod tests {
     use halley_config::{EasingMotion, SpringMotion};
 
     #[test]
-    fn easing_preserves_endpoints() {
-        for curve in [
-            AnimationCurve::Linear,
-            AnimationCurve::EaseInOutCubic,
-            AnimationCurve::EaseOutQuad,
-            AnimationCurve::EaseOutCubic,
-            AnimationCurve::EaseOutExpo,
-            AnimationCurve::Elastic,
-        ] {
-            assert_eq!(apply_curve(curve, 0.0), 0.0);
-            assert_eq!(apply_curve(curve, 1.0), 1.0);
-        }
-    }
-
-    #[test]
-    fn every_easing_curve_obeys_the_configured_duration() {
+    fn easing_curves_preserve_endpoints_and_obey_duration() {
         let started_at = Duration::from_secs(1);
         let duration = Duration::from_millis(850);
 
@@ -276,6 +261,8 @@ mod tests {
             AnimationCurve::EaseOutExpo,
             AnimationCurve::Elastic,
         ] {
+            assert_eq!(apply_curve(curve, 0.0), 0.0, "{curve:?}");
+            assert_eq!(apply_curve(curve, 1.0), 1.0, "{curve:?}");
             let timeline = MotionTimeline::new(
                 AnimationMotion::Easing(EasingMotion {
                     duration_ms: duration.as_millis() as u32,

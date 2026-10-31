@@ -598,17 +598,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_collapse_defaults_independently_of_existing_durations() {
+    fn node_collapse_duration_is_independent_and_accepts_zero() {
         let config = RuneConfig::from_str("animations:\n  node:\n    duration-ms 910\n  end\n  window-close:\n    duration-ms 1800\n  end\nend\n").unwrap();
         let animations = parse_animations(&config);
         assert_eq!(animations.node.duration_ms, 910);
         assert_eq!(animations.node.collapse_duration_ms, 280);
         assert_eq!(animations.window_close.duration_ms, 1800);
         assert_eq!(Animations::default().node.collapse_duration_ms, 280);
-    }
-
-    #[test]
-    fn parses_independent_node_collapse_duration_including_zero() {
         for duration in [0, 470] {
             let config = RuneConfig::from_str(&format!("animations:\n  node:\n    duration-ms 910\n    collapse-duration-ms {duration}\n  end\nend\n")).unwrap();
             let animations = parse_animations(&config);
