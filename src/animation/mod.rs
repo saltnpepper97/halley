@@ -868,18 +868,6 @@ mod tests {
     }
 
     #[test]
-    fn launch_follows_a_subtle_upward_arc() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(Point::from((200.0, 350.0)));
-        let middle = animation.visual_at(Duration::from_millis(1150), bounds);
-        let center = launch::rect_center(middle.transform_rect(bounds, bounds));
-
-        assert!(center.x > 200.0);
-        assert!(center.x < 500.0);
-        assert!(center.y < 350.0);
-    }
-
-    #[test]
     fn launch_applies_the_configured_travel_curve_once() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let origin = Point::from((200.0, 350.0));

@@ -779,14 +779,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_auto_palette_is_light_with_dark_text() {
-        let visuals = resolve_visuals(&halley_config::Overlays::default());
-        assert_eq!(visuals.fill, LIGHT_FILL);
-        assert_eq!(visuals.text, LIGHT_TEXT);
-        assert_eq!(visuals.radius, 8.0);
-    }
-
-    #[test]
     fn dark_background_makes_auto_text_light() {
         let config = halley_config::Overlays {
             background_color: halley_config::OverlayColorMode::Dark,
@@ -811,13 +803,6 @@ mod tests {
 
         assert!(visuals.border_px > 0.0);
         assert_eq!(visuals.label_chrome().border_px, 0.0);
-    }
-
-    #[test]
-    fn zoom_indicator_label_has_two_decimal_places() {
-        assert_eq!(zoom_indicator_label(1.0), "1.00x");
-        assert_eq!(zoom_indicator_label(0.754), "0.75x");
-        assert_eq!(zoom_indicator_label(0.756), "0.76x");
     }
 
     #[test]

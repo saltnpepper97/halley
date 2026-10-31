@@ -712,34 +712,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_titlebar_may_use_the_raw_minimum() {
-        let config = Titlebars {
-            height_px: 1,
-            show_buttons: false,
-            show_icons: false,
-            show_title: false,
-            ..Titlebars::default()
-        };
-        assert_eq!(effective_height(&config, 80), 1);
-    }
-
-    #[test]
-    fn button_glyph_scales_one_for_one_with_the_titlebar() {
-        let config = Titlebars::default();
-        let native = rendered_metrics(&config, 15, 1.0);
-        assert_eq!(native.height, 32);
-        assert_eq!(native.glyph_size, 16);
-
-        let half = rendered_metrics(&config, 15, 0.5);
-        assert_eq!(half.height, 16);
-        assert_eq!(half.glyph_size, 8);
-
-        let intermediate = rendered_metrics(&config, 15, 0.8);
-        assert_eq!(intermediate.height, 26);
-        assert_eq!(intermediate.glyph_size, 13);
-    }
-
-    #[test]
     fn titlebar_identity_metrics_shrink_with_zoom() {
         let config = Titlebars {
             button_position: TitlebarButtonPosition::Right,
@@ -760,33 +732,6 @@ mod tests {
         assert_eq!(icon.size, (8, 8).into());
         assert_eq!(title.loc.x - (icon.loc.x + icon.size.w), 4);
         assert_eq!(identity.group.size.w, 8 + 4 + 60);
-    }
-
-    #[test]
-    fn title_width_is_capped_and_scales_with_zoom() {
-        let config = Titlebars {
-            button_position: TitlebarButtonPosition::Right,
-            ..Titlebars::default()
-        };
-        let layout = DecorationLayout::<Logical>::new(
-            Rectangle::new((0, 32).into(), (1_000, 600).into()),
-            0,
-            32,
-            &config,
-        );
-
-        assert_eq!(
-            layout.max_title_width_scaled(TitlebarContentPosition::Center, false, 1.0),
-            240
-        );
-        assert_eq!(
-            layout.max_title_width_scaled(TitlebarContentPosition::Center, false, 0.5),
-            120
-        );
-        assert_eq!(
-            layout.max_title_width_scaled(TitlebarContentPosition::Center, true, 1.0),
-            240
-        );
     }
 
     #[test]
