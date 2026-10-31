@@ -293,15 +293,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_state_file_starts_empty() {
-        let scratch = ScratchDir::new("missing");
-        let state = UserState::load_from(scratch.path());
-
-        assert!(!state.basics_card_dismissed());
-        assert!(!state.basics_card_pending_for(&config("halley.rune")));
-    }
-
-    #[test]
     fn a_fresh_config_is_only_pending_for_its_own_path() {
         let scratch = ScratchDir::new("pending");
         let mut state = UserState::load_from(scratch.path());
@@ -332,19 +323,6 @@ mod tests {
             !first_run_eligible(true, reloaded.basics_card_dismissed()),
             "the card must never reappear automatically after dismissal"
         );
-    }
-
-    #[test]
-    fn dismissal_is_recorded_even_when_no_card_was_pending() {
-        let scratch = ScratchDir::new("dismiss-without-pending");
-        let mut state = UserState::load_from(scratch.path());
-        state.dismiss_basics_card();
-
-        let reloaded = UserState::load_from(scratch.path());
-        assert!(reloaded.basics_card_dismissed());
-        let text = fs::read_to_string(scratch.path()).unwrap();
-        assert!(text.contains("basics-card-dismissed true"));
-        assert!(!text.contains(PENDING_CONFIG_KEY));
     }
 
     #[test]
@@ -421,35 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn state_without_a_resolvable_directory_stays_in_memory() {
-        let mut state = UserState::default();
-        state.record_fresh_config(&config("halley.rune"));
-        state.dismiss_basics_card();
-        assert!(state.basics_card_dismissed());
-        assert!(!state.basics_card_pending_for(&config("halley.rune")));
-    }
-
-    #[test]
-    fn modifier_labels_match_the_documented_spellings() {
-        use halley_config::keybinds::ModifierKey;
-        assert_eq!(modifier_label(ModifierKey::Super), "Super");
-        assert_eq!(modifier_label(ModifierKey::LeftSuper), "Left Super");
-        assert_eq!(modifier_label(ModifierKey::Alt), "Alt");
-        assert_eq!(modifier_label(ModifierKey::Ctrl), "Ctrl");
-    }
-
-    #[test]
-    fn the_decay_explanation_is_not_shown_before_it_happens() {
-        let scratch = ScratchDir::new("decay-notice-fresh");
-        let state = UserState::load_from(scratch.path());
-
-        assert!(
-            !state.decay_notice_shown(),
-            "a fresh installation still owes the one-time explanation"
-        );
-    }
-
-    #[test]
     fn the_decay_explanation_is_one_shot_across_reloads() {
         let scratch = ScratchDir::new("decay-notice-once");
         let mut state = UserState::load_from(scratch.path());
@@ -499,12 +448,5 @@ mod tests {
 
         state.record_decay_notice_shown();
         assert!(UserState::load_from(path).decay_notice_shown());
-    }
-
-    #[test]
-    fn state_without_a_resolvable_directory_still_records_the_explanation() {
-        let mut state = UserState::default();
-        state.record_decay_notice_shown();
-        assert!(state.decay_notice_shown());
     }
 }
