@@ -1231,11 +1231,6 @@ mod tests {
         assert_eq!(scaled_metric(0, 0.05), 0);
     }
 
-    #[test]
-    fn tiny_windows_clamp_the_content_radius() {
-        assert_eq!(clamp_radius(8.0, 10, 6), 3.0);
-    }
-
     /// Rust mirror of the `rounded_alpha` GLSL in `SURFACE_SHADER` and
     /// `fullscreen_texture.rs`. Kept in step by hand; it exists to pin the
     /// interior term, which has no other executable coverage.

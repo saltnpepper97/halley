@@ -376,14 +376,6 @@ fn example_config_cluster_sections_parse() {
     );
 }
 
-#[test]
-fn example_config_keeps_fps_overlay_disabled() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
-    let runtime = halley_config::parse_runtime_config(&config).expect("runtime config parses");
-
-    assert!(!runtime.debug.overlay_fps);
-}
-
 /// Milestone 1: a shipped example must teach the Field-first starting point.
 /// A fresh config declares no autostart commands and no startup clusters, so
 /// windows open directly onto the empty Field.

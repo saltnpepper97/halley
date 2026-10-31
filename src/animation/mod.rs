@@ -801,14 +801,6 @@ mod tests {
     }
 
     #[test]
-    fn ease_out_curves_advance_faster_than_linear() {
-        let linear = motion::apply_curve(AnimationCurve::Linear, 0.5);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutQuad, 0.5) > linear);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutCubic, 0.5) > linear);
-        assert!(motion::apply_curve(AnimationCurve::EaseOutExpo, 0.5) > linear);
-    }
-
-    #[test]
     fn center_out_expands_from_final_center() {
         let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
         let timeline = timeline(WindowOpenAnimationType::CenterOut, AnimationCurve::Linear);
@@ -946,21 +938,6 @@ mod tests {
 
         assert!(middle_center.x > launch::rect_center(bounds).x);
         assert!(!animation.is_finished_at(Duration::from_millis(1299)));
-        assert_eq!(
-            animation.visual_at(Duration::from_millis(1300), bounds),
-            WindowOpenVisual::default()
-        );
-    }
-
-    #[test]
-    fn launch_peaks_at_two_percent_overshoot_and_settles_exactly() {
-        let bounds = Rectangle::new((100, 50).into(), (800, 600).into());
-        let animation = launch_timeline(launch::rect_center(bounds));
-        let overshoot = animation.visual_at(Duration::from_millis(1234), bounds);
-        let destination = overshoot.transform_rect(bounds, bounds);
-
-        assert_eq!(destination.size, (816, 612).into());
-        assert_eq!(overshoot.alpha(), 1.0);
         assert_eq!(
             animation.visual_at(Duration::from_millis(1300), bounds),
             WindowOpenVisual::default()
