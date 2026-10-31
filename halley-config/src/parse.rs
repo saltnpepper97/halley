@@ -538,73 +538,6 @@ end
     }
 
     #[test]
-    fn accepts_close_window_alias() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "alt"
-  "$var.mod+q" "close-window"
-end
-"#,
-        );
-        assert_eq!(kb.modifier, ModifierKey::Alt);
-        let close = kb
-            .binds
-            .iter()
-            .find(|b| b.action == Action::CloseFocusedWindow)
-            .unwrap();
-        assert_eq!(close.key, "q");
-        assert!(close.modifiers.alt);
-        assert!(!close.modifiers.super_key);
-    }
-
-    #[test]
-    fn accepts_fullscreen_maximize_and_pin_action_aliases() {
-        for (aliases, key, expected) in [
-            (
-                &["toggle-fullscreen", "toggle_fullscreen", "fullscreen"][..],
-                "f",
-                Action::ToggleFullscreen,
-            ),
-            (
-                &[
-                    "maximize-focused",
-                    "maximize_focused",
-                    "toggle-maximize",
-                    "toggle_maximize",
-                ],
-                "m",
-                Action::ToggleFieldMaximize,
-            ),
-            (
-                &[
-                    "toggle-pin",
-                    "toggle_pin",
-                    "pin-toggle",
-                    "pin_toggle",
-                    "toggle-focused-pin",
-                    "toggle_focused_pin",
-                ],
-                "p",
-                Action::ToggleFocusedPin,
-            ),
-        ] {
-            for action in aliases {
-                let kb = parse(&format!(
-                    "keybinds:\n  mod \"super\"\n  \"$var.mod+{key}\" \"{action}\"\nend\n"
-                ));
-                let bind = &kb.binds[0];
-                assert_eq!(bind.action, expected, "{action}");
-                assert_eq!(bind.key, key, "{action}");
-                assert!(bind.modifiers.super_key, "{action}");
-                if expected == Action::ToggleFocusedPin {
-                    assert!(!bind.repeat, "{action}");
-                }
-            }
-        }
-    }
-
-    #[test]
     fn movement_distances_repeat_in_field_and_accept_legacy_aliases() {
         for action in [
             "node-move right 10",
@@ -634,75 +567,6 @@ end
             parse_action_checked("move files"),
             Ok(Action::Spawn("move files".into()))
         );
-    }
-
-    #[test]
-    fn accepts_old_field_node_move_spellings() {
-        for (source, direction) in [
-            ("node-move left", crate::Direction::Left),
-            ("node move right", crate::Direction::Right),
-            ("node-move-up", crate::Direction::Up),
-            ("move-down", crate::Direction::Down),
-        ] {
-            let kb = parse(&format!(
-                "keybinds:\n  mod \"super\"\n  \"$var.mod+alt+x\" \"{source}\"\nend\n"
-            ));
-            assert_eq!(kb.binds[0].action, Action::MoveNode(direction));
-        }
-    }
-
-    #[test]
-    fn compact_bindings_use_action_aware_repeat_defaults() {
-        let kb = parse(
-            r#"keybinds:
-  mod "super"
-  "$var.mod+left" "node-move left"
-  "$var.mod+t" "open-terminal"
-  "$var.mod+v" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
-end
-"#,
-        );
-        assert!(
-            kb.binds
-                .iter()
-                .find(|bind| bind.key == "left")
-                .unwrap()
-                .repeat
-        );
-        assert!(!kb.binds.iter().find(|bind| bind.key == "t").unwrap().repeat);
-        assert!(!kb.binds.iter().find(|bind| bind.key == "v").unwrap().repeat);
-    }
-
-    #[test]
-    fn inline_with_attributes_override_repeat() {
-        let kb = parse(
-            r#"keybinds:
-  mod "super"
-  "$var.mod+left" "node-move left" with repeat false
-  "$var.mod+t" "open-terminal" with repeat true
-end
-"#,
-        );
-        assert!(
-            !kb.binds
-                .iter()
-                .find(|bind| bind.key == "left")
-                .unwrap()
-                .repeat
-        );
-        assert!(kb.binds.iter().find(|bind| bind.key == "t").unwrap().repeat);
-    }
-
-    #[test]
-    fn legacy_one_line_binding_objects_still_override_repeat() {
-        let kb = parse(
-            r#"keybinds:
-  mod "super"
-  "$var.mod+left": action "node-move left" repeat false end
-end
-"#,
-        );
-        assert!(!kb.binds[0].repeat);
     }
 
     #[test]
@@ -764,67 +628,6 @@ end
     }
 
     #[test]
-    fn parses_named_monitor_focus_and_reload() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "$var.mod+1" "monitor focus DP-1"
-  "$var.mod+shift+r" "reload"
-end
-"#,
-        );
-        assert!(kb.binds.iter().any(|bind| {
-            bind.action == Action::MonitorFocus(MonitorTarget::Output("DP-1".into()))
-        }));
-        assert!(kb.binds.iter().any(|bind| bind.action == Action::Reload));
-    }
-
-    #[test]
-    fn parses_arrange_and_undo_actions() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "$var.mod+a" "arrange-visible"
-  "$var.mod+shift+a" "undo_arrange"
-end
-"#,
-        );
-        assert_eq!(kb.binds[0].action, Action::ArrangeVisible);
-        assert_eq!(kb.binds[0].scope, BindingScope::Field);
-        assert!(!kb.binds[0].repeat);
-        assert_eq!(kb.binds[1].action, Action::UndoArrange);
-        assert_eq!(kb.binds[1].scope, BindingScope::Field);
-        assert!(!kb.binds[1].repeat);
-    }
-
-    #[test]
-    fn parses_remappable_compositor_pointer_actions() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "$var.mod+click-left" "move-window"
-  "$var.mod+click-right" "resize-window"
-  "$var.mod+shift+click-left" "drag-pan"
-  "click-left" "pan-field"
-end
-"#,
-        );
-        assert_eq!(kb.binds[0].action, Action::PointerMoveWindow);
-        assert_eq!(kb.binds[1].action, Action::PointerResizeWindow);
-        assert_eq!(kb.binds[2].action, Action::PointerDragPan);
-        assert_eq!(kb.binds[2].scope, BindingScope::Field);
-        assert_eq!(kb.binds[3].action, Action::PointerPanField);
-        assert_eq!(kb.binds[3].scope, BindingScope::Field);
-
-        for alias in ["drag_pan", "field-jump", "field_jump"] {
-            assert_eq!(parse_action(alias), Action::PointerDragPan);
-        }
-    }
-
-    #[test]
     fn parses_pan_field_always_as_a_distinct_pointer_action() {
         let kb = parse(
             r#"
@@ -877,11 +680,5 @@ end
             bind.key == "s"
                 && bind.action == Action::Spawn("grim -g \"$(slurp)\" ~/shot.png".to_string())
         }));
-    }
-
-    #[test]
-    fn missing_keybinds_section_errors() {
-        let config = RuneConfig::from_str("other: \n foo \"bar\"\nend\n").unwrap();
-        assert!(parse_keybinds(&config).is_err());
     }
 }

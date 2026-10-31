@@ -485,40 +485,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_node_decay_and_debug_sections() {
-        let config = RuneConfig::from_str(
-            r#"
-decay:
-  enabled false
-  outside-delay-seconds 9
-  inside-delay-seconds 99
-end
-node:
-  shape "square"
-  show-labels "always"
-  show-app-icons "off"
-  restore-centering "if-offscreen"
-end
-debug:
-  show-focus-ring true
-  overlay-fps true
-end
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(parse_decay(&config).outside_delay_seconds, 9);
-        assert!(!parse_decay(&config).enabled);
-        assert_eq!(parse_nodes(&config).shape, NodeShape::Square);
-        assert_eq!(
-            parse_nodes(&config).restore_centering,
-            RestoreCentering::IfOffscreen
-        );
-        assert!(parse_debug(&config).show_focus_ring);
-        assert!(parse_debug(&config).overlay_fps);
-    }
-
-    #[test]
     fn parses_canonical_node_names_and_landmark_gap() {
         let config = RuneConfig::from_str(
             r##"

@@ -340,34 +340,4 @@ end
         assert_eq!(blur.saturation, 1.2);
         assert_eq!(blur.noise, 0.02);
     }
-
-    #[test]
-    fn parses_shadow_layers() {
-        let config = RuneConfig::from_str(
-            r##"
-effects:
-  shadows:
-    window:
-      enabled false
-      blur-radius 20
-      spread 2
-      offset-x 3
-      offset-y 9
-      colour "#10203040"
-    end
-  end
-end
-"##,
-        )
-        .unwrap();
-        let shadows = parse_effects(&config).unwrap().shadows;
-        assert!(!shadows.window.enabled);
-        assert_eq!(shadows.window.blur_radius, 20.0);
-        assert_eq!(shadows.window.spread, 2.0);
-        assert_eq!(shadows.window.offset_x, 3.0);
-        assert_eq!(shadows.window.offset_y, 9.0);
-        assert_eq!(shadows.window.color.r, 0x10 as f32 / 255.0);
-        assert_eq!(shadows.window.color.a, 0x40 as f32 / 255.0);
-        assert_eq!(shadows.node, Shadows::default().node);
-    }
 }

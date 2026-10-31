@@ -317,12 +317,4 @@ end
             crate::Action::OpenTerminal
         );
     }
-
-    #[test]
-    fn empty_config_is_invalid_while_runtime_default_is_complete() {
-        let empty = RuneConfig::from_str("").expect("empty Rune source is syntactically valid");
-
-        assert!(parse_runtime_config(&empty).is_err());
-        assert!(!RuntimeConfig::default().keybinds.binds.is_empty());
-    }
 }

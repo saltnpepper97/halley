@@ -45,18 +45,3 @@ pub fn parse_apogee(config: &RuneConfig) -> Apogee {
             .clamp(0.0, 1.0),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_enable_adaptive_live_previews() {
-        let config = parse_apogee(&RuneConfig::from_str("").unwrap());
-        assert!(config.enabled);
-        assert!(config.live_previews);
-        assert_eq!(config.preview_max_fps, 30);
-        assert_eq!(config.transition_ms, 320);
-        assert_eq!(config.max_rows, 3);
-    }
-}

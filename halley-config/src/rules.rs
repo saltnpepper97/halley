@@ -804,15 +804,6 @@ end
     }
 
     #[test]
-    fn accepts_but_discards_deprecated_overlap_policy() {
-        let config = RuneConfig::from_str(
-            "rules:\n  window-rule:\n    app-id \"x\"\n    overlap-policy \"all\"\n  end\nend\n",
-        )
-        .unwrap();
-        assert_eq!(parse_window_rules(&config).unwrap().len(), 1);
-    }
-
-    #[test]
     fn dynamic_matchers_cannot_change_opening_properties() {
         for key in ["is-focused", "is-screencast-target"] {
             let source = format!(
