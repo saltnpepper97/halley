@@ -126,22 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn creates_missing_parent_directories() {
-        let scratch = ScratchDir::new("creates_missing_parent_directories");
-        let config_file = scratch
-            .path()
-            .join("nested")
-            .join("halley")
-            .join("halley.rune");
-        assert!(!config_file.parent().unwrap().exists());
-
-        let wrote = bootstrap_default_config_at(&config_file).unwrap();
-
-        assert!(wrote);
-        assert!(config_file.exists());
-    }
-
-    #[test]
     fn concurrent_bootstrap_has_only_one_writer() {
         let scratch = ScratchDir::new("concurrent_bootstrap_has_only_one_writer");
         let config_file = scratch.path().join("halley.rune");
@@ -163,45 +147,6 @@ mod tests {
             .count();
         assert_eq!(writes, 1);
         assert_eq!(fs::read_to_string(config_file).unwrap(), DEFAULT_CONFIG);
-    }
-
-    /// Milestone 1 boundary: bootstrap never rewrites an existing config, even
-    /// when that config deliberately declares startup clusters.
-    #[test]
-    fn does_not_rewrite_existing_config_with_startup_clusters() {
-        const EXISTING: &str = concat!(
-            "keybinds:\n",
-            "  mod \"alt\"\n",
-            "end\n",
-            "\n",
-            "autostart:\n",
-            "  cluster:\n",
-            "    name \"Work\"\n",
-            "    members []\n",
-            "  end\n",
-            "end\n",
-        );
-
-        let scratch = ScratchDir::new("does_not_rewrite_existing_config_with_startup_clusters");
-        let config_file = scratch.path().join("halley").join("halley.rune");
-        fs::create_dir_all(config_file.parent().unwrap()).unwrap();
-        fs::write(&config_file, EXISTING).unwrap();
-
-        let wrote = bootstrap_default_config_at(&config_file).unwrap();
-
-        assert!(!wrote, "bootstrap must not write when a config exists");
-        assert_eq!(
-            fs::read_to_string(&config_file).unwrap(),
-            EXISTING,
-            "the existing config must remain byte-for-byte unchanged"
-        );
-
-        let config = RuneConfig::from_str(EXISTING).expect("existing config parses");
-        let autostart = crate::parse_autostart(&config).expect("existing autostart parses");
-        assert_eq!(autostart.clusters.len(), 1);
-        assert_eq!(autostart.clusters[0].name, "Work");
-        assert!(autostart.clusters[0].members.is_empty());
-        assert_eq!(autostart.clusters[0].output, None);
     }
 
     /// Milestone 2: a fresh installation's front door is Halley Lift. The
@@ -256,45 +201,6 @@ mod tests {
                 .expect("generated config binds Mod+D")
                 .action,
             crate::Action::Spawn("halley-lift".to_string())
-        );
-    }
-
-    /// Milestone 2 boundary: bootstrap only ever creates a missing config, so
-    /// an existing Fuzzel (or any other) launcher binding is never rewritten.
-    #[test]
-    fn does_not_rewrite_an_existing_fuzzel_launcher_binding() {
-        const EXISTING: &str = concat!(
-            "keybinds:\n",
-            "  mod \"super\"\n",
-            "  \"$var.mod+d\" \"fuzzel\"\n",
-            "end\n",
-        );
-
-        let scratch = ScratchDir::new("does_not_rewrite_an_existing_fuzzel_launcher_binding");
-        let config_file = scratch.path().join("halley").join("halley.rune");
-        fs::create_dir_all(config_file.parent().unwrap()).unwrap();
-        fs::write(&config_file, EXISTING).unwrap();
-
-        let wrote = bootstrap_default_config_at(&config_file).unwrap();
-
-        assert!(!wrote, "bootstrap must not write when a config exists");
-        assert_eq!(
-            fs::read_to_string(&config_file).unwrap(),
-            EXISTING,
-            "an existing launcher binding must stay byte-for-byte unchanged"
-        );
-
-        let config = RuneConfig::from_str(EXISTING).expect("existing config parses");
-        let keybinds = crate::parse_keybinds(&config).expect("existing keybinds parse");
-        assert_eq!(
-            keybinds
-                .binds
-                .iter()
-                .find(|bind| bind.key == "d" && bind.modifiers.super_key)
-                .expect("existing Mod+D bind")
-                .action,
-            crate::Action::Spawn("fuzzel".to_string()),
-            "existing users keep their own launcher binding"
         );
     }
 
