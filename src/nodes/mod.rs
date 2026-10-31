@@ -93,8 +93,13 @@ fn logical_focus_after_collapse(
     }
 }
 
-fn participates_in_decay(collapsed: bool, attached: bool, cluster_member: bool) -> bool {
-    attached && !collapsed && !cluster_member
+fn participates_in_decay(
+    collapsed: bool,
+    attached: bool,
+    cluster_member: bool,
+    pinned: bool,
+) -> bool {
+    attached && !collapsed && !cluster_member && !pinned
 }
 
 #[derive(Clone, Copy)]
@@ -819,7 +824,13 @@ impl NodesState {
         let records = self.records.values().cloned().collect::<Vec<_>>();
         let mut ready = Vec::new();
         for record in records {
-            if !participates_in_decay(record.collapsed, record.attached, excluded(record.id)) {
+            let pinned = self.field.node(record.id).is_some_and(|node| node.pinned);
+            if !participates_in_decay(
+                record.collapsed,
+                record.attached,
+                excluded(record.id),
+                pinned,
+            ) {
                 self.decay.remove(record.id);
                 continue;
             }
@@ -854,6 +865,10 @@ impl NodesState {
             }
         }
         ready
+    }
+
+    pub(crate) fn clear_decay(&mut self, id: NodeId) {
+        self.decay.remove(id);
     }
 
     pub fn set_collapsed(&mut self, id: NodeId, collapsed: bool, now_ms: u64) -> bool {
@@ -1229,11 +1244,12 @@ mod tests {
     }
 
     #[test]
-    fn cluster_members_never_participate_in_decay() {
-        assert!(participates_in_decay(false, true, false));
-        assert!(!participates_in_decay(false, true, true));
-        assert!(!participates_in_decay(true, true, false));
-        assert!(!participates_in_decay(false, false, false));
+    fn pinned_windows_and_cluster_members_never_participate_in_decay() {
+        assert!(participates_in_decay(false, true, false, false));
+        assert!(!participates_in_decay(false, true, false, true));
+        assert!(!participates_in_decay(false, true, true, false));
+        assert!(!participates_in_decay(true, true, false, false));
+        assert!(!participates_in_decay(false, false, false, false));
     }
 
     #[test]

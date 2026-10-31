@@ -114,6 +114,7 @@ pub(super) fn toggle_focused_pin<D: SessionDriver>(
     if !set_node_user_pinned(session, id, pinned) {
         return false;
     }
+    session.nodes.clear_decay(id);
     session.nodes.clear_direct_motion(id);
     session.request_redraw();
     true

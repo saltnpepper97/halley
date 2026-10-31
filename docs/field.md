@@ -55,7 +55,8 @@ landmark clearance.
 The default `Mod+P` binding runs `toggle-focused-pin`. A pinned field window
 or collapsed node stays fixed in field space: pointer and IPC movement and
 interactive resize are rejected, and landmark collisions treat it as an
-immovable anchor. Focus, field maximize, fullscreen, collapse, restore, and
+immovable anchor. Pinned windows do not decay automatically, but can still be
+collapsed manually. Focus, field maximize, fullscreen, collapse, restore, and
 close continue to work. Maximize and fullscreen are temporary presentations;
 leaving either returns the window to the same pinned field placement. Pin state
 is runtime-only and is reported by `halleyctl node list` and `node info`.

@@ -92,11 +92,12 @@ application or in another session — explains anything again. Manual `Mod+N`
 collapse is your own deliberate action, is visible as it animates, and never
 triggers the notice.
 
-There is no active-window count cap. Focused windows, fullscreen or
+There is no active-window count cap. Pinned windows, focused windows, fullscreen or
 fullscreen-pending windows, field-maximized windows, windows in an active Field
 arrangement, and windows in an interactive move/resize grab are hard-protected
 from decay. Undoing an arrangement starts a fresh timer for each still-eligible
-window. Changing between protected, inside-ring, and outside-ring status starts
+window. Unpinning also starts a fresh timer; manually collapsing a pinned window
+remains available. Changing between protected, inside-ring, and outside-ring status starts
 a fresh timer; stale time from an earlier status is never reused.
 
 Each output has its own camera-centered ellipse. Configure it inside that
