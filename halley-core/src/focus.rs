@@ -217,68 +217,38 @@ mod tests {
     use crate::field::Vec2;
 
     #[test]
-    fn starts_empty() {
-        let f = Focus::new();
-        assert_eq!(f.current(), None);
-    }
-
-    #[test]
-    fn can_focus_existing_node() {
+    fn focus_accepts_only_visible_existing_nodes() {
         let mut field = Field::new();
         let id = field.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-
         let mut focus = Focus::new();
+        assert_eq!(focus.current(), None);
+        assert!(!focus.set(&field, NodeId::new(999)));
+        assert_eq!(focus.current(), None);
+        assert!(field.set_hidden(id, true));
+        assert!(!focus.set(&field, id));
+        assert_eq!(focus.current(), None);
+        assert!(field.set_hidden(id, false));
         assert!(focus.set(&field, id));
         assert_eq!(focus.current(), Some(id));
         assert!(focus.is_focused(id));
     }
 
     #[test]
-    fn cannot_focus_missing_node() {
-        let field = Field::new();
-        let mut focus = Focus::new();
-        assert!(!focus.set(&field, NodeId::new(999)));
-        assert_eq!(focus.current(), None);
-    }
-
-    #[test]
-    fn cannot_focus_hidden_node() {
-        let mut field = Field::new();
-        let id = field.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-
-        assert!(field.set_hidden(id, true));
-
-        let mut focus = Focus::new();
-        assert!(!focus.set(&field, id));
-        assert_eq!(focus.current(), None);
-    }
-
-    #[test]
-    fn clears_when_focused_node_removed() {
-        let mut field = Field::new();
-        let id = field.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-
-        let mut focus = Focus::new();
-        assert!(focus.set(&field, id));
-
-        field.remove(id);
-        focus.on_removed(id);
-
-        assert_eq!(focus.current(), None);
-    }
-
-    #[test]
-    fn clears_when_focused_node_becomes_hidden() {
-        let mut field = Field::new();
-        let id = field.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-
-        let mut focus = Focus::new();
-        assert!(focus.set(&field, id));
-
-        assert!(field.set_hidden(id, true));
-        focus.on_hidden(&field, id);
-
-        assert_eq!(focus.current(), None);
+    fn focus_clears_when_node_is_removed_or_hidden() {
+        for hidden in [false, true] {
+            let mut field = Field::new();
+            let id = field.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+            let mut focus = Focus::new();
+            assert!(focus.set(&field, id));
+            if hidden {
+                assert!(field.set_hidden(id, true));
+                focus.on_hidden(&field, id);
+            } else {
+                field.remove(id);
+                focus.on_removed(id);
+            }
+            assert_eq!(focus.current(), None, "hidden={hidden}");
+        }
     }
 
     #[test]
