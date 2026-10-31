@@ -45,69 +45,83 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_modifier_plus_shift_plus_key() {
-        let (modifiers, key) = parse_chord("super+shift+e").unwrap();
-        assert!(modifiers.super_key);
-        assert!(modifiers.shift);
-        assert!(!modifiers.alt);
-        assert!(!modifiers.ctrl);
-        assert_eq!(key, "e");
+    fn parses_modifier_combinations_aliases_and_key() {
+        for (input, expected, key) in [
+            (
+                "super+shift+e",
+                Modifiers {
+                    super_key: true,
+                    shift: true,
+                    ..Modifiers::default()
+                },
+                "e",
+            ),
+            (
+                "super+c",
+                Modifiers {
+                    super_key: true,
+                    ..Modifiers::default()
+                },
+                "c",
+            ),
+            ("print", Modifiers::default(), "print"),
+            (
+                "alt+ctrl+q",
+                Modifiers {
+                    alt: true,
+                    ctrl: true,
+                    ..Modifiers::default()
+                },
+                "q",
+            ),
+            (
+                "logo+q",
+                Modifiers {
+                    super_key: true,
+                    ..Modifiers::default()
+                },
+                "q",
+            ),
+            (
+                "mod4+q",
+                Modifiers {
+                    super_key: true,
+                    ..Modifiers::default()
+                },
+                "q",
+            ),
+            (
+                "Super+SHIFT+e",
+                Modifiers {
+                    super_key: true,
+                    shift: true,
+                    ..Modifiers::default()
+                },
+                "e",
+            ),
+            (
+                "lsuper+rctrl+lshift+x",
+                Modifiers {
+                    left_super: true,
+                    right_ctrl: true,
+                    left_shift: true,
+                    ..Modifiers::default()
+                },
+                "x",
+            ),
+        ] {
+            assert_eq!(
+                parse_chord(input),
+                Some((expected, key.to_string())),
+                "{input}"
+            );
+        }
     }
 
     #[test]
-    fn parses_single_modifier_plus_key() {
-        let (modifiers, key) = parse_chord("super+c").unwrap();
-        assert!(modifiers.super_key);
-        assert!(!modifiers.shift);
-        assert_eq!(key, "c");
-    }
-
-    #[test]
-    fn parses_bare_key_with_no_modifiers() {
-        let (modifiers, key) = parse_chord("print").unwrap();
-        assert_eq!(modifiers, Modifiers::default());
-        assert_eq!(key, "print");
-    }
-
-    #[test]
-    fn recognizes_alt_ctrl_and_logo_aliases() {
-        let (modifiers, _) = parse_chord("alt+ctrl+q").unwrap();
-        assert!(modifiers.alt);
-        assert!(modifiers.ctrl);
-
-        let (modifiers, _) = parse_chord("logo+q").unwrap();
-        assert!(modifiers.super_key);
-
-        let (modifiers, _) = parse_chord("mod4+q").unwrap();
-        assert!(modifiers.super_key);
-    }
-
-    #[test]
-    fn is_case_insensitive_on_modifier_names() {
-        let (modifiers, key) = parse_chord("Super+SHIFT+e").unwrap();
-        assert!(modifiers.super_key);
-        assert!(modifiers.shift);
-        assert_eq!(key, "e");
-    }
-
-    #[test]
-    fn rejects_unknown_modifier_name() {
-        assert!(parse_chord("super+frobnicate+e").is_none());
-    }
-
-    #[test]
-    fn rejects_empty_key() {
-        assert!(parse_chord("super+shift+").is_none());
-        assert!(parse_chord("").is_none());
-    }
-
-    #[test]
-    fn parses_per_side_modifiers() {
-        let (modifiers, key) = parse_chord("lsuper+rctrl+lshift+x").unwrap();
-        assert!(modifiers.left_super);
-        assert!(modifiers.right_ctrl);
-        assert!(modifiers.left_shift);
-        assert!(!modifiers.super_key);
-        assert_eq!(key, "x");
+    fn rejects_unknown_modifiers_and_empty_keys() {
+        for input in ["super+frobnicate+e", "super+shift+", ""] {
+            assert_eq!(parse_chord(input), None, "{input}");
+        }
     }
 }
