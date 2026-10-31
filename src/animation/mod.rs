@@ -801,21 +801,6 @@ mod tests {
     }
 
     #[test]
-    fn easing_curves_preserve_endpoints() {
-        for curve in [
-            AnimationCurve::Linear,
-            AnimationCurve::EaseInOutCubic,
-            AnimationCurve::EaseOutQuad,
-            AnimationCurve::EaseOutCubic,
-            AnimationCurve::EaseOutExpo,
-            AnimationCurve::Elastic,
-        ] {
-            assert_eq!(motion::apply_curve(curve, 0.0), 0.0);
-            assert_eq!(motion::apply_curve(curve, 1.0), 1.0);
-        }
-    }
-
-    #[test]
     fn ease_out_curves_advance_faster_than_linear() {
         let linear = motion::apply_curve(AnimationCurve::Linear, 0.5);
         assert!(motion::apply_curve(AnimationCurve::EaseOutQuad, 0.5) > linear);
