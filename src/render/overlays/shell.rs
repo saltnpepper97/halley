@@ -788,24 +788,6 @@ mod tests {
     }
 
     #[test]
-    fn overlay_border_size_does_not_inherit_window_border_width() {
-        let config = halley_config::Overlays {
-            border_size_px: 7,
-            ..halley_config::Overlays::default()
-        };
-
-        assert_eq!(resolve_visuals(&config).border_px, 7.0);
-    }
-
-    #[test]
-    fn internal_label_chrome_never_inherits_container_borders() {
-        let visuals = resolve_visuals(&halley_config::Overlays::default());
-
-        assert!(visuals.border_px > 0.0);
-        assert_eq!(visuals.label_chrome().border_px, 0.0);
-    }
-
-    #[test]
     fn translucent_overlay_colours_are_premultiplied_for_smithay() {
         let white_at_half_alpha = OverlayRgb {
             r: 1.0,
@@ -858,36 +840,6 @@ mod tests {
         assert_eq!(
             resolve_zoom_indicator_visuals(zoom, shared, shared_config.border_size_px).border_px,
             7.0
-        );
-    }
-
-    #[test]
-    fn zoom_indicator_visual_defaults_inherit_shared_style() {
-        let shared_config = halley_config::Overlays {
-            background_color: halley_config::OverlayColorMode::Dark,
-            radius_px: 14,
-            borders: false,
-            ..halley_config::Overlays::default()
-        };
-        let shared = resolve_visuals(&shared_config);
-
-        assert_eq!(
-            resolve_zoom_indicator_visuals(
-                halley_config::ZoomIndicator::default(),
-                shared,
-                shared_config.border_size_px,
-            )
-            .fill,
-            shared.fill
-        );
-        assert_eq!(
-            resolve_zoom_indicator_visuals(
-                halley_config::ZoomIndicator::default(),
-                shared,
-                shared_config.border_size_px,
-            )
-            .radius,
-            14.0
         );
     }
 

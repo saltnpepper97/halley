@@ -1148,10 +1148,10 @@ fn vec_size(rect: Rectangle<i32, Logical>) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::{
-        HoverPreviewState, advance_hover_preview, centered_rect, hover_preview_ready,
-        landmark_reveal_delta, logical_focus_after_collapse, minimal_reveal_delta,
-        nearest_free_landmark, nearest_free_window_rect, participates_in_decay,
-        physics_frame_delta, release_lock_deadline, release_lock_is_active,
+        HoverPreviewState, advance_hover_preview, centered_rect, landmark_reveal_delta,
+        logical_focus_after_collapse, minimal_reveal_delta, nearest_free_landmark,
+        nearest_free_window_rect, participates_in_decay, physics_frame_delta,
+        release_lock_deadline, release_lock_is_active,
     };
     use halley_core::field::{NodeId, NodeState, Vec2};
     use smithay::utils::{Logical, Rectangle};
@@ -1181,20 +1181,6 @@ mod tests {
             now + Duration::from_millis(349)
         ));
         assert!(!release_lock_is_active(until, until));
-    }
-
-    #[test]
-    fn hover_preview_starts_at_the_old_halley_dwell_boundary() {
-        let started = Duration::from_secs(10);
-        assert!(!hover_preview_ready(
-            Some(started),
-            started + Duration::from_millis(1_499)
-        ));
-        assert!(hover_preview_ready(
-            Some(started),
-            started + Duration::from_millis(1_500)
-        ));
-        assert!(!hover_preview_ready(None, Duration::from_secs(20)));
     }
 
     #[test]

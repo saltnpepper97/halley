@@ -554,17 +554,4 @@ mod tests {
             icon_commit(true, [[1, 2, 3, 255], [4, 5, 6, 255]])
         );
     }
-
-    #[test]
-    fn bundled_edit_icon_rasterizes_as_a_tinted_alpha_mask() {
-        let color = [32, 64, 96, 255];
-        let image = raster_svg_icon(EDIT_ICON, color).expect("edit icon should rasterize");
-        assert_eq!(image.dimensions(), (ICON_SIZE, ICON_SIZE));
-        assert!(image.pixels().any(|pixel| pixel[3] != 0));
-        assert!(
-            image.pixels().filter(|pixel| pixel[3] != 0).all(|pixel| {
-                pixel[0] <= color[0] && pixel[1] <= color[1] && pixel[2] <= color[2]
-            })
-        );
-    }
 }

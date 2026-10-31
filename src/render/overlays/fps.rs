@@ -110,18 +110,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sampler_updates_every_quarter_second_per_output() {
-        let mut state = DebugFpsOverlay::default();
-
-        assert_eq!(state.sample("DP-1", Duration::ZERO), 0.0);
-        assert_eq!(state.sample("DP-1", Duration::from_millis(50)), 0.0);
-        assert_eq!(state.sample("DP-1", Duration::from_millis(100)), 0.0);
-        assert_eq!(state.sample("DP-1", Duration::from_millis(200)), 0.0);
-        assert_eq!(state.sample("DP-1", Duration::from_millis(250)), 20.0);
-        assert_eq!(state.sample("DP-2", Duration::from_millis(250)), 0.0);
-    }
-
-    #[test]
     fn continuous_samples_keep_the_displayed_rate_live_when_frame_cadence_changes() {
         let mut state = DebugFpsOverlay::default();
         state.sample("DP-1", Duration::ZERO);

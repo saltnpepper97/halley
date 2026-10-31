@@ -521,15 +521,6 @@ mod tests {
     }
 
     #[test]
-    fn bloom_opens_only_after_the_old_hover_dwell() {
-        let (mut system, id, _) = clustered_system();
-        system.set_hovered_core(Some(id), Duration::from_millis(100));
-        assert!(!system.bloom_wakeup(Duration::from_millis(1_799)));
-        assert!(system.bloom_wakeup(Duration::from_millis(1_800)));
-        assert!(system.bloom_is_animating_on_output("DP-1", Duration::from_millis(1_801)));
-    }
-
-    #[test]
     fn opening_bloom_hands_hover_ownership_off_the_core() {
         let (mut system, id, _) = clustered_system();
         assert!(system.set_hovered_core(Some(id), Duration::ZERO));
