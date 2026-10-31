@@ -1,6 +1,4 @@
 //! Basic IME support and Halley lock policy over real Wayland sockets.
-#[path = "../src/wayland/input/ime_clients.rs"]
-mod ime_clients;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
 use smithay::{
@@ -9,7 +7,9 @@ use smithay::{
     utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
-        input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface},
+        input_method::{
+            InputMethodHandler, InputMethodManagerState, InputMethodSeat, PopupSurface,
+        },
         text_input::TextInputManagerState,
     },
 };
@@ -56,7 +56,7 @@ struct Server {
     rejected_locks: std::collections::HashSet<server::backend::ObjectId>,
     seats: SeatState<Self>,
     seat: Seat<Self>,
-    ime_clients: ime_clients::ImeClients,
+    previous_focus: Option<WlSurface>,
 }
 impl SessionLockHandler for Server {
     fn lock_state(&mut self) -> &mut SessionLockManagerState {
@@ -150,6 +150,7 @@ struct Client {
     client_keys: usize,
     text: Vec<(u32, ti::Event)>,
     ime: Vec<(u32, im::Event)>,
+    ime_serial: u32,
     popup_rectangles: Vec<(i32, i32, i32, i32)>,
 }
 impl Dispatch<wl_registry::WlRegistry, ()> for Client {
@@ -192,6 +193,9 @@ impl Dispatch<im::ZwpInputMethodV2, ()> for Client {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if matches!(event, im::Event::Done) {
+            state.ime_serial = state.ime_serial.wrapping_add(1);
+        }
         state.ime.push((proxy.id().protocol_id(), event));
     }
 }
@@ -338,7 +342,7 @@ impl Fixture {
             compositor,
             seats,
             seat,
-            ime_clients: Default::default(),
+            previous_focus: None,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
@@ -356,9 +360,21 @@ impl Fixture {
                         }
                         Control::Suspend(value) => {
                             server.locked = value;
+                            let keyboard = server.seat.get_keyboard().unwrap();
+                            let ime = server.seat.input_method().clone();
                             if value {
-                                server.ime_clients.disconnect_all(&dh);
-                                server.seat.get_keyboard().unwrap().unset_grab(&mut server);
+                                server.previous_focus = keyboard.current_focus();
+                                ime.set_suspended(&mut server, &keyboard, true);
+                                keyboard.unset_grab(&mut server);
+                                keyboard.set_focus(&mut server, None, SERIAL_COUNTER.next_serial());
+                            } else {
+                                ime.set_suspended(&mut server, &keyboard, false);
+                                let focus = server.previous_focus.take();
+                                keyboard.set_focus(
+                                    &mut server,
+                                    focus,
+                                    SERIAL_COUNTER.next_serial(),
+                                );
                             }
                         }
                         Control::Key => {
@@ -469,21 +485,7 @@ impl Drop for Fixture {
     }
 }
 
-fn allow_request<I: server::Resource>(
-    state: &mut Server,
-    client: &server::Client,
-    resource: &I,
-    request: &I::Request,
-    display: &server::DisplayHandle,
-) -> bool
-where
-    I::Request: 'static,
-{
-    state
-        .ime_clients
-        .allow_request(state.locked, client, resource, request, display)
-}
-upstream_protocols::delegate_upstream_protocols!(Server, allow_request);
+upstream_protocols::delegate_upstream_protocols!(Server);
 
 struct RejectedSurface;
 impl server::Dispatch<ExtSessionLockSurfaceV1, RejectedSurface> for Server {
@@ -504,7 +506,7 @@ fn basic_text_composition_reaches_the_focused_client() {
     let mut f = Fixture::new();
     f.enable();
     f.ime.commit_string("é日本語".into());
-    f.ime.commit(0);
+    f.ime.commit(f.state.ime_serial);
     f.sync();
     assert!(f.state.text.iter().any(|(_, event)| matches!(event, ti::Event::CommitString { text: Some(text) } if text == "é日本語")));
     assert!(
@@ -525,14 +527,203 @@ fn basic_ime_keyboard_grab_receives_keys() {
 }
 
 #[test]
-fn locking_disconnects_existing_ime_clients() {
+fn locking_preserves_the_ime_connection_and_restores_its_grab() {
     let mut f = Fixture::new();
     let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
     f.enable();
-    let (done, wait) = std::sync::mpsc::sync_channel(1);
-    f.control.send((Control::Suspend(true), done)).unwrap();
-    wait.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert!(f.queue.roundtrip(&mut f.state).is_err());
+    f.command(Control::Suspend(true));
+    f.state.ime_keys = 0;
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 0);
+    f.command(Control::Suspend(false));
+    f.enable();
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 2);
+}
+
+#[test]
+fn lock_text_and_new_grabs_never_reach_the_ime() {
+    let mut f = Fixture::new();
+    f.enable();
+    f.command(Control::Suspend(true));
+    let (mut queue, mut lock_client, registry) = f.connect_client();
+    let qh = queue.handle();
+    let seat: wl_seat::WlSeat = registry.bind(lock_client.globals["wl_seat"].0, 7, &qh, ());
+    let _keyboard = seat.get_keyboard(&qh, ());
+    let compositor: wl_compositor::WlCompositor =
+        registry.bind(lock_client.globals["wl_compositor"].0, 4, &qh, ());
+    let manager: tim::ZwpTextInputManagerV3 = registry.bind(
+        lock_client.globals["zwp_text_input_manager_v3"].0,
+        1,
+        &qh,
+        (),
+    );
+    let input = manager.get_text_input(&seat, &qh, ());
+    let surface = compositor.create_surface(&qh, ());
+    surface.commit();
+    queue.roundtrip(&mut lock_client).unwrap();
+    f.sync();
+    f.clear();
+    input.enable();
+    input.set_surrounding_text("lock-secret".into(), 11, 11);
+    input.commit();
+    queue.roundtrip(&mut lock_client).unwrap();
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.ime.commit_string("injected".into());
+    f.ime.commit(f.state.ime_serial);
+    f.sync();
+    f.state.ime_keys = 0;
+    f.command(Control::Key);
+    queue.roundtrip(&mut lock_client).unwrap();
+    assert_eq!(f.state.ime_keys, 0);
+    assert_eq!(lock_client.client_keys, 2);
+    assert!(
+        !lock_client
+            .text
+            .iter()
+            .any(|(_, event)| matches!(event, ti::Event::CommitString { .. }))
+    );
+    assert!(
+        !f.state
+            .ime
+            .iter()
+            .any(|(_, e)| matches!(e, im::Event::Activate | im::Event::SurroundingText { .. }))
+    );
+}
+
+#[test]
+fn normal_stale_serials_are_still_accepted() {
+    let mut f = Fixture::new();
+    f.enable();
+    f.ime.commit_string("ordinary".into());
+    f.ime.commit(f.state.ime_serial.wrapping_sub(1));
+    f.sync();
+    assert!(f.state.text.iter().any(|(_, event)| matches!(event,
+        ti::Event::CommitString { text: Some(text) } if text == "ordinary")));
+}
+
+#[test]
+fn repeated_lock_cycles_preserve_keyboard_recovery() {
+    let mut f = Fixture::new();
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.enable();
+    for _ in 0..5 {
+        f.state.ime_keys = 0;
+        f.command(Control::Suspend(true));
+        f.command(Control::Key);
+        assert_eq!(f.state.ime_keys, 0);
+        f.command(Control::Suspend(false));
+        f.enable();
+        f.command(Control::Key);
+        assert_eq!(f.state.ime_keys, 2);
+    }
+}
+
+#[test]
+fn stale_composition_is_discarded_across_lock() {
+    let mut f = Fixture::new();
+    f.enable();
+    let old_serial = f.state.ime_serial;
+    f.ime.commit_string("before-lock".into());
+    f.sync();
+    f.command(Control::Suspend(true));
+    f.ime.commit_string("during-lock".into());
+    f.ime.commit(old_serial);
+    f.sync();
+    f.command(Control::Suspend(false));
+    f.enable();
+    f.ime.commit_string("late".into());
+    f.ime.commit(old_serial);
+    f.sync();
+    assert!(
+        !f.state
+            .text
+            .iter()
+            .any(|(_, event)| matches!(event, ti::Event::CommitString { .. }))
+    );
+    f.ime.commit_string("fresh".into());
+    f.ime.commit(f.state.ime_serial);
+    f.sync();
+    assert!(f.state.text.iter().any(|(_, event)| matches!(event, ti::Event::CommitString { text: Some(text) } if text == "fresh")));
+}
+
+#[test]
+fn ime_can_start_during_lock_and_work_after_unlock() {
+    let mut f = Fixture::new();
+    f.ime.destroy();
+    f.sync();
+    f.state.ime_serial = 0;
+    f.command(Control::Suspend(true));
+    f.ime = f
+        .ime_manager
+        .get_input_method(&f.seat, &f.queue.handle(), ());
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.sync();
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 0);
+    f.command(Control::Suspend(false));
+    f.enable();
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 2);
+    f.ime.commit_string("ready".into());
+    f.ime.commit(f.state.ime_serial);
+    f.sync();
+    assert!(f.state.text.iter().any(|(_, event)| matches!(event,
+        ti::Event::CommitString { text: Some(text) } if text == "ready")));
+}
+
+#[test]
+fn old_grab_release_does_not_cancel_a_replacement_ime() {
+    let mut f = Fixture::new();
+    let old_grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.enable();
+    f.command(Control::Suspend(true));
+    f.ime.destroy();
+    f.sync();
+    f.state.ime_serial = 0;
+    f.ime = f
+        .ime_manager
+        .get_input_method(&f.seat, &f.queue.handle(), ());
+    let _new_grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.sync();
+    old_grab.release();
+    f.sync();
+    f.command(Control::Suspend(false));
+    f.enable();
+    f.state.ime_keys = 0;
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 2);
+}
+
+#[test]
+fn unavailable_second_ime_cannot_replace_or_destroy_the_active_one() {
+    let mut f = Fixture::new();
+    let original = f.ime.id().protocol_id();
+    let second = f
+        .ime_manager
+        .get_input_method(&f.seat, &f.queue.handle(), ());
+    let second_id = second.id().protocol_id();
+    f.sync();
+    assert!(
+        f.state
+            .ime
+            .iter()
+            .any(|(id, event)| *id == second_id && matches!(event, im::Event::Unavailable))
+    );
+    assert!(
+        !f.state
+            .ime
+            .iter()
+            .any(|(id, event)| *id == original && matches!(event, im::Event::Unavailable))
+    );
+    second.destroy();
+    f.sync();
+    f.enable();
+    f.ime.commit_string("still-active".into());
+    f.ime.commit(f.state.ime_serial);
+    f.sync();
+    assert!(f.state.text.iter().any(|(_, event)| matches!(event,
+        ti::Event::CommitString { text: Some(text) } if text == "still-active")));
 }
 
 #[test]
@@ -556,7 +747,7 @@ fn rejected_lock_surface_requests_remain_inert_without_reserving_outputs() {
 }
 
 #[test]
-fn locking_keeps_unrelated_clients_connected_and_rejects_new_imes() {
+fn locking_keeps_clients_connected_and_isolates_lock_input() {
     let mut f = Fixture::new();
     let (mut queue, mut app, registry) = f.connect_client();
     let seat: wl_seat::WlSeat = registry.bind(app.globals["wl_seat"].0, 7, &queue.handle(), ());
@@ -567,34 +758,16 @@ fn locking_keeps_unrelated_clients_connected_and_rejects_new_imes() {
     surface.commit();
     queue.roundtrip(&mut app).unwrap();
     f.server_command(Control::Suspend(true));
+    surface.commit();
+    queue.roundtrip(&mut app).unwrap();
     f.server_command(Control::Key);
     queue.roundtrip(&mut app).unwrap();
     assert_eq!(
         app.client_keys, 2,
         "lock client must still receive keyboard input"
     );
-    assert!(f.queue.roundtrip(&mut f.state).is_err());
-    let (mut rejected, mut state, registry) = f.connect_client();
-    let seat: wl_seat::WlSeat =
-        registry.bind(state.globals["wl_seat"].0, 7, &rejected.handle(), ());
-    let manager: imm::ZwpInputMethodManagerV2 = registry.bind(
-        state.globals["zwp_input_method_manager_v2"].0,
-        1,
-        &rejected.handle(),
-        (),
-    );
-    let _ime = manager.get_input_method(&seat, &rejected.handle(), ());
-    assert!(rejected.roundtrip(&mut state).is_err());
+    f.queue.roundtrip(&mut f.state).unwrap();
     queue.roundtrip(&mut app).unwrap();
     f.server_command(Control::Suspend(false));
-    let (mut resumed, mut state, registry) = f.connect_client();
-    let seat: wl_seat::WlSeat = registry.bind(state.globals["wl_seat"].0, 7, &resumed.handle(), ());
-    let manager: imm::ZwpInputMethodManagerV2 = registry.bind(
-        state.globals["zwp_input_method_manager_v2"].0,
-        1,
-        &resumed.handle(),
-        (),
-    );
-    let _ime = manager.get_input_method(&seat, &resumed.handle(), ());
-    resumed.roundtrip(&mut state).unwrap();
+    f.queue.roundtrip(&mut f.state).unwrap();
 }

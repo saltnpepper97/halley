@@ -207,26 +207,6 @@ impl<D: SessionDriver> InputMethodHandler for Session<D> {
     }
 }
 
-/// Keep IME clients outside the lock session without modifying Smithay.
-pub(crate) fn allow_request<D: SessionDriver, I: smithay::reexports::wayland_server::Resource>(
-    session: &mut Session<D>,
-    client: &smithay::reexports::wayland_server::Client,
-    resource: &I,
-    request: &I::Request,
-    display: &smithay::reexports::wayland_server::DisplayHandle,
-) -> bool
-where
-    I::Request: 'static,
-{
-    session.wayland.ime_clients.allow_request(
-        session.session_lock.active(),
-        client,
-        resource,
-        request,
-        display,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ime_popup_location, parent_geometry_for};

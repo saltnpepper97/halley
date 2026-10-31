@@ -14,6 +14,7 @@ publish = false
 [workspace]
 resolver = "2"
 members = ["halley-api", "halley-cli", "halley-config", "halley-core", "halley-ipc", "halley-portal"]
+exclude = ["vendor/smithay"]
 
 [workspace.package]
 authors = ["Dustin Pilgrim <dustin.pilgrim1997@gmail.com>"]
@@ -28,7 +29,7 @@ categories = ["os::linux-apis", "gui"]
 rune-cfg = "0.7.1"
 
 [dependencies]
-smithay = { version = "0.7.0", git = "https://github.com/Smithay/smithay.git", rev = "79bbed5e1199090d787115614847a79c76607181", default-features = false, features = [
+smithay = { version = "0.7.0", path = "vendor/smithay", default-features = false, features = [
   "backend_egl",
   "renderer_gl",
   "backend_session",

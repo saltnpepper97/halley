@@ -1,0 +1,169 @@
+//! Utilities for text input support
+//!
+//! This module provides you with utilities to handle text input surfaces,
+//! it is usually used in conjunction with the input method module.
+//!
+//! Text input focus is automatically set to the same surface that has keyboard focus.
+//!
+//! ```
+//! use smithay::input::{Seat, SeatState, SeatHandler, pointer::CursorImageStatus};
+//! # use smithay::wayland::compositor::{CompositorHandler, CompositorState, CompositorClientState};
+//! use smithay::wayland::text_input::TextInputManagerState;
+//! use smithay::reexports::wayland_server::{Display, protocol::wl_surface::WlSurface};
+//! # use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
+//! # use smithay::reexports::wayland_server::Client;
+//!
+//! # struct State { seat_state: SeatState<Self> };
+//!
+//! smithay::delegate_dispatch2!(State);
+//!
+//! # let mut display = Display::<State>::new().unwrap();
+//! # let display_handle = display.handle();
+//!
+//! let seat_state = SeatState::<State>::new();
+//!
+//! // implement the required traits
+//! impl SeatHandler for State {
+//!     type KeyboardFocus = WlSurface;
+//!     type PointerFocus = WlSurface;
+//!     type TouchFocus = WlSurface;
+//!     fn seat_state(&mut self) -> &mut SeatState<Self> {
+//!         &mut self.seat_state
+//!     }
+//!     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) { unimplemented!() }
+//!     fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) { unimplemented!() }
+//! }
+//! # impl PointerConstraintsHandler for State {}
+//!
+//! // Add the seat state to your state and create manager global
+//! TextInputManagerState::new::<State>(&display_handle);
+//!
+//! # impl CompositorHandler for State {
+//! #     fn compositor_state(&mut self) -> &mut CompositorState { unimplemented!() }
+//! #     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState { unimplemented!() }
+//! #     fn commit(&mut self, surface: &WlSurface) {}
+//! # }
+//! ```
+//!
+
+use wayland_protocols::wp::text_input::zv3::server::{
+    zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
+    zwp_text_input_v3::ZwpTextInputV3,
+};
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, backend::GlobalId};
+
+use crate::{
+    input::{Seat, SeatHandler},
+    wayland::{Dispatch2, GlobalData, GlobalDispatch2},
+};
+
+pub use text_input_handle::TextInputHandle;
+pub use text_input_handle::TextInputUserData;
+
+use super::input_method::InputMethodHandle;
+
+const MANAGER_VERSION: u32 = 1;
+
+mod text_input_handle;
+
+/// Extends [Seat] with text input functionality
+pub trait TextInputSeat {
+    /// Get text input associated with this seat
+    fn text_input(&self) -> &TextInputHandle;
+}
+
+impl<D: SeatHandler + 'static> TextInputSeat for Seat<D> {
+    fn text_input(&self) -> &TextInputHandle {
+        let user_data = self.user_data();
+        user_data.insert_if_missing(TextInputHandle::default);
+        user_data.get::<TextInputHandle>().unwrap()
+    }
+}
+
+/// State of wp text input protocol
+#[derive(Debug)]
+pub struct TextInputManagerState {
+    global: GlobalId,
+}
+
+impl TextInputManagerState {
+    /// Initialize a text input manager global.
+    pub fn new<D>(display: &DisplayHandle) -> Self
+    where
+        D: GlobalDispatch<ZwpTextInputManagerV3, GlobalData>,
+        D: Dispatch<ZwpTextInputManagerV3, GlobalData>,
+        D: Dispatch<ZwpTextInputV3, TextInputUserData>,
+        D: 'static,
+    {
+        let global = display.create_global::<D, ZwpTextInputManagerV3, _>(MANAGER_VERSION, GlobalData);
+
+        Self { global }
+    }
+
+    /// Get the id of ZwpTextInputManagerV3 global
+    pub fn global(&self) -> GlobalId {
+        self.global.clone()
+    }
+}
+
+impl<D> GlobalDispatch2<ZwpTextInputManagerV3, D> for GlobalData
+where
+    D: Dispatch<ZwpTextInputManagerV3, GlobalData>,
+    D: Dispatch<ZwpTextInputV3, TextInputUserData>,
+    D: 'static,
+{
+    fn bind(
+        &self,
+        _: &mut D,
+        _: &DisplayHandle,
+        _: &Client,
+        resource: New<ZwpTextInputManagerV3>,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        data_init.init(resource, GlobalData);
+    }
+}
+
+impl<D> Dispatch2<ZwpTextInputManagerV3, D> for GlobalData
+where
+    D: Dispatch<ZwpTextInputV3, TextInputUserData>,
+    D: SeatHandler,
+    D: 'static,
+{
+    fn request(
+        &self,
+        _state: &mut D,
+        _client: &Client,
+        _resource: &ZwpTextInputManagerV3,
+        request: zwp_text_input_manager_v3::Request,
+        _dhandle: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        match request {
+            zwp_text_input_manager_v3::Request::GetTextInput { id, seat } => {
+                let seat = Seat::<D>::from_resource(&seat).unwrap();
+
+                let user_data = seat.user_data();
+                user_data.insert_if_missing(TextInputHandle::default);
+                user_data.insert_if_missing(InputMethodHandle::default);
+                let handle = user_data.get::<TextInputHandle>().unwrap();
+                let input_method_handle = user_data.get::<InputMethodHandle>().unwrap();
+                let instance = data_init.init(
+                    id,
+                    TextInputUserData {
+                        handle: handle.clone(),
+                        input_method_handle: input_method_handle.clone(),
+                    },
+                );
+                handle.add_instance(&instance);
+                if input_method_handle.has_instance() {
+                    handle.enter();
+                }
+            }
+            zwp_text_input_manager_v3::Request::Destroy => {
+                // Nothing to do
+            }
+            _ => unreachable!(),
+        }
+    }
+}

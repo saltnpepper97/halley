@@ -1,0 +1,377 @@
+//! Helpers for handling the xwayland shell protocol
+//!
+//! # Example
+//!
+//! ```
+//! use smithay::wayland::xwayland_shell::{
+//!     XWaylandShellHandler,
+//!     XWaylandShellState,
+//! };
+//! use smithay::xwayland::xwm::{XwmId, X11Surface};
+//!
+//! # struct State;
+//! # let mut display = wayland_server::Display::<State>::new().unwrap();
+//! // Create the global:
+//! XWaylandShellState::new::<State>(
+//!     &display.handle(),
+//! );
+//! #
+//! # use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+//! # use smithay::input::{Seat, SeatState, SeatHandler, pointer::CursorImageStatus};
+//! # use smithay::backend::input::{InputTime, KeyState};
+//! # use smithay::input::{
+//! #   pointer::{PointerTarget, AxisFrame, MotionEvent, ButtonEvent, RelativeMotionEvent,
+//! #             GestureSwipeBeginEvent, GestureSwipeUpdateEvent, GestureSwipeEndEvent,
+//! #             GesturePinchBeginEvent, GesturePinchUpdateEvent, GesturePinchEndEvent,
+//! #             GestureHoldBeginEvent, GestureHoldEndEvent},
+//! #   keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
+//! #   touch::{DownEvent, UpEvent, MotionEvent as TouchMotionEvent, ShapeEvent, OrientationEvent, TouchTarget, FrameMarker},
+//! # };
+//! # use smithay::utils::{IsAlive, Serial};
+//! #
+//! # #[derive(Debug, Clone, PartialEq)]
+//! # struct Target;
+//! # impl IsAlive for Target {
+//! #   fn alive(&self) -> bool { true }
+//! # }
+//! # impl PointerTarget<State> for Target {
+//! #   fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {}
+//! #   fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {}
+//! #   fn relative_motion(&self, seat: &Seat<State>, data: &mut State, event: &RelativeMotionEvent) {}
+//! #   fn button(&self, seat: &Seat<State>, data: &mut State, event: &ButtonEvent) {}
+//! #   fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {}
+//! #   fn frame(&self, seat: &Seat<State>, data: &mut State) {}
+//! #   fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: InputTime) {}
+//! #   fn gesture_swipe_begin(&self, seat: &Seat<State>, data: &mut State, event: &GestureSwipeBeginEvent) {}
+//! #   fn gesture_swipe_update(&self, seat: &Seat<State>, data: &mut State, event: &GestureSwipeUpdateEvent) {}
+//! #   fn gesture_swipe_end(&self, seat: &Seat<State>, data: &mut State, event: &GestureSwipeEndEvent) {}
+//! #   fn gesture_pinch_begin(&self, seat: &Seat<State>, data: &mut State, event: &GesturePinchBeginEvent) {}
+//! #   fn gesture_pinch_update(&self, seat: &Seat<State>, data: &mut State, event: &GesturePinchUpdateEvent) {}
+//! #   fn gesture_pinch_end(&self, seat: &Seat<State>, data: &mut State, event: &GesturePinchEndEvent) {}
+//! #   fn gesture_hold_begin(&self, seat: &Seat<State>, data: &mut State, event: &GestureHoldBeginEvent) {}
+//! #   fn gesture_hold_end(&self, seat: &Seat<State>, data: &mut State, event: &GestureHoldEndEvent) {}
+//! # }
+//! # impl KeyboardTarget<State> for Target {
+//! #   fn enter(&self, seat: &Seat<State>, data: &mut State, keys: Vec<KeysymHandle<'_>>, serial: Serial) {}
+//! #   fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial) {}
+//! #   fn key(
+//! #       &self,
+//! #       seat: &Seat<State>,
+//! #       data: &mut State,
+//! #       key: KeysymHandle<'_>,
+//! #       state: KeyState,
+//! #       serial: Serial,
+//! #       time: InputTime,
+//! #   ) {}
+//! #   fn modifiers(&self, seat: &Seat<State>, data: &mut State, modifiers: ModifiersState, serial: Serial) {}
+//! # }
+//! # impl TouchTarget<State> for Target {
+//! #   fn down(&self, seat: &Seat<State>, data: &mut State, event: &DownEvent) {}
+//! #   fn up(&self, seat: &Seat<State>, data: &mut State, event: &UpEvent) {}
+//! #   fn motion(&self, seat: &Seat<State>, data: &mut State, event: &TouchMotionEvent) {}
+//! #   fn frame(&self, seat: &Seat<State>, data: &mut State, marker: FrameMarker) {}
+//! #   fn cancel(&self, seat: &Seat<State>, data: &mut State, marker: FrameMarker) {}
+//! #   fn shape(&self, seat: &Seat<State>, data: &mut State, event: &ShapeEvent) {}
+//! #   fn orientation(&self, seat: &Seat<State>, data: &mut State, event: &OrientationEvent) {}
+//! #   fn last_frame(&self, seat: &Seat<State>, data: &mut State) -> Option<FrameMarker> { unimplemented!() }
+//! # }
+//! # impl SeatHandler for State {
+//! #     type KeyboardFocus = Target;
+//! #     type PointerFocus = Target;
+//! #     type TouchFocus = Target;
+//! #     fn seat_state(&mut self) -> &mut SeatState<Self> { unreachable!() }
+//! #     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&Target>) {}
+//! #     fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) {}
+//! # }
+//!
+//! impl XWaylandShellHandler for State {
+//!     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
+//!         // Return a reference to the state we created earlier.
+//!         todo!()
+//!     }
+//!
+//!     fn surface_associated(&mut self, _xwm_id: XwmId, _surface: WlSurface, _window: X11Surface) {
+//!         // Called when XWayland has associated an X11 window with a wl_surface.
+//!         todo!()
+//!     }
+//! }
+//!
+//! #  use smithay::wayland::selection::SelectionTarget;
+//! #  use smithay::xwayland::{XWayland, XWaylandEvent, X11Wm, XwmHandler, xwm::{ResizeEdge, Reorder}};
+//! #  use smithay::utils::{Rectangle, Logical};
+//! #  use std::os::unix::io::OwnedFd;
+//! #  use std::process::Stdio;
+//!
+//! impl XwmHandler for State {
+//!     fn xwm_state(&mut self, xwm: XwmId) -> &mut X11Wm {
+//!         // ...
+//! #       unreachable!()
+//!     }
+//!     fn new_window(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn new_override_redirect_window(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn map_window_request(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn mapped_override_redirect_window(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn unmapped_window(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn destroyed_window(&mut self, xwm: XwmId, window: X11Surface) { /* ... */ }
+//!     fn configure_request(&mut self, xwm: XwmId, window: X11Surface, x: Option<i32>, y: Option<i32>, w: Option<u32>, h: Option<u32>, reorder: Option<Reorder>) { /* ... */ }
+//!     fn configure_notify(&mut self, xwm: XwmId, window: X11Surface, geometry: Rectangle<i32, Logical>, above: Option<u32>) { /* ... */ }
+//!     fn resize_request(&mut self, xwm: XwmId, window: X11Surface, button: u32, resize_edge: ResizeEdge) { /* ... */ }
+//!     fn move_request(&mut self, xwm: XwmId, window: X11Surface, button: u32) { /* ... */ }
+//!     fn send_selection(&mut self, xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) { /* ... */ }
+//! }
+//!
+//! // implement Dispatch for your state.
+//! smithay::delegate_dispatch2!(State);
+//! ```
+
+use std::collections::HashMap;
+
+use tracing::{debug, warn};
+use wayland_protocols::xwayland::shell::v1::server::{
+    xwayland_shell_v1::{self, XwaylandShellV1},
+    xwayland_surface_v1::{self, XwaylandSurfaceV1},
+};
+use wayland_server::{
+    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
+    backend::GlobalId,
+    protocol::wl_surface::{self, WlSurface},
+};
+
+use crate::{
+    input::SeatHandler,
+    wayland::{Dispatch2, GlobalData, GlobalDispatch2, compositor},
+    xwayland::{X11Surface, XWaylandClientData, XwmHandler, xwm::XwmId},
+};
+
+/// The role for an xwayland-associated surface.
+pub const XWAYLAND_SHELL_ROLE: &str = "xwayland_shell";
+
+const VERSION: u32 = 1;
+
+/// The global for the xwayland shell protocol.
+#[derive(Debug, Clone)]
+pub struct XWaylandShellState {
+    global: GlobalId,
+    by_serial: HashMap<u64, WlSurface>,
+}
+
+impl XWaylandShellState {
+    /// Registers a new [XwaylandShellV1] global. Only XWayland clients will be
+    /// able to bind it.
+    pub fn new<D>(display: &DisplayHandle) -> Self
+    where
+        D: GlobalDispatch<XwaylandShellV1, GlobalData>,
+        D: Dispatch<XwaylandShellV1, GlobalData>,
+        D: Dispatch<XwaylandSurfaceV1, XWaylandSurfaceUserData>,
+        D: 'static,
+    {
+        let global = display.create_global::<D, XwaylandShellV1, _>(VERSION, GlobalData);
+        Self {
+            global,
+            by_serial: HashMap::new(),
+        }
+    }
+
+    /// Retrieve a handle for the [XwaylandShellV1] global.
+    pub fn global(&self) -> GlobalId {
+        self.global.clone()
+    }
+
+    /// Retrieves the surface for a given serial.
+    pub fn surface_for_serial(&self, serial: u64) -> Option<WlSurface> {
+        self.by_serial.get(&serial).cloned()
+    }
+}
+
+/// Userdata for an xwayland shell surface.
+#[derive(Debug, Clone)]
+pub struct XWaylandSurfaceUserData {
+    pub(crate) wl_surface: wl_surface::WlSurface,
+}
+
+/// Handler for the xwayland shell protocol.
+pub trait XWaylandShellHandler {
+    /// Retrieves the global state.
+    fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState;
+
+    /// An X11 window has been associated with a wayland surface. This doesn't
+    /// take effect until the wl_surface is committed.
+    fn surface_associated(&mut self, xwm: XwmId, wl_surface: wl_surface::WlSurface, surface: X11Surface) {
+        let _ = (xwm, wl_surface, surface);
+    }
+}
+
+/// Represents a pending X11 serial, used to associate X11 windows with wayland
+/// surfaces.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct XWaylandShellCachedState {
+    /// The serial of the matching X11 window.
+    pub serial: Option<u64>,
+}
+
+impl compositor::Cacheable for XWaylandShellCachedState {
+    fn commit(&mut self, _dh: &DisplayHandle) -> Self {
+        *self
+    }
+
+    fn merge_into(self, into: &mut Self, _dh: &DisplayHandle) {
+        *into = self;
+    }
+}
+
+impl<D> GlobalDispatch2<XwaylandShellV1, D> for GlobalData
+where
+    D: Dispatch<XwaylandShellV1, GlobalData>,
+    D: 'static,
+{
+    fn bind(
+        &self,
+        _state: &mut D,
+        _handle: &DisplayHandle,
+        _client: &Client,
+        resource: New<XwaylandShellV1>,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        data_init.init(resource, GlobalData);
+    }
+
+    fn can_view(&self, client: &Client) -> bool {
+        client.get_data::<XWaylandClientData>().is_some()
+    }
+}
+
+impl<D> Dispatch2<XwaylandShellV1, D> for GlobalData
+where
+    D: Dispatch<XwaylandSurfaceV1, XWaylandSurfaceUserData>,
+    D: XWaylandShellHandler + XwmHandler + SeatHandler,
+    D: 'static,
+{
+    fn request(
+        &self,
+        _state: &mut D,
+        _client: &Client,
+        resource: &XwaylandShellV1,
+        request: <XwaylandShellV1 as Resource>::Request,
+        _dhandle: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        match request {
+            xwayland_shell_v1::Request::GetXwaylandSurface { id, surface } => {
+                if compositor::give_role(&surface, XWAYLAND_SHELL_ROLE).is_err() {
+                    resource.post_error(xwayland_shell_v1::Error::Role, "Surface already has a role.");
+                    return;
+                }
+
+                compositor::add_pre_commit_hook::<D, _>(&surface, serial_commit_hook);
+
+                data_init.init(id, XWaylandSurfaceUserData { wl_surface: surface });
+                // We call the handler callback once the serial is set.
+            }
+            xwayland_shell_v1::Request::Destroy => {
+                // The child objects created via this interface are unaffected.
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<D> Dispatch2<XwaylandSurfaceV1, D> for XWaylandSurfaceUserData
+where
+    D: XWaylandShellHandler,
+    D: 'static,
+    D: XwmHandler,
+{
+    fn request(
+        &self,
+        _state: &mut D,
+        _client: &Client,
+        _resource: &XwaylandSurfaceV1,
+        request: <XwaylandSurfaceV1 as Resource>::Request,
+        _dhandle: &DisplayHandle,
+        _data_init: &mut DataInit<'_, D>,
+    ) {
+        match request {
+            // In order to match a WlSurface to an X11 window, we need to match a Serial sent both to the X11 window and the WlSurface.
+            // This can happen in any order so we need to store the Serial until we have both.
+            xwayland_surface_v1::Request::SetSerial { serial_lo, serial_hi } => {
+                let serial = u64::from(serial_lo) | (u64::from(serial_hi) << 32);
+
+                // Set the serial on the pending state of surface
+                compositor::with_states(&self.wl_surface, |states| {
+                    states
+                        .cached_state
+                        .get::<XWaylandShellCachedState>()
+                        .pending()
+                        .serial = Some(serial);
+                });
+            }
+            xwayland_surface_v1::Request::Destroy => {
+                // Any already existing associations are unaffected.
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn serial_commit_hook<D: XWaylandShellHandler + XwmHandler + SeatHandler + 'static>(
+    state: &mut D,
+    _dh: &DisplayHandle,
+    surface: &WlSurface,
+) {
+    if let Some(serial) = compositor::with_states(surface, |states| {
+        states
+            .cached_state
+            .get::<XWaylandShellCachedState>()
+            .pending()
+            .serial
+    }) {
+        if let Some(client) = surface.client() {
+            // We only care about surfaces created by XWayland.
+            if let Some(xwm_id) = client
+                .get_data::<XWaylandClientData>()
+                .and_then(|data| data.user_data().get::<XwmId>())
+            {
+                let xwm = XwmHandler::xwm_state(state, *xwm_id);
+
+                // This handles the case that the serial was set on the X11
+                // window before surface. To handle the other case, we look for
+                // a matching surface when the WL_SURFACE_SERIAL atom is sent.
+                if let Some(window) = xwm.unpaired_surfaces.remove(&serial) {
+                    if let Some(xsurface) = xwm
+                        .windows
+                        .iter()
+                        .find(|x| x.window_id() == window || x.mapped_window_id() == Some(window))
+                        .cloned()
+                    {
+                        debug!(
+                            window = xsurface.window_id(),
+                            wl_surface = ?surface.id().protocol_id(),
+                            "associated X11 window to wl_surface in commit hook",
+                        );
+
+                        xsurface.set_wl_surface(state, Some(surface.clone()));
+
+                        XWaylandShellHandler::surface_associated(state, *xwm_id, surface.clone(), xsurface);
+                    } else {
+                        warn!(
+                            window,
+                            wl_surface = ?surface.id().protocol_id(),
+                            "Unknown X11 window associated to wl_surface in commit hook"
+                        )
+                    }
+                } else {
+                    // this is necessary for the atom-handler to look up the matching surface
+                    XWaylandShellHandler::xwayland_shell_state(state)
+                        .by_serial
+                        .insert(serial, surface.clone());
+
+                    compositor::add_destruction_hook::<D, _>(surface, move |state, _| {
+                        XWaylandShellHandler::xwayland_shell_state(state)
+                            .by_serial
+                            .remove(&serial);
+                    });
+                }
+            }
+        }
+    }
+}

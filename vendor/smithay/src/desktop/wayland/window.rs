@@ -1,0 +1,516 @@
+#[cfg(feature = "wayland_frontend")]
+use crate::utils::Serial;
+#[cfg(feature = "xwayland")]
+use crate::{desktop::space::SpaceElement, xwayland::X11Surface};
+use crate::{
+    desktop::{PopupManager, space::RenderZindex, utils::*},
+    output::Output,
+    utils::{IsAlive, Logical, Point, Rectangle, user_data::UserDataMap},
+    wayland::{
+        compositor::{SurfaceData, with_states},
+        dmabuf::DmabufFeedback,
+        seat::WaylandFocus,
+        shell::xdg::{SurfaceCachedState, ToplevelSurface},
+    },
+};
+use std::{
+    borrow::Cow,
+    hash::{Hash, Hasher},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU8, Ordering},
+    },
+    time::Duration,
+};
+use wayland_protocols::{
+    wp::presentation_time::server::wp_presentation_feedback, xdg::shell::server::xdg_toplevel,
+};
+use wayland_server::protocol::wl_surface;
+
+crate::utils::ids::id_gen!(window_id);
+
+/// Represents the surface of a [`Window`]
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum WindowSurface {
+    /// An xdg toplevel surface
+    Wayland(ToplevelSurface),
+    /// An X11 surface
+    #[cfg(feature = "xwayland")]
+    X11(X11Surface),
+}
+
+#[derive(Debug)]
+pub(crate) struct WindowInner {
+    pub(crate) id: usize,
+    surface: WindowSurface,
+    bbox: Mutex<Rectangle<i32, Logical>>,
+    pub(crate) z_index: AtomicU8,
+    user_data: UserDataMap,
+}
+
+impl Drop for WindowInner {
+    fn drop(&mut self) {
+        window_id::remove(self.id);
+    }
+}
+
+/// Represents possible errors returned from a window ping
+#[derive(Debug, thiserror::Error)]
+#[cfg(feature = "wayland_frontend")]
+pub enum PingError {
+    /// This window's underlying surface does not support a ping protocol
+    #[error("Ping not supported for this window")]
+    NotSupported,
+    /// The operation failed because the underlying surface has been destroyed
+    #[error("The ping failed because the underlying surface has been destroyed")]
+    DeadSurface,
+    /// The provided serial cannot be used for a ping
+    #[error("Invalid serial for ping")]
+    InvalidSerial,
+    /// There is already a ping pending
+    #[error("There is already a ping pending `{0:?}`")]
+    PingAlreadyPending(Serial),
+}
+
+#[cfg(feature = "wayland_frontend")]
+impl From<crate::wayland::shell::PingError> for PingError {
+    fn from(value: crate::wayland::shell::PingError) -> Self {
+        use crate::wayland::shell::PingError;
+
+        match value {
+            PingError::DeadSurface => Self::DeadSurface,
+            PingError::PingAlreadyPending(serial) => Self::PingAlreadyPending(serial),
+        }
+    }
+}
+
+#[cfg(feature = "xwayland")]
+impl From<crate::xwayland::xwm::PingError> for PingError {
+    fn from(value: crate::xwayland::xwm::PingError) -> Self {
+        use crate::xwayland::xwm::PingError;
+
+        match value {
+            PingError::NotSupported => Self::NotSupported,
+            PingError::InvalidTimestamp => Self::InvalidSerial,
+            PingError::PingAlreadyPending(timestamp) => Self::PingAlreadyPending(Serial(timestamp)),
+            PingError::Connection(_) => Self::DeadSurface,
+        }
+    }
+}
+
+/// Represents a single application window
+#[derive(Debug, Clone)]
+pub struct Window(pub(crate) Arc<WindowInner>);
+
+impl PartialEq for Window {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id == other.0.id
+    }
+}
+
+impl Eq for Window {}
+
+impl Hash for Window {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.id.hash(state);
+    }
+}
+
+impl IsAlive for Window {
+    #[inline]
+    fn alive(&self) -> bool {
+        match &self.0.surface {
+            WindowSurface::Wayland(s) => s.alive(),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => s.alive(),
+        }
+    }
+}
+
+impl Window {
+    /// Create a weak reference to this window that does not prevent
+    /// the inner resources from being dropped.
+    pub fn downgrade(&self) -> WeakWindow {
+        WeakWindow(Arc::downgrade(&self.0))
+    }
+}
+
+/// A weak reference to a [`Window`] that does not keep it alive.
+///
+/// Use [`WeakWindow::upgrade`] to obtain a [`Window`] if the inner
+/// resources have not yet been dropped.
+#[derive(Debug, Clone)]
+pub struct WeakWindow(Weak<WindowInner>);
+
+impl WeakWindow {
+    /// Attempt to upgrade to a strong [`Window`] reference.
+    /// Returns `None` if the window has already been dropped.
+    pub fn upgrade(&self) -> Option<Window> {
+        self.0.upgrade().map(Window)
+    }
+}
+
+bitflags::bitflags! {
+    /// Defines the surface types that can be
+    /// queried with [`Window::surface_under`]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct WindowSurfaceType: u32 {
+        /// Include the toplevel surface
+        const TOPLEVEL = 1;
+        /// Include all subsurfaces
+        ///
+        /// This value only works in addition to either `TOPLEVEL` or `POPUP`.
+        const SUBSURFACE = 2;
+        /// Include all popup surfaces
+        const POPUP = 4;
+        /// Query all surfaces
+        const ALL = Self::TOPLEVEL.bits() | Self::SUBSURFACE.bits() | Self::POPUP.bits();
+    }
+}
+
+impl Window {
+    /// Construct a new [`Window`] from a xdg toplevel surface
+    ///
+    /// This function is deprecated. Use [`Window::new_wayland_window`] instead.
+    #[deprecated]
+    pub fn new(toplevel: ToplevelSurface) -> Window {
+        Self::new_wayland_window(toplevel)
+    }
+
+    /// Construct a new [`Window`] from a xdg toplevel surface
+    pub fn new_wayland_window(toplevel: ToplevelSurface) -> Window {
+        let id = window_id::next();
+
+        Window(Arc::new(WindowInner {
+            id,
+            surface: WindowSurface::Wayland(toplevel),
+            bbox: Mutex::new(Rectangle::zero()),
+            z_index: AtomicU8::new(RenderZindex::Shell as u8),
+            user_data: UserDataMap::new(),
+        }))
+    }
+
+    /// Construct a new [`Window`] from an X11 surface
+    #[cfg(feature = "xwayland")]
+    pub fn new_x11_window(surface: X11Surface) -> Window {
+        let id = window_id::next();
+
+        Window(Arc::new(WindowInner {
+            id,
+            surface: WindowSurface::X11(surface),
+            bbox: Mutex::new(Rectangle::zero()),
+            z_index: AtomicU8::new(RenderZindex::Shell as u8),
+            user_data: UserDataMap::new(),
+        }))
+    }
+
+    /// Returns the window ID
+    pub fn id(&self) -> usize {
+        self.0.id
+    }
+
+    /// Checks if the window is a wayland one.
+    #[inline]
+    pub fn is_wayland(&self) -> bool {
+        matches!(self.0.surface, WindowSurface::Wayland(_))
+    }
+
+    /// Checks if the window is an X11 one.
+    #[cfg(feature = "xwayland")]
+    #[inline]
+    pub fn is_x11(&self) -> bool {
+        matches!(self.0.surface, WindowSurface::X11(_))
+    }
+
+    /// Returns the geometry of this window.
+    pub fn geometry(&self) -> Rectangle<i32, Logical> {
+        match self.underlying_surface() {
+            WindowSurface::Wayland(s) => {
+                let bbox = self.bbox();
+                // It's the set geometry clamped to the bounding box with the full bounding box as the fallback.
+                with_states(s.wl_surface(), |states| {
+                    states
+                        .cached_state
+                        .get::<SurfaceCachedState>()
+                        .current()
+                        .geometry
+                        .and_then(|geo| geo.intersection(bbox))
+                })
+                .unwrap_or(bbox)
+            }
+
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => SpaceElement::geometry(s),
+        }
+    }
+
+    /// Returns a bounding box over this window and its children.
+    pub fn bbox(&self) -> Rectangle<i32, Logical> {
+        match &self.0.surface {
+            WindowSurface::Wayland(_) => *self.0.bbox.lock().unwrap(),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => s.bbox(),
+        }
+    }
+
+    /// Returns a bounding box over this window and children including popups.
+    ///
+    /// Note: You need to use a [`PopupManager`] to track popups, otherwise the bounding box
+    /// will not include the popups.
+    pub fn bbox_with_popups(&self) -> Rectangle<i32, Logical> {
+        let mut bounding_box = self.bbox();
+        if let Some(surface) = self.wl_surface() {
+            for (popup, location) in PopupManager::popups_for_surface(&surface) {
+                let surface = popup.wl_surface();
+                let offset = self.geometry().loc + location - popup.geometry().loc;
+                bounding_box = bounding_box.merge(bbox_from_surface_tree(surface, offset));
+            }
+        }
+
+        bounding_box
+    }
+
+    /// Activate/Deactivate this window
+    pub fn set_activated(&self, active: bool) -> bool {
+        match &self.0.surface {
+            WindowSurface::Wayland(s) => s.with_pending_state(|state| {
+                if active {
+                    state.states.set(xdg_toplevel::State::Activated)
+                } else {
+                    state.states.unset(xdg_toplevel::State::Activated)
+                }
+            }),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => {
+                let already_activated = s.is_activated();
+                if s.set_activated(active).is_ok() {
+                    already_activated ^ active
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Sends a ping to the window to check that the client is still responding.
+    ///
+    /// For `xdg_toplevel` surfaces, you can implement
+    /// [`XdgShellHandler::client_pong`](crate::wayland::shell::xdg::XdgShellHandler::client_pong)
+    /// to be notified of replies.
+    ///
+    /// For X11/XWayland surfaces, you can implement
+    /// [`XwmHandler::ping_acked`](crate::xwayland::XwmHandler::ping_acked) to be notified of
+    /// replies.
+    ///
+    /// Fails if the window's underlying surface does not support a ping protocol, is dead, or
+    /// already has a pending ping.
+    #[cfg(feature = "wayland_frontend")]
+    pub fn send_ping(&self, serial: Serial) -> Result<(), PingError> {
+        match &self.0.surface {
+            WindowSurface::Wayland(s) => s.client().send_ping(serial)?,
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => s.send_ping(serial.0)?,
+        }
+        Ok(())
+    }
+
+    /// Sends the frame callback to all the subsurfaces in this window that requested it
+    ///
+    /// See [`send_frames_surface_tree`] for more information
+    pub fn send_frame<T, F>(
+        &self,
+        output: &Output,
+        time: T,
+        throttle: Option<Duration>,
+        primary_scan_out_output: F,
+    ) where
+        T: Into<Duration>,
+        F: FnMut(&wl_surface::WlSurface, &SurfaceData) -> Option<Output> + Copy,
+    {
+        let time = time.into();
+        if let Some(surface) = self.wl_surface() {
+            send_frames_surface_tree(&surface, output, time, throttle, primary_scan_out_output);
+            for (popup, _) in PopupManager::popups_for_surface(&surface) {
+                let surface = popup.wl_surface();
+                send_frames_surface_tree(surface, output, time, throttle, primary_scan_out_output);
+            }
+        }
+    }
+
+    /// Sends the dmabuf feedback to all the subsurfaces in this window that requested it
+    ///
+    /// See [`send_dmabuf_feedback_surface_tree`] for more information
+    pub fn send_dmabuf_feedback<'a, P, F>(
+        &self,
+        output: &Output,
+        primary_scan_out_output: P,
+        select_dmabuf_feedback: F,
+    ) where
+        P: FnMut(&wl_surface::WlSurface, &SurfaceData) -> Option<Output> + Copy,
+        F: Fn(&wl_surface::WlSurface, &SurfaceData) -> &'a DmabufFeedback + Copy,
+    {
+        if let Some(surface) = self.wl_surface() {
+            send_dmabuf_feedback_surface_tree(
+                &surface,
+                output,
+                primary_scan_out_output,
+                select_dmabuf_feedback,
+            );
+            for (popup, _) in PopupManager::popups_for_surface(&surface) {
+                let surface = popup.wl_surface();
+                send_dmabuf_feedback_surface_tree(
+                    surface,
+                    output,
+                    primary_scan_out_output,
+                    select_dmabuf_feedback,
+                );
+            }
+        }
+    }
+
+    /// Takes the [`PresentationFeedbackCallback`](crate::wayland::presentation::PresentationFeedbackCallback)s from all subsurfaces in this window
+    ///
+    /// see [`take_presentation_feedback_surface_tree`] for more information
+    pub fn take_presentation_feedback<F1, F2>(
+        &self,
+        output_feedback: &mut OutputPresentationFeedback,
+        primary_scan_out_output: F1,
+        presentation_feedback_flags: F2,
+    ) where
+        F1: FnMut(&wl_surface::WlSurface, &SurfaceData) -> Option<Output> + Copy,
+        F2: FnMut(&wl_surface::WlSurface, &SurfaceData) -> wp_presentation_feedback::Kind + Copy,
+    {
+        if let Some(surface) = self.wl_surface() {
+            take_presentation_feedback_surface_tree(
+                &surface,
+                output_feedback,
+                primary_scan_out_output,
+                presentation_feedback_flags,
+            );
+            for (popup, _) in PopupManager::popups_for_surface(&surface) {
+                let surface = popup.wl_surface();
+                take_presentation_feedback_surface_tree(
+                    surface,
+                    output_feedback,
+                    primary_scan_out_output,
+                    presentation_feedback_flags,
+                );
+            }
+        }
+    }
+
+    /// Run a closure on all surfaces in this window (including it's popups, if [`PopupManager`] is used)
+    pub fn with_surfaces<F>(&self, mut processor: F)
+    where
+        F: FnMut(&wl_surface::WlSurface, &SurfaceData),
+    {
+        if let Some(surface) = self.wl_surface() {
+            with_surfaces_surface_tree(&surface, &mut processor);
+            for (popup, _) in PopupManager::popups_for_surface(&surface) {
+                let surface = popup.wl_surface();
+                with_surfaces_surface_tree(surface, &mut processor);
+            }
+        }
+    }
+
+    /// Updates internal values
+    ///
+    /// Needs to be called whenever the toplevel surface or any unsynchronized subsurfaces of this window are updated
+    /// to correctly update the bounding box of this window.
+    pub fn on_commit(&self) {
+        if let Some(surface) = self.wl_surface() {
+            *self.0.bbox.lock().unwrap() = bbox_from_surface_tree(&surface, (0, 0));
+        }
+    }
+
+    /// Finds the topmost surface under this point matching the input regions of the surface and returns
+    /// it together with the location of this surface.
+    ///
+    /// In case no surface input region matches the point [`None`] is returned.
+    ///
+    /// - `point` should be relative to (0,0) of the window.
+    pub fn surface_under<P: Into<Point<f64, Logical>>>(
+        &self,
+        point: P,
+        surface_type: WindowSurfaceType,
+    ) -> Option<(wl_surface::WlSurface, Point<i32, Logical>)> {
+        let point = point.into();
+
+        match &self.0.surface {
+            WindowSurface::Wayland(surface) => {
+                let surface = surface.wl_surface();
+                if surface_type.contains(WindowSurfaceType::POPUP) {
+                    for (popup, location) in PopupManager::popups_for_surface(surface) {
+                        let offset = self.geometry().loc + location - popup.geometry().loc;
+                        if let Some(result) =
+                            under_from_surface_tree(popup.wl_surface(), point, offset, surface_type)
+                        {
+                            return Some(result);
+                        }
+                    }
+                }
+
+                if surface_type.contains(WindowSurfaceType::TOPLEVEL) {
+                    return under_from_surface_tree(surface, point, (0, 0), surface_type);
+                }
+            }
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(surface) => {
+                if surface_type.contains(WindowSurfaceType::TOPLEVEL) {
+                    return surface.surface_under(point, (0, 0), surface_type);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Returns the underlying xdg toplevel surface
+    pub fn toplevel(&self) -> Option<&ToplevelSurface> {
+        match &self.0.surface {
+            WindowSurface::Wayland(s) => Some(s),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(_) => None,
+        }
+    }
+
+    /// Returns the underlying X11 surface
+    #[cfg(feature = "xwayland")]
+    pub fn x11_surface(&self) -> Option<&X11Surface> {
+        match &self.0.surface {
+            WindowSurface::Wayland(_) => None,
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => Some(s),
+        }
+    }
+
+    /// Returns the underlying surface
+    pub fn underlying_surface(&self) -> &WindowSurface {
+        &self.0.surface
+    }
+
+    /// Override the z_index of this Window
+    pub fn override_z_index(&self, z_index: u8) {
+        self.0.z_index.store(z_index, Ordering::SeqCst);
+    }
+
+    /// Returns a [`UserDataMap`] to allow associating arbitrary data with this window.
+    #[inline]
+    pub fn user_data(&self) -> &UserDataMap {
+        &self.0.user_data
+    }
+}
+
+impl WaylandFocus for Window {
+    #[inline]
+    fn wl_surface(&self) -> Option<Cow<'_, wl_surface::WlSurface>> {
+        match &self.0.surface {
+            WindowSurface::Wayland(s) => Some(Cow::Borrowed(s.wl_surface())),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(s) => s.wl_surface().map(Cow::Owned),
+        }
+    }
+}

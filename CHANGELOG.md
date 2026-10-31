@@ -111,6 +111,10 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Keep the native Wayland input method connected across screen lock. Suspend
+  its keyboard grab and composition during the lock, isolate lock-screen
+  input, and restore normal composition after unlock without restarting the
+  IME. Unfinished composition is discarded at the lock boundary.
 - Remove a visible seam between compositor titlebars and window content,
   including when backdrop blur is enabled.
 - Use the Nix-provided sleep executable for the accessibility supervisor test,

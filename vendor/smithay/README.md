@@ -1,0 +1,89 @@
+<p align="center">
+  <img width="240" src="https://github.com/Smithay/smithay/assets/20758186/7a84ab10-e229-4823-bad8-9c647546407b" alt="Smithay"/>
+</p>
+
+<p align="center">
+  <a href="https://crates.io/crates/smithay"><img src="https://img.shields.io/crates/v/smithay.svg" alt="Crates.io"></a>
+  <a href="https://docs.rs/smithay"><img src="https://docs.rs/smithay/badge.svg" alt="docs.rs"></a>
+  <a href="https://github.com/Smithay/smithay/actions"><img src="https://github.com/Smithay/smithay/workflows/Continuous%20Integration/badge.svg" alt="CI"></a>
+  <a href="https://matrix.to/#/#smithay:matrix.org"><img src="https://img.shields.io/badge/Matrix-%23smithay%3Amatrix.org-blue.svg" alt="Matrix"></a>
+  <a href="https://libera.chat/"><img src="https://img.shields.io/badge/IRC-%23Smithay-blue.svg" alt="IRC"></a>
+</p>
+
+<p align="center">
+  <strong>A smithy for rusty Wayland compositors</strong>
+</p>
+
+## Goals
+
+Smithay aims to provide building blocks to create Wayland compositors in Rust. While not
+being a full-blown compositor, it'll provide objects and interfaces implementing common
+functionalities that pretty much any compositor will need, in a generic fashion.
+
+It supports the [core Wayland protocols](https://gitlab.freedesktop.org/wayland/wayland), the official [protocol extensions](https://gitlab.freedesktop.org/wayland/wayland-protocols), and *some* external extensions, such as those made by and for [wlroots](https://gitlab.freedesktop.org/wlroots/wlr-protocols) and [KDE](https://invent.kde.org/libraries/plasma-wayland-protocols).
+<!-- https://github.com/Smithay/smithay/pull/779#discussion_r993640470 https://github.com/Smithay/smithay/issues/778 -->
+
+Also:
+
+- **Documented:** Smithay strives to maintain clear and detailed documentation of its API and 
+  functionalities. Compiled documentation is available on [docs.rs](https://docs.rs/smithay) for released
+  versions, and [here](https://smithay.github.io/smithay) for the master branch.
+- **Safety:** Smithay aims to be memory-safe and reliable, thanks to Rust.
+- **Modularity:** Smithay is not a framework and does not impose constraints. You are never required
+  to use components you don’t need.
+- **High-level:** You should not have to worry about gory low-level stuff (but Smithay won't
+  stop you if you really want to dive into it).
+
+## Getting started
+
+If you want to learn how to build a compositor with Smithay, the best place to start is the [getting started](https://github.com/Smithay/smithay/blob/master/GETTING_STARTED.md) guide.
+
+## Anvil
+
+Smithay as a compositor library has its own sample compositor: `anvil`.
+
+To get information about it and how you can run it, check out the [`anvil` README](https://github.com/Smithay/smithay/blob/master/anvil/README.md)
+
+## Other compositors that use Smithay
+
+- [Cosmic](https://github.com/pop-os/cosmic-epoch): Next-generation Cosmic desktop environment
+- [Catacomb](https://github.com/catacombing/catacomb): A Wayland Mobile Compositor
+- [emskin](https://github.com/emskin/emskin): A nested Wayland compositor for embedding any app inside Emacs
+- [MagmaWM](https://github.com/MagmaWM/MagmaWM): A versatile and customizable Wayland Compositor
+- [Niri](https://github.com/YaLTeR/niri): A scrollable-tiling Wayland compositor
+- [Strata](https://github.com/StrataWM/strata): A cutting-edge, robust and sleek Wayland compositor
+- [Pinnacle](https://github.com/Ottatop/pinnacle): A WIP Wayland compositor, inspired by AwesomeWM 
+- [Sudbury](https://gitlab.freedesktop.org/bwidawsk/sudbury): Compositor designed for ChromeOS
+- [wprs](https://github.com/wayland-transpositor/wprs): Like [xpra](https://en.wikipedia.org/wiki/Xpra), but for Wayland, and written in
+Rust.
+- [Local Desktop](https://github.com/localdesktop/localdesktop): An Android app for running GUI Linux via PRoot and Wayland.
+- [Otto](https://github.com/nongio/otto): A gesture-driven stacking compositor.
+- [DriftWM](https://github.com/malbiruk/driftwm): A trackpad-first infinite canvas Wayland compositor.
+- [Denial](https://github.com/denialwm/denial): A stacking, tiling, and scrolling-tiling Wayland compositor with a Flutter-based shell.
+
+## System Dependencies
+
+(This list can depend on the features you enable)
+
+- `libwayland`
+- `libxkbcommon`
+- `libudev`
+- `libinput`
+- `libgbm`
+- [`libseat`](https://git.sr.ht/~kennylevinsen/seatd)
+- `xwayland`
+- `libEGL`
+- `libpixman`
+- `libdisplay-info`
+
+## Contact us
+
+If you have questions or want to discuss the project with us, our main chatroom is on Matrix: [`#smithay:matrix.org`](https://matrix.to/#/#smithay:matrix.org).
+
+## Contributing
+
+General notes on contributing to Smithay can be found [here](https://github.com/Smithay/smithay/blob/master/CONTRIBUTING.md).
+
+Please note that to submit code to Smithay, you must agree to our [Developer Certificate of Origin](https://github.com/Smithay/smithay/blob/master/DCO.md).
+
+If you are used to using generative AI, please ensure you read our [Policy](https://github.com/Smithay/smithay/blob/master/AI.md) before starting.
