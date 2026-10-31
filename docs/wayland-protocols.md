@@ -138,19 +138,22 @@ X11 applications keep using X11 IME and do not participate in this pair.
 This is interface version 1 of the v3 protocol; the newer interface-version-2
 requests and events are not advertised.
 
-Halley uses unmodified Smithay pinned to revision
-`79bbed5e1199090d787115614847a79c76607181`, matching the Niri revision checked
-for this change. Native composition and candidate popups use its basic
-text-input/input-method implementation. Halley no longer carries the IME
-state, commit-buffering, keyboard-grab teardown, or multiple-popup patches.
+Halley uses a local Smithay snapshot based on revision
+`79bbed5e1199090d787115614847a79c76607181`. Its input-method integration
+contains a small lock-suspension and composition-state patch; see
+`vendor/smithay/HALLEY-PATCH.md` for its scope.
 Socket-level smoke tests live in `tests/text_input_protocol.rs`; toolkit and
 candidate-window integration still require a live IME session.
 
-When the screen locks, Halley disconnects clients that created an input method
-and rejects new input-method requests until unlock. This prevents the IME from
-receiving lock-screen input without modifying Smithay. The IME must reconnect
-or be restarted after unlock; composition does not resume automatically on the
-old connection. X11 applications continue to use their X11 IME.
+When the screen locks, Halley suspends the desktop input method without
+disconnecting it. The IME cannot receive lock-screen keystrokes or text-input
+state, acquire an effective keyboard grab, or send composition to the lock
+screen. Pending composition is discarded. After unlock the existing IME can
+resume when a desktop text field is focused and enabled. A partly composed
+string may need to be entered again. X11 applications continue to use their
+X11 IME. The existing input-method executable grant remains necessary.
+Fcitx5 also needs the separate virtual-keyboard grant to forward keys; see
+[sensitive Wayland protocols](security.md#sensitive-wayland-protocols).
 
 Halley advertises `ext_background_effect_manager_v1` version 1 with the blur
 capability. A committed `set_blur_region` is clipped to the requesting

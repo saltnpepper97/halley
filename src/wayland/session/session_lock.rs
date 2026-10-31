@@ -457,10 +457,11 @@ impl<D: SessionDriver> Dispatch<ExtSessionLockV1, SessionLockState> for Session<
 }
 
 pub fn enter_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
-    session
-        .wayland
-        .ime_clients
-        .disconnect_all(&session.wayland.display_handle);
+    use smithay::wayland::input_method::InputMethodSeat;
+    let input_method = session.seat.input_method().clone();
+    if let Some(keyboard) = session.seat.get_keyboard() {
+        input_method.set_suspended(session, &keyboard, true);
+    }
     if let Some(mut grab) = session.popup_grab.take() {
         grab.ungrab(smithay::desktop::PopupUngrabStrategy::All);
     }
@@ -495,6 +496,11 @@ pub fn enter_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
 }
 
 pub fn leave_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
+    use smithay::wayland::input_method::InputMethodSeat;
+    let input_method = session.seat.input_method().clone();
+    if let Some(keyboard) = session.seat.get_keyboard() {
+        input_method.set_suspended(session, &keyboard, false);
+    }
     super::super::session_lock::cancel_client_input(session);
     let old_cursor = session
         .cursor

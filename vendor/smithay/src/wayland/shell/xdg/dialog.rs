@@ -1,0 +1,272 @@
+//! XDG Dialog Windows
+//!
+//! This interface allows a compositor to announce support for xdg-dialog toplevel hints, eg. modal hint.
+//!
+//! ```no_run
+//! # extern crate wayland_server;
+//! #
+//! use smithay::wayland::shell::xdg::{ToplevelSurface, XdgShellHandler};
+//! # use smithay::utils::Serial;
+//! # use smithay::wayland::shell::xdg::{XdgShellState, PopupSurface, PositionerState};
+//! # use smithay::reexports::wayland_server::protocol::{wl_seat, wl_surface};
+//! use smithay::wayland::shell::xdg::dialog::{ToplevelDialogHint, XdgDialogState, XdgDialogHandler};
+//!
+//! # struct State { dialog_state: XdgDialogState, seat_state: SeatState<Self> }
+//! # let mut display = wayland_server::Display::<State>::new().unwrap();
+//!
+//! // Create a dialog state
+//! let dialog_state = XdgDialogState::new::<State>(
+//!     &display.handle(),
+//! );
+//!
+//! // store that state inside your compositor state
+//! // ...
+//!
+//! // implement the necessary traits
+//! impl XdgShellHandler for State {
+//!     # fn xdg_shell_state(&mut self) -> &mut XdgShellState { unimplemented!() }
+//!     # fn new_toplevel(&mut self, surface: ToplevelSurface) { unimplemented!() }
+//!     # fn new_popup(
+//!     #     &mut self,
+//!     #     surface: PopupSurface,
+//!     #     positioner: PositionerState,
+//!     # ) { unimplemented!() }
+//!     # fn grab(
+//!     #     &mut self,
+//!     #     surface: PopupSurface,
+//!     #     seat: wl_seat::WlSeat,
+//!     #     serial: Serial,
+//!     # ) { unimplemented!() }
+//!     # fn reposition_request(
+//!     #     &mut self,
+//!     #     surface: PopupSurface,
+//!     #     positioner: PositionerState,
+//!     #     token: u32,
+//!     # ) { unimplemented!() }
+//!     // ...
+//! }
+//! impl XdgDialogHandler for State {
+//!     fn dialog_hint_changed(&mut self, toplevel: ToplevelSurface, hint: ToplevelDialogHint) { /* ... */ }
+//! }
+//!
+//! # use smithay::wayland::compositor::{CompositorHandler, CompositorState, CompositorClientState};
+//! use smithay::input::{Seat, SeatState, SeatHandler, pointer::CursorImageStatus};
+//! # use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
+//!
+//! # impl CompositorHandler for State {
+//! #     fn compositor_state(&mut self) -> &mut CompositorState { unimplemented!() }
+//! #     fn client_compositor_state<'a>(&self, client: &'a wayland_server::Client) -> &'a CompositorClientState { unimplemented!() }
+//! #     fn commit(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {}
+//! # }
+//! type Target = wl_surface::WlSurface;
+//! impl SeatHandler for State {
+//!     type KeyboardFocus = Target;
+//!     type PointerFocus = Target;
+//!     type TouchFocus = Target;
+//!
+//!     fn seat_state(&mut self) -> &mut SeatState<Self> {
+//!         &mut self.seat_state
+//!     }
+//!
+//!     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&Target>) {
+//!         // handle focus changes, if you need to ...
+//!     }
+//!     fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) {
+//!         // handle new images for the cursor ...
+//!     }
+//! }
+//! # impl PointerConstraintsHandler for State {}
+//!
+//! smithay::delegate_dispatch2!(State);
+//!
+//! // You are ready to go!
+
+use wayland_protocols::xdg::dialog::v1::server::{
+    xdg_dialog_v1::{self, XdgDialogV1},
+    xdg_wm_dialog_v1::{self, XdgWmDialogV1},
+};
+use wayland_server::{
+    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, backend::GlobalId,
+    protocol::wl_surface::WlSurface,
+};
+
+use super::{ToplevelSurface, XdgShellHandler};
+use crate::wayland::{
+    Dispatch2, GlobalData, GlobalDispatch2, compositor,
+    shell::xdg::{XdgShellSurfaceUserData, XdgToplevelSurfaceData},
+};
+
+/// Delegate type for handling xdg dialog events.
+#[derive(Debug)]
+pub struct XdgDialogState {
+    global: GlobalId,
+}
+
+impl XdgDialogState {
+    /// Creates a new delegate type for handling xdg dialog events.
+    ///
+    /// A global id is also returned to allow destroying the global in the future.
+    pub fn new<D>(display: &DisplayHandle) -> XdgDialogState
+    where
+        D: GlobalDispatch<XdgWmDialogV1, GlobalData> + Dispatch<XdgWmDialogV1, GlobalData> + 'static,
+    {
+        let global = display.create_global::<D, XdgWmDialogV1, _>(1, GlobalData);
+        XdgDialogState { global }
+    }
+
+    /// Returns the xdg-wm-dialog global.
+    pub fn global(&self) -> GlobalId {
+        self.global.clone()
+    }
+}
+
+/// Handler trait for xdg dialog events.
+pub trait XdgDialogHandler: XdgShellHandler {
+    /// The client has changed the dialog hint associated with the toplevel
+    fn dialog_hint_changed(&mut self, toplevel: ToplevelSurface, hint: ToplevelDialogHint) {
+        let _ = toplevel;
+        let _ = hint;
+    }
+}
+
+// xdg_wm_dialog_v1
+
+impl<D: XdgDialogHandler> GlobalDispatch2<XdgWmDialogV1, D> for GlobalData
+where
+    D: Dispatch<XdgWmDialogV1, GlobalData>,
+{
+    fn bind(
+        &self,
+        _: &mut D,
+        _: &DisplayHandle,
+        _: &Client,
+        resource: New<XdgWmDialogV1>,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        data_init.init(resource, GlobalData);
+    }
+}
+
+impl<D: XdgDialogHandler> Dispatch2<XdgWmDialogV1, D> for GlobalData
+where
+    D: Dispatch<XdgDialogV1, ToplevelSurface>,
+{
+    fn request(
+        &self,
+        state: &mut D,
+        _: &Client,
+        resource: &XdgWmDialogV1,
+        request: xdg_wm_dialog_v1::Request,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        use xdg_wm_dialog_v1::Request;
+
+        match request {
+            Request::GetXdgDialog { id, toplevel } => {
+                let data = toplevel.data::<XdgShellSurfaceUserData>().unwrap();
+
+                let mut dialog_guard = data.dialog.lock().unwrap();
+
+                if dialog_guard.is_some() {
+                    resource.post_error(
+                        xdg_wm_dialog_v1::Error::AlreadyUsed,
+                        "toplevel dialog is already constructed",
+                    );
+                    return;
+                }
+
+                let toplevel = state.xdg_shell_state().get_toplevel(&toplevel).unwrap();
+                let toplevel_dialog = data_init.init(id, toplevel.clone());
+
+                *dialog_guard = Some(toplevel_dialog);
+                drop(dialog_guard);
+
+                if set_dialog_hint(toplevel.wl_surface(), ToplevelDialogHint::Dialog) {
+                    state.dialog_hint_changed(toplevel, ToplevelDialogHint::Dialog);
+                }
+            }
+
+            Request::Destroy => {}
+
+            _ => unreachable!(),
+        }
+    }
+}
+
+// xdg_dialog_v1
+
+impl<D: XdgDialogHandler> Dispatch2<XdgDialogV1, D> for ToplevelSurface {
+    fn request(
+        &self,
+        state: &mut D,
+        _: &Client,
+        _: &XdgDialogV1,
+        request: xdg_dialog_v1::Request,
+        _dh: &DisplayHandle,
+        _: &mut DataInit<'_, D>,
+    ) {
+        use xdg_dialog_v1::Request;
+
+        match request {
+            Request::SetModal => {
+                if set_dialog_hint(self.wl_surface(), ToplevelDialogHint::Modal) {
+                    state.dialog_hint_changed(self.clone(), ToplevelDialogHint::Modal);
+                }
+            }
+
+            Request::UnsetModal => {
+                if set_dialog_hint(self.wl_surface(), ToplevelDialogHint::Dialog) {
+                    state.dialog_hint_changed(self.clone(), ToplevelDialogHint::Dialog);
+                }
+            }
+
+            Request::Destroy => {
+                if set_dialog_hint(self.wl_surface(), ToplevelDialogHint::Unknown) {
+                    state.dialog_hint_changed(self.clone(), ToplevelDialogHint::Unknown);
+                }
+
+                if let Some(data) = self.xdg_toplevel().data::<XdgShellSurfaceUserData>() {
+                    data.dialog.lock().unwrap().take();
+                }
+            }
+
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// Dialog hint assigned to toplevels by the xdg-dialog-v1 protocol
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ToplevelDialogHint {
+    /// The toplevel is not associated with an xdg_dialog_v1 object.
+    #[default]
+    Unknown,
+    /// The toplevel is a "dialog" (e.g. a temporary window) relative
+    /// to its parent (see xdg_toplevel.set_parent).
+    Dialog,
+    /// The toplevel is a dialog with "modal" behaviour. Modal dialogs
+    /// typically require to be fully addressed by the user (i.e. closed)
+    /// before resuming interaction with the parent toplevel,
+    /// and may require a distinct presentation.
+    Modal,
+}
+
+/// Returns true if changed
+fn set_dialog_hint(wl_surface: &WlSurface, hint: ToplevelDialogHint) -> bool {
+    compositor::with_states(wl_surface, |states| {
+        let role = &mut states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .unwrap()
+            .lock()
+            .unwrap();
+
+        if role.dialog_hint != hint {
+            role.dialog_hint = hint;
+            true
+        } else {
+            false
+        }
+    })
+}

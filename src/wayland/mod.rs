@@ -16,7 +16,6 @@ pub use data_transfer::{dnd, selection};
 pub use desktop::{
     decoration, ext_workspace, foreign_toplevel, fullscreen, layer_shell, popup, xdg_shell,
 };
-use input::ime_clients;
 pub use input::{focus, text_input};
 pub use output::display_scale;
 pub use output::protocols::{wlr_gamma_control, wlr_output_management, wlr_output_power};
@@ -214,7 +213,6 @@ mod window_output_tests {
 /// of this type. That keeps the Smithay globals and shell lifecycle together
 /// without creating a compositor-wide god object.
 pub struct WaylandState {
-    pub ime_clients: ime_clients::ImeClients,
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
     pub fifo: fifo::State,
@@ -392,7 +390,6 @@ impl WaylandState {
             _pointer_gestures_state: pointer_gestures_state,
             _cursor_shape_manager_state: cursor_shape_manager_state,
             _virtual_keyboard_manager_state: virtual_keyboard_manager_state,
-            ime_clients: Default::default(),
             _text_input_manager_state: text_input_manager_state,
             _input_method_manager_state: input_method_manager_state,
             keyboard_shortcuts_inhibit_state,

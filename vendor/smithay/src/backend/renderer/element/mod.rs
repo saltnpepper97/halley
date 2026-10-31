@@ -1,0 +1,1840 @@
+//! Common base for elements that can be drawn by a [`Renderer`]
+//!
+//! A [`RenderElement`] defines what should be [`draw`](RenderElement::draw)n where.
+//! Additionally it provides the foundation for effective damage tracked rendering
+//! by allowing to query for damage between two [`CommitCounter`]s.
+//!
+//! For specialized renderers it can optionally provide access to the [`UnderlyingStorage`]
+//! of the element.
+//!
+//! Out of the box smithay provides the following elements
+//! - [`memory`] - Memory based render element
+//! - [`texture`] - Texture based render element
+//! - [`surface`] - Wayland surface render element
+//! - [`solid`] - Solid color render element
+//!
+//! The [`render_elements!`] macro provides an easy way to aggregate multiple different [RenderElement]s
+//! into a single enum.
+//!
+//! See the [`damage`](crate::backend::renderer::damage) module for more information on
+//! damage tracking.
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
+
+#[cfg(feature = "wayland_frontend")]
+use wayland_server::{Resource, backend::ObjectId};
+
+use crate::{
+    output::{Output, WeakOutput},
+    utils::{Buffer as BufferCoords, Physical, Point, Rectangle, Scale, Transform, user_data::UserDataMap},
+};
+
+#[cfg(feature = "wayland_frontend")]
+use super::utils::Buffer;
+use super::{
+    Renderer,
+    utils::{CommitCounter, DamageSet, OpaqueRegions},
+};
+
+pub mod memory;
+pub mod solid;
+#[cfg(feature = "wayland_frontend")]
+pub mod surface;
+pub mod texture;
+pub mod utils;
+
+crate::utils::ids::id_gen!(external_id);
+
+#[derive(Debug, Clone)]
+/// A unique id for a [`RenderElement`]
+pub struct Id {
+    inner: InnerId,
+    namespace: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+enum InnerId {
+    #[cfg(feature = "wayland_frontend")]
+    WaylandResource(ObjectId),
+    External(Arc<ExternalId>),
+}
+
+#[derive(Debug, Clone)]
+/// A weak reference to a unique id for a [`RenderElement`]
+pub struct WeakId {
+    inner: InnerWeakId,
+    namespace: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+enum InnerWeakId {
+    #[cfg(feature = "wayland_frontend")]
+    WaylandResource(ObjectId),
+    External(Weak<ExternalId>),
+}
+
+#[derive(Debug, Clone)]
+struct ExternalId(usize);
+
+impl ExternalId {
+    fn new() -> Self {
+        ExternalId(external_id::next())
+    }
+}
+
+impl Drop for ExternalId {
+    fn drop(&mut self) {
+        external_id::remove(self.0);
+    }
+}
+
+impl PartialEq for Id {
+    fn eq(&self, other: &Self) -> bool {
+        self.namespace == other.namespace
+            && match (&self.inner, &other.inner) {
+                #[cfg(feature = "wayland_frontend")]
+                (InnerId::WaylandResource(this_obj), InnerId::WaylandResource(other_obj)) => {
+                    this_obj == other_obj
+                }
+                (InnerId::External(this_id), InnerId::External(other_id)) => Arc::ptr_eq(this_id, other_id),
+                #[allow(unreachable_patterns)]
+                _ => false,
+            }
+    }
+}
+impl Eq for Id {}
+
+impl PartialEq for WeakId {
+    fn eq(&self, other: &Self) -> bool {
+        self.namespace == other.namespace
+            && match (&self.inner, &other.inner) {
+                #[cfg(feature = "wayland_frontend")]
+                (InnerWeakId::WaylandResource(this_obj), InnerWeakId::WaylandResource(other_obj)) => {
+                    this_obj == other_obj
+                }
+                (InnerWeakId::External(this_id), InnerWeakId::External(other_id)) => {
+                    Weak::ptr_eq(this_id, other_id)
+                }
+                #[allow(unreachable_patterns)]
+                _ => false,
+            }
+    }
+}
+impl Eq for WeakId {}
+
+impl PartialEq<WeakId> for Id {
+    fn eq(&self, other: &WeakId) -> bool {
+        let this = self.downgrade();
+        &this == other
+    }
+}
+
+impl std::hash::Hash for Id {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        match &self.inner {
+            #[cfg(feature = "wayland_frontend")]
+            InnerId::WaylandResource(obj) => obj.hash(state),
+            InnerId::External(arc) => {
+                (Arc::as_ptr(arc) as usize).hash(state);
+            }
+        }
+        self.namespace.hash(state);
+    }
+}
+
+impl std::hash::Hash for WeakId {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        match &self.inner {
+            #[cfg(feature = "wayland_frontend")]
+            InnerWeakId::WaylandResource(obj) => obj.hash(state),
+            InnerWeakId::External(arc) => {
+                (Weak::as_ptr(arc) as usize).hash(state);
+            }
+        }
+        self.namespace.hash(state);
+    }
+}
+
+impl Id {
+    /// Create an id from a [`Resource`]
+    ///
+    /// Note: Calling this function for the same [`Resource`]
+    /// multiple times will return the same id.
+    #[cfg(feature = "wayland_frontend")]
+    pub fn from_wayland_resource<R: Resource>(resource: &R) -> Self {
+        Id {
+            inner: InnerId::WaylandResource(resource.id()),
+            namespace: None,
+        }
+    }
+
+    /// Create a new unique id
+    ///
+    /// Note: The id will be re-used once all instances of this [`Id`]
+    /// are dropped.
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Id {
+            inner: InnerId::External(Arc::new(ExternalId::new())),
+            namespace: None,
+        }
+    }
+
+    /// Add a namespace to this id.
+    ///
+    /// This allows re-use of an `Id`, while still differentiating
+    /// between multiple instances with a stable Hash.
+    ///
+    /// This is especially useful for elements implementing
+    /// [`Element::is_framebuffer_effect`], where multiple instances
+    /// of the same id in a single `DamageTracker`-call will
+    /// degrade performance.
+    pub fn namespaced(&self, namespace: usize) -> Self {
+        Id {
+            inner: self.inner.clone(),
+            namespace: Some(namespace),
+        }
+    }
+
+    /// Remove a previously applied namespace from the `Id`.
+    pub fn unnamespaced(&self) -> Self {
+        Id {
+            inner: self.inner.clone(),
+            namespace: None,
+        }
+    }
+
+    /// Create a weak reference to this Id, which won't keep it from being re-used internally.
+    pub fn downgrade(&self) -> WeakId {
+        WeakId {
+            inner: match &self.inner {
+                #[cfg(feature = "wayland_frontend")]
+                InnerId::WaylandResource(id) => InnerWeakId::WaylandResource(id.clone()),
+                InnerId::External(arc) => InnerWeakId::External(Arc::downgrade(arc)),
+            },
+            namespace: self.namespace,
+        }
+    }
+}
+
+impl WeakId {
+    /// Create `Id` from this weak handle, if it still exist
+    pub fn upgrade(&self) -> Option<Id> {
+        Some(Id {
+            inner: match &self.inner {
+                #[cfg(feature = "wayland_frontend")]
+                InnerWeakId::WaylandResource(obj) => InnerId::WaylandResource(obj.clone()),
+                InnerWeakId::External(weak) => InnerId::External(weak.upgrade()?),
+            },
+            namespace: self.namespace,
+        })
+    }
+}
+
+#[cfg(feature = "wayland_frontend")]
+impl<R: Resource> From<&R> for Id {
+    #[inline]
+    fn from(resource: &R) -> Self {
+        Id::from_wayland_resource(resource)
+    }
+}
+
+/// The underlying storage for a element
+#[derive(Debug, Clone)]
+pub enum UnderlyingStorage<'a> {
+    /// A wayland buffer
+    #[cfg(feature = "wayland_frontend")]
+    Wayland(&'a Buffer),
+    /// A memory backed buffer
+    Memory(&'a memory::MemoryBuffer),
+}
+
+/// Defines the (optional) reason why a [`Element`] was selected for
+/// rendering instead of direct scan-out
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderingReason {
+    /// The element buffer format is unsuited for direct scan-out
+    FormatUnsupported,
+    /// Element was selected for direct scan-out but failed
+    ScanoutFailed,
+}
+
+/// Defines the presentation state of an element after rendering
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderElementPresentationState {
+    /// The element was selected for rendering
+    Rendering {
+        /// Optional reason why the element was selected for rendering
+        ///
+        /// Can be used to make a decision on sending an dmabuf feedback
+        /// scan-out tranche.
+        reason: Option<RenderingReason>,
+    },
+    /// The element was selected for zero-copy scan-out
+    ZeroCopy,
+    /// The element was skipped as it is current not visible
+    Skipped,
+}
+
+/// Defines the element render state after rendering
+#[derive(Debug, Clone, Copy)]
+pub struct RenderElementState {
+    /// Holds the physical visible area of the element on the output in pixels.
+    ///
+    /// Note: If the presentation_state is [`RenderElementPresentationState::Skipped`] this will be zero.
+    pub visible_area: usize,
+    /// Holds the presentation state of the element on the output
+    pub presentation_state: RenderElementPresentationState,
+    /// The next `RenderElements::draw` call to this element needs an accompanying `capture_framebuffer`-call.
+    pub needs_capture: bool,
+}
+
+impl RenderElementState {
+    pub(crate) fn skipped() -> Self {
+        RenderElementState {
+            visible_area: Default::default(),
+            presentation_state: RenderElementPresentationState::Skipped,
+            needs_capture: false,
+        }
+    }
+
+    pub(crate) fn rendered(visible_area: usize) -> Self {
+        RenderElementState {
+            visible_area,
+            presentation_state: RenderElementPresentationState::Rendering { reason: None },
+            needs_capture: false,
+        }
+    }
+}
+
+/// Holds the primary scanout output for a surface
+#[derive(Debug, Default)]
+pub struct PrimaryScanoutOutput(Option<(WeakOutput, RenderElementState)>);
+
+impl PrimaryScanoutOutput {
+    /// Update the primary scan-out output from [`RenderElementStates`]
+    ///
+    /// If the current primary scan-out output is different than the
+    /// provided output and the element is present according to the states
+    /// the provided compare function will be run to select the preferred
+    /// output. Smithay provides a [`default`](`default_primary_scanout_output_compare`)
+    /// compare function for convenience.
+    ///
+    /// Returns the updated primary scan-out output if any
+    pub fn update_from_render_element_states<F>(
+        &mut self,
+        element_id: impl Into<Id>,
+        output: &Output,
+        namespace: Option<usize>,
+        states: &RenderElementStates,
+        compare: F,
+    ) -> Option<Output>
+    where
+        F: for<'a> Fn(&'a Output, &'a RenderElementState, &'a Output, &'a RenderElementState) -> &'a Output,
+    {
+        let element_id = element_id.into();
+        let element_id = namespace
+            .map(|val| element_id.namespaced(val))
+            .unwrap_or(element_id);
+        let element_was_presented = states.element_was_presented(element_id.clone());
+        let element_state = states.element_render_state(element_id);
+        let primary_scanout_output = &mut self.0;
+
+        let has_valid_output = primary_scanout_output
+            .as_ref()
+            .map(|(current, _)| current.is_alive())
+            .unwrap_or(false);
+        let same_output = primary_scanout_output
+            .as_ref()
+            .map(|(current, _)| current == output)
+            .unwrap_or(false);
+
+        // If the element was not presented and we have no valid output
+        // there is nothing we can do
+        if !element_was_presented && !has_valid_output {
+            return None;
+        }
+
+        // If our current output is the one we received for the update
+        // and the element was not presented remove it, no need to check further
+        if !element_was_presented && same_output {
+            *primary_scanout_output = None;
+            return None;
+        }
+
+        // If the element was presented but we have no current valid output
+        // just directly update and exit early
+        if element_was_presented && !has_valid_output {
+            *primary_scanout_output = Some((output.downgrade(), element_state.unwrap()));
+            return Some(output.clone());
+        }
+
+        // If the element was presented on the same output there
+        // is no need to check
+        if element_was_presented && has_valid_output && same_output {
+            primary_scanout_output.as_mut().unwrap().1 = element_state.unwrap();
+            return Some(output.clone());
+        }
+
+        // If the element was presented on a different output and we have a
+        // valid current output, run the provided check
+        if element_was_presented && has_valid_output && !same_output {
+            let (current_output, current_state) = primary_scanout_output
+                .as_ref()
+                .map(|(output, state)| (output.upgrade().unwrap(), state))
+                .unwrap();
+            let updated = compare(
+                &current_output,
+                current_state,
+                output,
+                element_state.as_ref().unwrap(),
+            )
+            .clone();
+            *primary_scanout_output = Some((updated.downgrade(), element_state.unwrap()));
+            return Some(updated);
+        }
+
+        // The element was not presented on that output and the current scan-out output
+        // is a different than we currently have, so we can just leave it as is
+        primary_scanout_output
+            .as_ref()
+            .and_then(|(output, _)| output.upgrade())
+    }
+
+    /// Gets the current primary scanout output if any
+    ///
+    /// Return `None` if there is no primary scanout output or
+    /// the stored output is longer alive
+    pub fn current_output(&self) -> Option<Output> {
+        self.0.as_ref().and_then(|(o, _)| o.upgrade())
+    }
+}
+
+/// Default function for primary scan-out selection
+///
+/// This will prefer the next output when the visible portion of
+/// the element on screen is at least twice the size of the
+/// current visible portion. Otherwise it will prefer the output
+/// with the higher refresh rate.
+pub fn default_primary_scanout_output_compare<'a>(
+    current_output: &'a Output,
+    current_state: &RenderElementState,
+    next_output: &'a Output,
+    next_state: &RenderElementState,
+) -> &'a Output {
+    const VISIBLE_AREA_THRESHOLD: usize = 2;
+
+    let current_mode = current_output.current_mode();
+    let next_mode = next_output.current_mode();
+
+    // We don't expect to be called with an output that has no mode,
+    // but to be safe we do not unwrap here
+    let next_mode_has_higher_refresh = next_mode
+        .map(|next_mode| {
+            current_mode
+                .map(|current_mode| next_mode.refresh > current_mode.refresh)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    let current_visible_area_threshold = current_state.visible_area * VISIBLE_AREA_THRESHOLD;
+    let next_mode_visible_area_greater = next_state.visible_area >= current_visible_area_threshold;
+
+    if next_mode_visible_area_greater || next_mode_has_higher_refresh {
+        next_output
+    } else {
+        current_output
+    }
+}
+
+/// Holds the states for a set of [`RenderElement`]s
+#[derive(Default, Debug, Clone)]
+pub struct RenderElementStates {
+    /// Holds the render states of the elements
+    pub states: HashMap<Id, RenderElementState>,
+}
+
+impl RenderElementStates {
+    /// Return the [`RenderElementState`] for the specified [`Id`]
+    ///
+    /// Return `None` if the element is not included in the states
+    pub fn element_render_state(&self, id: impl Into<Id>) -> Option<RenderElementState> {
+        self.states.get(&id.into()).copied()
+    }
+
+    /// Returns whether the element with the specified id was presented
+    ///
+    /// Returns `false` if the element with the id was not found or skipped
+    pub fn element_was_presented(&self, id: impl Into<Id>) -> bool {
+        self.element_render_state(id)
+            .map(|state| state.presentation_state != RenderElementPresentationState::Skipped)
+            .unwrap_or(false)
+    }
+}
+
+/// Defines the kind of an [`Element`]
+///
+/// This can give the backend a hint about how to handle the element
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum Kind {
+    /// The element represents a cursor
+    ///
+    /// An element representing a cursor is expected to change infrequently.
+    /// Not marking a cursor element as `Cursor` may result in lower performance and increased power usage.
+    /// In contrast, marking elements that change frequently as `Cursor` can degrade performance significantly.
+    Cursor,
+    /// The element is a good candidate for scanout
+    ///
+    /// An element marked as a scanout candidate is expected to refresh frequently or with a constant rate.
+    /// As such it makes a good candidate to save resources by placing it on an overlay plane, when using the drm backend
+    /// (see [`DrmCompositor`](crate::backend::drm::compositor::DrmCompositor)).
+    ///
+    /// Examples of applications like this include video players or games. To detect good candidates compositor should
+    /// employ heuristics. For example, it might keep track of the surface commit rate and mark surfaces hitting thresholds
+    /// as scanout candidates.
+    ///
+    /// Note: You can select a different `Kind` every time you create the render element from e.g. a wayland surface.
+    /// This means it is expected that compositors dynamically choose the appropriate `Kind` at runtime instead
+    /// of relying on static configuration. E.g. it can make sense to switch back to `Unspecified` during very dynamic
+    /// scenes like animations, as moving planes can be slow on certain hardware.
+    ///
+    /// Elements not marked as scanout candidates will never be considered, when selecting potential buffers for overlay planes.
+    ScanoutCandidate,
+    /// The element kind is unspecified
+    #[default]
+    Unspecified,
+}
+
+/// A single element
+pub trait Element {
+    /// Get the unique id of this element
+    fn id(&self) -> &Id;
+    /// Get the current commit position of this element
+    fn current_commit(&self) -> CommitCounter;
+    /// Get the location relative to the output
+    fn location(&self, scale: Scale<f64>) -> Point<i32, Physical> {
+        self.geometry(scale).loc
+    }
+    /// Get the src of the underlying buffer
+    fn src(&self) -> Rectangle<f64, BufferCoords>;
+    /// Get the transform of the underlying buffer
+    fn transform(&self) -> Transform {
+        Transform::Normal
+    }
+    /// Get the geometry relative to the output
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical>;
+    /// Get the damage since the provided commit relative to the element
+    fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
+        if commit != Some(self.current_commit()) {
+            DamageSet::from_slice(&[Rectangle::from_size(self.geometry(scale).size)])
+        } else {
+            DamageSet::default()
+        }
+    }
+    /// Get the opaque regions of the element relative to the element
+    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        OpaqueRegions::default()
+    }
+    /// Returns an alpha value the element should be drawn with regardless of any
+    /// already encoded alpha in it's underlying representation.
+    fn alpha(&self) -> f32 {
+        1.0
+    }
+    /// Returns the [`Kind`] for this element
+    fn kind(&self) -> Kind {
+        Kind::default()
+    }
+    /// Returns whether this elements is a "framebuffer effect".
+    ///
+    /// Returning `true` will cause implementations of `RenderElement::capture_framebuffer`
+    /// to be called *before* the accompanying `RenderElement::draw` call, *if* the contents behind
+    /// the element have changed.
+    ///
+    /// Additionally damage calculation will be altered to always include the whole area behind the
+    /// element, if a capture is queued up, to make sure the framebuffer contents are available for capture.
+    ///
+    /// Any damage reported by this element will also cause `capture_framebuffer` to be called.
+    fn is_framebuffer_effect(&self) -> bool {
+        false
+    }
+}
+
+/// A single render element
+pub trait RenderElement<R: Renderer>: Element {
+    /// Draw this element
+    ///
+    /// `cache` will only be `Some` if [`Element::is_framebuffer_effect`] returns `true`.
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), R::Error>;
+
+    /// Get the underlying storage of this element, may be used to optimize rendering (eg. drm planes)
+    #[inline]
+    fn underlying_storage(&self, renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        let _ = renderer;
+        None
+    }
+
+    /// Notification, that the underlying framebuffer has changed allowing the element
+    /// to blit the contents of the `frame`.
+    ///
+    /// Will only be called if `Element::is_framebuffer_effect` returns `true`.
+    fn capture_framebuffer(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        cache: &UserDataMap,
+    ) -> Result<(), R::Error> {
+        let _ = (frame, src, dst, cache);
+        unimplemented!("error: is_framebuffer_effect without capture_framebuffer implementation!");
+    }
+}
+
+/// Types that can be converted into [`RenderElement`]s
+pub trait AsRenderElements<R>
+where
+    R: Renderer,
+{
+    /// Type of the render element
+    type RenderElement: RenderElement<R>;
+    /// Returns render elements for a given position and scale
+    fn render_elements<C: From<Self::RenderElement>>(
+        &self,
+        renderer: &mut R,
+        location: Point<i32, Physical>,
+        scale: Scale<f64>,
+        alpha: f32,
+    ) -> Vec<C>;
+}
+
+impl<E> Element for &E
+where
+    E: Element,
+{
+    fn id(&self) -> &Id {
+        (*self).id()
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        (*self).current_commit()
+    }
+
+    fn location(&self, scale: Scale<f64>) -> Point<i32, Physical> {
+        (*self).location(scale)
+    }
+
+    fn src(&self) -> Rectangle<f64, BufferCoords> {
+        (*self).src()
+    }
+
+    fn transform(&self) -> Transform {
+        (*self).transform()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        (*self).geometry(scale)
+    }
+
+    fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
+        (*self).damage_since(scale, commit)
+    }
+
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        (*self).opaque_regions(scale)
+    }
+
+    fn alpha(&self) -> f32 {
+        (*self).alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        (*self).kind()
+    }
+
+    fn is_framebuffer_effect(&self) -> bool {
+        (*self).is_framebuffer_effect()
+    }
+}
+
+impl<R, E> RenderElement<R> for &E
+where
+    R: Renderer,
+    E: RenderElement<R> + Element,
+{
+    #[inline]
+    fn underlying_storage(&self, renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        (*self).underlying_storage(renderer)
+    }
+
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), R::Error> {
+        (*self).draw(frame, src, dst, damage, opaque_regions, cache)
+    }
+
+    fn capture_framebuffer(
+        &self,
+        frame: &mut <R>::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        cache: &UserDataMap,
+    ) -> Result<(), <R>::Error> {
+        (*self).capture_framebuffer(frame, src, dst, cache)
+    }
+}
+
+/// [`Element`] wrapper namespacing the [`Id`] of the internal element.
+///
+/// See [`Id::namespaced`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NamespacedElement<E: Element> {
+    inner: E,
+    namespace: Id,
+}
+
+impl<E: Element> NamespacedElement<E> {
+    /// Create a new `NamespacedElement` wrapping `elem` and using
+    /// `namespace` to namespace the elements id.
+    pub fn new(elem: E, namespace: usize) -> Self {
+        let namespace = elem.id().namespaced(namespace);
+        NamespacedElement {
+            inner: elem,
+            namespace,
+        }
+    }
+
+    /// Extract the inner element
+    pub fn into_inner(self) -> E {
+        self.inner
+    }
+}
+
+impl<E: Element> AsRef<E> for NamespacedElement<E> {
+    fn as_ref(&self) -> &E {
+        &self.inner
+    }
+}
+
+impl<E: Element> AsMut<E> for NamespacedElement<E> {
+    fn as_mut(&mut self) -> &mut E {
+        &mut self.inner
+    }
+}
+
+impl<E: Element> Element for NamespacedElement<E> {
+    fn id(&self) -> &Id {
+        &self.namespace
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.inner.current_commit()
+    }
+
+    fn src(&self) -> Rectangle<f64, BufferCoords> {
+        self.inner.src()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.inner.geometry(scale)
+    }
+
+    fn location(&self, scale: Scale<f64>) -> Point<i32, Physical> {
+        self.inner.location(scale)
+    }
+
+    fn transform(&self) -> Transform {
+        self.inner.transform()
+    }
+
+    fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
+        self.inner.damage_since(scale, commit)
+    }
+
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        self.inner.opaque_regions(scale)
+    }
+
+    fn alpha(&self) -> f32 {
+        self.inner.alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        self.inner.kind()
+    }
+
+    fn is_framebuffer_effect(&self) -> bool {
+        self.inner.is_framebuffer_effect()
+    }
+}
+
+impl<R: Renderer, E: Element + RenderElement<R>> RenderElement<R> for NamespacedElement<E> {
+    fn draw(
+        &self,
+        frame: &mut <R>::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), <R>::Error> {
+        self.inner.draw(frame, src, dst, damage, opaque_regions, cache)
+    }
+
+    fn underlying_storage(&self, renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        self.inner.underlying_storage(renderer)
+    }
+
+    fn capture_framebuffer(
+        &self,
+        frame: &mut <R>::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        cache: &UserDataMap,
+    ) -> Result<(), <R>::Error> {
+        self.inner.capture_framebuffer(frame, src, dst, cache)
+    }
+}
+
+// Clippy: `large_enum_variant` is easily triggered here, as the `_GenericCatcher` is always zero-size.
+//          Thus we disable the lint.
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! render_elements_internal {
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher(std::convert::Infallible),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident $($custom:ident)+; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$($custom),+> {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher(std::convert::Infallible),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident $lt:lifetime; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$lt> {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher(std::convert::Infallible),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident $lt:lifetime $($custom:ident)+; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$lt, $($custom),+> {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher(std::convert::Infallible),
+        }
+    };
+
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident<$renderer:ident>; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+        {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher((std::marker::PhantomData<$renderer>, std::convert::Infallible)),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident<$renderer:ident, $($custom:ident),+>; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer>,
+            )+
+        {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher((std::marker::PhantomData<$renderer>, std::convert::Infallible)),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident<$lt:lifetime, $renderer:ident>; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$lt, $renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+        {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher((std::marker::PhantomData<$renderer>, std::convert::Infallible)),
+        }
+    };
+    (@enum $(#[$attr:meta])* $vis:vis $name:ident<$lt:lifetime, $renderer:ident, $($custom:ident),+>; $($(#[$meta:meta])* $body:ident=$field:ty$( as <$other_renderer:ty>)?),* $(,)?) => {
+        $(#[$attr])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name<$lt, $renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer>,
+            )+
+        {
+            $(
+                $(
+                    #[$meta]
+                )*
+                $body($field)
+            ),*,
+            #[doc(hidden)]
+            _GenericCatcher((std::marker::PhantomData<$renderer>, std::convert::Infallible)),
+        }
+    };
+    (@call $name:ident; $($x:ident),*) => {
+        $crate::backend::renderer::element::Element::$name($($x),*)
+    };
+    (@call $renderer:ty; $name:ident; $($x:ident),*) => {
+        $crate::backend::renderer::element::RenderElement::<$renderer>::$name($($x),*)
+    };
+    (@call $renderer:ty as $other:ty; draw; $x:ident, $renderer_ref:ident, $frame:ident, $($tail:ident),*) => {
+        $crate::backend::renderer::element::RenderElement::<$other>::draw($x, $renderer_ref.as_mut(), $frame.as_mut(), $($tail),*).map_err(Into::into)
+    };
+    (@call $renderer:ty as $other:ty; $name:ident; $($x:ident),*) => {
+        $crate::backend::renderer::element::RenderElement::<$other>::$name($($x),*)
+    };
+    (@body $($(#[$meta:meta])* $body:ident=$field:ty),* $(,)?) => {
+        fn id(&self) -> &$crate::backend::renderer::element::Id {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call id; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn location(&self, scale: $crate::utils::Scale<f64>) -> $crate::utils::Point<i32, $crate::utils::Physical> {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call location; x, scale)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn src(&self) -> $crate::utils::Rectangle<f64, $crate::utils::Buffer> {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call src; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn transform(&self) -> $crate::utils::Transform {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call transform; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn geometry(&self, scale: $crate::utils::Scale<f64>) -> $crate::utils::Rectangle<i32, $crate::utils::Physical> {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call geometry; x, scale)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn current_commit(&self) -> $crate::backend::renderer::utils::CommitCounter {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call current_commit; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn damage_since(&self, scale: $crate::utils::Scale<f64>, commit: Option<$crate::backend::renderer::utils::CommitCounter>) -> $crate::backend::renderer::utils::DamageSet<i32, $crate::utils::Physical> {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call damage_since; x, scale, commit)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn opaque_regions(&self, scale: $crate::utils::Scale<f64>) -> $crate::backend::renderer::utils::OpaqueRegions<i32, $crate::utils::Physical> {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call opaque_regions; x, scale)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn alpha(&self) -> f32 {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call alpha; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn kind(&self) -> $crate::backend::renderer::element::Kind {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call kind; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn is_framebuffer_effect(&self) -> bool {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call is_framebuffer_effect; x)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+    };
+    (@draw <$renderer:ty>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        fn draw(
+            &self,
+            frame: &mut <$renderer as $crate::backend::renderer::RendererSuper>::Frame<'_, '_>,
+            src: $crate::utils::Rectangle<f64, $crate::utils::Buffer>,
+            dst: $crate::utils::Rectangle<i32, $crate::utils::Physical>,
+            damage: &[$crate::utils::Rectangle<i32, $crate::utils::Physical>],
+            opaque_regions: &[$crate::utils::Rectangle<i32, $crate::utils::Physical>],
+            cache: Option<&$crate::utils::user_data::UserDataMap>,
+        ) -> Result<(), <$renderer as $crate::backend::renderer::RendererSuper>::Error>
+        where
+        $(
+            $(
+                $renderer: std::convert::AsMut<$other_renderer>,
+                <$renderer as $crate::backend::renderer::RendererSuper>::Frame: std::convert::AsMut<<$other_renderer as $crate::backend::renderer::RendererSuper>::Frame>,
+                <$other_renderer as $crate::backend::renderer::RendererSuper>::Error: Into<<$renderer as $crate::backend::renderer::RendererSuper>::Error>,
+            )*
+        )*
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; draw; x, frame, src, dst, damage, opaque_regions, cache)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        #[inline]
+        fn underlying_storage(&self, renderer: &mut $renderer) -> Option<$crate::backend::renderer::element::UnderlyingStorage<'_>>
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; underlying_storage; x, renderer)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn capture_framebuffer(
+            &self,
+            frame: &mut <$renderer as $crate::backend::renderer::RendererSuper>::Frame<'_, '_>,
+            src: $crate::utils::Rectangle<f64, $crate::utils::Buffer>,
+            dst: $crate::utils::Rectangle<i32, $crate::utils::Physical>,
+            cache: &$crate::utils::user_data::UserDataMap,
+        ) -> Result<(), <$renderer as $crate::backend::renderer::RendererSuper>::Error>
+        where
+        $(
+            $(
+                $renderer: std::convert::AsMut<$other_renderer>,
+                <$renderer as $crate::backend::renderer::RendererSuper>::Frame: std::convert::AsMut<<$other_renderer as $crate::backend::renderer::RendererSuper>::Frame>,
+                <$other_renderer as $crate::backend::renderer::RendererSuper>::Error: Into<<$renderer as $crate::backend::renderer::RendererSuper>::Error>,
+            )*
+        )*
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; capture_framebuffer; x, frame, src, dst, cache)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+    };
+    (@draw $renderer:ty; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        fn draw(
+            &self,
+            frame: &mut <$renderer as $crate::backend::renderer::RendererSuper>::Frame<'_, '_>,
+            src: $crate::utils::Rectangle<f64, $crate::utils::Buffer>,
+            dst: $crate::utils::Rectangle<i32, $crate::utils::Physical>,
+            damage: &[$crate::utils::Rectangle<i32, $crate::utils::Physical>],
+            opaque_regions: &[$crate::utils::Rectangle<i32, $crate::utils::Physical>],
+            cache: Option<&$crate::utils::user_data::UserDataMap>,
+        ) -> Result<(), <$renderer as $crate::backend::renderer::RendererSuper>::Error>
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; draw; x, frame, src, dst, damage, opaque_regions, cache)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        #[inline]
+        fn underlying_storage(&self, renderer: &mut $renderer) -> Option<$crate::backend::renderer::element::UnderlyingStorage<'_>>
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; underlying_storage; x, renderer)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+
+        fn capture_framebuffer(
+            &self,
+            frame: &mut <$renderer as $crate::backend::renderer::RendererSuper>::Frame<'_, '_>,
+            src: $crate::utils::Rectangle<f64, $crate::utils::Buffer>,
+            dst: $crate::utils::Rectangle<i32, $crate::utils::Physical>,
+            cache: &$crate::utils::user_data::UserDataMap,
+        ) -> Result<(), <$renderer as $crate::backend::renderer::RendererSuper>::Error>
+        {
+            match self {
+                $(
+                    #[allow(unused_doc_comments)]
+                    $(
+                        #[$meta]
+                    )*
+                    Self::$body(x) => $crate::render_elements_internal!(@call $renderer $(as $other_renderer)?; capture_framebuffer; x, frame, src, dst, cache)
+                ),*,
+                Self::_GenericCatcher(_) => unreachable!(),
+            }
+        }
+    };
+    // Generic renderer
+    (@impl $name:ident<$renderer:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$renderer> $crate::backend::renderer::element::Element for $name<$renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$renderer> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw <$renderer>; $($tail)*);
+        }
+    };
+    (@impl $name:ident<$lt:lifetime, $renderer:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$lt, $renderer> $crate::backend::renderer::element::Element for $name<$lt, $renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$lt, $renderer> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$lt, $renderer>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw <$renderer>; $($tail)*);
+        }
+    };
+    (@impl $name:ident<$renderer:ident, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$renderer, $($custom),+> $crate::backend::renderer::element::Element for $name<$renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+            )+
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$renderer, $($custom),+> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+            )+
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw <$renderer>; $($tail)*);
+        }
+    };
+    (@impl $name:ident<$lt:lifetime, $renderer:ident, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$lt, $renderer, $($custom),+> $crate::backend::renderer::element::Element for $name<$lt, $renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+            )+
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$lt, $renderer, $($custom),+> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$lt, $renderer, $($custom),+>
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+            $(
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+            )+
+            $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw <$renderer>; $($tail)*);
+        }
+    };
+    (@impl $name:ident; $renderer:ident; $($tail:tt)*) => {
+        impl $crate::backend::renderer::element::Element for $name
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$renderer> $crate::backend::renderer::element::RenderElement<$renderer> for $name
+        where
+            $renderer: $crate::backend::renderer::Renderer,
+            <$renderer as $crate::backend::renderer::RendererSuper>::TextureId: 'static,
+        {
+            $crate::render_elements_internal!(@draw <$renderer>; $($tail)*);
+        }
+    };
+
+    // Specific renderer
+    (@impl $name:ident<=$renderer:ty>; $($tail:tt)*) => {
+        impl $crate::backend::renderer::element::Element for $name
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl $crate::backend::renderer::element::RenderElement<$renderer> for $name
+        {
+            $crate::render_elements_internal!(@draw $renderer; $($tail)*);
+        }
+    };
+    (@impl $name:ident<=$renderer:ty, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$($custom),+> $crate::backend::renderer::element::Element for $name<$($custom),+>
+        where
+        $(
+            $custom: $crate::backend::renderer::element::Element,
+        )+
+        $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$($custom),+> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$($custom),+>
+        where
+        $(
+            $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+        )+
+        $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw $renderer; $($tail)*);
+        }
+    };
+
+    (@impl $name:ident<=$renderer:ty, $lt:lifetime>; $($tail:tt)*) => {
+        impl<$lt> $crate::backend::renderer::element::Element for $name<$lt>
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$lt> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$lt>
+        {
+            $crate::render_elements_internal!(@draw $renderer; $($tail)*);
+        }
+    };
+
+    (@impl $name:ident<=$renderer:ty, $lt:lifetime, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        impl<$lt, $($custom),+> $crate::backend::renderer::element::Element for $name<$lt, $($custom),+>
+        where
+        $(
+            $custom: $crate::backend::renderer::element::Element,
+        )+
+        $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@body $($tail)*);
+        }
+        impl<$lt, $($custom),+> $crate::backend::renderer::element::RenderElement<$renderer> for $name<$lt, $($custom),+>
+        where
+        $(
+            $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+        )+
+        $($($target: $bound $(+ $additional_bound)*),+)?
+        {
+            $crate::render_elements_internal!(@draw $renderer; $($tail)*);
+        }
+    };
+
+
+    (@from $name:ident<$renderer:ident>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl<$renderer> From<$field> for $name<$renderer>
+            where
+                $renderer: $crate::backend::renderer::Renderer,
+                $(
+                    $($renderer: std::convert::AsMut<$other_renderer>,)?
+                )*
+            {
+                #[inline]
+                fn from(field: $field) -> $name<$renderer> {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+    (@from $name:ident<$renderer:ident, $custom:ident>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl<$renderer, $custom> From<$field> for $name<$renderer, $custom>
+            where
+                $renderer: $crate::backend::renderer::Renderer,
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+                $(
+                    $($renderer: std::convert::AsMut<$other_renderer>,)?
+                )*
+            {
+                #[inline]
+                fn from(field: $field) -> $name<$renderer, $custom> {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+    (@from $name:ident<$lt:lifetime, $renderer:ident>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl<$lt, $renderer> From<$field> for $name<$lt, $renderer>
+            where
+                $renderer: $crate::backend::renderer::Renderer,
+                $(
+                    $($renderer: std::convert::AsMut<$other_renderer>,)?
+                )*
+            {
+                #[inline]
+                fn from(field: $field) -> $name<$lt, $renderer> {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+    (@from $name:ident<$lt:lifetime, $renderer:ident, $custom:ident>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl<$lt, $renderer, $custom> From<$field> for $name<$lt, $renderer, $custom>
+            where
+                $renderer: $crate::backend::renderer::Renderer,
+                $custom: $crate::backend::renderer::element::RenderElement<$renderer> + $crate::backend::renderer::element::Element,
+                $(
+                    $($renderer: std::convert::AsMut<$other_renderer>,)?
+                )*
+            {
+                #[inline]
+                fn from(field: $field) -> $name<$lt, $renderer, $custom> {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+    (@from $name:ident; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl From<$field> for $name {
+                #[inline]
+                fn from(field: $field) -> $name {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+    (@from $name:ident<$lt:lifetime>; $($(#[$meta:meta])* $body:ident=$field:ty $(as <$other_renderer:ty>)?),* $(,)?) => {
+        $(
+            $(
+                #[$meta]
+            )*
+            impl<$lt> From<$field> for $name<$lt> {
+                #[inline]
+                fn from(field: $field) -> $name<$lt> {
+                    $name::$body(field)
+                }
+            }
+        )*
+    };
+}
+
+/// Aggregate multiple types implementing [`RenderElement`] into a single enum type
+///
+/// ```
+/// # use smithay::{
+/// #     backend::{
+/// #         allocator::Fourcc,
+/// #         renderer::{
+/// #             element::{Element, Id, RenderElement},
+/// #             utils::CommitCounter,
+/// #             Renderer,
+/// #         },
+/// #     },
+/// #     utils::{
+/// #         user_data::UserDataMap,
+/// #         Buffer, Point, Physical, Rectangle, Scale, Transform,
+/// #     },
+/// # };
+/// #
+/// # struct MyRenderElement1;
+/// # struct MyRenderElement2;
+/// #
+/// # impl Element for MyRenderElement1 {
+/// #     fn id(&self) -> &Id {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn current_commit(&self) -> CommitCounter {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn src(&self) -> Rectangle<f64, Buffer> {
+/// #         unimplemented!()
+/// #     }
+/// # }
+/// #
+/// # impl<R: Renderer> RenderElement<R> for MyRenderElement1 {
+/// #     fn draw(
+/// #         &self,
+/// #         _frame: &mut R::Frame<'_, '_>,
+/// #         _src: Rectangle<f64, Buffer>,
+/// #         _dst: Rectangle<i32, Physical>,
+/// #         _damage: &[Rectangle<i32, Physical>],
+/// #         _opaque_regions: &[Rectangle<i32, Physical>],
+/// #         _cache: Option<&UserDataMap>,
+/// #     ) -> Result<(), R::Error> {
+/// #         unimplemented!()
+/// #     }
+/// # }
+/// #
+/// # impl Element for MyRenderElement2 {
+/// #     fn id(&self) -> &Id {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn current_commit(&self) -> CommitCounter {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+/// #         unimplemented!()
+/// #     }
+/// #
+/// #     fn src(&self) -> Rectangle<f64, Buffer> {
+/// #         unimplemented!()
+/// #     }
+/// # }
+/// #
+/// # impl<R: Renderer> RenderElement<R> for MyRenderElement2 {
+/// #     fn draw(
+/// #         &self,
+/// #         _frame: &mut R::Frame<'_, '_>,
+/// #         _src: Rectangle<f64, Buffer>,
+/// #         _dst: Rectangle<i32, Physical>,
+/// #         _damage: &[Rectangle<i32, Physical>],
+/// #         _opaque_regions: &[Rectangle<i32, Physical>],
+/// #         _cache: Option<&UserDataMap>,
+/// #     ) -> Result<(), R::Error> {
+/// #         unimplemented!()
+/// #     }
+/// # }
+/// use smithay::backend::renderer::element::render_elements;
+///
+/// render_elements! {
+///     MyRenderElements;
+///     First=MyRenderElement1,
+///     Second=MyRenderElement2,
+/// }
+/// ```
+///
+/// If the [`RenderElement`] has special requirements on the [`Renderer`] you can
+/// express them with a syntax similar to HRTBs.
+///
+/// For example the [`MemoryRenderBufferRenderElement`](crate::backend::renderer::element::memory::MemoryRenderBufferRenderElement) requires
+/// the [`Renderer`] to implement the [`ImportMem`](crate::backend::renderer::ImportMem) trait.
+///
+/// ```
+/// use smithay::backend::renderer::{
+///     element::{memory::MemoryRenderBufferRenderElement, render_elements},
+///     ImportMem,
+/// };
+///
+/// render_elements! {
+///     MyRenderElements<R> where R: ImportMem;
+///     Memory=MemoryRenderBufferRenderElement<R>,
+/// }
+/// ```
+///
+/// In case you want to use a reference or an element with an explicit lifetime the macro
+/// additionally takes a lifetime on the defined enum.
+///
+/// ```
+/// use smithay::backend::renderer::{
+///     element::{memory::MemoryRenderBufferRenderElement, render_elements},
+///     ImportMem,
+/// };
+///
+/// render_elements! {
+///     MyRenderElements<'a, R> where R: ImportMem;
+///     Memory=&'a MemoryRenderBufferRenderElement<R>,
+/// }
+/// ```
+///
+/// Additionally the macro can be used to define generic enums
+///
+/// ```
+/// use smithay::backend::renderer::{
+///     element::{memory::MemoryRenderBufferRenderElement, render_elements},
+///     ImportMem,
+/// };
+///
+/// render_elements! {
+///     MyRenderElements<'a, R, A, B> where R: ImportMem;
+///     Memory=&'a MemoryRenderBufferRenderElement<R>,
+///     Owned=A,
+///     Borrowed=&'a B,
+/// }
+/// ```
+///
+/// If your elements require a specific [`Renderer`] instead of being
+/// generic over it you can specify the type like in the following example.
+///
+/// ```
+/// # use smithay::{
+/// #     backend::{
+/// #         allocator::Fourcc,
+/// #         renderer::{Color32F, DebugFlags, Frame, Renderer, Texture, TextureFilter, sync::SyncPoint, gles::{GlesRenderer, GlesTexture}},
+/// #     },
+/// #     utils::{Buffer, Physical, Rectangle, Size, Transform},
+/// # };
+/// use smithay::backend::renderer::element::{render_elements, texture::TextureRenderElement};
+///
+/// render_elements! {
+///     MyRenderElements<=GlesRenderer>;
+///     Texture=TextureRenderElement<GlesTexture>,
+/// }
+/// ```
+#[macro_export]
+macro_rules! render_elements {
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$lt:lifetime, $renderer:ty, $custom:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name $lt $custom; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer, $lt, $custom> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$lt, $custom>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$lt:lifetime, $renderer:ty, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name $lt $($custom)+; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer, $lt, $($custom)+> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$lt:lifetime, $renderer:ty>; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name $lt; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer, $lt>; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$lt>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$renderer:ty, $custom:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name $custom; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer, $custom> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$custom>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$renderer:ty, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name $custom1 $custom2; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer, $($custom),+> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<=$renderer:ty>; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<=$renderer>; $($tail)*);
+        $crate::render_elements_internal!(@from $name; $($tail)*);
+    };
+
+    ($(#[$attr:meta])* $vis:vis $name:ident<$lt:lifetime, $renderer:ident, $custom:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$lt, $renderer, $custom>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$lt, $renderer, $custom> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$lt, $renderer, $custom>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<$lt:lifetime, $renderer:ident, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$lt, $renderer, $($custom),+>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$lt, $renderer, $($custom),+> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<$lt:lifetime, $renderer:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$lt, $renderer>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$lt, $renderer> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$lt, $renderer>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<$renderer:ident, $custom:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$renderer, $custom>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$renderer, $custom> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$renderer, $custom>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<$renderer:ident, $($custom:ident),+> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$renderer, $($custom),+>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$renderer, $($custom),+> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident<$renderer:ident> $(where $($target:ty: $bound:tt $(+ $additional_bound:tt)*),+)?; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name<$renderer>; $($tail)*);
+        $crate::render_elements_internal!(@impl $name<$renderer> $(where $($target: $bound $(+ $additional_bound)*),+)?; $($tail)*);
+        $crate::render_elements_internal!(@from $name<$renderer>; $($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis $name:ident; $($tail:tt)*) => {
+        $crate::render_elements_internal!(@enum $(#[$attr])* $vis $name; $($tail)*);
+        $crate::render_elements_internal!(@impl $name; R; $($tail)*);
+        $crate::render_elements_internal!(@from $name; $($tail)*);
+    };
+}
+
+pub use render_elements;
+
+/// New-type wrapper for wrapping owned elements
+/// in render_elements!
+#[derive(Debug)]
+pub struct Wrap<C>(C);
+
+impl<C> From<C> for Wrap<C> {
+    fn from(from: C) -> Self {
+        Self(from)
+    }
+}
+
+impl<C> Element for Wrap<C>
+where
+    C: Element,
+{
+    fn id(&self) -> &Id {
+        self.0.id()
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.0.current_commit()
+    }
+
+    fn location(&self, scale: Scale<f64>) -> Point<i32, Physical> {
+        self.0.location(scale)
+    }
+
+    fn src(&self) -> Rectangle<f64, BufferCoords> {
+        self.0.src()
+    }
+
+    fn transform(&self) -> Transform {
+        self.0.transform()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.0.geometry(scale)
+    }
+
+    fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
+        self.0.damage_since(scale, commit)
+    }
+
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        self.0.opaque_regions(scale)
+    }
+
+    fn alpha(&self) -> f32 {
+        self.0.alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        self.0.kind()
+    }
+
+    fn is_framebuffer_effect(&self) -> bool {
+        self.0.is_framebuffer_effect()
+    }
+}
+
+impl<R, C> RenderElement<R> for Wrap<C>
+where
+    R: Renderer,
+    C: RenderElement<R>,
+{
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), R::Error> {
+        self.0.draw(frame, src, dst, damage, opaque_regions, cache)
+    }
+
+    #[inline]
+    fn underlying_storage(&self, renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        self.0.underlying_storage(renderer)
+    }
+
+    fn capture_framebuffer(
+        &self,
+        frame: &mut <R>::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        cache: &UserDataMap,
+    ) -> Result<(), <R>::Error> {
+        self.0.capture_framebuffer(frame, src, dst, cache)
+    }
+}
+
+#[cfg(all(test, feature = "renderer_gl"))]
+#[allow(dead_code)]
+mod tests;

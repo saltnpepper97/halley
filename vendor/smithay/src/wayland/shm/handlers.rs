@@ -1,0 +1,242 @@
+use crate::wayland::{
+    Dispatch2, GlobalData, GlobalDispatch2,
+    buffer::BufferHandler,
+    shm::{ShmBufferUserData, wl_bytes_per_pixel},
+};
+
+use super::{
+    BufferData, ShmHandler, ShmPoolUserData,
+    pool::{Pool, ResizeError},
+};
+
+use std::{num::NonZeroUsize, os::unix::io::AsRawFd, sync::Arc};
+use wayland_server::{
+    DataInit, Dispatch, DisplayHandle, New, Resource, WEnum,
+    backend::ClientId,
+    protocol::{
+        wl_buffer,
+        wl_shm::{self, WlShm},
+        wl_shm_pool::{self, WlShmPool},
+    },
+};
+
+impl<D> GlobalDispatch2<WlShm, D> for GlobalData
+where
+    D: Dispatch<WlShm, GlobalData>,
+    D: Dispatch<WlShmPool, ShmPoolUserData>,
+    D: ShmHandler,
+    D: 'static,
+{
+    fn bind(
+        &self,
+        state: &mut D,
+        _dh: &DisplayHandle,
+        _client: &wayland_server::Client,
+        resource: New<WlShm>,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        let shm = data_init.init(resource, GlobalData);
+
+        // send the formats
+        for &f in &state.shm_state().formats {
+            shm.format(f);
+        }
+    }
+}
+
+impl<D> Dispatch2<WlShm, D> for GlobalData
+where
+    D: Dispatch<WlShmPool, ShmPoolUserData> + ShmHandler + 'static,
+{
+    fn request(
+        &self,
+        _state: &mut D,
+        _client: &wayland_server::Client,
+        shm: &WlShm,
+        request: wl_shm::Request,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        use wl_shm::{Error, Request};
+
+        let (pool, fd, size) = match request {
+            Request::CreatePool { id: pool, fd, size } => (pool, fd, size),
+            Request::Release => return,
+            _ => unreachable!(),
+        };
+
+        if size <= 0 {
+            shm.post_error(Error::InvalidStride, "invalid wl_shm_pool size");
+            return;
+        }
+
+        let mmap_pool = match Pool::new(fd, NonZeroUsize::try_from(size as usize).unwrap()) {
+            Ok(p) => p,
+            Err(fd) => {
+                shm.post_error(
+                    wl_shm::Error::InvalidFd,
+                    format!("Failed to mmap fd {}", fd.as_raw_fd()),
+                );
+                return;
+            }
+        };
+
+        data_init.init(
+            pool,
+            ShmPoolUserData {
+                inner: Arc::new(mmap_pool),
+            },
+        );
+    }
+}
+
+/*
+ * wl_shm_pool
+ */
+
+impl<D> Dispatch2<WlShmPool, D> for ShmPoolUserData
+where
+    D: Dispatch<wl_buffer::WlBuffer, ShmBufferUserData> + BufferHandler + ShmHandler + 'static,
+{
+    fn request(
+        &self,
+        state: &mut D,
+        _client: &wayland_server::Client,
+        pool: &WlShmPool,
+        request: wl_shm_pool::Request,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        use self::wl_shm_pool::Request;
+
+        let arc_pool = &self.inner;
+
+        match request {
+            Request::CreateBuffer {
+                id: buffer,
+                offset,
+                width,
+                height,
+                stride,
+                format,
+            } => {
+                // Validate client parameters
+                let message = if offset < 0 {
+                    Some("offset must not be negative".to_string())
+                } else if width <= 0 || height <= 0 {
+                    Some(format!("invalid width or height ({width}x{height})"))
+                } else if stride.checked_div(wl_bytes_per_pixel(format)).unwrap_or(0) < width {
+                    // stride is in bytes...
+                    Some(format!(
+                        "width must not be larger than stride (width {width}, stride {})",
+                        stride.checked_div(wl_bytes_per_pixel(format)).unwrap_or(0)
+                    ))
+                } else if (i32::MAX / stride) < height {
+                    Some(format!(
+                        "height is too large for stride (max {})",
+                        i32::MAX / stride
+                    ))
+                } else if offset > arc_pool.size() as i32 - (stride * height) {
+                    Some("offset is too large".to_string())
+                } else {
+                    None
+                };
+
+                if let Some(message) = message {
+                    pool.post_error(wl_shm::Error::InvalidStride, message);
+                    return;
+                }
+
+                match format {
+                    WEnum::Value(format) => {
+                        if !state.shm_state().formats.contains(&format) {
+                            pool.post_error(
+                                wl_shm::Error::InvalidFormat,
+                                format!("format {format:?} not supported"),
+                            );
+
+                            return;
+                        }
+
+                        let data = ShmBufferUserData {
+                            pool: arc_pool.clone(),
+                            data: BufferData {
+                                offset,
+                                width,
+                                height,
+                                stride,
+                                format,
+                            },
+                            destruction_hooks: Default::default(),
+                        };
+
+                        data_init.init(buffer, data);
+                    }
+
+                    WEnum::Unknown(unknown) => {
+                        pool.post_error(
+                            wl_shm::Error::InvalidFormat,
+                            format!("unknown format 0x{unknown:x}"),
+                        );
+                    }
+                }
+            }
+
+            Request::Resize { size } => {
+                if size <= 0 {
+                    pool.post_error(wl_shm::Error::InvalidFd, "invalid wl_shm_pool size");
+                }
+
+                if let Err(err) = arc_pool.resize(NonZeroUsize::try_from(size as usize).unwrap()) {
+                    match err {
+                        ResizeError::InvalidSize => {
+                            pool.post_error(wl_shm::Error::InvalidFd, "cannot shrink wl_shm_pool");
+                        }
+
+                        ResizeError::MremapFailed => {
+                            pool.post_error(wl_shm::Error::InvalidFd, "mremap failed");
+                        }
+                    }
+                }
+            }
+
+            Request::Destroy => {}
+
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<D> Dispatch2<wl_buffer::WlBuffer, D> for ShmBufferUserData
+where
+    D: BufferHandler,
+    D: 'static,
+{
+    fn request(
+        &self,
+        _data: &mut D,
+        _client: &wayland_server::Client,
+        _buffer: &wl_buffer::WlBuffer,
+        request: wl_buffer::Request,
+        _dh: &DisplayHandle,
+        _data_init: &mut DataInit<'_, D>,
+    ) {
+        match request {
+            wl_buffer::Request::Destroy => {
+                // Handled in the destroyed callback.
+            }
+
+            _ => unreachable!(),
+        }
+    }
+
+    fn destroyed(&self, data: &mut D, _client: ClientId, buffer: &wl_buffer::WlBuffer) {
+        // Clone to drop the mutex guard
+        let destruction_hooks = self.destruction_hooks.lock().unwrap().clone();
+        for hook in destruction_hooks.iter() {
+            (hook.cb)(data, buffer);
+        }
+
+        data.buffer_destroyed(buffer);
+    }
+}
