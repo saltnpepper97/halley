@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Extend window rules with composable matches and exclusions, transient,
+  startup, focus and screencast conditions, output and initial placement,
+  fullscreen and maximized states, border, shadow and corner controls, and
+  separate built-in screenshot privacy rules. Existing rules remain
+  first-match unless composition is enabled.
 - Add portal screencast privacy rules for windows and layer surfaces, plus a
   local indicator for directly shared windows.
 - Expose initial compositor accessibility information through AccessKit, and
@@ -83,6 +88,10 @@ All notable changes to this project will be documented in this file.
   private IPC protocol changed; rebuild companion tools with Halley.
 
 ### Changed
+- Run Rust, Nix and headless XWayland checks on every branch and pull request;
+  document the required checks and local test commands.
+- Present live fullscreen endpoints with a transition timed from client
+  acceptance, keeping the outgoing endpoint current while the new one arrives.
 - Organize fullscreen, Wayland, and session code by responsibility, including
   separate capture, input, desktop, output, startup, and workspace modules.
 - Separate replacement, closing-window, live-window, and stack scene stages;
@@ -102,6 +111,8 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Remove a visible seam between compositor titlebars and window content,
+  including when backdrop blur is enabled.
 - Use the Nix-provided sleep executable for the accessibility supervisor test,
   allowing it to run in Nix build environments.
 - Fix builds without default features by routing XWayland window checks through
