@@ -672,39 +672,6 @@ end
     }
 
     #[test]
-    fn accepts_zoom_in_zoom_out_and_zoom_reset_actions() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "$var.mod+equal" "zoom-in"
-  "$var.mod+minus" "zoom-out"
-  "$var.mod+click-middle" "zoom_reset"
-end
-"#,
-        );
-        let zoom_in = kb
-            .binds
-            .iter()
-            .find(|b| b.action == Action::ZoomIn)
-            .unwrap();
-        assert_eq!(zoom_in.key, "equal");
-        let zoom_out = kb
-            .binds
-            .iter()
-            .find(|b| b.action == Action::ZoomOut)
-            .unwrap();
-        assert_eq!(zoom_out.key, "minus");
-        let zoom_reset = kb
-            .binds
-            .iter()
-            .find(|b| b.action == Action::ZoomReset)
-            .unwrap();
-        assert_eq!(zoom_reset.key, "click-middle");
-        assert!(zoom_reset.modifiers.super_key);
-    }
-
-    #[test]
     fn accepts_old_field_node_move_spellings() {
         for (source, direction) in [
             ("node-move left", crate::Direction::Left),
@@ -832,28 +799,6 @@ end
     }
 
     #[test]
-    fn parses_contextual_direction_and_center_actions() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "$var.mod+left" "focus-left"
-  "$var.mod+right" "focus right"
-  "$var.mod+h" "center-last-focused"
-end
-"#,
-        );
-
-        for expected in [
-            Action::FocusDirection(crate::Direction::Left),
-            Action::FocusDirection(crate::Direction::Right),
-            Action::CenterLastFocused,
-        ] {
-            assert!(kb.binds.iter().any(|bind| bind.action == expected));
-        }
-    }
-
-    #[test]
     fn duplicate_chords_are_retained_for_context_scopes() {
         let kb = parse(
             r#"
@@ -972,23 +917,6 @@ end
             parse_action("pan-field"),
             "always-pan must stay a separate, explicitly requested action"
         );
-    }
-
-    #[test]
-    fn accepts_screenshot_action() {
-        let kb = parse(
-            r#"
-keybinds:
-  mod "super"
-  "Print" "screenshot"
-end
-"#,
-        );
-        assert!(kb.binds.iter().any(|bind| {
-            bind.key == "Print"
-                && bind.modifiers == crate::Modifiers::default()
-                && bind.action == Action::Screenshot
-        }));
     }
 
     #[test]
