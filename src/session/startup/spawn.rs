@@ -219,24 +219,6 @@ fn launch(
     }
 }
 
-#[cfg(test)]
-fn detached_process(
-    command_line: &str,
-    wayland_display: &OsStr,
-    x11_display: Option<&OsStr>,
-    cursor_size: u8,
-    environment: &LaunchEnvironment,
-) -> Command {
-    detached_process_with_env(
-        command_line,
-        wayland_display,
-        x11_display,
-        cursor_size,
-        environment,
-        &[],
-    )
-}
-
 fn detached_process_with_env(
     command_line: &str,
     wayland_display: &OsStr,
