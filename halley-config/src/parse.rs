@@ -559,16 +559,48 @@ end
     }
 
     #[test]
-    fn accepts_fullscreen_action_aliases() {
-        for action in ["toggle-fullscreen", "toggle_fullscreen", "fullscreen"] {
-            let kb = parse(&format!(
-                "keybinds:\n  mod \"super\"\n  \"$var.mod+f\" \"{action}\"\nend\n"
-            ));
-            assert!(kb.binds.iter().any(|bind| {
-                bind.key == "f"
-                    && bind.modifiers.super_key
-                    && bind.action == Action::ToggleFullscreen
-            }));
+    fn accepts_fullscreen_maximize_and_pin_action_aliases() {
+        for (aliases, key, expected) in [
+            (
+                &["toggle-fullscreen", "toggle_fullscreen", "fullscreen"][..],
+                "f",
+                Action::ToggleFullscreen,
+            ),
+            (
+                &[
+                    "maximize-focused",
+                    "maximize_focused",
+                    "toggle-maximize",
+                    "toggle_maximize",
+                ],
+                "m",
+                Action::ToggleFieldMaximize,
+            ),
+            (
+                &[
+                    "toggle-pin",
+                    "toggle_pin",
+                    "pin-toggle",
+                    "pin_toggle",
+                    "toggle-focused-pin",
+                    "toggle_focused_pin",
+                ],
+                "p",
+                Action::ToggleFocusedPin,
+            ),
+        ] {
+            for action in aliases {
+                let kb = parse(&format!(
+                    "keybinds:\n  mod \"super\"\n  \"$var.mod+{key}\" \"{action}\"\nend\n"
+                ));
+                let bind = &kb.binds[0];
+                assert_eq!(bind.action, expected, "{action}");
+                assert_eq!(bind.key, key, "{action}");
+                assert!(bind.modifiers.super_key, "{action}");
+                if expected == Action::ToggleFocusedPin {
+                    assert!(!bind.repeat, "{action}");
+                }
+            }
         }
     }
 
@@ -636,48 +668,6 @@ end
                     "{text}"
                 );
             }
-        }
-    }
-
-    #[test]
-    fn accepts_field_maximize_action_aliases() {
-        for action in [
-            "maximize-focused",
-            "maximize_focused",
-            "toggle-maximize",
-            "toggle_maximize",
-        ] {
-            let kb = parse(&format!(
-                "keybinds:\n  mod \"super\"\n  \"$var.mod+m\" \"{action}\"\nend\n"
-            ));
-            assert!(kb.binds.iter().any(|bind| {
-                bind.key == "m"
-                    && bind.modifiers.super_key
-                    && bind.action == Action::ToggleFieldMaximize
-            }));
-        }
-    }
-
-    #[test]
-    fn accepts_old_halley_pin_action_aliases() {
-        for action in [
-            "toggle-pin",
-            "toggle_pin",
-            "pin-toggle",
-            "pin_toggle",
-            "toggle-focused-pin",
-            "toggle_focused_pin",
-        ] {
-            let kb = parse(&format!(
-                "keybinds:\n  mod \"super\"\n  \"$var.mod+p\" \"{action}\"\nend\n"
-            ));
-            let pin = kb
-                .binds
-                .iter()
-                .find(|bind| bind.action == Action::ToggleFocusedPin)
-                .expect("pin action parsed");
-            assert_eq!(pin.key, "p");
-            assert!(!pin.repeat);
         }
     }
 
