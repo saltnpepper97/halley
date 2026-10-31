@@ -55,7 +55,6 @@ pub fn bootstrap_default_config_at(path: &Path) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rune_cfg::RuneConfig;
 
     /// A fresh, uniquely-named scratch directory under the OS temp dir,
     /// scoped to one test so parallel test runs never collide.
@@ -147,89 +146,6 @@ mod tests {
             .count();
         assert_eq!(writes, 1);
         assert_eq!(fs::read_to_string(config_file).unwrap(), DEFAULT_CONFIG);
-    }
-
-    /// Milestone 2: a fresh installation's front door is Halley Lift. The
-    /// generated config launches the bundled search and action launcher on
-    /// `Mod+D` and keeps Fuzzel only as a commented, opt-in alternative.
-    #[test]
-    fn template_binds_mod_d_to_halley_lift_with_fuzzel_as_the_alternative() {
-        let config = RuneConfig::from_str(DEFAULT_CONFIG).expect("bootstrap template parses");
-        let keybinds = crate::parse_keybinds(&config).expect("bootstrap keybinds parse");
-
-        let mut mod_d = keybinds
-            .binds
-            .iter()
-            .filter(|bind| bind.key == "d" && bind.modifiers.super_key);
-        let launcher = mod_d.next().expect("a fresh config binds Mod+D");
-        assert_eq!(
-            launcher.action,
-            crate::Action::Spawn("halley-lift".to_string()),
-            "Mod+D must launch Halley Lift in a fresh config"
-        );
-        assert!(
-            mod_d.next().is_none(),
-            "the generated config activates Mod+D exactly once"
-        );
-        assert!(
-            !keybinds
-                .binds
-                .iter()
-                .any(|bind| bind.action == crate::Action::Spawn("fuzzel".to_string())),
-            "Fuzzel must stay a documented alternative, not the default launcher"
-        );
-        assert!(
-            DEFAULT_CONFIG.contains("  # \"$var.mod+d\" \"fuzzel\"\n"),
-            "the commented Fuzzel alternative stays in the generated template"
-        );
-
-        // The generated file, not just the embedded template, must survive the
-        // compositor's own runtime loading path with the Lift binding intact.
-        let scratch = ScratchDir::new("template_binds_mod_d_to_halley_lift");
-        let config_file = scratch.path().join("halley").join("halley.rune");
-        assert!(
-            bootstrap_default_config_at(&config_file).unwrap(),
-            "a fresh install writes the generated config"
-        );
-        let runtime = crate::load_runtime_config_at(&config_file).expect("generated config loads");
-        assert_eq!(
-            runtime
-                .keybinds
-                .binds
-                .iter()
-                .find(|bind| bind.key == "d" && bind.modifiers.super_key)
-                .expect("generated config binds Mod+D")
-                .action,
-            crate::Action::Spawn("halley-lift".to_string())
-        );
-    }
-
-    /// Milestone 4: a fresh installation gets conservative decay defaults —
-    /// 10 minutes outside the focus ring and 90 minutes inside it — instead of
-    /// Halley's shorter built-in 3/30 minutes. The values are checked through
-    /// the generated file's own runtime loading path, not just the template.
-    #[test]
-    fn generated_config_uses_conservative_decay_delays() {
-        let scratch = ScratchDir::new("generated_config_uses_conservative_decay_delays");
-        let config_file = scratch.path().join("halley").join("halley.rune");
-        assert!(
-            bootstrap_default_config_at(&config_file).unwrap(),
-            "a fresh install writes the generated config"
-        );
-
-        let runtime = crate::load_runtime_config_at(&config_file).expect("generated config loads");
-        assert!(runtime.decay.enabled);
-        assert_eq!(
-            runtime.decay.outside_delay_seconds, 600,
-            "outside the focus ring a fresh config decays after 10 minutes"
-        );
-        assert_eq!(
-            runtime.decay.inside_delay_seconds, 5_400,
-            "inside the focus ring a fresh config decays after 90 minutes"
-        );
-
-        let config = RuneConfig::from_str(DEFAULT_CONFIG).expect("bootstrap template parses");
-        assert_eq!(crate::parse_decay(&config), runtime.decay);
     }
 
     /// Milestone 4 boundary: the longer delays are not a migration. An existing

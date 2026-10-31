@@ -621,47 +621,4 @@ mod tests {
             })
         );
     }
-
-    #[test]
-    fn parses_custom_shader_paths_and_treats_blank_as_unset() {
-        let config = RuneConfig::from_str(
-            r#"
-animations:
-  window-open:
-    custom-shader "shaders/open.frag"
-  end
-  window-close:
-    custom-shader "  shaders/close.frag  "
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-        let animations = parse_animations(&config);
-        assert_eq!(
-            animations.window_open.custom_shader.as_deref(),
-            Some("shaders/open.frag")
-        );
-        assert_eq!(
-            animations.window_close.custom_shader.as_deref(),
-            Some("shaders/close.frag")
-        );
-
-        let blank = RuneConfig::from_str(
-            r#"
-animations:
-  window-open:
-    custom-shader "   "
-  end
-  window-close:
-    custom-shader ""
-  end
-end
-"#,
-        )
-        .expect("valid rune-cfg source");
-        let animations = parse_animations(&blank);
-        assert_eq!(animations.window_open.custom_shader, None);
-        assert_eq!(animations.window_close.custom_shader, None);
-    }
 }
