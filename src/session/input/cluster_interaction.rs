@@ -57,6 +57,10 @@ pub(crate) fn sync_cluster_activation_focus<D: SessionDriver>(
     let output_name = output.name();
     crate::session::sync_cluster_camera(session, &output_name, now);
     if session.clusters.active_on(&output_name) == Some(id) {
+        // IPC and protocol activation may arrive without a click on this
+        // monitor. Select its keyboard context even when no member can take
+        // focus, so empty-workspace hints and shortcuts follow activation.
+        crate::wayland::focus::select_output(&mut session.wayland, output);
         let first_member = session.clusters.first_member(id);
         if let Some(member) = first_member {
             if let Some(window) = session

@@ -5,7 +5,17 @@ use super::*;
 #[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER; two-output cluster drag"]
 fn last_window_drag_leaves_an_empty_cluster_with_two_press_deletion() {
-    let mut fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    for layout in ["stacking", "tiling"] {
+        for mode in ["click", "hover"] {
+            drag_and_delete(layout, mode);
+        }
+    }
+}
+
+fn drag_and_delete(layout: &str, mode: &str) {
+    let mut fixture = Fixture::with_two_outputs(&format!(
+        "animations:\n enabled false\nend\ninput:\n focus-mode \"{mode}\"\nend\n",
+    ));
     let config = fixture.path.join("halley.rune");
     let text = fs::read_to_string(&config).unwrap().replacen(
         "keybinds:\n",
@@ -23,7 +33,7 @@ fn last_window_drag_leaves_an_empty_cluster_with_two_press_deletion() {
                     .find(|o| o.name == "winit-2")
                     .unwrap()
                     .offset_x,
-            ) + 200.0
+            ) + 900.0
         }
         response => panic!("unexpected outputs: {response:?}"),
     };
@@ -37,6 +47,11 @@ fn last_window_drag_leaves_an_empty_cluster_with_two_press_deletion() {
         target: ClusterTarget::Id(cluster.id),
         output: None,
     }));
+    if layout == "tiling" {
+        fixture.ack(Request::Cluster(ClusterRequest::LayoutCycle {
+            output: Some(cluster.output.clone()),
+        }));
+    }
     let (mut queue, mut client) = native_window(&fixture);
     client.resize_for_configures = true;
     thread::sleep(Duration::from_millis(600));
@@ -69,6 +84,11 @@ fn last_window_drag_leaves_an_empty_cluster_with_two_press_deletion() {
     // Returning to the empty output must not let the remote focused client
     // suppress the hint, even before closing and reopening the workspace.
     input.motion(600.0, 700.0);
+    if mode == "click" {
+        input.button(272, true);
+        input.button(272, false);
+    }
+    assert_eq!(input.state()["selected_output"], "winit");
     let state = wait_for("empty cluster hint after cross-output drag", || {
         let state = input.state();
         (!state["empty_cluster"].as_array().unwrap().is_empty()).then_some(state)
@@ -81,6 +101,11 @@ fn last_window_drag_leaves_an_empty_cluster_with_two_press_deletion() {
         output: Some(cluster.output.clone()),
     }));
     input.motion(remote_x, 700.0);
+    if mode == "click" {
+        input.button(272, true);
+        input.button(272, false);
+    }
+    assert_eq!(input.state()["selected_output"], "winit-2");
     fixture.ack(Request::Cluster(ClusterRequest::Open {
         target: ClusterTarget::Id(cluster.id),
         output: None,

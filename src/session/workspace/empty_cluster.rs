@@ -23,9 +23,30 @@ pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) ->
             shortcut,
         })
     });
-    if target.is_none() {
+    let Some(target) = target else {
         return session.shell.overlays.empty_cluster.sync(None, false, now);
-    }
+    };
+    let focused = crate::wayland::focus::current(
+        &session.wayland,
+        &session.fullscreen,
+        &session.clusters,
+        &session.nodes,
+        now,
+    );
+    let focus_blocks_prompt = focused.is_some_and(|focus| match focus {
+        crate::wayland::focus::KeyboardFocus::Window(surface) => {
+            // Hovering an empty workspace selects its output without clearing
+            // the last client focus. A window dragged to another monitor must
+            // not suppress this output's hint or its close shortcut.
+            session
+                .nodes
+                .id_for_surface(&surface)
+                .and_then(|id| session.nodes.record(id))
+                .is_none_or(|record| record.output == target.output)
+        }
+        // Launchers and other interactive layers still own keyboard input.
+        _ => true,
+    });
     let blocked = session.session_lock.active()
         || session.shell.overlays.confirmation_modal_active()
         || session.shell.overlays.basics_card_accepts_input()
@@ -34,19 +55,12 @@ pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) ->
         || session.shell.focus_cycle.is_open()
         || session.shell.cluster_composer.is_active()
         || session.clusters.accepts_modal_input()
-        || crate::wayland::focus::current(
-            &session.wayland,
-            &session.fullscreen,
-            &session.clusters,
-            &session.nodes,
-            now,
-        )
-        .is_some();
+        || focus_blocks_prompt;
     session
         .shell
         .overlays
         .empty_cluster
-        .sync(target, blocked, now)
+        .sync(Some(target), blocked, now)
 }
 
 fn close_shortcut(binds: &[ResolvedBind], context: crate::input::BindingContext) -> Option<String> {

@@ -112,6 +112,9 @@ All notable changes to this project will be documented in this file.
   fullscreen pixels through the production keyboard and switcher paths.
 
 ### Fixed
+- Restore the configured close-binding hint and two-press deletion for empty
+  clusters after moving their last window to another monitor. Keep cluster
+  activation and keyboard actions on the cluster's own monitor.
 - Exempt pinned windows from automatic decay while preserving manual collapse;
   unpinning starts a fresh decay timer.
 - Keep the native Wayland input method connected across screen lock. Suspend
