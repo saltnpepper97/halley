@@ -131,6 +131,10 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 _ => None,
             };
             let reply = serde_json::json!({"open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
+                "empty_cluster": app.wayland.space.outputs().filter_map(|output| {
+                    let snapshot = app.shell.overlays.snapshot(&output.name(), now).empty_cluster?;
+                    Some(serde_json::json!({"output": output.name(), "shortcut": snapshot.shortcut, "armed": snapshot.armed}))
+                }).collect::<Vec<_>>(),
                 "capture_active": app.capture.is_active(), "capture_source": app.capture.source_accessibility().2, "capture_region": capture_region,
                 "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
                 "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,
