@@ -6,6 +6,10 @@ When the user says to merge a change, publish the feature branch and create a pu
 
 Never use `codex/` or a Codex-derived branch prefix. Use descriptive conventional prefixes such as `fix/`, `feat/`, or `release/`.
 
+# Branch cleanup
+
+Before deleting branches, check open pull requests for each local and remote branch. Never delete a branch associated with an open pull request as part of branch cleanup; preserve it even when asked to delete other branches.
+
 # Commits and versioning
 
 Commit incrementally unless the user instructs otherwise. Use MAJOR.MINOR.PATCH, version components independently, and continue minor versions past 0.9. Release 1.0 only with the user's agreement.
