@@ -69,6 +69,7 @@ test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 
 # Keep an explicit, finite suite. Manual previews and toolkit tests stay manual.
 cases=(
+    collapsed_node_close::close_key_targets_focused_and_hovered_collapsed_windows
     closing_x11_dialog_returns_real_x_focus_to_parent_before_mru_window
     disconnect_removes_cluster_and_collapsed_x11_windows_preserving_native_windows
     parent_dialog_stacking_survives_focus_and_late_x11_parent_changes
