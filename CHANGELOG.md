@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Remove the node of a collapsed X11 window that answers a close request by
+  withdrawing instead of exiting, such as Steam keeping its window for the tray.
+
 ## [0.9.1] - 2026-11-01
 
 - Use unmodified upstream Smithay and keep IME lock isolation, stale-composition rejection, and post-unlock recovery in Halley.
