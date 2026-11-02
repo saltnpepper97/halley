@@ -374,7 +374,7 @@ pub(super) fn handle<D, B>(
             }
             if state == KeyState::Pressed
                 && sym == Some(Keysym::Escape)
-                && data.shell.overlays.empty_cluster.visible()
+                && data.shell.overlays.empty_cluster.accepts_input()
             {
                 return FilterResult::Intercept(KeyboardOutcome::EmptyClusterCancel);
             }
