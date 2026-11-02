@@ -18,7 +18,17 @@ env:
   CARGO_PROFILE_TEST_DEBUG: '0'
 
 jobs:
+  upstream-source:
+    name: Upstream Smithay policy
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 .github/scripts/check-smithay-source.py
+
   format:
+    needs: upstream-source
     name: Formatting and workflow lint
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -35,6 +45,7 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 
   lint:
+    needs: upstream-source
     name: Clippy and documentation
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -51,6 +62,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
   test-build:
+    needs: upstream-source
     name: Test and build (${{ matrix.name }})
     runs-on: ubuntu-26.04
     timeout-minutes: 45

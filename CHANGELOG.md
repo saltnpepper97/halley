@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-01
+
+- Use unmodified upstream Smithay and keep IME lock isolation, stale-composition rejection, and post-unlock recovery in Halley.
+
 ## [0.9.0] - 2026-11-01
 
 ### Added

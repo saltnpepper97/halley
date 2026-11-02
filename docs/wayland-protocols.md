@@ -138,10 +138,10 @@ X11 applications keep using X11 IME and do not participate in this pair.
 This is interface version 1 of the v3 protocol; the newer interface-version-2
 requests and events are not advertised.
 
-Halley uses a local Smithay snapshot based on revision
-`79bbed5e1199090d787115614847a79c76607181`. Its input-method integration
-contains a small lock-suspension and composition-state patch; see
-`vendor/smithay/HALLEY-PATCH.md` for its scope.
+Halley pins unmodified official upstream Smithay. Halley's own protocol
+request policy buffers composition until commit, blocks text and effective
+keyboard grabs while locked, and preserves the connected IME for recovery.
+No Smithay implementation is bundled or patched.
 Socket-level smoke tests live in `tests/text_input_protocol.rs`; toolkit and
 candidate-window integration still require a live IME session.
 

@@ -36,8 +36,8 @@ rustPlatform.buildRustPackage {
 
   cargoLock = {
     lockFile = ../Cargo.lock;
-    # DRM extras still comes from the pinned Smithay checkout.
-    outputHashes."smithay-drm-extras-0.1.0" = "sha256-DUSciVTN5Ds2AYZVaGmMu7DBINRxu3CIdUCT4QCplTY=";
+    # Both crates use the same unmodified upstream checkout; one hash covers it.
+    outputHashes."smithay-0.7.0" = "sha256-DUSciVTN5Ds2AYZVaGmMu7DBINRxu3CIdUCT4QCplTY=";
   };
 
   nativeBuildInputs = [
