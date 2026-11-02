@@ -1,4 +1,6 @@
 //! Basic IME support and Halley lock policy over real Wayland sockets.
+#[path = "../src/ime_policy.rs"]
+mod ime_policy;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
 use smithay::{
@@ -7,9 +9,7 @@ use smithay::{
     utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
-        input_method::{
-            InputMethodHandler, InputMethodManagerState, InputMethodSeat, PopupSurface,
-        },
+        input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface},
         text_input::TextInputManagerState,
     },
 };
@@ -113,8 +113,7 @@ impl CompositorHandler for Server {
     }
     fn commit(&mut self, surface: &WlSurface) {
         // Test-only focus control, exercised over the same socket as requests.
-        let keyboard = self.seat.get_keyboard().unwrap();
-        keyboard.set_focus(self, Some(surface.clone()), SERIAL_COUNTER.next_serial());
+        set_focus(self, Some(surface.clone()));
     }
 }
 impl SeatHandler for Server {
@@ -361,20 +360,15 @@ impl Fixture {
                         Control::Suspend(value) => {
                             server.locked = value;
                             let keyboard = server.seat.get_keyboard().unwrap();
-                            let ime = server.seat.input_method().clone();
                             if value {
                                 server.previous_focus = keyboard.current_focus();
-                                ime.set_suspended(&mut server, &keyboard, true);
+                                ime_policy::suspend(&mut server, true);
                                 keyboard.unset_grab(&mut server);
-                                keyboard.set_focus(&mut server, None, SERIAL_COUNTER.next_serial());
+                                set_focus(&mut server, None);
                             } else {
-                                ime.set_suspended(&mut server, &keyboard, false);
+                                ime_policy::suspend(&mut server, false);
                                 let focus = server.previous_focus.take();
-                                keyboard.set_focus(
-                                    &mut server,
-                                    focus,
-                                    SERIAL_COUNTER.next_serial(),
-                                );
+                                set_focus(&mut server, focus);
                             }
                         }
                         Control::Key => {
@@ -486,6 +480,28 @@ impl Drop for Fixture {
 }
 
 upstream_protocols::delegate_upstream_protocols!(Server);
+ime_policy::delegate_ime_policy!(Server);
+impl ime_policy::ImeHost for Server {
+    fn ime_seat(&self) -> Seat<Self> {
+        self.seat.clone()
+    }
+    fn ime_repeat(&self) -> (i32, i32) {
+        (25, 200)
+    }
+}
+fn set_focus(server: &mut Server, focus: Option<WlSurface>) {
+    let keyboard = server.seat.get_keyboard().unwrap();
+    let old = keyboard.current_focus();
+    if old != focus {
+        if old.is_some() {
+            ime_policy::focus_transition(&server.seat, None);
+        }
+        if focus.is_some() {
+            ime_policy::focus_transition(&server.seat, focus.as_ref().map(Resource::id));
+        }
+    }
+    keyboard.set_focus(server, focus, SERIAL_COUNTER.next_serial());
+}
 
 struct RejectedSurface;
 impl server::Dispatch<ExtSessionLockSurfaceV1, RejectedSurface> for Server {

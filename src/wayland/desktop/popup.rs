@@ -7,7 +7,6 @@ use smithay::input::SeatHandler;
 use smithay::input::pointer::Focus;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Rectangle, Serial};
-use smithay::wayland::input_method::InputMethodSeat;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::{PopupSurface, PositionerState};
 
@@ -221,7 +220,7 @@ where
     D::KeyboardFocus: WaylandFocus + From<WlSurface> + From<PopupKind>,
     WlSurface: From<D::KeyboardFocus>,
 {
-    let ime_keyboard_grabbed = seat.input_method().keyboard_grabbed();
+    let ime_keyboard_grabbed = crate::ime_policy::keyboard_grabbed(seat);
     if let Some(keyboard) = seat.get_keyboard()
         && popup_takes_keyboard_grab(ime_keyboard_grabbed, parent_accepts_keyboard_focus)
     {

@@ -11,6 +11,7 @@ mod config;
 mod cursor;
 mod frame_clock;
 mod idle_service;
+mod ime_policy;
 mod input;
 mod ipc;
 mod logging;
