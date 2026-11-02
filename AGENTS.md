@@ -21,7 +21,7 @@ Preserve these behaviors when changing or refactoring Halley unless the user ins
 - **Fullscreen and window switching:** When switching away from a fullscreen game to another window on the same monitor, pause its fullscreen state without exiting fullscreen; restore it when returning. Switching to a window on another monitor must leave the game fullscreen on its original monitor. A regular window made fullscreen with Mod+F, such as a browser playing fullscreen YouTube, should instead leave fullscreen when switching away to another window on the same monitor.
 - **Pinned nodes:** Pinning exempts a window from automatic decay. It must still be possible to manually convert it to a node and restore it from a node.
 - **Empty clusters:** An empty cluster must show its close hint regardless of cursor position or monitor focus. The hint should explain that Super+Q, followed by Super+Q again, deletes the cluster. Preserve the existing cluster design and behavior unless the user requests a change.
-- **Closing collapsed windows:** A window collapsed into a node must remain closable with Mod+Q when its node is hovered or focused.
+- **Closing collapsed windows:** A window collapsed into a node must remain closable with Mod+Q when its node is hovered (focus-mode="hover") or focused.
 - **XWayland:** Preserve proper EWMH compliance when implementing or changing XWayland behavior.
 
 # Upstream dependencies
