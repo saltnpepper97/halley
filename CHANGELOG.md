@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-01
+
 ### Added
 - Extend window rules with composable matches and exclusions, transient,
   startup, focus and screencast conditions, output and initial placement,
@@ -69,7 +71,8 @@ All notable changes to this project will be documented in this file.
   layers) instead of only on empty field. It has no default binding, works on
   any pointer button, and leaves fullscreen windows, panels and overlays,
   pointer locks and confinements, and locked cameras (fullscreen, maximize, open
-  cluster) to the client. Existing `pan-field` binds are unchanged.
+  cluster) to the client. Existing `pan-field` binds are unchanged. Contributed by
+  [@Ketari-G](https://github.com/Ketari-G) in [#187](https://github.com/saltnpepper97/halley/pull/187).
 - Support `xdg-dialog-v1` so applications can declare modal dialogs. Activating
   a parent focuses its eligible modal descendant; late modal hints and parent
   changes follow the same policy without stealing unrelated application focus.
@@ -126,7 +129,8 @@ All notable changes to this project will be documented in this file.
 - Remove a visible seam between compositor titlebars and window content,
   including when backdrop blur is enabled.
 - Use the Nix-provided sleep executable for the accessibility supervisor test,
-  allowing it to run in Nix build environments.
+  allowing it to run in Nix build environments. Contributed by
+  [@pirate-boop](https://github.com/pirate-boop) in [#251](https://github.com/saltnpepper97/halley/pull/251).
 - Fix builds without default features by routing XWayland window checks through
   the feature-independent compatibility layer.
 - Export the configured cursor theme to XWayland and newly launched or session-activated applications, updating future launches after reload.
@@ -342,6 +346,11 @@ All notable changes to this project will be documented in this file.
 - Remove X11 windows, collapsed nodes, cluster membership, and stale focus when
   the XWayland window-manager connection is lost. Match destroyed surfaces by
   their shared identity so cleanup still works after Smithay marks them dead.
+
+### Thanks
+
+Thank you to [@Ketari-G](https://github.com/Ketari-G) and
+[@pirate-boop](https://github.com/pirate-boop) for their contributions to 0.9.
 
 ## [0.8.0] - 2026-10-05
 

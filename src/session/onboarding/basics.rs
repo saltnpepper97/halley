@@ -358,7 +358,7 @@ mod tests {
         state.dismiss_basics_card();
         let reloaded = UserState::load_from(path);
         assert!(reloaded.basics_card_dismissed());
-        assert!(!reloaded.basics_card_dismissed_for("0.9.0"));
+        assert!(!reloaded.basics_card_dismissed_for(concat!(env!("CARGO_PKG_VERSION"), "-next")));
         assert!(reloaded.decay_notice_shown());
     }
 

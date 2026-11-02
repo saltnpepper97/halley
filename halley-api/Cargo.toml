@@ -1,6 +1,6 @@
 [package]
 name = "halley-api"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Stable Rust client API for the Halley compositor"
 authors.workspace = true
@@ -12,5 +12,5 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-halley-ipc = { version = "0.7.0", path = "../halley-ipc" }
+halley-ipc = { version = "0.8.0", path = "../halley-ipc" }
 serde = { version = "1", features = ["derive"] }
