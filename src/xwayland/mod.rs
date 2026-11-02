@@ -71,6 +71,8 @@ pub struct State<D: SessionDriver> {
     pending_windows: HashMap<u32, PendingWindow>,
     opening_placements: HashMap<u32, lifecycle::OpeningPlacement>,
     client_geometry_guards: HashMap<u32, lifecycle::ClientGeometryGuard>,
+    /// Monotonic time of the latest close request sent to each managed XID.
+    close_requests: HashMap<u32, std::time::Duration>,
     loop_handle: LoopHandle<'static, Session<D>>,
     known_override_redirects: HashSet<u32>,
     pending_override_redirects: HashMap<u32, PendingOverrideRedirect>,
@@ -127,6 +129,7 @@ impl<D: SessionDriver> State<D> {
             pending_windows: HashMap::new(),
             opening_placements: HashMap::new(),
             client_geometry_guards: HashMap::new(),
+            close_requests: HashMap::new(),
             loop_handle,
             known_override_redirects: HashSet::new(),
             pending_override_redirects: HashMap::new(),
@@ -457,6 +460,28 @@ impl<D: SessionDriver> State<D> {
 
     pub(crate) fn forget_client_geometry_guard(&mut self, xid: u32) {
         self.client_geometry_guards.remove(&xid);
+    }
+
+    /// Records that Halley asked this X11 window to close, so a following
+    /// client unmap is recognized as withdrawal even while it is collapsed.
+    pub(crate) fn note_close_requested(&mut self, window: &smithay::desktop::Window) {
+        let Some(surface) = window.x11_surface() else {
+            return;
+        };
+        let now = crate::frame_clock::monotonic_now();
+        self.close_requests
+            .retain(|_, requested_at| lifecycle::close_request_pending(*requested_at, now));
+        self.close_requests.insert(surface.window_id(), now);
+    }
+
+    fn close_request_pending(&self, xid: u32, now: std::time::Duration) -> bool {
+        self.close_requests
+            .get(&xid)
+            .is_some_and(|requested_at| lifecycle::close_request_pending(*requested_at, now))
+    }
+
+    fn forget_close_request(&mut self, xid: u32) {
+        self.close_requests.remove(&xid);
     }
 
     fn clear(&mut self) {

@@ -48,6 +48,36 @@ pub(super) fn opening_placement_is_authoritative(
     (opening_animation || client_geometry_guarded) && !grabbed && !fullscreen
 }
 
+/// How long a compositor close request explains a later client unmap. Some
+/// clients withdraw instead of destroying when asked to close (Steam keeps its
+/// window for reuse from the tray). A client that refuses or defers the close
+/// must not have an unrelated, much later unmap treated as that withdrawal.
+pub(super) const CLOSE_REQUEST_WITHDRAWAL_WINDOW: Duration = Duration::from_secs(10);
+
+pub(super) fn close_request_pending(requested_at: Duration, now: Duration) -> bool {
+    now.saturating_sub(requested_at) < CLOSE_REQUEST_WITHDRAWAL_WINDOW
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CollapsedUnmap {
+    /// Keep the node: a client such as Wine may unmap/remap its XID while
+    /// acknowledging iconification.
+    RetainIconic,
+    /// The client answered a close request by withdrawing its window.
+    Withdraw,
+}
+
+/// Halley's own collapse unmaps only the XWM frame, never the client window,
+/// so a client unmap while collapsed is always client-initiated. Only a recent
+/// close request identifies it as an ICCCM withdrawal rather than a remap cycle.
+pub(super) fn collapsed_unmap(close_requested: bool) -> CollapsedUnmap {
+    if close_requested {
+        CollapsedUnmap::Withdraw
+    } else {
+        CollapsedUnmap::RetainIconic
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MapAdmission {
     Wait,
@@ -117,7 +147,8 @@ mod tests {
     use smithay::utils::Rectangle;
 
     use super::{
-        CLIENT_GEOMETRY_QUIET_PERIOD, ClientGeometryGuard, MapAdmission, OpeningPlacement,
+        CLIENT_GEOMETRY_QUIET_PERIOD, CLOSE_REQUEST_WITHDRAWAL_WINDOW, ClientGeometryGuard,
+        CollapsedUnmap, MapAdmission, OpeningPlacement, close_request_pending, collapsed_unmap,
         map_admission, opening_placement_is_authoritative,
     };
 
@@ -186,6 +217,23 @@ mod tests {
                 .is_active(now + CLIENT_GEOMETRY_QUIET_PERIOD - std::time::Duration::from_nanos(1))
         );
         assert!(!guard.is_active(now + CLIENT_GEOMETRY_QUIET_PERIOD));
+    }
+
+    #[test]
+    fn collapsed_unmap_withdraws_only_after_a_recent_close_request() {
+        assert_eq!(collapsed_unmap(false), CollapsedUnmap::RetainIconic);
+        assert_eq!(collapsed_unmap(true), CollapsedUnmap::Withdraw);
+
+        let requested = std::time::Duration::from_secs(4);
+        assert!(close_request_pending(requested, requested));
+        assert!(close_request_pending(
+            requested,
+            requested + CLOSE_REQUEST_WITHDRAWAL_WINDOW - std::time::Duration::from_nanos(1)
+        ));
+        assert!(!close_request_pending(
+            requested,
+            requested + CLOSE_REQUEST_WITHDRAWAL_WINDOW
+        ));
     }
 
     #[test]

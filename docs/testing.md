@@ -58,7 +58,7 @@ dinit (put Cargo flags before Clippy's `-- -D warnings`). On Ubuntu 26.04,
 the native build and test packages. On a Nix-enabled host, run
 `nix flake check --no-update-lock-file --print-build-logs`.
 
-Rust and Nix run the non-ignored tests. XWayland explicitly selects eight ignored
+Rust and Nix run the non-ignored tests. XWayland explicitly selects ten ignored
 tests; other display-dependent tests and subprocess helpers remain ignored
 unless invoked by their fixtures. To reproduce the headless suite on Ubuntu
 26.04, install `weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core`

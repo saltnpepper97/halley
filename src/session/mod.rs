@@ -365,6 +365,7 @@ pub(crate) fn request_window_close<D: SessionDriver>(
     if let Some(toplevel) = window.toplevel() {
         toplevel.send_close();
     } else {
+        session.xwayland.note_close_requested(window);
         crate::xwayland::close_window(window);
     }
     if frozen {

@@ -38,10 +38,6 @@ impl<D: SessionDriver> Policy<D> {
         self.visibility.visible()
     }
 
-    pub fn pointer_shortcut_target_active(&self) -> bool {
-        self.visibility.pointer_shortcut_target_active()
-    }
-
     pub fn pointer_activity(&mut self) -> bool {
         let (redraw, directive) = self.visibility.pointer_activity();
         self.apply_timer(directive);
