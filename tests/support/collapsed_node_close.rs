@@ -5,9 +5,16 @@ use super::*;
 #[test]
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER"]
 fn close_key_targets_focused_and_hovered_collapsed_windows() {
-    for (hovered, hide_when_typing) in [(false, false), (true, false), (true, true)] {
+    for (mode, hovered, hide_when_typing) in [
+        ("click", false, false),
+        ("hover", false, false),
+        ("hover", true, false),
+        ("hover", true, true),
+        ("click", true, false),
+        ("click", true, true),
+    ] {
         let mut fixture = Fixture::with_two_outputs(&format!(
-            "animations:\n enabled false\nend\ninput:\n focus-mode \"click\"\nend\ncursor:\n hide-when-typing {hide_when_typing}\nend\n",
+            "animations:\n enabled false\nend\ninput:\n focus-mode \"{mode}\"\nend\ncursor:\n hide-when-typing {hide_when_typing}\nend\n",
         ));
         let input = Input::new(&fixture);
         let (mut node_queue, mut node_client) = native_window_named(
@@ -52,16 +59,21 @@ fn close_key_targets_focused_and_hovered_collapsed_windows() {
         input.key(16, true); // Q
         input.key(16, false);
         input.key(56, false);
-        wait_for("close request delivered to collapsed window", || {
+        let closes_node = !hovered || mode == "hover";
+        wait_for("close request delivered to expected window", || {
             node_queue.roundtrip(&mut node_client).unwrap();
-            node_client.close_requested.then_some(())
+            if let Some((queue, client)) = other.as_mut() {
+                queue.roundtrip(client).unwrap();
+            }
+            (node_client.close_requested == closes_node
+                && other
+                    .as_ref()
+                    .is_none_or(|(_, client)| client.close_requested != closes_node))
+            .then_some(())
         });
         if let Some((mut queue, mut client)) = other {
             queue.roundtrip(&mut client).unwrap();
-            assert!(
-                !client.close_requested,
-                "unrelated focused window was closed"
-            );
+            assert_eq!(client.close_requested, !closes_node);
         }
     }
 }
