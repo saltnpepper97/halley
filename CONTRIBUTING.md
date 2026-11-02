@@ -138,7 +138,7 @@ or branch is merged:
 | --- | --- |
 | [Rust](.github/workflows/rust.yml) | Formatting and workflow lint; strict Clippy and documentation; workspace tests, strict Clippy, release builds and binary smoke tests for default, minimal and dinit features |
 | [Nix](.github/workflows/nix.yml) | Package build, workspace tests, installed-resource checks and NixOS module checks on both x86_64-linux and aarch64-linux |
-| [XWayland](.github/workflows/xwayland.yml) | All eight headless XWayland regressions |
+| [XWayland](.github/workflows/xwayland.yml) | All nine headless XWayland regressions |
 
 All three workflows run on pull requests, including documentation-only
 changes. Direct branch pushes do not start workflows; branches without a pull
