@@ -10,7 +10,12 @@ members: closing the final member leaves its name, slot, layout, and core
 available for later use.
 
 An active empty cluster shows a centered, non-modal hint naming the cluster
-and the configured close shortcut. A populated cluster reveals its windows
+and the configured close shortcut for as long as it remains open, even when
+the pointer or keyboard focus moves to another monitor. Each monitor can show
+its own empty-cluster hint; the shortcut acts on the selected monitor, and
+changing that selection cancels a pending deletion confirmation. Interactive
+overlays, launchers, and the session lock temporarily hide the hints.
+A populated cluster reveals its windows
 without showing that hint. Explicitly changing a populated cluster's layout
 still flashes its updated name and layout.
 

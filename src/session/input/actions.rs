@@ -182,7 +182,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
     super::super::empty_cluster::sync(session, now);
     if action == halley_config::Action::CloseFocusedWindow
         && origin == DispatchOrigin::Keyboard
-        && session.shell.overlays.empty_cluster.visible()
+        && session.shell.overlays.empty_cluster.accepts_input()
     {
         // Repeated timer actions have no physical press and cannot arm/delete.
         if let Some(keycode) = held_keycode {

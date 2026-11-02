@@ -1,5 +1,7 @@
-//! A non-modal, output-owned hint. Only a released, freshly pressed keyboard
-//! shortcut can confirm; hiding it always forgets the pending confirmation.
+//! Persistent, output-owned hints with one keyboard deletion target. Only a
+//! released, freshly pressed shortcut can confirm; changing or blocking the
+//! keyboard target always forgets the pending confirmation.
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use halley_core::cluster::ClusterId;
@@ -28,48 +30,81 @@ pub(crate) enum Press {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Prompt {
+    hints: BTreeMap<String, Target>,
     target: Option<Target>,
-    visible: bool,
+    input_ready: bool,
     armed: bool,
     held: Option<u32>,
-    quiet_until: Duration,
+    quiet_until: BTreeMap<String, Duration>,
 }
 
 impl Prompt {
-    pub fn sync(&mut self, target: Option<Target>, blocked: bool, now: Duration) -> bool {
+    /// Reconcile all displayed hints independently of the selected monitor's
+    /// keyboard target. Ordinary focus changes must not erase other outputs.
+    pub fn sync_outputs(
+        &mut self,
+        hints: Vec<Target>,
+        target: Option<Target>,
+        input_blocked: bool,
+        now: Duration,
+    ) -> bool {
+        self.quiet_until.retain(|_, deadline| now < *deadline);
+        let hints = hints
+            .into_iter()
+            .filter(|target| !self.quiet_until.contains_key(&target.output))
+            .map(|target| (target.output.clone(), target))
+            .collect();
+        let changed = self.hints != hints;
+        self.hints = hints;
+        self.sync(target, input_blocked, now) | changed
+    }
+
+    fn sync(&mut self, target: Option<Target>, blocked: bool, now: Duration) -> bool {
         let changed_target = self.target != target;
         if changed_target {
             self.target = target;
             self.armed = false;
         }
-        let visible = self.target.is_some() && !blocked && now >= self.quiet_until;
-        let changed = changed_target || self.visible != visible || (!visible && self.armed);
-        self.visible = visible;
-        if !visible {
+        let input_ready = !blocked
+            && self.target.as_ref().is_some_and(|target| {
+                self.quiet_until
+                    .get(&target.output)
+                    .is_none_or(|deadline| now >= *deadline)
+            });
+        let changed =
+            changed_target || self.input_ready != input_ready || (!input_ready && self.armed);
+        self.input_ready = input_ready;
+        if !input_ready {
             self.armed = false;
         }
         changed
     }
 
     pub fn snapshot(&self, output: &str) -> Option<Snapshot> {
-        self.target
-            .as_ref()
-            .filter(|target| self.visible && target.output == output)
+        self.hints
+            .get(output)
+            .or_else(|| {
+                self.target
+                    .as_ref()
+                    .filter(|target| self.input_ready && target.output == output)
+            })
             .map(|target| Snapshot {
                 name: target.name.clone(),
                 shortcut: target.shortcut.clone(),
-                armed: self.armed,
+                armed: self.input_ready && self.armed && self.target.as_ref() == Some(target),
             })
     }
 
-    pub fn visible(&self) -> bool {
-        self.visible
+    pub fn accepts_input(&self) -> bool {
+        self.input_ready
     }
 
     pub fn owns_output(&self, output: &str) -> bool {
-        self.target
-            .as_ref()
-            .is_some_and(|target| target.output == output)
+        self.hints.contains_key(output)
+            || self
+                .target
+                .as_ref()
+                .is_some_and(|target| target.output == output)
     }
 
     pub fn cancel(&mut self) -> bool {
@@ -78,10 +113,15 @@ impl Prompt {
 
     pub fn suspend(&mut self, now: Duration) {
         self.armed = false;
-        self.visible = false;
+        self.input_ready = false;
         // Cover the asynchronous gap before a spawned launcher maps or takes
         // focus. Failed launches recover automatically without arming deletion.
-        self.quiet_until = now + Duration::from_millis(750);
+        // Launching on another monitor must leave persistent hints alone.
+        if let Some(target) = &self.target {
+            self.hints.remove(&target.output);
+            self.quiet_until
+                .insert(target.output.clone(), now + Duration::from_millis(750));
+        }
     }
 
     pub fn release(&mut self, keycode: u32) {
@@ -91,14 +131,16 @@ impl Prompt {
     }
 
     pub fn press(&mut self, keycode: u32) -> Press {
-        if !self.visible || self.held.is_some() {
+        if !self.input_ready || self.held.is_some() {
             return Press::Ignored;
         }
         self.held = Some(keycode);
         if self.armed {
             self.armed = false;
-            self.visible = false;
-            Press::Delete(self.target.as_ref().expect("visible target").id)
+            self.input_ready = false;
+            let target = self.target.as_ref().expect("keyboard target");
+            self.hints.remove(&target.output);
+            Press::Delete(target.id)
         } else {
             self.armed = true;
             Press::Armed
@@ -137,14 +179,14 @@ mod tests {
         prompt.press(24);
         prompt.release(24);
         prompt.sync(t.clone(), true, Duration::ZERO);
-        assert!(!prompt.visible());
+        assert!(!prompt.accepts_input());
         prompt.sync(t.clone(), false, Duration::ZERO);
         assert!(!prompt.snapshot("DP-1").unwrap().armed);
         prompt.press(24);
         prompt.release(24);
         prompt.suspend(Duration::ZERO);
         prompt.sync(t.clone(), false, Duration::from_millis(500));
-        assert!(!prompt.visible());
+        assert!(!prompt.accepts_input());
         prompt.sync(t, false, Duration::from_secs(1));
         assert!(!prompt.snapshot("DP-1").unwrap().armed);
     }
@@ -158,7 +200,7 @@ mod tests {
         assert_eq!(prompt.press(24), Press::Armed);
         prompt.release(24);
         prompt.sync(None, false, Duration::ZERO);
-        assert!(!prompt.visible());
+        assert!(!prompt.accepts_input());
         prompt.sync(Some(target(2, "DP-2")), false, Duration::ZERO);
         assert_eq!(prompt.press(24), Press::Armed);
     }

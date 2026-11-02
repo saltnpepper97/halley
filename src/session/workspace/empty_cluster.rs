@@ -4,28 +4,47 @@ use super::{Session, SessionDriver};
 use crate::input::keybinds::{ResolvedBind, ResolvedTrigger};
 use crate::shell::empty_cluster::Target;
 
-/// Reconcile against actual focus and modal state, not just window count:
-/// layer-shell launchers are not workspace members.
+/// Keep hints on every open empty workspace. Actual focus and modal state
+/// separately govern keyboard deletion; launchers are not workspace members.
 pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) -> bool {
-    let output = crate::wayland::focus::selected_output(&session.wayland);
-    let target = output.as_ref().and_then(|output| {
-        let output_name = output.name();
-        let id = session.clusters.active_on(&output_name)?;
-        if !session.clusters.member_ids(id).is_empty() {
-            return None;
-        }
-        let context = super::input::binding_context_for_output(session, Some(&output_name));
-        let shortcut = close_shortcut(&session.keyboard.binds, context)?;
-        Some(Target {
-            id,
-            output: output_name,
-            name: session.clusters.metadata(id)?.name.clone(),
-            shortcut,
+    let selected = crate::wayland::focus::selected_output(&session.wayland).map(|o| o.name());
+    let hints = session
+        .wayland
+        .space
+        .outputs()
+        .filter_map(|output| {
+            let output_name = output.name();
+            let id = session.clusters.active_on(&output_name)?;
+            if !session.clusters.member_ids(id).is_empty() {
+                return None;
+            }
+            let context = super::input::binding_context_for_output(session, Some(&output_name));
+            Some(Target {
+                id,
+                shortcut: close_shortcut(&session.keyboard.binds, context)?,
+                output: output_name,
+                name: session.clusters.metadata(id)?.name.clone(),
+            })
         })
-    });
-    if target.is_none() {
-        return session.shell.overlays.empty_cluster.sync(None, false, now);
-    }
+        .collect::<Vec<_>>();
+    let target = hints
+        .iter()
+        .find(|hint| Some(&hint.output) == selected.as_ref())
+        .cloned();
+    let focused = crate::wayland::focus::current(
+        &session.wayland,
+        &session.fullscreen,
+        &session.clusters,
+        &session.nodes,
+        now,
+    );
+    let layer_focused = matches!(
+        focused,
+        Some(
+            crate::wayland::focus::KeyboardFocus::ExclusiveLayer(_)
+                | crate::wayland::focus::KeyboardFocus::OnDemandLayer(_)
+        )
+    );
     let blocked = session.session_lock.active()
         || session.shell.overlays.confirmation_modal_active()
         || session.shell.overlays.basics_card_accepts_input()
@@ -34,19 +53,25 @@ pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) ->
         || session.shell.focus_cycle.is_open()
         || session.shell.cluster_composer.is_active()
         || session.clusters.accepts_modal_input()
-        || crate::wayland::focus::current(
-            &session.wayland,
-            &session.fullscreen,
-            &session.clusters,
-            &session.nodes,
-            now,
-        )
-        .is_some();
-    session
-        .shell
-        .overlays
-        .empty_cluster
-        .sync(target, blocked, now)
+        || layer_focused;
+    // A local floating window still owns its close action. Its focus does not
+    // change the fact that the underlying empty workspace needs a hint.
+    let window_focused =
+        if let Some(crate::wayland::focus::KeyboardFocus::Window(surface)) = focused {
+            session
+                .nodes
+                .id_for_surface(&surface)
+                .and_then(|id| session.nodes.record(id))
+                .is_none_or(|record| Some(&record.output) == selected.as_ref())
+        } else {
+            false
+        };
+    session.shell.overlays.empty_cluster.sync_outputs(
+        if blocked { Vec::new() } else { hints },
+        target,
+        blocked || window_focused,
+        now,
+    )
 }
 
 fn close_shortcut(binds: &[ResolvedBind], context: crate::input::BindingContext) -> Option<String> {

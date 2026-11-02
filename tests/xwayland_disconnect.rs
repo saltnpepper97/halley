@@ -40,6 +40,8 @@ use x11rb::wrapper::ConnectionExt as _;
 mod accessible_capture;
 #[path = "support/alt_tab_visibility.rs"]
 mod alt_tab_visibility;
+#[path = "support/empty_cluster.rs"]
+mod empty_cluster;
 #[path = "support/fifo_nested.rs"]
 mod fifo_nested;
 #[path = "support/fullscreen_multi_output.rs"]
