@@ -160,6 +160,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
+        super::buffer_release::install::<D>(surface);
         add_pre_commit_hook::<Self, _>(surface, |session, dh, surface| {
             super::commit_timing::prepare(session, surface);
             let removes_buffer = with_states(surface, |states| {
@@ -266,6 +267,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
             .fifo
             .committed(surface, crate::frame_clock::monotonic_now());
         crate::cursor::snapshot::prepare_commit(&self.cursor, surface);
+        super::buffer_release::prepare(self, surface);
         wayland::compositor::prepare_commit::<Self>(surface);
         let root = wayland::compositor::root_surface(surface);
         let dnd_icon_commit = crate::wayland::dnd::handle_commit(self, surface, &root);

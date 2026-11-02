@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Retain replaced and destroyed explicit-sync client buffers until earlier GPU
+  reads complete, so client reuse cannot race compositor rendering.
+
 ## [0.9.1] - 2026-11-01
 
 - Use unmodified upstream Smithay and keep IME lock isolation, stale-composition rejection, and post-unlock recovery in Halley.

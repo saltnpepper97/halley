@@ -15,6 +15,8 @@ mod arrange;
 mod autostart;
 #[path = "onboarding/basics.rs"]
 mod basics;
+#[path = "protocol/buffer_release.rs"]
+mod buffer_release;
 #[path = "windows/closing.rs"]
 pub(crate) mod closing;
 #[path = "workspace/cluster_runtime.rs"]
