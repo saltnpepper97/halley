@@ -4,6 +4,7 @@ use smithay::backend::input::{InputTime, KeyState};
 use smithay::desktop::{PopupKind, Window};
 use smithay::input::Seat;
 use smithay::input::keyboard::{KeyboardTarget, KeysymHandle, ModifiersState};
+use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{IsAlive, Serial};
 use smithay::wayland::seat::WaylandFocus;
@@ -69,6 +70,17 @@ impl KeyboardFocusTarget {
                     "xwayland: failed to acknowledge attention xid={}: {err}",
                     surface.window_id()
                 );
+            }
+        }
+    }
+
+    fn sends_wayland_keyboard_focus(&self) -> bool {
+        match self {
+            Self::Wayland(_) => true,
+            #[cfg(feature = "xwayland")]
+            Self::X11(surface) => {
+                surface.wl_surface().is_some()
+                    && surface.input_model() != smithay::xwayland::xwm::WmInputModel::None
             }
         }
     }
@@ -142,11 +154,20 @@ impl<D: SessionDriver> KeyboardTarget<Session<D>> for KeyboardFocusTarget {
         serial: Serial,
     ) {
         keyboard_delivery::flush(session);
+        if self.sends_wayland_keyboard_focus() {
+            crate::ime_policy::focus_transition(
+                seat,
+                self.wl_surface().map(|surface| surface.id()),
+            );
+        }
         self.target().enter(seat, session, keys, serial);
     }
 
     fn leave(&self, seat: &Seat<Session<D>>, session: &mut Session<D>, serial: Serial) {
         keyboard_delivery::flush(session);
+        if self.sends_wayland_keyboard_focus() {
+            crate::ime_policy::focus_transition(seat, None);
+        }
         self.target().leave(seat, session, serial);
     }
 

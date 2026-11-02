@@ -22,6 +22,8 @@ mod cursor;
 mod frame_clock;
 #[path = "../../src/idle_service.rs"]
 mod idle_service;
+#[path = "../../src/ime_policy.rs"]
+mod ime_policy;
 #[path = "../../src/input/mod.rs"]
 mod input;
 #[path = "../../src/ipc.rs"]

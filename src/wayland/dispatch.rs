@@ -5,6 +5,10 @@
 use smithay::reexports::wayland_server::Resource;
 
 pub(crate) trait UpstreamProtocol: Resource {}
+pub(crate) trait UpstreamGlobal: Resource {}
+impl<I: UpstreamProtocol> UpstreamGlobal for I {}
+impl UpstreamGlobal for smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_manager_v3::ZwpTextInputManagerV3 {}
+impl UpstreamGlobal for smithay::reexports::wayland_protocols_misc::zwp_input_method_v2::server::zwp_input_method_manager_v2::ZwpInputMethodManagerV2 {}
 
 /// A dialog outlives its toplevel, but becomes inert when that role is gone.
 /// The pinned dispatcher otherwise writes hints into the surviving wl_surface,
@@ -100,8 +104,6 @@ upstream_protocols! {
     smithay::reexports::wayland_protocols::wp::primary_selection::zv1::server::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1,
     smithay::reexports::wayland_protocols::wp::relative_pointer::zv1::server::zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
     smithay::reexports::wayland_protocols::wp::relative_pointer::zv1::server::zwp_relative_pointer_v1::ZwpRelativePointerV1,
-    smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_manager_v3::ZwpTextInputManagerV3,
-    smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_v3::ZwpTextInputV3,
     smithay::reexports::wayland_protocols::wp::viewporter::server::wp_viewport::WpViewport,
     smithay::reexports::wayland_protocols::wp::viewporter::server::wp_viewporter::WpViewporter,
     smithay::reexports::wayland_protocols::xdg::activation::v1::server::xdg_activation_token_v1::XdgActivationTokenV1,
@@ -120,8 +122,6 @@ upstream_protocols! {
     smithay::reexports::wayland_protocols::xwayland::shell::v1::server::xwayland_shell_v1::XwaylandShellV1,
     smithay::reexports::wayland_protocols::xwayland::shell::v1::server::xwayland_surface_v1::XwaylandSurfaceV1,
     smithay::reexports::wayland_protocols_misc::zwp_input_method_v2::server::zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2,
-    smithay::reexports::wayland_protocols_misc::zwp_input_method_v2::server::zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
-    smithay::reexports::wayland_protocols_misc::zwp_input_method_v2::server::zwp_input_method_v2::ZwpInputMethodV2,
     smithay::reexports::wayland_protocols_misc::zwp_input_method_v2::server::zwp_input_popup_surface_v2::ZwpInputPopupSurfaceV2,
     smithay::reexports::wayland_protocols_misc::zwp_virtual_keyboard_v1::server::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
     smithay::reexports::wayland_protocols_wlr::layer_shell::v1::server::zwlr_layer_shell_v1::ZwlrLayerShellV1,
@@ -186,7 +186,7 @@ macro_rules! delegate_upstream_protocols {
         impl<$( $( $lt $( : $clt $(+ $dlt )* )? ),+, )? I, U>
             smithay::reexports::wayland_server::GlobalDispatch<I, U> for $state
         where
-            I: crate::upstream_protocols::UpstreamProtocol,
+            I: crate::upstream_protocols::UpstreamGlobal,
             U: smithay::wayland::GlobalDispatch2<I, $state>,
         {
             fn bind(

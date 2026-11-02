@@ -1674,3 +1674,16 @@ mod tests {
         ));
     }
 }
+
+impl<D: SessionDriver> crate::ime_policy::ImeHost for Session<D> {
+    fn ime_seat(&self) -> Seat<Self> {
+        self.seat.clone()
+    }
+    fn ime_repeat(&self) -> (i32, i32) {
+        (
+            self.settings.input.repeat_rate,
+            self.settings.input.repeat_delay,
+        )
+    }
+}
+crate::ime_policy::delegate_ime_policy!(@<D: SessionDriver> Session<D>);

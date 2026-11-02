@@ -852,6 +852,7 @@ impl<D: SessionDriver> XWaylandShellHandler for Session<D> {
         wl_surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
         surface: smithay::xwayland::X11Surface,
     ) {
+        crate::ime_policy::associated_focus(&self.seat);
         xwm::surface_associated(self, wl_surface, surface);
     }
 }

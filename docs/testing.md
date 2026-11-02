@@ -13,6 +13,9 @@ The Ubuntu jobs use 26.04 because the pinned Smithay needs libdisplay-info 0.3.
 
 The checks cover:
 
+- An upstream-source guard requiring both Smithay crates to use the same official
+  revision pin, with no bundled dependency sources, forks, patches or source
+  overrides. All Rust validation jobs require this guard.
 - Rust formatting and GitHub Actions workflow linting.
 - Strict Clippy across the workspace, all targets and all features, plus Rustdoc
   with warnings treated as errors.
