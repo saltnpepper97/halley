@@ -1,6 +1,6 @@
 [package]
 name = "halley"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 description = "Spatial Wayland compositor built around infinite workspace navigation"
 authors.workspace = true
@@ -52,9 +52,9 @@ accesskit = { version = "0.25.1", optional = true }
 accesskit_unix = { version = "0.24.0", optional = true }
 futures-util = { version = "0.3", optional = true }
 drm-ffi = "0.9.1"
-halley-config = { version = "0.8.0", path = "halley-config" }
-halley-core = { version = "0.7.0", path = "halley-core" }
-halley-ipc = { version = "0.7.0", path = "halley-ipc" }
+halley-config = { version = "0.9.0", path = "halley-config" }
+halley-core = { version = "0.8.0", path = "halley-core" }
+halley-ipc = { version = "0.8.0", path = "halley-ipc" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 libc = "0.2"
 png = "0.17"

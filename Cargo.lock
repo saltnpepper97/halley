@@ -1184,7 +1184,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "halley"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "halley-api"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "halley-ipc",
  "serde",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "halley-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "halley-api",
  "halley-config",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "halley-config"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "regex",
  "rune-cfg",
@@ -1247,11 +1247,11 @@ dependencies = [
 
 [[package]]
 name = "halley-core"
-version = "0.7.0"
+version = "0.8.0"
 
 [[package]]
 name = "halley-ipc"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "libc",
  "postcard",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "halley-portal"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "blocking",
  "eventline",

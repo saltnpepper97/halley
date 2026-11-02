@@ -1,6 +1,6 @@
 [package]
 name = "halley-portal"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "Native xdg-desktop-portal ScreenCast and Screenshot backend for the Halley compositor"
 authors.workspace = true
@@ -18,7 +18,7 @@ path = "src/main.rs"
 blocking = "1.6"
 eventline = "0.9.0"
 gbm = "0.18"
-halley-ipc = { version = "0.7.0", path = "../halley-ipc" }
+halley-ipc = { version = "0.8.0", path = "../halley-ipc" }
 libc = "0.2"
 pollster = "0.4"
 pipewire = { version = "0.10", features = ["v0_3_34"] }

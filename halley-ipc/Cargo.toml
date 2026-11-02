@@ -1,6 +1,6 @@
 [package]
 name = "halley-ipc"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 description = "Inter-process communication protocol for the Halley Wayland compositor"
 authors.workspace = true
