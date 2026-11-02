@@ -46,6 +46,12 @@ impl Visibility {
         self.state == State::Visible
     }
 
+    /// Typing can hide the cursor while its last pointer target remains
+    /// intentional. Navigation, touch and inactivity retire that target.
+    pub fn pointer_shortcut_target_active(&self) -> bool {
+        matches!(self.state, State::Visible | State::HiddenByTyping)
+    }
+
     pub fn initial_timer(&mut self) -> TimerDirective {
         self.next_timer()
     }
@@ -186,6 +192,17 @@ mod tests {
         assert!(!visibility.visible());
         assert!(visibility.pointer_activity().0);
         assert!(visibility.visible());
+    }
+
+    #[test]
+    fn typing_retains_pointer_shortcut_target_but_navigation_retires_it() {
+        let mut visibility = Visibility::new(&config(true, None));
+        visibility.keyboard_press();
+        assert!(visibility.pointer_shortcut_target_active());
+        visibility.keyboard_navigation();
+        assert!(!visibility.pointer_shortcut_target_active());
+        visibility.pointer_activity();
+        assert!(visibility.pointer_shortcut_target_active());
     }
 
     #[test]
