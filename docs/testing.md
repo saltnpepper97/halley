@@ -79,6 +79,15 @@ tools. Physical GPU, DRM/KMS, multi-monitor and real-application behavior still
 need separate live testing. These workflows do not publish or install Halley on
 your machine.
 
+The Rust workflow's default-feature job uploads a downloadable Linux x86_64
+test archive, retained for 30 days. It contains the binaries, a session launcher,
+library checks, commit/build information, and native-session test instructions.
+Download it from that run's **Artifacts** section, extract the inner archive,
+and read `README.txt`. It uses Ubuntu 26.04's shared-library baseline and is
+not a universal Linux package; NixOS users can instead build the exact commit
+with the flake instructions included in the archive. A native session is
+required to test explicit sync because the nested backend does not advertise it.
+
 ## Orca accessibility
 
 With Orca, Python GI/AT-SPI, XWayland and a running Wayland desktop installed,

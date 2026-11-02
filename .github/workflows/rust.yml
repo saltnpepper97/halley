@@ -106,3 +106,16 @@ jobs:
           target/release/halley --version
           target/release/halleyctl --help
           test -x target/release/xdg-desktop-portal-halley
+      - name: Package downloadable test build
+        if: matrix.name == 'default'
+        env:
+          BUILD_REVISION: ${{ github.sha }}
+        run: bash .github/scripts/package-test-build.sh target/release target/test-build "$BUILD_REVISION"
+      - name: Upload test build
+        if: matrix.name == 'default'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: halley-test-linux-x86_64-${{ github.sha }}
+          path: target/test-build/
+          if-no-files-found: error
+          retention-days: 30
