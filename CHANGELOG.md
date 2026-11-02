@@ -4,8 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Close collapsed nodes with Mod+Q through the focused node in both focus
-  modes; hover focus selects the node instead of a separate pointer target.
 - Remove the node of a collapsed X11 window that answers a close request by
   withdrawing instead of exiting, such as Steam keeping its window for the tray.
 
