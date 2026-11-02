@@ -180,12 +180,13 @@ pub(crate) fn dispatch<D: SessionDriver>(
 ) {
     let now = crate::frame_clock::monotonic_now();
     super::super::empty_cluster::sync(session, now);
-    // A visible hovered landmark is an explicit close target even in
-    // click-to-focus mode, where its client does not own keyboard focus.
+    // In hover-focus mode a hovered landmark is an explicit close target.
+    // Click-focus mode must continue to close the focused window instead.
     // Ignore a cursor hidden by keyboard navigation so focus remains the target;
     // hiding it on typing must not cancel the user's hovered shortcut target.
     if action == halley_config::Action::CloseFocusedWindow
         && origin == DispatchOrigin::Keyboard
+        && session.settings.input.focus_mode == halley_config::FocusMode::Hover
         && session.cursor_policy.pointer_shortcut_target_active()
         && let Some((id, _)) = super::node_at_pointer(session)
         && session
