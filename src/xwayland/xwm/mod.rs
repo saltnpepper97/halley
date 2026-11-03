@@ -17,7 +17,8 @@ use crate::session::{Session, SessionDriver};
 use crate::wayland::fullscreen::{ExternalConfigureResult, ExternalTransactionRequest};
 
 use super::lifecycle::{
-    MapAdmission, OpeningPlacement, map_admission, opening_placement_is_authoritative,
+    CollapsedUnmap, MapAdmission, OpeningPlacement, collapsed_unmap, map_admission,
+    opening_placement_is_authoritative,
 };
 use super::{
     OverrideRedirectPlacement, PendingOverrideRedirect, PendingWindow, SavedNormalSize,

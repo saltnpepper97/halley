@@ -70,6 +70,8 @@ impl<D: SessionDriver> State<D> {
 
     pub fn set_window_normal(&mut self, _window: &Window) {}
 
+    pub(crate) fn note_close_requested(&mut self, _window: &Window) {}
+
     pub(crate) fn client_geometry_guarded_for_window(
         &self,
         _window: &Window,

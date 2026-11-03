@@ -52,6 +52,7 @@ pub(super) fn forget_window<D: SessionDriver>(
     session
         .xwayland
         .forget_client_geometry_guard(surface.window_id());
+    session.xwayland.forget_close_request(surface.window_id());
     session.xwayland.forget_frame_extents(surface.window_id());
     let was_pending = session
         .xwayland
@@ -258,18 +259,26 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
             "unmapped",
             format_args!("geometry={:?}", surface.last_configure()),
         );
-        if node_for_surface(&self.nodes, &surface)
+        let collapsed = node_for_surface(&self.nodes, &surface)
             .and_then(|id| self.nodes.record(id))
-            .is_some_and(|record| record.collapsed)
-        {
-            // This is an already accepted iconification. Smithay has retired
-            // the XWM frame, but the client window still exists. DestroyNotify
+            .is_some_and(|record| record.collapsed);
+        let close_requested = self
+            .xwayland
+            .close_request_pending(surface.window_id(), crate::frame_clock::monotonic_now());
+        if collapsed && collapsed_unmap(close_requested) == CollapsedUnmap::RetainIconic {
+            // Without a close request this is a client remap cycle around an
+            // accepted iconification (Wine does this). Smithay has retired the
+            // XWM frame, but the client window still exists. DestroyNotify
             // remains the final lifetime boundary for this minimized window.
             self.xwayland
                 .transition_surface(&surface, WindowState::Iconic);
             self.request_redraw();
             return;
         }
+        // Otherwise this is an ICCCM withdrawal. A collapsed client that
+        // answers a close request by unmapping without destroying (Steam
+        // keeps its window for the tray) must leave the Field like any
+        // closed window instead of stranding a node with no client behind it.
         cancel_pending_override_redirect(self, surface.window_id());
         self.xwayland
             .override_redirect_placements

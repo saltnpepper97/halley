@@ -40,6 +40,8 @@ use x11rb::wrapper::ConnectionExt as _;
 mod accessible_capture;
 #[path = "support/alt_tab_visibility.rs"]
 mod alt_tab_visibility;
+#[path = "support/collapsed_node_close.rs"]
+mod collapsed_node_close;
 #[path = "support/empty_cluster.rs"]
 mod empty_cluster;
 #[path = "support/fifo_nested.rs"]
@@ -129,7 +131,7 @@ impl Fixture {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let config = path.join("halley.rune");
         let bindings = if two_outputs {
-            "  \"alt+tab\" \"cycle-focus\"\n  \"F8\" \"resize-window-right\"\n  \"F9\" \"resize-window-down\"\n  \"F10\" \"toggle-fullscreen\"\n"
+            "  \"alt+tab\" \"cycle-focus\"\n  \"alt+q\" \"close-focused\"\n  \"F7\" \"close-focused\"\n  \"F8\" \"resize-window-right\"\n  \"F9\" \"resize-window-down\"\n  \"F10\" \"toggle-fullscreen\"\n"
         } else {
             ""
         };
@@ -327,6 +329,7 @@ struct NativeState {
     toplevel: Option<xdg_toplevel::XdgToplevel>,
     exported_handles: Vec<String>,
     keyboard_focused: bool,
+    close_requested: bool,
     keyboard_events: Vec<(u32, wl_keyboard::KeyState)>,
     keyboard_keymaps: usize,
     keyboard_modifiers: (u32, u32, u32, u32),
@@ -533,6 +536,10 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for NativeState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if let xdg_toplevel::Event::Close = event {
+            state.close_requested = true;
+            return;
+        }
         if let xdg_toplevel::Event::Configure {
             width,
             height,
