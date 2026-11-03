@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Retain replaced and destroyed explicit-sync client buffers until earlier GPU
+  reads complete, so client reuse cannot race compositor rendering.
+
 ## [0.9.2] - 2026-11-02
 
 - Remove the node of a collapsed X11 window that answers a close request by

@@ -255,8 +255,10 @@ the global does not allocate timelines, install event sources, or add waits.
 Those resources are created only when an opting-in client imports a timeline
 and commits a DMA-BUF with acquire and release points. The acquire point
 blocks only that surface transaction without stalling the compositor event
-loop; Smithay signals the release point when the compositor drops its final
-reference to the buffer. The nested winit backend never advertises this
+loop. Halley keeps outgoing buffer references until a fence covering earlier
+primary-context GPU reads completes, including when a synchronized child is
+replaced or a surface is destroyed. Smithay signals the release point only
+after those references and any KMS scanout references are dropped. The nested winit backend never advertises this
 hardware protocol, and a surface that opts into explicit sync never also waits
 on implicit fences.
 
