@@ -448,6 +448,13 @@ impl<D: SessionDriver> Session<D> {
             .clusters
             .reload(config.clusters, config.animations.cluster);
         let font_redraw = self.render.ui_text.reload_font(&config.font);
+        if D::BACKEND_KIND == crate::input::keybinds::BackendKind::Tty
+            && self.settings.debug.disable_explicit_sync != config.debug.disable_explicit_sync
+        {
+            eventline::info!(
+                "config: debug.disable-explicit-sync changed; restart Halley to apply it"
+            );
+        }
         self.settings.reload_non_input(config);
         if decorations_changed {
             // A changed border width or titlebar height resizes the frame

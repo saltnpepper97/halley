@@ -168,6 +168,9 @@ impl Default for LandmarkPlacement {
 pub struct Debug {
     pub show_focus_ring: bool,
     pub overlay_fps: bool,
+    /// Suppress linux-drm-syncobj-v1 advertisement for the entire session.
+    /// This startup-only workaround does not change on configuration reload.
+    pub disable_explicit_sync: bool,
 }
 
 pub fn parse_landmark_placement(config: &RuneConfig) -> LandmarkPlacement {
@@ -300,6 +303,7 @@ pub fn parse_debug(config: &RuneConfig) -> Debug {
     Debug {
         show_focus_ring: config.get_or("debug.show-focus-ring", false),
         overlay_fps: config.get_or("debug.overlay-fps", false),
+        disable_explicit_sync: config.get_or("debug.disable-explicit-sync", false),
     }
 }
 
@@ -483,6 +487,19 @@ fn finite_clamp(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_sync_opt_out_is_disabled_by_default_and_accepts_both_values() {
+        for (source, disabled) in [
+            ("", false),
+            ("debug:\n  overlay-fps true\nend\n", false),
+            ("debug:\n  disable-explicit-sync false\nend\n", false),
+            ("debug:\n  disable-explicit-sync true\nend\n", true),
+        ] {
+            let config = RuneConfig::from_str(source).unwrap();
+            assert_eq!(parse_debug(&config).disable_explicit_sync, disabled);
+        }
+    }
 
     #[test]
     fn parses_canonical_node_names_and_landmark_gap() {

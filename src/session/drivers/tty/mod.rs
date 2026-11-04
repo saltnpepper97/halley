@@ -432,7 +432,12 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         smithay::utils::Clock::<smithay::utils::Monotonic>::new().id() as u32,
     );
     let session_lock = crate::wayland::session_lock::State::new::<TtyDriver>(&dh);
-    let drm_syncobj_state = if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(
+    let drm_syncobj_state = if runtime_config.debug.disable_explicit_sync {
+        eventline::info!(
+            "explicit sync: disabled by debug.disable-explicit-sync; restart Halley to change"
+        );
+        None
+    } else if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(
         driver.backend.drm_device_fd(),
     ) {
         eventline::info!("explicit sync: linux-drm-syncobj-v1 available on the primary DRM device");
