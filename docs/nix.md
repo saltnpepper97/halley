@@ -76,6 +76,19 @@ The module does not write or replace `~/.config/halley/halley.rune`. Halley
 uses its normal first-run configuration behavior. The session launcher uses
 the user's login-shell environment for application discovery.
 
+## Unreleased explicit-sync workaround
+
+Git builds include [`debug.disable-explicit-sync`](wayland-protocols.md#explicit-synchronization),
+which defaults to `false`. Set it to `true` in your existing `debug` block and
+restart Halley to disable explicit sync without modifying its source.
+
+A flake input can select `github:saltnpepper97/halley/main` or an exact commit
+before a tagged release is available. An existing system flake remains pinned
+to the revision in its lock file: update the Halley input with
+`nix flake update halley` (substitute your actual input name), rebuild your
+NixOS configuration, and start a new Halley session. Rebuilding without updating
+the input does not fetch a newer Halley revision.
+
 ## Development and validation
 
 ```sh

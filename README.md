@@ -263,6 +263,7 @@ Nested Rune `gather` dependencies are watched recursively, including missing
 dependencies that are created after startup.
 
 See [display scaling](docs/display-scale.md),
+[explicit synchronization](docs/wayland-protocols.md#explicit-synchronization),
 [startup clusters](docs/clusters.md#startup-clusters), and
 [autostart logs](docs/autostart.md) for more configuration details.
 

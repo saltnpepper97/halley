@@ -608,6 +608,10 @@ node:
 end
 
 debug:
+  # Graphics compatibility workaround. Requires restarting Halley.
+  # Set true to stop advertising explicit sync to applications.
+  disable-explicit-sync false
+
   # The ring is still previewed briefly when its configuration changes.
   show-focus-ring false
 
