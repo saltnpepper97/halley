@@ -248,9 +248,12 @@ metadata, and the `vsync` flag. Feedback is taken only for surface elements
 actually included in the submitted frame, so compositor textures and hidden
 or collapsed windows do not receive false presentation events.
 
+## Explicit synchronization
+
 On the TTY backend, Halley conditionally advertises
 `wp_linux_drm_syncobj_manager_v1` version 1 only when the primary DRM device
-supports syncobj eventfd notification. Support is demand-driven: advertising
+supports syncobj eventfd notification and `debug.disable-explicit-sync` is
+`false` (the default). Support is demand-driven: advertising
 the global does not allocate timelines, install event sources, or add waits.
 Those resources are created only when an opting-in client imports a timeline
 and commits a DMA-BUF with acquire and release points. The acquire point
@@ -261,6 +264,25 @@ replaced or a surface is destroyed. Smithay signals the release point only
 after those references and any KMS scanout references are dropped. The nested winit backend never advertises this
 hardware protocol, and a surface that opts into explicit sync never also waits
 on implicit fences.
+
+The unreleased Git version includes an explicit-sync compatibility workaround.
+If an application flickers with explicit sync, add this field to your existing
+`debug` block in `halley.rune`:
+
+```rune
+debug:
+  disable-explicit-sync true
+end
+```
+
+Restart Halley after changing it. The setting applies to the whole native
+session; live reload cannot change the advertised protocol. Startup logs
+whether explicit sync was disabled by configuration, and a reload that changes
+the setting logs that a restart is required. Setting it back to `false` and
+restarting restores normal hardware-based detection. Existing configurations
+are not rewritten; omitting the field preserves the previous behavior. This
+is a workaround for graphics compatibility, not a confirmed fix for the
+underlying flickering reported in [issue #264](https://github.com/saltnpepper97/halley/issues/264).
 
 Implicit-sync clients are covered separately. A newly committed DMA-BUF whose
 planes are not yet readable is withheld from composited state until every

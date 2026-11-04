@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Add `debug.disable-explicit-sync` as a session-wide graphics compatibility
+  workaround. It defaults to `false` and requires restarting Halley; existing
+  user configurations are not rewritten.
 - Retain replaced and destroyed explicit-sync client buffers until earlier GPU
   reads complete, so client reuse cannot race compositor rendering.
 
