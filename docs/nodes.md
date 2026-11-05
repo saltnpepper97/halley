@@ -59,7 +59,12 @@ The accepted values are:
 - `always` centers every restored node.
 
 When centering is selected, camera motion and window restoration begin in the
-same action. Moving or restoring a node does not change its stable ID.
+same action.
+
+Navigation that exists to reach a window (Bearings chips, Trail, and directional
+focus) treats `never` as `if-offscreen` when it restores a node, so the window
+never comes back out of view. Clicking a node on the Field, `toggle-state`, and
+IPC restores follow the setting exactly. Moving or restoring a node does not change its stable ID.
 
 ## Automatic decay
 

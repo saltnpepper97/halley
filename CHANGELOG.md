@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Restore a collapsed node into view when Bearings, Trail or directional focus
+  reaches it. Previously, with `node.click-collapsed-pan "never"` (the default),
+  the window restored off screen and took focus out of sight until a second
+  click. Clicking a node on the Field and `toggle-state` still follow the
+  setting exactly.
 - Return a maximized window to maximize when it leaves its own fullscreen,
   such as a browser exiting fullscreen video, instead of dropping it back to
   its normal size in the Field. Leaving `Mod+F` still restores the normal

@@ -135,6 +135,15 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     let snapshot = app.shell.overlays.snapshot(&output.name(), now).empty_cluster?;
                     Some(serde_json::json!({"output": output.name(), "shortcut": snapshot.shortcut, "armed": snapshot.armed}))
                 }).collect::<Vec<_>>(),
+                "bearings": app.wayland.space.outputs().map(|output| {
+                    let origin = output.current_location();
+                    let chips = app.shell.bearings.hitboxes(&output.name()).into_iter().filter_map(|hitbox| match hitbox.target {
+                        crate::shell::bearings::BearingTarget::Node(id) => Some(serde_json::json!({"id": id.as_u64(),
+                            "rect": [origin.x + hitbox.rect.loc.x, origin.y + hitbox.rect.loc.y, hitbox.rect.size.w, hitbox.rect.size.h]})),
+                        crate::shell::bearings::BearingTarget::ClusterCore { .. } => None,
+                    }).collect::<Vec<_>>();
+                    serde_json::json!({"output": output.name(), "mix": app.shell.bearings.mix(&output.name()), "chips": chips})
+                }).collect::<Vec<_>>(),
                 "capture_active": app.capture.is_active(), "capture_source": app.capture.source_accessibility().2, "capture_region": capture_region,
                 "leds": {"caps": leds.caps, "num": leds.num, "scroll": leds.scroll},
                 "led_update_count": app.driver.keyboard_led_update_count, "last_led_update": last_led_update,

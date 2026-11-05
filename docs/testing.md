@@ -163,6 +163,19 @@ client colours continue appearing in output captures. Host input remains
 isolated. Actual Minecraft capture and native DRM behaviour require separate
 testing in the installed compositor.
 
+## Bearings restore
+
+```sh
+HALLEY_TEST_WINIT_SERVER=/absolute/path/to/the/reported/executable \
+  cargo test --locked --test xwayland_disconnect bearings_restore \
+  -- --ignored --test-threads=1
+```
+
+Build the private server as described above. The test moves a real client off
+screen, collapses it, and clicks its Bearings chip through the production
+pointer handler with `node.click-collapsed-pan "never"`. One click must restore
+the window and bring it into view.
+
 ## X11 fullscreen video-mode changes
 
 ```sh

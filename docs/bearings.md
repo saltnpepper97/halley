@@ -31,8 +31,9 @@ not hide them.
 
 Clicking a chip performs one action:
 
-- A collapsed node restores and focuses immediately. Optional
-  `node.click-collapsed-pan` movement begins in that same action.
+- A collapsed node restores and focuses immediately. If it would come back
+  off screen, the camera centers it in that same action, even when
+  `node.click-collapsed-pan` is `never`; `always` still centers every restore.
 - An active window focuses and raises immediately. If it is offscreen, the
   camera moves only far enough to reveal its bounds rather than centering it.
 
