@@ -280,6 +280,17 @@ impl FullscreenManager {
         })
     }
 
+    /// Whether releasing the client's own fullscreen request should hand the
+    /// window back to the field maximize it replaced on entry. Applies only to
+    /// client-owned fullscreen (an app such as a browser playing fullscreen
+    /// video); a concurrent Mod+F owner keeps fullscreen, and leaving Mod+F
+    /// itself still restores the pre-maximize normal placement.
+    pub(crate) fn client_unfullscreen_restores_maximize(&self, surface: &WlSurface) -> bool {
+        self.windows
+            .get(surface)
+            .is_some_and(client_release_restores_maximize)
+    }
+
     pub(crate) fn restore_placement(
         &self,
         surface: &WlSurface,

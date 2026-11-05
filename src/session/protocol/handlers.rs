@@ -946,8 +946,17 @@ impl<D: SessionDriver> XdgShellHandler for Session<D> {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        // The maximize handoff saved the original normal placement.
-        // Fullscreen exit restores that endpoint without re-entering maximize.
+        // A client fullscreen (such as browser video) entered from field
+        // maximize returns to maximize when the client leaves it. Maximize
+        // inherits the original normal placement from the fullscreen entry,
+        // so a later unmaximize still lands there. Mod+F exit is unaffected.
+        if self
+            .fullscreen
+            .client_unfullscreen_restores_maximize(surface.wl_surface())
+            && super::set_surface_field_maximized(self, surface.wl_surface(), true)
+        {
+            return;
+        }
         let capture_outgoing = self
             .fullscreen
             .client_request_changes_visual(surface.wl_surface(), false);
