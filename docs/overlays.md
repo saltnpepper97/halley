@@ -128,11 +128,17 @@ remain configured but have no visible effect while `background false`.
 
 Each Halley package version's first native session shows a **Halley
 basics** card: the Field-first mental model plus the five essential operations
-(`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange, `Mod+N`
-collapse/restore, `Mod+O` Apogee). Clusters stay out of first-run training in
-0.8.0: the card names no cluster action, core, or layout, so a cluster is only
-ever introduced deliberately. The card spells `Mod` as the configured key
-— `Super` on a native session, `Alt` while nested under `--winit`. It reuses the
+(Lift, moving a window, arrange, collapse/restore, and Apogee). Clusters stay
+out of first-run training in 0.8.0: the card names no cluster action, core, or
+layout, so a cluster is only ever introduced deliberately.
+
+Each row names the chord actually bound to that action in the Field, read from
+the keybinds when the card opens. With the defaults that is `Mod+D`,
+`Mod+Left-drag`, `Mod+A`, `Mod+N` and `Mod+O`, with `Mod` spelled as the
+effective key: `Super` on a native session, `Alt` while nested under `--winit`.
+A rebinding renames its row, and an unbound action reads **No shortcut**. When
+no binding launches `halley-lift`, the first row names the terminal binding
+instead. It reuses the
 shared overlay surface,
 typography, and transition timing described above, is centered on the focused
 output, and never dims the desktop or opens a backdrop.
@@ -143,8 +149,8 @@ other action keep working, and each captured press is matched with its release s
 no orphan event reaches a client. `Enter`, `Escape`, or a click fades the card
 out and records the dismissal.
 
-When Orca is enabled, Halley exposes the card's text and the configured
-modifier through the accessibility interface. The card can still be dismissed
+When Orca is enabled, Halley exposes the card's text, including each row's
+bound chord, through the accessibility interface. The card can still be dismissed
 with Enter or Escape.
 
 Automatic display is native-only (not `--winit`) and occurs until the card

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Label the Halley basics card from the configured keybinds instead of fixed
+  letters, so a rebound action shows its real chord, an unbound one reads "No
+  shortcut", and the launcher row names the terminal binding when Lift is not
+  bound. Orca reads the same labels.
 - Restore a collapsed node into view when Bearings, Trail or directional focus
   reaches it. Previously, with `node.click-collapsed-pan "never"` (the default),
   the window restored off screen and took focus out of sight until a second
