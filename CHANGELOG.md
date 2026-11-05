@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Stop the first-decay notice from suggesting `Mod+N`, which acts on the
+  focused window rather than the one that just collapsed. It now says the
+  window is still running and points to its node or to Apogee, naming the key
+  actually bound to Apogee.
 - Label the Halley basics card from the configured keybinds instead of fixed
   letters, so a rebound action shows its real chord, an unbound one reads "No
   shortcut", and the launcher row names the terminal binding when Lift is not
