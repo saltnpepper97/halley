@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Return a maximized window to maximize when it leaves its own fullscreen,
+  such as a browser exiting fullscreen video, instead of dropping it back to
+  its normal size in the Field. Leaving `Mod+F` still restores the normal
+  window.
 - Add `debug.disable-explicit-sync` as a session-wide graphics compatibility
   workaround. It defaults to `false` and requires restarting Halley; existing
   user configurations are not rewritten.
