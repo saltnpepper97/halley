@@ -331,6 +331,20 @@ fn restore_without_centering<D: crate::session::SessionDriver>(
     )
 }
 
+/// The centering used when a navigation surface (Bearings, Trail, directional
+/// focus) restores a collapsed node. Those surfaces exist to reach windows,
+/// often off-screen ones, so `never` is raised to `if-offscreen`: the window
+/// must come back where the user can see it. `if-offscreen` and `always`
+/// already satisfy that and are kept as configured.
+fn reveal_centering(
+    configured: halley_config::RestoreCentering,
+) -> halley_config::RestoreCentering {
+    match configured {
+        halley_config::RestoreCentering::Never => halley_config::RestoreCentering::IfOffscreen,
+        other => other,
+    }
+}
+
 fn restore_with_centering<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
@@ -691,10 +705,11 @@ fn focus_navigation_node<D: crate::session::SessionDriver>(
     true
 }
 
-/// Activate a node and make it visible in one operation. Collapsed nodes
-/// follow the configured restore-centering policy; live windows are focused
-/// immediately. When `pan` is true, the camera only moves far enough to
-/// reveal their bounds.
+/// Activate a node and make it visible in one operation. Live windows are
+/// focused immediately; when `pan` is true, the camera only moves far enough
+/// to reveal their bounds. Collapsed nodes follow the configured
+/// restore-centering policy, except that a revealing (`pan`) restore never
+/// leaves the window off screen: see [`reveal_centering`].
 pub fn focus_or_reveal_node<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
@@ -705,7 +720,8 @@ pub fn focus_or_reveal_node<D: crate::session::SessionDriver>(
         return false;
     };
     if record.collapsed {
-        return restore(session, id, serial);
+        let centering = pan.then(|| reveal_centering(session.nodes.config.restore_centering));
+        return restore_with_centering(session, id, serial, centering);
     }
     if !record.attached {
         return false;
@@ -1088,5 +1104,25 @@ mod workspace_close_tests {
             Some(active)
         ));
         assert!(super::close_candidate_in_workspace(None, None));
+    }
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use halley_config::RestoreCentering;
+
+    #[test]
+    fn revealing_restores_never_leave_the_window_off_screen() {
+        assert_eq!(
+            super::reveal_centering(RestoreCentering::Never),
+            RestoreCentering::IfOffscreen
+        );
+    }
+
+    #[test]
+    fn revealing_restores_keep_policies_that_already_reveal() {
+        for policy in [RestoreCentering::IfOffscreen, RestoreCentering::Always] {
+            assert_eq!(super::reveal_centering(policy), policy);
+        }
     }
 }

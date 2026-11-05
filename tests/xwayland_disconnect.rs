@@ -40,6 +40,8 @@ use x11rb::wrapper::ConnectionExt as _;
 mod accessible_capture;
 #[path = "support/alt_tab_visibility.rs"]
 mod alt_tab_visibility;
+#[path = "support/bearings_restore.rs"]
+mod bearings_restore;
 #[path = "support/collapsed_node_close.rs"]
 mod collapsed_node_close;
 #[path = "support/empty_cluster.rs"]

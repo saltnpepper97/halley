@@ -130,6 +130,16 @@ impl BearingsState {
             .insert(output.to_string(), hitboxes);
     }
 
+    /// The chips last drawn on `output`, for the nested test server.
+    #[cfg(test)]
+    pub fn hitboxes(&self, output: &str) -> Vec<BearingHitbox> {
+        self.hitboxes
+            .borrow()
+            .get(output)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn hit_test(&self, output: &str, local: Point<f64, Logical>) -> Option<BearingTarget> {
         (self.mix(output) > 0.05)
             .then(|| self.hitboxes.borrow().get(output).cloned())
