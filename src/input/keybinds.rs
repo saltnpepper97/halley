@@ -201,6 +201,71 @@ pub fn resolve_binds(keybinds: &Keybinds, backend: BackendKind) -> Vec<ResolvedB
         .collect()
 }
 
+/// The human-readable chord for the first binding of an action that can
+/// actually fire in `context`, such as `Super+Shift+X`.
+///
+/// The input matcher takes the first active chord, so a binding shadowed by an
+/// earlier one with the same modifiers and trigger is never advertised. Only
+/// keyboard triggers are named: a pointer or wheel trigger is not a key, and
+/// hints that tell the user to press something must name a key.
+pub fn shortcut_label(
+    binds: &[ResolvedBind],
+    context: super::BindingContext,
+    matches: impl Fn(&Action) -> bool,
+) -> Option<String> {
+    binds.iter().enumerate().find_map(|(index, bind)| {
+        if !matches(&bind.action) || !context.allows(bind.scope) {
+            return None;
+        }
+        if binds[..index].iter().any(|other| {
+            context.allows(other.scope)
+                && other.modifiers == bind.modifiers
+                && other.trigger == bind.trigger
+        }) {
+            return None;
+        }
+        let key = match bind.trigger {
+            ResolvedTrigger::Keysym(key) => {
+                let name = key.name()?;
+                let name = name.strip_prefix("XK_").unwrap_or(name);
+                if name.len() == 1 {
+                    name.to_uppercase()
+                } else {
+                    name.to_string()
+                }
+            }
+            ResolvedTrigger::Keycode(key) => format!("Keycode {}", key.raw().saturating_sub(8)),
+            _ => return None,
+        };
+        Some(chord_label(bind.modifiers, key))
+    })
+}
+
+/// `modifiers` and a trigger name joined as `Super+Ctrl+Alt+Shift+key`, naming
+/// a side only when the binding requires that side.
+fn chord_label(m: Modifiers, trigger: String) -> String {
+    let mut parts = Vec::new();
+    for (generic, left, right, label) in [
+        (m.super_key, m.left_super, m.right_super, "Super"),
+        (m.ctrl, m.left_ctrl, m.right_ctrl, "Ctrl"),
+        (m.alt, m.left_alt, m.right_alt, "Alt"),
+        (m.shift, m.left_shift, m.right_shift, "Shift"),
+    ] {
+        if generic {
+            parts.push(label.to_string());
+        } else {
+            if left {
+                parts.push(format!("Left {label}"));
+            }
+            if right {
+                parts.push(format!("Right {label}"));
+            }
+        }
+    }
+    parts.push(trigger);
+    parts.join("+")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
