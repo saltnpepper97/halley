@@ -480,18 +480,15 @@ pub(super) fn push_overview_window(
         ));
     }
     if record.collapsed {
-        let badge = "NODE";
-        if let Some(size) = ui_text.measure(renderer, badge, [151, 205, 255])?
-            && let Some(text) = ui_text.element(
-                renderer,
-                (card.loc.x + card.size.w - size.w - 10, card.loc.y + 8).into(),
-                badge,
-                [151, 205, 255],
-                chrome_alpha,
-            )?
-        {
-            elements.push(SceneElement::UiText(text.element));
-        }
+        push_node_badge(
+            elements,
+            renderer,
+            node_renderer,
+            ui_text,
+            body,
+            overlay_visuals,
+            chrome_alpha,
+        )?;
     }
 
     let chrome_visible = preview_chrome_visible(&record.window, fullscreen);
@@ -649,6 +646,50 @@ pub(super) struct FocusCycleRenderContext<'a> {
     pub now: std::time::Duration,
 }
 
+/// The NODE marker on a collapsed window's tile, shared by Apogee and Alt+Tab
+/// so the two views cannot drift apart: accent text on a pill in the overlay
+/// fill, both from the resolved overlay theme, inset in the tile's top-left
+/// corner. The top-right corner belongs to Alt+Tab's monitor name and, on the
+/// Field, to the pin badge.
+fn push_node_badge(
+    elements: &mut Vec<SceneElement>,
+    renderer: &mut GlesRenderer,
+    node_renderer: &mut crate::render::node::NodeRenderer,
+    ui_text: &mut crate::render::text::UiTextRenderer,
+    body: Rectangle<i32, Physical>,
+    overlay_visuals: crate::render::overlays::shell::OverlayVisuals,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    const LABEL: &str = "NODE";
+    let Some(size) = ui_text.measure(renderer, LABEL, overlay_visuals.border.bytes())? else {
+        return Ok(());
+    };
+    let badge = Rectangle::<i32, Physical>::new(
+        (body.loc.x + 8, body.loc.y + 8).into(),
+        (size.w + 14, size.h + 8).into(),
+    );
+    if let Some(text) = ui_text.element(
+        renderer,
+        (badge.loc.x + 7, badge.loc.y + 4).into(),
+        LABEL,
+        overlay_visuals.border.bytes(),
+        alpha,
+    )? {
+        elements.push(SceneElement::UiText(text.element));
+    }
+    elements.push(SceneElement::NodeLabel(
+        crate::render::overlays::shell::label_card_element(
+            renderer,
+            node_renderer,
+            badge,
+            overlay_visuals,
+            overlay_visuals.fill,
+            0.94 * alpha,
+        )?,
+    ));
+    Ok(())
+}
+
 pub(super) fn focus_cycle_elements(
     renderer: &mut GlesRenderer,
     output_geometry: Rectangle<i32, Logical>,
@@ -778,32 +819,16 @@ pub(super) fn focus_cycle_elements(
             ));
         }
 
-        if record.collapsed
-            && let Some(size) = ui_text.measure(renderer, "NODE", overlay_visuals.border.bytes())?
-        {
-            let badge = Rectangle::<i32, Physical>::new(
-                (body.loc.x + 8, body.loc.y + 8).into(),
-                (size.w + 14, size.h + 8).into(),
-            );
-            if let Some(text) = ui_text.element(
+        if record.collapsed {
+            push_node_badge(
+                &mut elements,
                 renderer,
-                (badge.loc.x + 7, badge.loc.y + 4).into(),
-                "NODE",
-                overlay_visuals.border.bytes(),
+                node_renderer,
+                ui_text,
+                body,
+                overlay_visuals,
                 alpha,
-            )? {
-                elements.push(SceneElement::UiText(text.element));
-            }
-            elements.push(SceneElement::NodeLabel(
-                crate::render::overlays::shell::label_card_element(
-                    renderer,
-                    node_renderer,
-                    badge,
-                    overlay_visuals,
-                    overlay_visuals.fill,
-                    0.94 * alpha,
-                )?,
-            ));
+            )?;
         }
 
         // Old Halley put the title and app icon in a caption band over the
