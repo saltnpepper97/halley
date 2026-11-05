@@ -310,3 +310,28 @@ fn native_exit_uses_a_client_constrained_restore_size() {
     assert_eq!(entry.restore.as_ref().unwrap().geometry, constrained);
     assert_eq!(entry.presentation_windowed, Some(constrained));
 }
+
+#[test]
+fn client_fullscreen_exit_from_maximize_returns_to_maximize() {
+    let mut entry = test_entry(true);
+    entry.restore_kind = FullscreenRestoreKind::WindowedFromMaximize;
+    assert!(client_release_restores_maximize(&entry));
+
+    // A plain client fullscreen restores its normal windowed placement.
+    entry.restore_kind = FullscreenRestoreKind::Windowed;
+    assert!(!client_release_restores_maximize(&entry));
+}
+
+#[test]
+fn compositor_fullscreen_owner_keeps_client_exit_from_restoring_maximize() {
+    let mut entry = test_entry(true);
+    entry.restore_kind = FullscreenRestoreKind::WindowedFromMaximize;
+    let native = entry.native.as_mut().expect("native owner");
+    native.compositor_requested = true;
+    assert!(!client_release_restores_maximize(&entry));
+
+    // Mod+F entered from maximize alone keeps its normal-placement exit.
+    let native = entry.native.as_mut().expect("native owner");
+    native.client_requested = false;
+    assert!(!client_release_restores_maximize(&entry));
+}

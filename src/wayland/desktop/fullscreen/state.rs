@@ -258,6 +258,14 @@ pub(super) fn retains_maximized_protocol(entry: &FullscreenWindow) -> bool {
         && entry.native.is_some_and(|native| !native.protocol_desired)
 }
 
+pub(super) fn client_release_restores_maximize(entry: &FullscreenWindow) -> bool {
+    entry.desired
+        && entry.restore_kind == FullscreenRestoreKind::WindowedFromMaximize
+        && entry
+            .native
+            .is_some_and(|native| native.client_requested && !native.compositor_requested)
+}
+
 pub(super) fn select_restore_presentation_endpoint(entry: &mut FullscreenWindow) {
     entry.presentation_windowed = entry.restore.as_ref().map(|restore| restore.geometry);
     entry.presentation_output = entry.restore_presentation_output;
