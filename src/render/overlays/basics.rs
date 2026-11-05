@@ -12,6 +12,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Buffer, Physical, Rectangle, Size};
 
 use super::shell::{OverlayVisuals, card_element};
+use crate::input::keybinds::{ResolvedBind, drag_shortcut_label, shortcut_label};
 use crate::render::node::NodeRenderer;
 use crate::render::scene::SceneElement;
 use crate::render::text::UiTextRenderer;
@@ -31,19 +32,59 @@ pub(crate) const MODEL_SUBTEXT: &str = "Clusters are optional named contexts you
 pub(crate) const FOOTER: &str =
     "Enter, Esc, or click to dismiss. Reopen it anytime from Lift: Show Halley basics.";
 
-/// The five essentials, in the order the card teaches them. The key is rendered
-/// after the configured modifier, so the card names the chords this session
-/// actually listens for.
-const ESSENTIALS: [(&str, &str); 5] = [
-    ("D", "Launch or search with Lift"),
-    ("Left-drag", "Move a window"),
-    (
-        "A",
-        "Arrange visible windows, or restore their saved geometry",
-    ),
-    ("N", "Collapse or restore a window"),
-    ("O", "See everything in Apogee"),
-];
+/// Shown in place of a chord when the user has no binding for that row.
+pub(crate) const NO_SHORTCUT: &str = "No shortcut";
+const LIFT: &str = "Launch or search with Lift";
+const TERMINAL: &str = "Open a terminal";
+
+/// One card row: the chord the session actually listens for, and what it does.
+pub(crate) type BasicsRow = (String, &'static str);
+
+/// The five essentials, in the order the card teaches them, each labelled with
+/// the chord the user really has bound in the Field. A rebinding renames the
+/// row; a missing binding says so instead of naming a key that does nothing.
+pub(crate) fn rows(binds: &[ResolvedBind]) -> Vec<BasicsRow> {
+    let context = crate::input::BindingContext::field();
+    let key =
+        |action: halley_config::Action| shortcut_label(binds, context, |bound| *bound == action);
+    let lift = shortcut_label(binds, context, is_lift);
+    let launcher = match lift {
+        Some(chord) => (chord, LIFT),
+        None => match key(halley_config::Action::OpenTerminal) {
+            Some(chord) => (chord, TERMINAL),
+            None => (NO_SHORTCUT.into(), LIFT),
+        },
+    };
+    let or_none = |chord: Option<String>| chord.unwrap_or_else(|| NO_SHORTCUT.into());
+    vec![
+        launcher,
+        (
+            or_none(drag_shortcut_label(binds, context, |action| {
+                *action == halley_config::Action::PointerMoveWindow
+            })),
+            "Move a window",
+        ),
+        (
+            or_none(key(halley_config::Action::ArrangeVisible)),
+            "Arrange visible windows, or restore their saved geometry",
+        ),
+        (
+            or_none(key(halley_config::Action::ToggleState)),
+            "Collapse or restore a window",
+        ),
+        (
+            or_none(key(halley_config::Action::Apogee)),
+            "See everything in Apogee",
+        ),
+    ]
+}
+
+/// A binding that launches Halley Lift: a command whose program is
+/// `halley-lift`, with or without arguments.
+fn is_lift(action: &halley_config::Action) -> bool {
+    matches!(action, halley_config::Action::Spawn(command)
+        if command.split_whitespace().next() == Some("halley-lift"))
+}
 
 struct Row {
     chord: String,
@@ -68,8 +109,8 @@ pub fn elements(
     let subtext_size = text_size(renderer, ui_text, MODEL_SUBTEXT, visuals.subtext.bytes())?;
     let footer_size = text_size(renderer, ui_text, FOOTER, visuals.subtext.bytes())?;
 
-    let mut rows = Vec::with_capacity(ESSENTIALS.len());
-    for (chord, description) in chord_entries(&snapshot.modifier) {
+    let mut rows = Vec::with_capacity(snapshot.rows.len());
+    for (chord, description) in snapshot.rows {
         let chord_size = text_size(renderer, ui_text, &chord, visuals.text.bytes())?;
         let description_size = text_size(renderer, ui_text, description, visuals.subtext.bytes())?;
         rows.push(Row {
@@ -85,8 +126,8 @@ pub fn elements(
         .map(|row| (row.chord_size.h + 8).max(row.description_size.h))
         .max()
         .unwrap_or(0);
-    let rows_height =
-        row_height * ESSENTIALS.len() as i32 + ROW_GAP * (ESSENTIALS.len() as i32 - 1);
+    let row_count = rows.len() as i32;
+    let rows_height = row_height * row_count + ROW_GAP * (row_count - 1).max(0);
 
     let header_width = title_size
         .w
@@ -221,15 +262,6 @@ fn row_width(row: &Row) -> i32 {
     row.chord_size.w + 2 * CHIP_PADDING_X
 }
 
-/// The card's rows, as `(chord, description)`, with the session's own modifier
-/// substituted so the card names the chords this session listens for.
-pub(crate) fn chord_entries(modifier: &str) -> Vec<(String, &'static str)> {
-    ESSENTIALS
-        .iter()
-        .map(|(key, description)| (format!("{modifier}+{key}"), *description))
-        .collect()
-}
-
 fn text_size(
     renderer: &mut GlesRenderer,
     ui_text: &mut UiTextRenderer,
@@ -260,14 +292,77 @@ fn push_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::keybinds::{BackendKind, resolve_binds};
+    use halley_config::{Action, Keybinds};
 
-    /// The card names the session's own modifier, so a nested `--winit` session
-    /// shows the Alt chords it actually listens for.
+    fn rows_for(keybinds: &Keybinds, backend: BackendKind) -> Vec<BasicsRow> {
+        rows(&resolve_binds(keybinds, backend))
+    }
+
+    /// The defaults read as before, and a nested `--winit` session shows the
+    /// Alt chords it actually listens for.
     #[test]
-    fn card_chords_use_the_session_modifier() {
-        let rows = chord_entries("Alt");
-        assert!(rows.iter().all(|(chord, _)| chord.starts_with("Alt+")));
-        assert_eq!(rows[0].0, "Alt+D");
-        assert_eq!(rows[1].0, "Alt+Left-drag");
+    fn default_rows_use_the_session_modifier() {
+        let keybinds = Keybinds::default();
+        let chords = |backend| {
+            rows_for(&keybinds, backend)
+                .into_iter()
+                .map(|(chord, _)| chord)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            chords(BackendKind::Tty),
+            [
+                "Super+D",
+                "Super+Left-drag",
+                "Super+A",
+                "Super+N",
+                "Super+O"
+            ]
+        );
+        assert_eq!(
+            chords(BackendKind::Winit),
+            ["Alt+D", "Alt+Left-drag", "Alt+A", "Alt+N", "Alt+O"]
+        );
+    }
+
+    #[test]
+    fn a_rebound_action_renames_its_row() {
+        let mut keybinds = Keybinds::default();
+        for bind in &mut keybinds.binds {
+            if bind.action == Action::ToggleState {
+                bind.key = "c".into();
+            }
+        }
+        let rows = rows_for(&keybinds, BackendKind::Tty);
+        assert_eq!(rows[3], ("Super+C".into(), "Collapse or restore a window"));
+    }
+
+    #[test]
+    fn unbound_rows_say_so() {
+        let mut keybinds = Keybinds::default();
+        keybinds.binds.retain(|bind| bind.action != Action::Apogee);
+        let rows = rows_for(&keybinds, BackendKind::Tty);
+        assert_eq!(rows[4], (NO_SHORTCUT.into(), "See everything in Apogee"));
+    }
+
+    #[test]
+    fn without_lift_the_launcher_row_names_the_terminal() {
+        let mut keybinds = Keybinds::default();
+        keybinds.binds.retain(|bind| !is_lift(&bind.action));
+        let rows = rows_for(&keybinds, BackendKind::Tty);
+        assert_eq!(rows[0], ("Super+T".into(), TERMINAL));
+        keybinds
+            .binds
+            .retain(|bind| bind.action != Action::OpenTerminal);
+        let rows = rows_for(&keybinds, BackendKind::Tty);
+        assert_eq!(rows[0], (NO_SHORTCUT.into(), LIFT));
+    }
+
+    #[test]
+    fn lift_with_arguments_still_counts_as_lift() {
+        assert!(is_lift(&Action::Spawn("halley-lift --toggle".into())));
+        assert!(!is_lift(&Action::Spawn("halley-lifter".into())));
+        assert!(!is_lift(&Action::OpenTerminal));
     }
 }

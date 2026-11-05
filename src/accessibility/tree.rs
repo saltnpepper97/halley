@@ -307,10 +307,10 @@ fn overlay_snapshot<D: SessionDriver>(session: &Session<D>) -> Snapshot {
             announcement: None,
         };
     }
-    if let Some(modifier) = session.shell.overlays.basics_modifier() {
-        use crate::render::overlays::basics::{FOOTER, MODEL, MODEL_SUBTEXT, TITLE, chord_entries};
-        let rows = chord_entries(modifier)
-            .into_iter()
+    if let Some(rows) = session.shell.overlays.basics_rows() {
+        use crate::render::overlays::basics::{FOOTER, MODEL, MODEL_SUBTEXT, TITLE};
+        let rows = rows
+            .iter()
             .map(|(key, description)| format!("{key}: {description}"))
             .collect::<Vec<_>>()
             .join(". ");

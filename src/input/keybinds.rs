@@ -213,6 +213,26 @@ pub fn shortcut_label(
     context: super::BindingContext,
     matches: impl Fn(&Action) -> bool,
 ) -> Option<String> {
+    first_label(binds, context, matches, false)
+}
+
+/// Like [`shortcut_label`], for an action performed by dragging, such as
+/// `move-window`: a mouse-button trigger is named as `Left-drag`, and keyboard
+/// triggers are still named as keys.
+pub fn drag_shortcut_label(
+    binds: &[ResolvedBind],
+    context: super::BindingContext,
+    matches: impl Fn(&Action) -> bool,
+) -> Option<String> {
+    first_label(binds, context, matches, true)
+}
+
+fn first_label(
+    binds: &[ResolvedBind],
+    context: super::BindingContext,
+    matches: impl Fn(&Action) -> bool,
+    drag_buttons: bool,
+) -> Option<String> {
     binds.iter().enumerate().find_map(|(index, bind)| {
         if !matches(&bind.action) || !context.allows(bind.scope) {
             return None;
@@ -235,10 +255,24 @@ pub fn shortcut_label(
                 }
             }
             ResolvedTrigger::Keycode(key) => format!("Keycode {}", key.raw().saturating_sub(8)),
+            ResolvedTrigger::PointerButton(button) if drag_buttons => {
+                format!("{}-drag", button_name(button))
+            }
             _ => return None,
         };
         Some(chord_label(bind.modifiers, key))
     })
+}
+
+fn button_name(button: PointerButtonTrigger) -> String {
+    match button {
+        PointerButtonTrigger::Left => "Left".into(),
+        PointerButtonTrigger::Right => "Right".into(),
+        PointerButtonTrigger::Middle => "Middle".into(),
+        PointerButtonTrigger::Back => "Back".into(),
+        PointerButtonTrigger::Forward => "Forward".into(),
+        PointerButtonTrigger::Code(code) => format!("Button {code}"),
+    }
 }
 
 /// `modifiers` and a trigger name joined as `Super+Ctrl+Alt+Shift+key`, naming
@@ -269,6 +303,18 @@ fn chord_label(m: Modifiers, trigger: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drag_labels_name_buttons_while_key_labels_skip_them() {
+        let binds = resolve_binds(&Keybinds::default(), BackendKind::Tty);
+        let context = crate::input::BindingContext::field();
+        let move_window = |action: &Action| *action == Action::PointerMoveWindow;
+        assert_eq!(
+            drag_shortcut_label(&binds, context, move_window).as_deref(),
+            Some("Super+Left-drag")
+        );
+        assert_eq!(shortcut_label(&binds, context, move_window), None);
+    }
 
     #[test]
     fn effective_modifier_matches_the_backend() {
