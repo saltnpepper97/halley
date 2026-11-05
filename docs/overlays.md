@@ -172,13 +172,15 @@ The first time automatic decay collapses a window into a node, Halley shows one
 ordinary success notification:
 
 ```text
-Firefox was collapsed into a node. Click the node or press Mod+N to restore it.
+Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O).
 ```
 
 The notice names the collapsed window's title — the same text its node is
 labelled with — falling back to the application id, and finally to a generic
-`A window was collapsed into a node. Click the node or press Mod+N to restore
-it.` when a client reports neither. The `Untitled` placeholder used for an
+"A window" when a client reports neither. The Apogee chord is the one actually
+bound to `apogee` in the Field; when nothing is bound, the notice names Apogee
+without a key. It never suggests `toggle-state` (`Mod+N`): that acts on the
+focused window, and decay only collapses unfocused ones. The `Untitled` placeholder used for an
 unnamed window is not shown as if it were an application name.
 
 It reuses the non-modal notification surface above: it never captures keyboard

@@ -17,7 +17,9 @@ Apogee replaces the desktop scene while it is visible. The only scene behind
 its tiles is the wallpaper layer: normal windows, nodes, panels,
 and other desktop layers never poke through the dimming backdrop.
 Its tile title bands and Alt+Tab's cards use the shared
-[`overlays:`](overlays.md) shape, palette, and border settings.
+[`overlays:`](overlays.md) shape, palette, and border settings. A collapsed
+window's tile carries the same `NODE` pill in both views: accent-coloured text
+on the overlay fill, in the tile's top-left corner.
 Apogee window titles, badges, hints, and Alt+Tab labels all use the exact
 configured [`font:`](fonts.md) size.
 

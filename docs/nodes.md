@@ -88,8 +88,9 @@ omits the `decay:` section keeps Halley's built-in 180-second and
 1800-second behavior.
 
 The first automatic collapse explains itself once, in a non-modal notice:
-`<Application> was collapsed into a node. Click the node or press Mod+N to
-restore it.` The application name is the window title, falling back to the
+`<Application> was collapsed into a node. It's still running. Click its node,
+or find it in Apogee (<key>).`, where the key is the one bound to `apogee`. The
+application name is the window title, falling back to the
 application id and then to a generic "A window" sentence. The notice never takes
 keyboard or pointer input and never changes focus, and it is recorded in user
 state (`$XDG_STATE_HOME/halley/state.rune`), so no later collapse — for another

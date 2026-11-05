@@ -49,17 +49,34 @@ pub(super) fn explanation_due(trigger: CollapseTrigger, already_shown: bool) -> 
     trigger == CollapseTrigger::Automatic && !already_shown
 }
 
-/// The sentence shown for the first automatic collapse: what happened and the
-/// two ways to reverse it.
-pub(super) fn collapsed_into_node_message(title: &str, app_id: Option<&str>) -> String {
-    match application_name(title, app_id) {
-        Some(name) => format!(
-            "{name} was collapsed into a node. Click the node or press Mod+N to restore it."
-        ),
-        None => String::from(
-            "A window was collapsed into a node. Click the node or press Mod+N to restore it.",
-        ),
-    }
+/// The sentence shown for the first automatic collapse: what happened, that
+/// nothing was closed, and two ways to reach that window again.
+///
+/// It deliberately never suggests `toggle-state` (`Mod+N`): that acts on the
+/// focused window, and decay only ever collapses unfocused ones, so following
+/// it would collapse the window the user is working in instead. `apogee_key`
+/// is the chord actually bound to Apogee; without one, Apogee is still named
+/// but no key is invented.
+pub(super) fn collapsed_into_node_message(
+    title: &str,
+    app_id: Option<&str>,
+    apogee_key: Option<&str>,
+) -> String {
+    let name = application_name(title, app_id).unwrap_or("A window");
+    let apogee = match apogee_key {
+        Some(key) => format!("Apogee ({key})"),
+        None => String::from("Apogee"),
+    };
+    format!(
+        "{name} was collapsed into a node. It's still running. Click its node, or find it in {apogee}."
+    )
+}
+
+/// The chord bound to Apogee in the Field, where decay happens.
+pub(super) fn apogee_key(binds: &[crate::input::keybinds::ResolvedBind]) -> Option<String> {
+    crate::input::keybinds::shortcut_label(binds, crate::input::BindingContext::field(), |action| {
+        *action == halley_config::Action::Apogee
+    })
 }
 
 /// The name shown for a collapsed window: its title, which is also the label on
@@ -87,6 +104,48 @@ mod tests {
         assert!(
             !explanation_due(CollapseTrigger::for_decay(false), true),
             "a manual Mod+N collapse stays silent even after the explanation was shown once"
+        );
+    }
+
+    #[test]
+    fn the_message_points_at_the_collapsed_window_not_the_focused_one() {
+        let message = collapsed_into_node_message("Firefox", None, Some("Super+O"));
+        assert_eq!(
+            message,
+            "Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O)."
+        );
+        assert!(!message.contains("Mod+N"));
+    }
+
+    #[test]
+    fn the_message_names_only_a_bound_apogee_key() {
+        assert_eq!(
+            collapsed_into_node_message("Untitled", None, None),
+            "A window was collapsed into a node. It's still running. Click its node, or find it in Apogee."
+        );
+        assert!(
+            collapsed_into_node_message("", Some("org.gnome.Nautilus"), Some("Alt+O"))
+                .starts_with("org.gnome.Nautilus was collapsed")
+        );
+    }
+
+    #[test]
+    fn the_apogee_key_follows_the_configured_binding() {
+        use crate::input::keybinds::{BackendKind, resolve_binds};
+        let mut keybinds = halley_config::Keybinds::default();
+        for bind in &mut keybinds.binds {
+            if bind.action == halley_config::Action::Apogee {
+                bind.key = "g".into();
+            }
+        }
+        let binds = resolve_binds(&keybinds, BackendKind::Tty);
+        assert_eq!(apogee_key(&binds).as_deref(), Some("Super+G"));
+        keybinds
+            .binds
+            .retain(|bind| bind.action != halley_config::Action::Apogee);
+        assert_eq!(
+            apogee_key(&resolve_binds(&keybinds, BackendKind::Tty)),
+            None
         );
     }
 
