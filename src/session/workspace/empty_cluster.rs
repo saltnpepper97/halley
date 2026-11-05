@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::{Session, SessionDriver};
-use crate::input::keybinds::{ResolvedBind, ResolvedTrigger};
+use crate::input::keybinds::ResolvedBind;
 use crate::shell::empty_cluster::Target;
 
 /// Keep hints on every open empty workspace. Actual focus and modal state
@@ -75,53 +75,8 @@ pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) ->
 }
 
 fn close_shortcut(binds: &[ResolvedBind], context: crate::input::BindingContext) -> Option<String> {
-    binds.iter().enumerate().find_map(|(index, bind)| {
-        if bind.action != halley_config::Action::CloseFocusedWindow || !context.allows(bind.scope) {
-            return None;
-        }
-        // The input matcher takes the first active chord; don't advertise a
-        // shadowed close binding or a pointer-only trigger as a keyboard key.
-        if binds[..index].iter().any(|other| {
-            context.allows(other.scope)
-                && other.modifiers == bind.modifiers
-                && other.trigger == bind.trigger
-        }) {
-            return None;
-        }
-        let key = match bind.trigger {
-            ResolvedTrigger::Keysym(key) => {
-                let name = key.name()?;
-                let name = name.strip_prefix("XK_").unwrap_or(name);
-                if name.len() == 1 {
-                    name.to_uppercase()
-                } else {
-                    name.to_string()
-                }
-            }
-            ResolvedTrigger::Keycode(key) => format!("Keycode {}", key.raw().saturating_sub(8)),
-            _ => return None,
-        };
-        let m = bind.modifiers;
-        let mut parts = Vec::new();
-        for (generic, left, right, label) in [
-            (m.super_key, m.left_super, m.right_super, "Super"),
-            (m.ctrl, m.left_ctrl, m.right_ctrl, "Ctrl"),
-            (m.alt, m.left_alt, m.right_alt, "Alt"),
-            (m.shift, m.left_shift, m.right_shift, "Shift"),
-        ] {
-            if generic {
-                parts.push(label.to_string());
-            } else {
-                if left {
-                    parts.push(format!("Left {label}"));
-                }
-                if right {
-                    parts.push(format!("Right {label}"));
-                }
-            }
-        }
-        parts.push(key);
-        Some(parts.join("+"))
+    crate::input::keybinds::shortcut_label(binds, context, |action| {
+        *action == halley_config::Action::CloseFocusedWindow
     })
 }
 

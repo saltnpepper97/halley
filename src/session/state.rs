@@ -325,10 +325,10 @@ impl<D: SessionDriver> Session<D> {
     /// the first-run path.
     pub fn show_basics_card(&mut self) -> bool {
         let output = self.notification_output_name();
-        let modifier = super::basics::modifier_label(self.keyboard.effective_mod).to_string();
+        let rows = crate::render::overlays::basics::rows(&self.keyboard.binds);
         if !self.shell.overlays.show_basics_card(
             output.clone(),
-            modifier,
+            rows,
             crate::frame_clock::monotonic_now(),
         ) {
             return false;

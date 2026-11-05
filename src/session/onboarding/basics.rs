@@ -207,26 +207,6 @@ pub(super) fn first_run_eligible(native_session: bool, dismissed: bool) -> bool 
     native_session && !dismissed
 }
 
-/// How a keybind base modifier is written on the card. Mirrors the names used
-/// by `docs/keybinds.md` rather than the rune spelling.
-pub(super) fn modifier_label(modifier: halley_config::keybinds::ModifierKey) -> &'static str {
-    use halley_config::keybinds::ModifierKey;
-    match modifier {
-        ModifierKey::Super => "Super",
-        ModifierKey::LeftSuper => "Left Super",
-        ModifierKey::RightSuper => "Right Super",
-        ModifierKey::Alt => "Alt",
-        ModifierKey::LeftAlt => "Left Alt",
-        ModifierKey::RightAlt => "Right Alt",
-        ModifierKey::Ctrl => "Ctrl",
-        ModifierKey::LeftCtrl => "Left Ctrl",
-        ModifierKey::RightCtrl => "Right Ctrl",
-        ModifierKey::Shift => "Shift",
-        ModifierKey::LeftShift => "Left Shift",
-        ModifierKey::RightShift => "Right Shift",
-    }
-}
-
 /// `$XDG_STATE_HOME/halley/state.rune`, falling back to
 /// `~/.local/state/halley/state.rune`. Returns `None` when neither variable is
 /// set.

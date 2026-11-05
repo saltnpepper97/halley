@@ -113,7 +113,7 @@ impl ClusterIndicator {
 #[derive(Clone, Debug)]
 struct BasicsCard {
     output: String,
-    modifier: String,
+    rows: Vec<crate::render::overlays::basics::BasicsRow>,
     shown_at: Duration,
     dismissed: Option<(Duration, f32)>,
 }
@@ -180,9 +180,9 @@ pub struct ConfirmationSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct BasicsCardSnapshot {
-    /// The configured base modifier, already remapped for this backend, so the
-    /// card names the chords the session actually listens for.
-    pub modifier: String,
+    /// The card's rows, labelled from the bindings when the card opened, so it
+    /// names the chords the session actually listens for.
+    pub rows: Vec<crate::render::overlays::basics::BasicsRow>,
     pub mix: f32,
 }
 
@@ -266,13 +266,18 @@ impl OverlayManager {
 
     /// Shows the one-time basics card on `output`. Returns whether it was newly
     /// shown; re-showing while it is already visible is a no-op.
-    pub fn show_basics_card(&mut self, output: String, modifier: String, now: Duration) -> bool {
+    pub fn show_basics_card(
+        &mut self,
+        output: String,
+        rows: Vec<crate::render::overlays::basics::BasicsRow>,
+        now: Duration,
+    ) -> bool {
         if self.basics_card_visible() {
             return false;
         }
         self.basics = Some(BasicsCard {
             output,
-            modifier,
+            rows,
             shown_at: now,
             dismissed: None,
         });
@@ -294,11 +299,11 @@ impl OverlayManager {
     }
 
     #[cfg(feature = "dbus")]
-    pub fn basics_modifier(&self) -> Option<&str> {
+    pub fn basics_rows(&self) -> Option<&[crate::render::overlays::basics::BasicsRow]> {
         self.basics
             .as_ref()
             .filter(|card| card.dismissed.is_none())
-            .map(|card| card.modifier.as_str())
+            .map(|card| card.rows.as_slice())
     }
 
     pub fn dismiss_basics_card(&mut self, now: Duration) -> bool {
@@ -586,7 +591,7 @@ impl OverlayManager {
             }),
             basics: self.basics.as_ref().and_then(|card| {
                 (card.output == output && !card.finished(now)).then(|| BasicsCardSnapshot {
-                    modifier: card.modifier.clone(),
+                    rows: card.rows.clone(),
                     mix: card.mix(now),
                 })
             }),
@@ -712,7 +717,7 @@ mod tests {
             let mut now = Duration::from_millis(90);
             match kind {
                 "basics" => {
-                    overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO);
+                    overlays.show_basics_card("DP-1".into(), Vec::new(), Duration::ZERO);
                 }
                 "notification" => overlays.show_config_error("DP-1".into(), 500, Duration::ZERO),
                 "zoom" => {
@@ -1135,16 +1140,17 @@ mod tests {
     #[test]
     fn basics_card_is_visible_only_on_its_output_and_fades_when_dismissed() {
         let mut overlays = OverlayManager::default();
-        assert!(overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO));
+        let rows = vec![("Super+D".to_string(), "Launch or search with Lift")];
+        assert!(overlays.show_basics_card("DP-1".into(), rows.clone(), Duration::ZERO));
         assert!(overlays.basics_card_visible());
         assert!(overlays.basics_card_accepts_input());
         assert!(
-            !overlays.show_basics_card("DP-2".into(), "Super".into(), Duration::ZERO),
+            !overlays.show_basics_card("DP-2".into(), Vec::new(), Duration::ZERO),
             "showing an already visible card is a no-op"
         );
 
         let card = overlays.snapshot("DP-1", Duration::ZERO).basics.unwrap();
-        assert_eq!(card.modifier, "Super");
+        assert_eq!(card.rows, rows);
         assert_eq!(
             card.mix, 0.0,
             "the card fades in instead of appearing abruptly"
@@ -1189,26 +1195,28 @@ mod tests {
     #[test]
     fn basics_card_can_be_reopened_after_being_dismissed() {
         let mut overlays = OverlayManager::default();
-        overlays.show_basics_card("DP-1".into(), "Alt".into(), Duration::ZERO);
+        overlays.show_basics_card("DP-1".into(), Vec::new(), Duration::ZERO);
         overlays.dismiss_basics_card(Duration::from_millis(10));
         assert!(overlays.wakeup(Duration::from_millis(200)));
 
-        assert!(overlays.show_basics_card("DP-1".into(), "Alt".into(), Duration::from_millis(300)));
+        // Reopening labels the card from the bindings current at that time.
+        let rows = vec![("Alt+C".to_string(), "Collapse or restore a window")];
+        assert!(overlays.show_basics_card("DP-1".into(), rows.clone(), Duration::from_millis(300)));
         assert!(overlays.basics_card_accepts_input());
         assert_eq!(
             overlays
                 .snapshot("DP-1", Duration::from_millis(480))
                 .basics
                 .unwrap()
-                .modifier,
-            "Alt"
+                .rows,
+            rows
         );
     }
 
     #[test]
     fn removing_the_owning_output_drops_the_basics_card() {
         let mut overlays = OverlayManager::default();
-        overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO);
+        overlays.show_basics_card("DP-1".into(), Vec::new(), Duration::ZERO);
         overlays.remove_output("DP-2");
         assert!(overlays.basics_card_visible());
 
@@ -1220,7 +1228,7 @@ mod tests {
     #[test]
     fn a_confirmation_modal_does_not_hide_the_basics_card_by_itself() {
         let mut overlays = OverlayManager::default();
-        overlays.show_basics_card("DP-1".into(), "Super".into(), Duration::ZERO);
+        overlays.show_basics_card("DP-1".into(), Vec::new(), Duration::ZERO);
         assert!(overlays.show_exit(Duration::ZERO));
         // The card is a non-blocking overlay: it keeps its slot while a
         // confirmation modal owns the input, so the two never interleave.
