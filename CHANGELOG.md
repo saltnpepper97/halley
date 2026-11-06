@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Stop clusters from slowing down rendering. A collapsed cluster's core and
+  icon shared one color-keyed cache, so drawing them in the same frame rebuilt
+  the core shader, re-rasterized the icon and re-uploaded its textures every
+  frame. Field panning, zooming and window animations stuttered and idle CPU
+  spiked while a cluster existed. The shader and base texture are now built once
+  per renderer, and icons are cached per color. (#277)
 - Give Apogee's `NODE` badge the same themed pill as Alt+Tab, in the top-left
   corner of the tile. It previously drew bare, hardcoded light-blue text that
   ignored the overlay theme.
