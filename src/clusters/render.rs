@@ -22,13 +22,20 @@ const EDIT_ICON: &[u8] = include_bytes!("../../assets/edit.svg");
 const CLOSE_ICON: &[u8] = include_bytes!("../../assets/titlebars/close.svg");
 const ICON_SIZE: u32 = 64;
 const JOIN_READY_BORDER_WIDTH_PX: f32 = 5.0;
+/// Upper bound on cached tinted cluster icons. A frame uses only a few
+/// palettes (node idle/highlight colors and the overlay text color), so this
+/// only matters when colors change repeatedly, e.g. across config reloads.
+const MAX_CACHED_ICON_COLORS: usize = 8;
 
+/// GPU resources tied to one renderer context. The core shader and base
+/// texture never depend on color, and tinted icons are cached per color, so
+/// drawing cores and icons with different palettes in the same frame never
+/// rebuilds anything.
 struct Resources {
     context: ContextId<GlesTexture>,
     texture: GlesTexture,
     circle: GlesTexProgram,
-    icon_colors: [[u8; 4]; 2],
-    icons: [GlesTexture; 2],
+    icons: HashMap<[u8; 4], GlesTexture>,
 }
 
 #[derive(Default)]
@@ -114,7 +121,7 @@ impl ClusterRenderer {
         alpha: f32,
     ) -> Result<ClusterCoreElement, Box<dyn Error>> {
         let id = self.dynamic_id(0);
-        self.ensure(renderer, [[255; 4]; 2])?;
+        self.ensure(renderer)?;
         let resources = self.resources.as_ref().expect("resources ensured above");
         let source = Rectangle::<f64, Logical>::new(
             (0.0, 0.0).into(),
@@ -165,9 +172,8 @@ impl ClusterRenderer {
         alpha: f32,
     ) -> Result<ClusterIconElement, Box<dyn Error>> {
         let id = self.dynamic_id(1);
-        self.ensure(renderer, colors)?;
+        let texture = self.icon_texture(renderer, colors[usize::from(focused)])?;
         let resources = self.resources.as_ref().expect("resources ensured above");
-        let texture = resources.icons[usize::from(focused)].clone();
         let source = Rectangle::<f64, Logical>::new(
             (0.0, 0.0).into(),
             (texture.size().w as f64, texture.size().h as f64).into(),
@@ -292,15 +298,37 @@ impl ClusterRenderer {
         })
     }
 
-    fn ensure(
+    fn icon_texture(
         &mut self,
         renderer: &mut GlesRenderer,
-        icon_colors: [[u8; 4]; 2],
-    ) -> Result<(), Box<dyn Error>> {
+        color: [u8; 4],
+    ) -> Result<GlesTexture, Box<dyn Error>> {
+        self.ensure(renderer)?;
+        let resources = self.resources.as_mut().expect("resources ensured above");
+        if let Some(texture) = resources.icons.get(&color) {
+            return Ok(texture.clone());
+        }
+        let raster = raster_icon(color).ok_or("cluster SVG could not be rasterized")?;
+        let texture = renderer.import_memory(
+            raster.as_raw(),
+            Fourcc::Abgr8888,
+            (ICON_SIZE as i32, ICON_SIZE as i32).into(),
+            false,
+        )?;
+        if resources.icons.len() >= MAX_CACHED_ICON_COLORS {
+            resources.icons.clear();
+        }
+        resources.icons.insert(color, texture.clone());
+        Ok(texture)
+    }
+
+    fn ensure(&mut self, renderer: &mut GlesRenderer) -> Result<(), Box<dyn Error>> {
         let context = renderer.context_id();
-        if self.resources.as_ref().is_some_and(|resources| {
-            resources.context == context && resources.icon_colors == icon_colors
-        }) {
+        if self
+            .resources
+            .as_ref()
+            .is_some_and(|resources| resources.context == context)
+        {
             return Ok(());
         }
         let texture =
@@ -313,23 +341,11 @@ impl ClusterRenderer {
             UniformName::new("fill_alpha", UniformType::_1f),
         ];
         let circle = renderer.compile_custom_texture_shader(CIRCLE_SHADER, &uniforms)?;
-        let [unfocused, focused] = icon_colors.map(|color| {
-            let raster = raster_icon(color).ok_or("cluster SVG could not be rasterized")?;
-            renderer
-                .import_memory(
-                    raster.as_raw(),
-                    Fourcc::Abgr8888,
-                    (ICON_SIZE as i32, ICON_SIZE as i32).into(),
-                    false,
-                )
-                .map_err(|error| -> Box<dyn Error> { Box::new(error) })
-        });
         self.resources = Some(Resources {
             context,
             texture,
             circle,
-            icon_colors,
-            icons: [unfocused?, focused?],
+            icons: HashMap::new(),
         });
         Ok(())
     }
