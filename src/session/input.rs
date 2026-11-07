@@ -1062,10 +1062,7 @@ where
     {
         session.request_redraw();
     }
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     super::pointer::finish_frame(session, &pointer_handle);
     session
         .pointer

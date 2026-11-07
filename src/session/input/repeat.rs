@@ -147,11 +147,7 @@ impl<D: SessionDriver> Policy<D> {
 }
 
 fn repeat_tick<D: SessionDriver>(session: &mut Session<D>, generation: u64) -> TimeoutAction {
-    let modifiers = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup")
-        .modifier_state();
+    let modifiers = session.keyboard_handle().modifier_state();
     let sides = session.keyboard.side_modifiers;
     let context = super::keyboard_binding_context(session);
     let Some((action, interval)) = session

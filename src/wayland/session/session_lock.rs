@@ -575,10 +575,7 @@ where
         if event.state() == smithay::backend::input::KeyState::Pressed {
             session.cursor_policy.keyboard_press();
         }
-        let keyboard = session
-            .seat
-            .get_keyboard()
-            .expect("keyboard capability added at seat setup");
+        let keyboard = session.keyboard_handle();
         keyboard.input::<(), _>(
             session,
             event.key_code(),

@@ -6,10 +6,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     event: &InputEvent<B>,
     socket_name: &OsStr,
 ) {
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     if let InputEvent::PointerAxis { event: axis_event } = event {
         if super::super::gesture::handle_axis_pan(session, axis_event) {
             super::super::pointer::finish_frame(session, &pointer_handle);
@@ -19,11 +16,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             super::super::pointer::route_for_discrete_input(session, axis_event.time().millis());
         let output_name = route.as_ref().map(|route| route.output.name().to_string());
         let bindings_enabled = bindings_enabled(session);
-        let modifiers = session
-            .seat
-            .get_keyboard()
-            .expect("keyboard capability added at seat setup")
-            .modifier_state();
+        let modifiers = session.keyboard_handle().modifier_state();
         let sides = session.keyboard.side_modifiers;
         let binding_context = binding_context_for_output(session, output_name.as_deref());
         let result = process_wheel_bindings(

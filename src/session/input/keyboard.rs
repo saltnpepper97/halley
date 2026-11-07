@@ -120,10 +120,7 @@ pub(super) fn handle<D, B>(
             state,
         )
     };
-    let keyboard = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup");
+    let keyboard = session.keyboard_handle();
     let bindings_enabled = bindings_enabled(session);
     let mut forwarded_non_modifier_press = false;
     session.keyboard.delivery.begin();

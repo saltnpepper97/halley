@@ -100,10 +100,7 @@ pub fn process_key<D: SessionDriver>(
     if session.keyboard_monitor.is_none() {
         return KeyboardDisposition::Pass;
     }
-    let keyboard = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup");
+    let keyboard = session.keyboard_handle();
     let (modifiers, keysym, unicode) = keyboard.with_xkb_state(session, |context| {
         let xkb = context.xkb().lock().expect("XKB state lock poisoned");
         // SAFETY: the borrowed XKB state does not outlive Smithay's locked

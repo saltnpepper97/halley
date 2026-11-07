@@ -161,6 +161,29 @@ impl<D: SessionDriver> Session<D> {
         )
     }
 
+    /// End the compositor pointer grab: clear it and drop the grab cursor
+    /// together, so a grab can never end with its move or resize cursor left
+    /// on screen.
+    pub(crate) fn end_grab(&mut self) {
+        self.interactions.grab = crate::input::grab::Grab::None;
+        self.cursor
+            .set_override(crate::cursor::OverrideSource::Grab, None);
+    }
+
+    /// The seat keyboard, which seat setup always adds.
+    pub(crate) fn keyboard_handle(&self) -> smithay::input::keyboard::KeyboardHandle<Self> {
+        self.seat
+            .get_keyboard()
+            .expect("keyboard capability added at seat setup")
+    }
+
+    /// The seat pointer, which seat setup always adds.
+    pub(crate) fn pointer_handle(&self) -> smithay::input::pointer::PointerHandle<Self> {
+        self.seat
+            .get_pointer()
+            .expect("pointer capability added at seat setup")
+    }
+
     pub(crate) fn launch_environment(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
         self.launch.environment().iter()
     }
