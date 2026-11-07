@@ -28,7 +28,7 @@ categories = ["os::linux-apis", "gui"]
 rune-cfg = "0.7.1"
 
 [dependencies]
-smithay = { git = "https://github.com/Smithay/smithay.git", rev = "79bbed5e1199090d787115614847a79c76607181", default-features = false, features = [
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "65aa86fa5236e41775c313408102a5d5c2d1e2ca", default-features = false, features = [
   "backend_egl",
   "renderer_gl",
   "backend_session",
@@ -42,7 +42,7 @@ smithay = { git = "https://github.com/Smithay/smithay.git", rev = "79bbed5e11990
   "use_system_lib",
   "desktop",
 ] }
-smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "79bbed5e1199090d787115614847a79c76607181" }
+smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "65aa86fa5236e41775c313408102a5d5c2d1e2ca" }
 calloop = "0.14.4"
 cgmath = "0.18"
 halley-ui = "=0.1.2"
@@ -65,7 +65,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 wayland-protocols-wlr = { version = "0.3.12", features = ["server"] }
 xcursor = "0.3"
-x11rb = { version = "0.13.2", optional = true, features = ["xkb"] }
+x11rb = { version = "0.14.0", optional = true, features = ["xkb"] }
 zbus = { version = "5.16", optional = true }
 sd-notify = { version = "0.5", optional = true }
 

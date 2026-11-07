@@ -457,6 +457,7 @@ impl<D: SessionDriver> Dispatch<ExtSessionLockV1, SessionLockState> for Session<
 }
 
 pub fn enter_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
+    crate::input::virtual_keyboard::restore(session);
     crate::ime_policy::suspend(session, true);
     if let Some(mut grab) = session.popup_grab.take() {
         grab.ungrab(smithay::desktop::PopupUngrabStrategy::All);

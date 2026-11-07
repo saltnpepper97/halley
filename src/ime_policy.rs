@@ -45,9 +45,16 @@ pub(crate) use {
     ti::ZwpTextInputV3 as Text, tm::ZwpTextInputManagerV3 as TextManager,
 };
 
-pub(crate) trait ImeHost: SeatHandler + InputMethodHandler + Sized + 'static {
+pub(crate) trait ImeHost:
+    SeatHandler
+    + InputMethodHandler
+    + smithay::wayland::text_input::TextInputActivation
+    + Sized
+    + 'static
+{
     fn ime_seat(&self) -> Seat<Self>;
     fn ime_repeat(&self) -> (i32, i32);
+    fn ime_keymap(&mut self) -> KeymapFile;
 }
 #[derive(Default)]
 struct Policy {
@@ -468,11 +475,7 @@ where D: ImeHost + server::Dispatch<Method, InputMethodUserData<D>> + server::Di
                 }
                 let (rate, delay) = state.ime_repeat();
                 grab.repeat_info(rate, delay);
-                let keymap = keyboard.with_xkb_state(state, |context| {
-                    let xkb = context.xkb().lock().unwrap();
-                    // The keymap is consumed while its owning XKB mutex is held.
-                    KeymapFile::new(unsafe { xkb.keymap() })
-                });
+                let keymap = state.ime_keymap();
                 if let Err(error) = keymap.with_fd(false, |fd, size| {
                     grab.keymap(
                         server::protocol::wl_keyboard::KeymapFormat::XkbV1,

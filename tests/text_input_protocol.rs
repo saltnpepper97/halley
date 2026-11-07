@@ -3,6 +3,8 @@
 mod ime_policy;
 #[path = "../src/wayland/dispatch.rs"]
 mod upstream_protocols;
+#[path = "../src/input/virtual_keyboard.rs"]
+mod virtual_keyboard_policy;
 use smithay::{
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     reexports::wayland_server::{self as server, Display, protocol::wl_surface::WlSurface},
@@ -47,6 +49,46 @@ use wayland_protocols::ext::session_lock::v1::client::{
     ext_session_lock_manager_v1 as lock_manager, ext_session_lock_surface_v1 as lock_surface,
     ext_session_lock_v1 as lock,
 };
+
+use smithay::backend::input::InputEvent;
+use smithay::wayland::virtual_keyboard::{VirtualKeyboardBackend, VirtualKeyboardHandler, VirtualKeyboardManagerState, VirtualKeyboardUserData};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1 as virtual_manager, zwp_virtual_keyboard_v1 as virtual_keyboard};
+use smithay::reexports::wayland_protocols_misc::zwp_virtual_keyboard_v1::server::zwp_virtual_keyboard_v1::{ZwpVirtualKeyboardV1, Request as VirtualRequest};
+
+impl virtual_keyboard_policy::Host for Server {
+    fn virtual_keyboard_seat(&self) -> Seat<Self> {
+        self.seat.clone()
+    }
+    fn virtual_keyboard_locked(&self) -> bool {
+        self.locked
+    }
+}
+impl VirtualKeyboardHandler for Server {
+    fn process_virtual_keyboard_event(&mut self, event: InputEvent<VirtualKeyboardBackend>) {
+        virtual_keyboard_policy::handle_event(self, event);
+    }
+}
+impl server::Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for Server {
+    fn request(
+        state: &mut Self,
+        client: &server::Client,
+        resource: &ZwpVirtualKeyboardV1,
+        request: VirtualRequest,
+        data: &VirtualKeyboardUserData,
+        display: &server::DisplayHandle,
+        init: &mut server::DataInit<'_, Self>,
+    ) {
+        virtual_keyboard_policy::request(data, state, client, resource, request, display, init);
+    }
+    fn destroyed(
+        state: &mut Self,
+        client: server::backend::ClientId,
+        resource: &ZwpVirtualKeyboardV1,
+        data: &VirtualKeyboardUserData,
+    ) {
+        smithay::wayland::Dispatch2::destroyed(data, state, client, resource);
+    }
+}
 
 struct Server {
     popups: Arc<std::sync::Mutex<Vec<PopupSurface>>>,
@@ -146,7 +188,11 @@ struct Client {
     lock_configures: usize,
     lock_finished: usize,
     ime_keys: usize,
+    ime_keymap: Option<String>,
     client_keys: usize,
+    client_keymap: Option<String>,
+    client_modifiers: (u32, u32, u32, u32),
+    keyboard_events: Vec<&'static str>,
     text: Vec<(u32, ti::Event)>,
     ime: Vec<(u32, im::Event)>,
     ime_serial: u32,
@@ -227,8 +273,22 @@ impl Dispatch<ime_keyboard::ZwpInputMethodKeyboardGrabV2, ()> for Client {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if matches!(event, ime_keyboard::Event::Key { .. }) {
-            state.ime_keys += 1;
+        match event {
+            ime_keyboard::Event::Key { .. } => state.ime_keys += 1,
+            ime_keyboard::Event::Keymap { fd, size, .. } => {
+                use std::os::unix::fs::FileExt;
+                let mut bytes = vec![0; size as usize];
+                std::fs::File::from(fd)
+                    .read_exact_at(&mut bytes, 0)
+                    .unwrap();
+                state.ime_keymap = Some(
+                    String::from_utf8(bytes)
+                        .unwrap()
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                );
+            }
+            _ => {}
         }
     }
 }
@@ -241,8 +301,34 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if matches!(event, wl_keyboard::Event::Key { .. }) {
-            state.client_keys += 1;
+        match event {
+            wl_keyboard::Event::Key { .. } => {
+                state.client_keys += 1;
+                state.keyboard_events.push("key");
+            }
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
+                state.client_modifiers = (mods_depressed, mods_latched, mods_locked, group);
+                state.keyboard_events.push("modifiers");
+            }
+            wl_keyboard::Event::Keymap { fd, size, .. } => {
+                use std::os::unix::fs::FileExt;
+                // Wayland keymap descriptors may share an open-file offset.
+                // Read from offset zero without moving the server's offset.
+                let mut bytes = vec![0; size as usize];
+                std::fs::File::from(fd)
+                    .read_exact_at(&mut bytes, 0)
+                    .unwrap();
+                let text = String::from_utf8(bytes).unwrap();
+                state.client_keymap = Some(text.trim_end_matches('\0').to_owned());
+                state.keyboard_events.push("keymap");
+            }
+            _ => {}
         }
     }
 }
@@ -282,12 +368,15 @@ enum Control {
     InsertClient(UnixStream),
     Suspend(bool),
     Key,
+    KeyState(u32, smithay::backend::input::KeyState),
 }
 delegate_noop!(Client: ignore wl_compositor::WlCompositor);
 delegate_noop!(Client: ignore wl_surface::WlSurface);
 delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ignore tim::ZwpTextInputManagerV3);
 delegate_noop!(Client: ignore imm::ZwpInputMethodManagerV2);
+delegate_noop!(Client: ignore virtual_manager::ZwpVirtualKeyboardManagerV1);
+delegate_noop!(Client: ignore virtual_keyboard::ZwpVirtualKeyboardV1);
 
 #[allow(dead_code)] // Keep proxies alive for the protocol fixture.
 struct Fixture {
@@ -300,6 +389,7 @@ struct Fixture {
     seat: wl_seat::WlSeat,
     manager: tim::ZwpTextInputManagerV3,
     ime_manager: imm::ZwpInputMethodManagerV2,
+    virtual_manager: virtual_manager::ZwpVirtualKeyboardManagerV1,
     input: ti::ZwpTextInputV3,
     ime: im::ZwpInputMethodV2,
     surface: wl_surface::WlSurface,
@@ -328,6 +418,7 @@ impl Fixture {
         let mut seats = SeatState::new();
         let mut seat = seats.new_wl_seat(&dh, "test");
         seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        let _virtual_keyboard = VirtualKeyboardManagerState::new::<Server, _>(&dh, |_| true);
         let _text = TextInputManagerState::new::<Server>(&dh);
         let _ime = InputMethodManagerState::new::<Server, _>(&dh, |_| true);
         dh.insert_client(server_socket, Arc::new(ClientData::default()))
@@ -358,6 +449,7 @@ impl Fixture {
                                 .unwrap();
                         }
                         Control::Suspend(value) => {
+                            assert!(virtual_keyboard_policy::restore(&mut server));
                             server.locked = value;
                             let keyboard = server.seat.get_keyboard().unwrap();
                             if value {
@@ -372,6 +464,7 @@ impl Fixture {
                             }
                         }
                         Control::Key => {
+                            assert!(virtual_keyboard_policy::restore(&mut server));
                             let keyboard = server.seat.get_keyboard().unwrap();
                             for state in [
                                 smithay::backend::input::KeyState::Pressed,
@@ -386,6 +479,18 @@ impl Fixture {
                                     |_, _, _| smithay::input::keyboard::FilterResult::Forward,
                                 );
                             }
+                        }
+                        Control::KeyState(code, state) => {
+                            assert!(virtual_keyboard_policy::restore(&mut server));
+                            let keyboard = server.seat.get_keyboard().unwrap();
+                            keyboard.input::<(), _>(
+                                &mut server,
+                                code.into(),
+                                state,
+                                SERIAL_COUNTER.next_serial(),
+                                smithay::backend::input::InputTime::from_millis(0),
+                                |_, _, _| smithay::input::keyboard::FilterResult::Forward,
+                            );
                         }
                     }
                     display.flush_clients().unwrap();
@@ -409,6 +514,7 @@ impl Fixture {
             registry.bind(bind("zwp_text_input_manager_v3"), 1, &qh, ());
         let ime_manager: imm::ZwpInputMethodManagerV2 =
             registry.bind(bind("zwp_input_method_manager_v2"), 1, &qh, ());
+        let virtual_manager = registry.bind(bind("zwp_virtual_keyboard_manager_v1"), 1, &qh, ());
         let lock_manager = registry.bind(bind("ext_session_lock_manager_v1"), 1, &qh, ());
         let output = registry.bind(bind("wl_output"), 4, &qh, ());
         let input = manager.get_text_input(&seat, &qh, ());
@@ -426,6 +532,7 @@ impl Fixture {
             seat,
             manager,
             ime_manager,
+            virtual_manager,
             input,
             ime,
             surface,
@@ -435,6 +542,31 @@ impl Fixture {
         };
         fixture.clear();
         fixture
+    }
+    fn virtual_keyboard(&mut self, layout: &str) -> virtual_keyboard::ZwpVirtualKeyboardV1 {
+        let keyboard =
+            self.virtual_manager
+                .create_virtual_keyboard(&self.seat, &self.queue.handle(), ());
+        self.virtual_keymap(&keyboard, layout);
+        keyboard
+    }
+    fn virtual_keymap(&mut self, keyboard: &virtual_keyboard::ZwpVirtualKeyboardV1, layout: &str) {
+        use smithay::input::keyboard::{KeymapFile, xkb};
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = xkb::Keymap::new_from_names(
+            &context,
+            "",
+            "pc105",
+            layout,
+            "",
+            None,
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        )
+        .unwrap();
+        let file = KeymapFile::new(&keymap);
+        file.with_fd(true, |fd, size| keyboard.keymap(1, fd, size as u32))
+            .unwrap();
+        self.sync();
     }
     fn server_command(&self, command: Control) {
         let (done, wait) = std::sync::mpsc::sync_channel(1);
@@ -481,9 +613,15 @@ impl Drop for Fixture {
 
 upstream_protocols::delegate_upstream_protocols!(Server);
 ime_policy::delegate_ime_policy!(Server);
+impl smithay::wayland::text_input::TextInputActivation for Server {}
+
 impl ime_policy::ImeHost for Server {
     fn ime_seat(&self) -> Seat<Self> {
         self.seat.clone()
+    }
+    fn ime_keymap(&mut self) -> smithay::input::keyboard::KeymapFile {
+        assert!(virtual_keyboard_policy::restore(self));
+        self.seat.get_keyboard().unwrap().keymap_file()
     }
     fn ime_repeat(&self) -> (i32, i32) {
         (25, 200)
@@ -796,4 +934,139 @@ fn locking_keeps_clients_connected_and_isolates_lock_input() {
     queue.roundtrip(&mut app).unwrap();
     f.server_command(Control::Suspend(false));
     f.queue.roundtrip(&mut f.state).unwrap();
+}
+
+#[test]
+fn virtual_keyboard_forwards_without_reentering_the_ime_grab() {
+    let mut f = Fixture::new();
+    let _keyboard = f.seat.get_keyboard(&f.queue.handle(), ());
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.enable();
+    f.command(Control::Key);
+    assert_eq!(f.state.ime_keys, 2);
+    assert_eq!(f.state.client_keys, 0);
+    let virtual_keyboard = f.virtual_keyboard("us");
+    virtual_keyboard.key(1, 30, 1);
+    virtual_keyboard.key(2, 30, 0);
+    f.sync();
+    assert_eq!(f.state.client_keys, 2);
+    assert_eq!(
+        f.state.ime_keys, 2,
+        "forwarded keys must not loop through the grab"
+    );
+    f.command(Control::Key);
+    assert_eq!(
+        f.state.ime_keys, 4,
+        "hardware input must still reach the grab"
+    );
+}
+
+#[test]
+fn virtual_keymap_and_modifiers_do_not_replace_hardware_state() {
+    use smithay::backend::input::KeyState;
+    let mut f = Fixture::new();
+    let _keyboard = f.seat.get_keyboard(&f.queue.handle(), ());
+    f.sync();
+    let native_keymap = f.state.client_keymap.clone().unwrap();
+    f.command(Control::KeyState(50, KeyState::Pressed));
+    let native_modifiers = f.state.client_modifiers;
+    assert_ne!(native_modifiers.0, 0, "physical Shift must be held");
+    let virtual_keyboard = f.virtual_keyboard("de");
+    virtual_keyboard.modifiers(0, 0, 0, 0);
+    virtual_keyboard.key(1, 30, 1);
+    virtual_keyboard.key(2, 30, 0);
+    f.sync();
+    assert_ne!(f.state.client_keymap.as_ref(), Some(&native_keymap));
+    assert_eq!(
+        f.state.client_modifiers.0, 0,
+        "physical Shift must not alter virtual input"
+    );
+    f.command(Control::Key);
+    assert_eq!(f.state.client_keymap.as_ref(), Some(&native_keymap));
+    assert_eq!(f.state.client_modifiers, native_modifiers);
+    f.command(Control::KeyState(50, KeyState::Released));
+    assert_eq!(f.state.client_modifiers.0, 0);
+}
+
+#[test]
+fn virtual_modifier_requests_are_immediate_and_independent_between_devices() {
+    let mut f = Fixture::new();
+    let _keyboard = f.seat.get_keyboard(&f.queue.handle(), ());
+    let first = f.virtual_keyboard("us");
+    let second = f.virtual_keyboard("us");
+    f.state.keyboard_events.clear();
+    first.modifiers(1, 0, 0, 0);
+    f.sync();
+    assert_eq!(f.state.keyboard_events, ["modifiers"]);
+    f.state.keyboard_events.clear();
+    first.key(1, 30, 1);
+    first.key(2, 30, 0);
+    f.sync();
+    assert_eq!(f.state.keyboard_events, ["key", "key"]);
+    second.modifiers(0, 0, 0, 0);
+    f.sync();
+    assert_eq!(f.state.client_modifiers.0, 0);
+    f.state.keyboard_events.clear();
+    first.key(3, 30, 1);
+    first.key(4, 30, 0);
+    f.sync();
+    assert_eq!(f.state.client_modifiers.0, 1);
+    assert_eq!(f.state.keyboard_events, ["modifiers", "key", "key"]);
+}
+
+#[test]
+fn virtual_requests_and_destruction_cannot_inject_into_lock_focus() {
+    let mut f = Fixture::new();
+    let virtual_keyboard = f.virtual_keyboard("us");
+    virtual_keyboard.key(1, 30, 1);
+    f.sync();
+    f.command(Control::Suspend(true));
+    let (mut queue, mut lock_client, registry) = f.connect_client();
+    let seat: wl_seat::WlSeat =
+        registry.bind(lock_client.globals["wl_seat"].0, 7, &queue.handle(), ());
+    let _keyboard = seat.get_keyboard(&queue.handle(), ());
+    let compositor: wl_compositor::WlCompositor = registry.bind(
+        lock_client.globals["wl_compositor"].0,
+        4,
+        &queue.handle(),
+        (),
+    );
+    compositor.create_surface(&queue.handle(), ()).commit();
+    queue.roundtrip(&mut lock_client).unwrap();
+    let modifiers = lock_client.client_modifiers;
+    let keymap = lock_client.client_keymap.clone();
+    f.virtual_keymap(&virtual_keyboard, "de");
+    virtual_keyboard.modifiers(1, 0, 0, 0);
+    virtual_keyboard.key(2, 30, 0);
+    virtual_keyboard.destroy();
+    f.sync();
+    queue.roundtrip(&mut lock_client).unwrap();
+    assert_eq!(lock_client.client_keys, 0);
+    assert_eq!(lock_client.client_modifiers, modifiers);
+    assert_eq!(lock_client.client_keymap, keymap);
+    f.server_command(Control::Key);
+    queue.roundtrip(&mut lock_client).unwrap();
+    assert_eq!(
+        lock_client.client_keys, 2,
+        "physical input must reach lock focus"
+    );
+}
+
+#[test]
+fn ime_grab_uses_hardware_keymap_after_virtual_input() {
+    let mut f = Fixture::new();
+    let _keyboard = f.seat.get_keyboard(&f.queue.handle(), ());
+    f.sync();
+    let native_keymap = f.state.client_keymap.clone().unwrap();
+    let virtual_keyboard = f.virtual_keyboard("de");
+    virtual_keyboard.key(1, 30, 1);
+    virtual_keyboard.key(2, 30, 0);
+    f.sync();
+    assert!(f.state.client_keymap.as_ref() != Some(&native_keymap));
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.sync();
+    assert!(
+        f.state.ime_keymap.as_ref() == Some(&native_keymap),
+        "a new IME grab must receive the hardware keymap"
+    );
 }

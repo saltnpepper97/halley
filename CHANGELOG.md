@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Update both official Smithay dependencies to the November 4 revision and
+  x11rb to 0.14. Adapt virtual-keyboard and text-input integration while
+  preserving direct virtual-key delivery, independent modifier masks,
+  configured hardware keyboard state, and session-lock input isolation.
+
 - Honor explicit-sync acquire points after an application destroys and recreates
   its synchronization object on the same surface. Previously, Halley could
   fall back to implicit synchronization and read a buffer before the client's
