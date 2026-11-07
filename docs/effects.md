@@ -80,4 +80,4 @@ new methods. Reloading configuration does not replace the running executable.
 supports `enabled`, `colour` (`color` is an alias), `blur-radius`, `spread`,
 `offset-x`, and `offset-y`.
 Backdrop method selection does not change shadow rendering. See the complete
-defaults in [the example configuration](../examples/halley.rune).
+defaults in [the configuration reference](../examples/halley.reference.rune).

@@ -20,10 +20,12 @@ a bind without `shift`, for example, will not fire while Shift is held.
 
 ## Default bindings
 
-The canonical defaults live in
-[`examples/halley.rune`](../examples/halley.rune). The `keybinds:` section
-replaces these defaults rather than adding to them, so a config lists every
-binding it wants.
+These are the bindings in the [starter config](../examples/halley.rune) that
+Halley writes on first run. The `keybinds:` section replaces the defaults
+rather than adding to them, so a config lists every binding it wants.
+[Node movement](#actions) and [monitor transfer](#keyboard-field-panning-and-monitor-transfer)
+have no default binding; the [complete reference](../examples/halley.reference.rune)
+shows them bound to `Super+Alt+Arrow` and `Super+Alt+Shift+Arrow`.
 
 | Category | Keybind | Action |
 |---|---|---|
@@ -39,7 +41,6 @@ binding it wants.
 | Focus | `Super+H` | Center the last-focused Field window |
 | Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
-| Move | `Super+Alt+Arrow` | Move the focused Field node; [custom distances](#actions) are optional |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
 | Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
 | Clusters | `Super+Shift+C` | Enter cluster creation mode |
@@ -364,14 +365,14 @@ decorated-window bounds so opening it afterward remains completely visible.
 While a `Mod+A` arrangement is active on that output, the same keybind still
 moves focus but does not pan the camera.
 `node-move` shifts the focused or most-recent Field window/collapsed node. Without
-a distance it retains the original 80-Field-unit nearest-free placement; the
-default binding is `Mod+Alt+Arrow`. Add a positive whole-number distance to move
+a distance it retains the original 80-Field-unit nearest-free placement. It has
+no default binding; the reference config binds it to `Mod+Alt+Arrow`. Add a positive whole-number distance to move
 up to that many Field units along the requested axis, stopping at obstacles.
 Expanded windows animate with `animations.window-move`, just like CLI movement;
 pointer dragging remains direct. Collapsed markers keep their existing slide.
 
 ```rune
-# Replace the corresponding bindings inside keybinds: for smaller movements.
+# Add these inside keybinds: to move in 10-unit steps.
 "$var.mod+alt+left" "node-move left 10"
 "$var.mod+alt+right" "node-move right 10"
 "$var.mod+alt+up" "node-move up 10"
@@ -386,8 +387,8 @@ objects stay fixed, and a fully blocked move does nothing. Both movement forms
 repeat while held by default and support `with repeat false`. The existing
 aliases (`node move right 10`, `move right 10`, and `node-move-right 10`, for
 example) also accept distances. Invalid distances fail configuration verification.
-`Mod+Alt+Shift+Arrow` remains reserved by the default configuration for monitor
-transfer; it is not a second movement-speed binding.
+The reference config uses `Mod+Alt+Shift+Arrow` for monitor transfer, so it is
+not a second movement-speed binding there.
 
 Field `resize-window` uses `left`/`up` to
 shrink and `right`/`down` to grow, sharing `Mod+Ctrl+Arrow` with scoped tile
@@ -568,7 +569,8 @@ written with `_` in place of `-` in its first word, so `toggle_state` is
 ## Keyboard Field panning and monitor transfer
 
 `window-transfer left|right|up|down` sends the selected Field window to the
-adjacent physical monitor and follows it. Defaults are `Super+Alt+Shift+Arrow`.
+adjacent physical monitor and follows it. It has no default binding; the
+reference config binds it to `Super+Alt+Shift+Arrow`.
 The destination is centered in that monitor's current Field view; window size
 and collapsed state are preserved. Both monitors must show the Field. Cluster
 members, fullscreen and maximized windows are excluded; restore those first.
