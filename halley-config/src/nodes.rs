@@ -334,7 +334,7 @@ fn parse_background_color(
         "system" => NodeBackgroundColor::System,
         "light" => NodeBackgroundColor::Light,
         "dark" => NodeBackgroundColor::Dark,
-        _ => parse_hex_rgb(&value)
+        _ => crate::color::parse_hex_rgb(&value)
             .map(|[r, g, b]| NodeBackgroundColor::Fixed(r, g, b))
             .unwrap_or(default),
     }
@@ -351,29 +351,9 @@ fn parse_node_color(
     let Some(value) = value else {
         return default;
     };
-    parse_hex_rgb(&value)
+    crate::color::parse_hex_rgb(&value)
         .map(|[r, g, b]| crate::BorderColor { r, g, b })
         .unwrap_or(default)
-}
-
-fn parse_hex_rgb(value: &str) -> Option<[f32; 3]> {
-    let hex = value.strip_prefix('#')?;
-    let expanded;
-    let hex = if hex.len() == 3 {
-        expanded = hex.chars().flat_map(|ch| [ch, ch]).collect::<String>();
-        expanded.as_str()
-    } else {
-        hex
-    };
-    if hex.len() != 6 {
-        return None;
-    }
-    let raw = u32::from_str_radix(hex, 16).ok()?;
-    Some([
-        ((raw >> 16) & 0xff) as f32 / 255.0,
-        ((raw >> 8) & 0xff) as f32 / 255.0,
-        (raw & 0xff) as f32 / 255.0,
-    ])
 }
 
 pub(crate) fn parse_focus_ring_fields(

@@ -483,7 +483,9 @@ fn parse_color(
         "system" => Ok(OverlayColorMode::System),
         "light" => Ok(OverlayColorMode::Light),
         "dark" => Ok(OverlayColorMode::Dark),
-        value => parse_hex_color(value).ok_or(OverlayParseError::InvalidValue { path, value: raw }),
+        value => crate::color::parse_hex(value)
+            .map(|crate::color::Rgba { r, g, b, a }| OverlayColorMode::Fixed { r, g, b, a })
+            .ok_or(OverlayParseError::InvalidValue { path, value: raw }),
     }
 }
 
@@ -493,47 +495,6 @@ fn parse_optional_color(
 ) -> Result<Option<OverlayColorMode>, OverlayParseError> {
     raw.map(|raw| parse_color(Some(raw), path, OverlayColorMode::Auto))
         .transpose()
-}
-
-fn parse_hex_color(value: &str) -> Option<OverlayColorMode> {
-    let hex = value.strip_prefix('#')?;
-    let (r, g, b, a) = match hex.len() {
-        3 => (
-            expand_nibble(&hex[0..1])?,
-            expand_nibble(&hex[1..2])?,
-            expand_nibble(&hex[2..3])?,
-            255,
-        ),
-        4 => (
-            expand_nibble(&hex[0..1])?,
-            expand_nibble(&hex[1..2])?,
-            expand_nibble(&hex[2..3])?,
-            expand_nibble(&hex[3..4])?,
-        ),
-        6 => (
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            255,
-        ),
-        8 => (
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            u8::from_str_radix(&hex[6..8], 16).ok()?,
-        ),
-        _ => return None,
-    };
-    Some(OverlayColorMode::Fixed {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
-        a: a as f32 / 255.0,
-    })
-}
-
-fn expand_nibble(value: &str) -> Option<u8> {
-    u8::from_str_radix(value, 16).ok().map(|value| value * 17)
 }
 
 fn validate_duration(path: &'static str, value: u64) -> Result<(), OverlayParseError> {

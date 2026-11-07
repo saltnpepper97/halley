@@ -174,50 +174,14 @@ fn parse_pin_color(
         "auto" => Ok(OverlayColorMode::Auto),
         "light" => Ok(OverlayColorMode::Light),
         "dark" => Ok(OverlayColorMode::Dark),
-        value => parse_hex_color(value).ok_or_else(|| {
-            FieldParseError(format!(
-                "{canonical} must be \"auto\", \"light\", \"dark\", or a hex color, got {raw:?}"
-            ))
-        }),
+        value => crate::color::parse_hex(value)
+            .map(|crate::color::Rgba { r, g, b, a }| OverlayColorMode::Fixed { r, g, b, a })
+            .ok_or_else(|| {
+                FieldParseError(format!(
+                    "{canonical} must be \"auto\", \"light\", \"dark\", or a hex color, got {raw:?}"
+                ))
+            }),
     }
-}
-
-fn parse_hex_color(value: &str) -> Option<OverlayColorMode> {
-    let hex = value.strip_prefix('#')?;
-    let expand = |value: &str| u8::from_str_radix(value, 16).ok().map(|value| value * 17);
-    let (r, g, b, a) = match hex.len() {
-        3 => (
-            expand(&hex[0..1])?,
-            expand(&hex[1..2])?,
-            expand(&hex[2..3])?,
-            255,
-        ),
-        4 => (
-            expand(&hex[0..1])?,
-            expand(&hex[1..2])?,
-            expand(&hex[2..3])?,
-            expand(&hex[3..4])?,
-        ),
-        6 => (
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            255,
-        ),
-        8 => (
-            u8::from_str_radix(&hex[0..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..6], 16).ok()?,
-            u8::from_str_radix(&hex[6..8], 16).ok()?,
-        ),
-        _ => return None,
-    };
-    Some(OverlayColorMode::Fixed {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
-        a: a as f32 / 255.0,
-    })
 }
 
 pub fn parse_field_checked(config: &RuneConfig) -> Result<Field, FieldParseError> {
