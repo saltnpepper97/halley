@@ -18,6 +18,59 @@ The last `+`-separated part is the trigger. Every earlier part is a modifier.
 Trigger and modifier names are case-insensitive. Modifiers are matched exactly:
 a bind without `shift`, for example, will not fire while Shift is held.
 
+## Default bindings
+
+The canonical defaults live in
+[`examples/halley.rune`](../examples/halley.rune). The `keybinds:` section
+replaces these defaults rather than adding to them, so a config lists every
+binding it wants.
+
+| Category | Keybind | Action |
+|---|---|---|
+| Basic | `Super+Shift+E` | Open Halley's quit confirmation |
+| Basic | `Super+Q` | Close the focused window |
+| Basic | `Super+F` | Toggle fullscreen |
+| Basic | `Super+M` | Toggle Field maximize |
+| Basic | `Super+N` | Collapse the focused window into its node, or restore it (a collapsed node also restores on click) |
+| Basic | `Super+P` | Pin or unpin the focused window |
+| Overview | `Super+O` | Toggle Apogee, the visual inventory across monitors |
+| Focus | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation: cycle the focus carousel forward/backward |
+| Focus | `Super+Arrow` | Nearby spatial navigation: directional focus in the active context |
+| Focus | `Super+H` | Center the last-focused Field window |
+| Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
+| Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
+| Move | `Super+Alt+Arrow` | Move the focused Field node; [custom distances](#actions) are optional |
+| Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
+| Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
+| Clusters | `Super+Shift+C` | Enter cluster creation mode |
+| Clusters | `Super+L` | Cycle cluster layout |
+| Clusters | `Super+V` | Toggle the focused cluster member floating |
+| Clusters | `Super+0..9` | Open a per-monitor cluster slot |
+| Bearings | `Super+Z` / `Super+Shift+Z` | Offscreen retrieval: hold or toggle Bearings |
+| Launch | `Super+T` | Open the first supported terminal |
+| Launch | `Super+D` | Open Lift to search applications, nodes, clusters, and compositor actions (Fuzzel is a commented alternative) |
+| Reload | `Super+Shift+R` | Reload the selected configuration |
+| Zoom | `Super+-` / `Super+=` / `Super+Shift+0` | Zoom out, in, or reset |
+| Pointer | `Super+Left Mouse` | Move a window |
+| Pointer | `Super+Right Mouse` | Smoothly resize a window |
+| Pointer | `Left Mouse` on empty Field | Pan the Field |
+| Screenshot | `Print` | Open native capture |
+
+The same chord may be assigned distinct actions in `field`, `cluster`, `tile`,
+and `stack` scopes. Left/right Super, Alt, Ctrl, and Shift can be matched
+independently. Compositor move, resize, and pan grabs are ordinary remappable
+bindings rather than hardcoded mouse policy.
+
+`Super+D` opens [Lift](https://github.com/saltnpepper97/halley-lift),
+the independently packaged search and action launcher. It searches applications,
+running nodes, clusters, compositor actions, and config files from one field,
+and it can run terminal commands. Prefer a separate launcher? Any non-built-in
+action string is a command line, so replacing one line is enough:
+
+```rune
+"$var.mod+d" "fuzzel"
+```
+
 ## Modifiers
 
 | Rune name | Meaning |
