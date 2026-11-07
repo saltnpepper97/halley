@@ -17,6 +17,7 @@ use super::{
     sampled_drag_velocity, shortcut_policy_allows_bindings, stacking_cycle_direction,
     typing_abandons_bloom,
 };
+use crate::input::buttons::BTN_MIDDLE;
 // Model the real two-phase dispatch: consume pending state before interception,
 // then call the forwarding hook only for events delivered to the client.
 fn steam_button(
@@ -223,7 +224,6 @@ fn move_window_grab_becomes_field_pan_on_background() {
 #[test]
 fn camera_pan_ends_only_with_the_button_that_began_it() {
     use crate::input::grab::Grab;
-    const BTN_MIDDLE: u32 = 0x112;
 
     let pan = Grab::Pan {
         output: "DP-1".into(),

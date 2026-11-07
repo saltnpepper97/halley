@@ -1,3 +1,4 @@
+pub(crate) mod buttons;
 pub mod config;
 pub mod devices;
 pub mod grab;
@@ -407,6 +408,7 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::buttons::{BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};
     use crate::input::keybinds::{PointerButtonTrigger, ResolvedTrigger};
 
     fn bind(trigger: ResolvedTrigger, modifiers: Modifiers) -> ResolvedBind {
@@ -434,7 +436,7 @@ mod tests {
                 &ModifiersState::default(),
                 SideModifiers::default(),
                 BindingContext::field(),
-                0x110,
+                BTN_LEFT,
             ),
             None
         );
@@ -448,7 +450,7 @@ mod tests {
                 &mods,
                 SideModifiers::default(),
                 BindingContext::field(),
-                0x110,
+                BTN_LEFT,
             ),
             Some(Action::Quit)
         );
@@ -697,10 +699,10 @@ mod tests {
     #[test]
     fn suppressed_button_release_is_consumed_exactly_once() {
         let mut suppressed = SuppressedButtons::default();
-        suppressed.suppress(0x110);
-        assert!(!suppressed.release_is_suppressed(0x111));
-        assert!(suppressed.release_is_suppressed(0x110));
-        assert!(!suppressed.release_is_suppressed(0x110));
+        suppressed.suppress(BTN_LEFT);
+        assert!(!suppressed.release_is_suppressed(BTN_RIGHT));
+        assert!(suppressed.release_is_suppressed(BTN_LEFT));
+        assert!(!suppressed.release_is_suppressed(BTN_LEFT));
     }
 
     #[test]
@@ -716,7 +718,7 @@ mod tests {
                 &ModifiersState::default(),
                 SideModifiers::default(),
                 BindingContext::field(),
-                0x110,
+                BTN_LEFT,
                 ButtonState::Pressed,
                 true,
                 &mut suppressed,
@@ -730,8 +732,6 @@ mod tests {
         use crate::input::keybinds::resolve_binds;
         use halley_config::{Keybind, Keybinds};
 
-        const BTN_LEFT: u32 = 0x110;
-        const BTN_MIDDLE: u32 = 0x112;
         let super_mod = Modifiers {
             super_key: true,
             ..Modifiers::default()
@@ -831,7 +831,7 @@ mod tests {
                 &ModifiersState::default(),
                 SideModifiers::default(),
                 BindingContext::field(),
-                0x110,
+                BTN_LEFT,
                 ButtonState::Pressed,
                 true,
                 &mut suppressed,
@@ -844,7 +844,7 @@ mod tests {
                 &ModifiersState::default(),
                 SideModifiers::default(),
                 BindingContext::field(),
-                0x110,
+                BTN_LEFT,
                 ButtonState::Released,
                 true,
                 &mut suppressed,

@@ -629,7 +629,7 @@ where
         }
         InputEvent::PointerButton { event } => {
             update_pointer_focus(session, &pointer, event.time().millis());
-            if event.button_code() == 0x110
+            if event.button_code() == crate::input::buttons::BTN_LEFT
                 && event.state() == ButtonState::Pressed
                 && let Some((surface, _, _)) = session
                     .session_lock

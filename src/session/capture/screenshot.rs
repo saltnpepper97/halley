@@ -179,7 +179,7 @@ pub fn handle_pointer<D: SessionDriver, B: InputBackend>(
             .interactions
             .screenshot_buttons
             .suppress(event.button_code());
-        if event.button_code() == 0x110 {
+        if event.button_code() == crate::input::buttons::BTN_LEFT {
             activate(session, hit);
         }
     }
