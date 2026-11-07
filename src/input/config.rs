@@ -48,10 +48,7 @@ where
     if !super::virtual_keyboard::restore(session) {
         return;
     }
-    let keyboard = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup");
+    let keyboard = session.keyboard_handle();
     let mut applied = requested.clone();
 
     if requested.keyboard != session.settings.input.keyboard {

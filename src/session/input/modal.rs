@@ -138,10 +138,7 @@ pub(super) fn cluster_composer<D: SessionDriver, B: InputBackend>(
     event: &InputEvent<B>,
     proposed_position: (f64, f64),
 ) -> bool {
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     if session.shell.cluster_composer.accepts_input() {
         let naming = session
             .clusters

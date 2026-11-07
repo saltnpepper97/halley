@@ -33,9 +33,9 @@ mod modal;
 mod motion;
 pub(crate) mod repeat;
 
-const BTN_LEFT: u32 = 0x110;
+use crate::input::buttons::BTN_LEFT;
 #[cfg(test)]
-const BTN_RIGHT: u32 = 0x111;
+use crate::input::buttons::BTN_RIGHT;
 const NODE_DRAG_THRESHOLD_PX: f64 = 8.0;
 const LIFT_LAYER_NAMESPACE: &str = "halley-lift";
 
@@ -1062,10 +1062,7 @@ where
     {
         session.request_redraw();
     }
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     super::pointer::finish_frame(session, &pointer_handle);
     session
         .pointer

@@ -654,9 +654,9 @@ pub(super) fn resize_handle(edge: ResizeEdge) -> crate::input::grab::ResizeHandl
 
 pub(super) fn evdev_button(x11_button: u32) -> Option<u32> {
     match x11_button {
-        1 => Some(0x110),
-        2 => Some(0x112),
-        3 => Some(0x111),
+        1 => Some(crate::input::buttons::BTN_LEFT),
+        2 => Some(crate::input::buttons::BTN_MIDDLE),
+        3 => Some(crate::input::buttons::BTN_RIGHT),
         _ => None,
     }
 }

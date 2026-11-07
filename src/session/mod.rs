@@ -181,10 +181,7 @@ pub(crate) fn cancel_compositor_grab<D: SessionDriver>(session: &mut Session<D>)
             session.request_redraw();
         }
     }
-    session.interactions.grab = crate::input::grab::Grab::None;
-    session
-        .cursor
-        .set_override(crate::cursor::OverrideSource::Grab, None);
+    session.end_grab();
 }
 
 pub(crate) fn admit_cluster_draft_window<D: SessionDriver>(
@@ -424,10 +421,7 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
             .session_lock
             .focused_surface()
             .map(crate::xwayland::KeyboardFocusTarget::from);
-        let keyboard = session
-            .seat
-            .get_keyboard()
-            .expect("keyboard capability added at seat setup");
+        let keyboard = session.keyboard_handle();
         let has_keyboard_focus = focused.is_some();
         pointer::prepare_keyboard_focus_change(session, None);
         keyboard.set_focus(session, focused, serial);
@@ -473,10 +467,7 @@ pub(crate) fn sync_keyboard_focus<D: SessionDriver>(
         wayland::focus::KeyboardFocus::ExclusiveLayer(surface)
         | wayland::focus::KeyboardFocus::OnDemandLayer(surface) => Some(surface.into()),
     });
-    let keyboard = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup");
+    let keyboard = session.keyboard_handle();
     let next_constraint_root = focused
         .as_ref()
         .and_then(|target| target.wl_surface().map(Cow::into_owned))

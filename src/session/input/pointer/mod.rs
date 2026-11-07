@@ -440,10 +440,7 @@ fn route_and_update_client_focus<D: SessionDriver>(
     policy: AbsoluteMotionPolicy,
 ) -> Option<crate::input::pointer::PointerRoute> {
     let route = route_client(session)?;
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     let routed_surface = route.focus.as_ref().map(|(surface, _)| surface);
     let surface_changed = pointer.current_focus().as_ref() != routed_surface;
     let routed_state = ClientPointerRoute::from_route(&route);
@@ -511,10 +508,7 @@ pub(super) fn finish_frame<D: SessionDriver>(
 }
 
 pub(super) fn update_client_state<D: SessionDriver>(session: &mut Session<D>, time: u32) {
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     route_for_motion(session, time);
     finish_frame(session, &pointer);
 }
@@ -524,10 +518,7 @@ pub(super) fn update_client_state<D: SessionDriver>(session: &mut Session<D>, ti
 /// pointer, but changing its visual transform must not stream new absolute
 /// coordinates to the same client every frame.
 pub(super) fn refresh_client_focus<D: SessionDriver>(session: &mut Session<D>, time: u32) {
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     route_for_discrete_input(session, time);
     finish_frame(session, &pointer);
 }
@@ -539,10 +530,7 @@ pub(super) fn refresh_client_focus<D: SessionDriver>(session: &mut Session<D>, t
 /// immersive or grabbed route: games keep their existing relative-motion,
 /// pointer-lock, confinement, and fullscreen behavior.
 pub(crate) fn refresh_desktop_client_focus<D: SessionDriver>(session: &mut Session<D>, time: u32) {
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     let Some(route) = route_client(session) else {
         return;
     };

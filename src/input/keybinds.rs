@@ -2,6 +2,8 @@ use halley_config::{Action, BindingScope, Keybinds, ModifierKey, Modifiers};
 use smithay::backend::input::Keycode;
 use smithay::input::keyboard::{Keysym, xkb};
 
+use super::buttons::{BTN_BACK, BTN_EXTRA, BTN_FORWARD, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, BTN_SIDE};
+
 const XKB_KEYCODE_OFFSET: u32 = 8;
 
 /// A mouse button that can be named in a Rune keybind.
@@ -19,13 +21,13 @@ pub enum PointerButtonTrigger {
 impl PointerButtonTrigger {
     pub fn matches(self, button: u32) -> bool {
         match self {
-            Self::Left => button == 0x110,
-            Self::Right => button == 0x111,
-            Self::Middle => button == 0x112,
+            Self::Left => button == BTN_LEFT,
+            Self::Right => button == BTN_RIGHT,
+            Self::Middle => button == BTN_MIDDLE,
             // Linux exposes the same physical navigation buttons under two
             // pairs of names depending on the device/driver.
-            Self::Back => matches!(button, 0x113 | 0x116),
-            Self::Forward => matches!(button, 0x114 | 0x115),
+            Self::Back => matches!(button, BTN_SIDE | BTN_BACK),
+            Self::Forward => matches!(button, BTN_EXTRA | BTN_FORWARD),
             Self::Code(expected) => button == expected,
         }
     }
@@ -524,16 +526,16 @@ mod tests {
             left,
             ResolvedTrigger::PointerButton(PointerButtonTrigger::Left)
         );
-        assert!(PointerButtonTrigger::Left.matches(0x110));
+        assert!(PointerButtonTrigger::Left.matches(BTN_LEFT));
         assert_eq!(
             resolve_trigger_name("click-middle"),
             Some(ResolvedTrigger::PointerButton(PointerButtonTrigger::Middle))
         );
-        assert!(PointerButtonTrigger::Middle.matches(0x112));
-        assert!(PointerButtonTrigger::Back.matches(0x113));
-        assert!(PointerButtonTrigger::Back.matches(0x116));
-        assert!(PointerButtonTrigger::Forward.matches(0x114));
-        assert!(PointerButtonTrigger::Forward.matches(0x115));
+        assert!(PointerButtonTrigger::Middle.matches(BTN_MIDDLE));
+        assert!(PointerButtonTrigger::Back.matches(BTN_SIDE));
+        assert!(PointerButtonTrigger::Back.matches(BTN_BACK));
+        assert!(PointerButtonTrigger::Forward.matches(BTN_EXTRA));
+        assert!(PointerButtonTrigger::Forward.matches(BTN_FORWARD));
         assert_eq!(
             resolve_trigger_name("button-279"),
             Some(ResolvedTrigger::PointerButton(PointerButtonTrigger::Code(

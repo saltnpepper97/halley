@@ -856,18 +856,19 @@ pub fn screen_offset_to_world(offset: Vec2, camera: &Camera) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::buttons::{BTN_LEFT, BTN_MIDDLE};
 
     #[test]
     fn second_pan_chord_preserves_the_original_button_and_output() {
         let mut grab = Grab::None;
-        assert!(grab.try_begin_pan("DP-1".into(), 0x112));
-        assert!(!grab.try_begin_pan("DP-2".into(), 0x110));
-        assert!(matches!(grab, Grab::Pan { ref output, button: 0x112 } if output == "DP-1"));
+        assert!(grab.try_begin_pan("DP-1".into(), BTN_MIDDLE));
+        assert!(!grab.try_begin_pan("DP-2".into(), BTN_LEFT));
+        assert!(matches!(grab, Grab::Pan { ref output, button: BTN_MIDDLE } if output == "DP-1"));
         // Once the original owner finishes, a new chord may capture another
         // output and button instead of inheriting the rejected chord's state.
         grab = Grab::None;
-        assert!(grab.try_begin_pan("DP-2".into(), 0x110));
-        assert!(matches!(grab, Grab::Pan { ref output, button: 0x110 } if output == "DP-2"));
+        assert!(grab.try_begin_pan("DP-2".into(), BTN_LEFT));
+        assert!(matches!(grab, Grab::Pan { ref output, button: BTN_LEFT } if output == "DP-2"));
     }
 
     #[test]
@@ -876,7 +877,7 @@ mod tests {
             id: halley_core::cluster::ClusterId::new(7),
             screen_offset: Vec2 { x: 12.0, y: 34.0 },
         };
-        assert!(!grab.try_begin_pan("DP-2".into(), 0x112));
+        assert!(!grab.try_begin_pan("DP-2".into(), BTN_MIDDLE));
         assert!(matches!(grab, Grab::MoveClusterCore { id, screen_offset }
             if id == halley_core::cluster::ClusterId::new(7)
                 && screen_offset == Vec2 { x: 12.0, y: 34.0 }));
@@ -903,7 +904,7 @@ mod tests {
             rect,
             Arc::new(AtomicBool::new(false)),
         ));
-        let button = 0x110;
+        let button = BTN_LEFT;
         let serial = Serial::from(42);
         let offset = Vec2 { x: 12.0, y: 34.0 };
         let now = Duration::from_millis(100);
@@ -945,7 +946,7 @@ mod tests {
             }),
         ];
         for grab in &mut grabs {
-            assert!(!grab.try_begin_pan("DP-2".into(), 0x112));
+            assert!(!grab.try_begin_pan("DP-2".into(), BTN_MIDDLE));
             match grab {
                 Grab::PendingWindowMove(pending) => {
                     assert_eq!(pending.window, window);
@@ -979,7 +980,7 @@ mod tests {
             }
             // Finishing the original operation allows the next pan chord.
             *grab = Grab::None;
-            assert!(grab.try_begin_pan("DP-2".into(), 0x112));
+            assert!(grab.try_begin_pan("DP-2".into(), BTN_MIDDLE));
         }
     }
 

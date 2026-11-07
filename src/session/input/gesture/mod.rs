@@ -143,10 +143,7 @@ fn begin_route<D: SessionDriver>(
     behavior_enabled: bool,
     scope: GestureScope,
 ) -> BeginRoute {
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     let route = super::pointer::route_for_discrete_input(session, time);
     super::pointer::finish_frame(session, &pointer);
     let owner = pointer.current_focus();
@@ -179,11 +176,7 @@ fn modifier_forces<D: SessionDriver>(session: &Session<D>) -> bool {
             crate::input::keybinds::effective_mod(modifier, D::BACKEND_KIND)
         }
     };
-    let modifiers = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup")
-        .modifier_state();
+    let modifiers = session.keyboard_handle().modifier_state();
     crate::input::mod_key_held(&modifiers, session.keyboard.side_modifiers, modifier)
 }
 
@@ -307,10 +300,7 @@ where
             let Some(owner) = route.owner else {
                 return;
             };
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_swipe_begin(
                 session,
                 &GestureSwipeBeginEvent {
@@ -354,10 +344,7 @@ where
     let client_owner_is_current = owner_is_current(session, &sequence);
     match &mut sequence {
         Sequence::Client(_) if client_owner_is_current => {
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_swipe_update(
                 session,
                 &GestureSwipeUpdateEvent {
@@ -430,10 +417,7 @@ where
     };
     match sequence {
         Sequence::Client(_) if owner_is_current(session, &sequence) => {
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_swipe_end(
                 session,
                 &GestureSwipeEndEvent {
@@ -507,10 +491,7 @@ where
             let Some(owner) = route.owner else {
                 return;
             };
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_pinch_begin(
                 session,
                 &GesturePinchBeginEvent {
@@ -547,10 +528,7 @@ where
     let client_owner_is_current = owner_is_current(session, &sequence);
     match &mut sequence {
         Sequence::Client(_) if client_owner_is_current => {
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_pinch_update(
                 session,
                 &GesturePinchUpdateEvent {
@@ -603,10 +581,7 @@ where
     };
     match sequence {
         Sequence::Client(_) if owner_is_current(session, &sequence) => {
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_pinch_end(
                 session,
                 &GesturePinchEndEvent {
@@ -658,10 +633,7 @@ where
             let Some(owner) = route.owner else {
                 return;
             };
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_hold_begin(
                 session,
                 &GestureHoldBeginEvent {
@@ -696,10 +668,7 @@ where
     };
     match sequence {
         Sequence::Client(_) if owner_is_current(session, &sequence) => {
-            let pointer = session
-                .seat
-                .get_pointer()
-                .expect("pointer capability added at seat setup");
+            let pointer = session.pointer_handle();
             pointer.gesture_hold_end(
                 session,
                 &GestureHoldEndEvent {
@@ -788,10 +757,7 @@ where
 
 pub(crate) fn cancel_all<D: SessionDriver>(session: &mut Session<D>) {
     let time = session.start_time.elapsed().as_millis() as u32;
-    let pointer = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer = session.pointer_handle();
     if session
         .gestures
         .swipe

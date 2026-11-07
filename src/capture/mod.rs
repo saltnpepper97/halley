@@ -1085,10 +1085,7 @@ fn begin_modal_capture<D: SessionDriver>(session: &mut Session<D>) {
     }
     crate::session::cancel_compositor_grab(session);
     crate::session::note_pointer_activity(session);
-    let keyboard = session
-        .seat
-        .get_keyboard()
-        .expect("keyboard capability added at seat setup");
+    let keyboard = session.keyboard_handle();
     keyboard.set_focus(session, None, smithay::utils::SERIAL_COUNTER.next_serial());
     session.request_redraw();
 }

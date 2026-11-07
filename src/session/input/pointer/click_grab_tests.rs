@@ -1,5 +1,6 @@
 //! Exercise rebased motion through Smithay's real implicit-grab state machine.
 use super::click_grab_location;
+use crate::input::buttons::{BTN_LEFT, BTN_RIGHT};
 use smithay::{
     backend::input::ButtonState,
     input::{Seat, SeatHandler, SeatState, pointer::*},
@@ -124,8 +125,8 @@ fn transformed_drag_keeps_owner_coordinates_and_cursor_until_last_release() {
         grab_origin,
         grab_origin + Point::from((10.0, 20.0)),
     );
-    button(&pointer, &mut state, 0x110, ButtonState::Pressed);
-    button(&pointer, &mut state, 0x111, ButtonState::Pressed);
+    button(&pointer, &mut state, BTN_LEFT, ButtonState::Pressed);
+    button(&pointer, &mut state, BTN_RIGHT, ButtonState::Pressed);
     assert!(pointer.is_grabbed());
 
     // Owner moved and is displayed at half scale; physical pointer now lies
@@ -140,12 +141,12 @@ fn transformed_drag_keeps_owner_coordinates_and_cursor_until_last_release() {
         Some(&(1, Point::from((1200.0, -40.0))))
     );
     assert_eq!(state.cursor_resets, 0);
-    button(&pointer, &mut state, 0x110, ButtonState::Released);
+    button(&pointer, &mut state, BTN_LEFT, ButtonState::Released);
     assert!(
         pointer.is_grabbed(),
         "another held button still owns the grab"
     );
-    button(&pointer, &mut state, 0x111, ButtonState::Released);
+    button(&pointer, &mut state, BTN_RIGHT, ButtonState::Released);
     assert!(!pointer.is_grabbed());
     assert!(state.buttons.iter().all(|(target, _)| *target == 1));
     // Same post-release refresh used by the session: no new physical motion.

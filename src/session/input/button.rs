@@ -8,10 +8,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     socket_name: &OsStr,
     position_after: (f64, f64),
 ) {
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     if let InputEvent::PointerButton {
         event: button_event,
     } = event
@@ -24,10 +21,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             &session.interactions.grab
         {
             if *owner == button && state == ButtonState::Released {
-                session.interactions.grab = crate::input::grab::Grab::None;
-                session
-                    .cursor
-                    .set_override(crate::cursor::OverrideSource::Grab, None);
+                session.end_grab();
                 super::super::pointer::update_client_state(session, time);
                 session.request_redraw();
             }
@@ -47,10 +41,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             // No compositor move began, so leave this release unconsumed. It
             // completes the client's click and lets its double-click handler
             // decide whether to toggle maximize.
-            session.interactions.grab = crate::input::grab::Grab::None;
-            session
-                .cursor
-                .set_override(crate::cursor::OverrideSource::Grab, None);
+            session.end_grab();
         }
         if button == BTN_LEFT && state == ButtonState::Released {
             if session.clusters.bloom_pull().is_some() {
@@ -152,10 +143,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             match &session.interactions.grab {
                 crate::input::grab::Grab::PendingNode { id, .. } => {
                     let id = *id;
-                    session.interactions.grab = crate::input::grab::Grab::None;
-                    session
-                        .cursor
-                        .set_override(crate::cursor::OverrideSource::Grab, None);
+                    session.end_grab();
                     let _ = crate::nodes::restore(session, id, serial);
                     super::super::pointer::finish_frame(session, &pointer_handle);
                     return;
@@ -185,10 +173,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                         let origin = collapsed_node_drop_origin(center, size, output_geometry);
                         Some((output, work_area, origin))
                     })();
-                    session.interactions.grab = crate::input::grab::Grab::None;
-                    session
-                        .cursor
-                        .set_override(crate::cursor::OverrideSource::Grab, None);
+                    session.end_grab();
                     session.nodes.clear_direct_motion(id);
                     session.clusters.cancel_join_candidate();
                     if let Some((output, work_area, origin)) = active_workspace_release {
@@ -219,10 +204,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                         .interactions
                         .suppressed_buttons
                         .release_is_suppressed(BTN_LEFT);
-                    session.interactions.grab = crate::input::grab::Grab::None;
-                    session
-                        .cursor
-                        .set_override(crate::cursor::OverrideSource::Grab, None);
+                    session.end_grab();
                     let output = {
                         session
                             .wayland
@@ -246,10 +228,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                         .interactions
                         .suppressed_buttons
                         .release_is_suppressed(BTN_LEFT);
-                    session.interactions.grab = crate::input::grab::Grab::None;
-                    session
-                        .cursor
-                        .set_override(crate::cursor::OverrideSource::Grab, None);
+                    session.end_grab();
                     session.request_redraw();
                     super::super::pointer::finish_frame(session, &pointer_handle);
                     return;
@@ -393,11 +372,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             )
             && bindings_enabled(session)
         {
-            let modifiers = session
-                .seat
-                .get_keyboard()
-                .expect("keyboard capability added at seat setup")
-                .modifier_state();
+            let modifiers = session.keyboard_handle().modifier_state();
             let context = binding_context_for_output(
                 session,
                 route.as_ref().map(|route| route.output.name()).as_deref(),
@@ -515,10 +490,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                         _ => None,
                     };
                     if let Some(pending) = pending_titlebar {
-                        session.interactions.grab = crate::input::grab::Grab::None;
-                        session
-                            .cursor
-                            .set_override(crate::cursor::OverrideSource::Grab, None);
+                        session.end_grab();
                         let clicked_same_drag_region = route.as_ref().is_some_and(|route| {
                             matches!(
                                 &route.target,
@@ -681,11 +653,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             session
                 .clusters
                 .set_hovered_core(None, crate::frame_clock::monotonic_now());
-            let modifiers = session
-                .seat
-                .get_keyboard()
-                .expect("keyboard capability added at seat setup")
-                .modifier_state();
+            let modifiers = session.keyboard_handle().modifier_state();
             if crate::input::mod_key_held(
                 &modifiers,
                 session.keyboard.side_modifiers,
@@ -745,11 +713,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 intercepted = true;
             }
         }
-        let modifiers = session
-            .seat
-            .get_keyboard()
-            .expect("keyboard capability added at seat setup")
-            .modifier_state();
+        let modifiers = session.keyboard_handle().modifier_state();
         let bindings_enabled = bindings_enabled(session);
         let on_background = route.as_ref().is_some_and(|route| {
             matches!(
@@ -1008,10 +972,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                         } else {
                             None
                         };
-                        session.interactions.grab = crate::input::grab::Grab::None;
-                        session
-                            .cursor
-                            .set_override(crate::cursor::OverrideSource::Grab, None);
+                        session.end_grab();
                         let mut cluster_drop_handled = false;
                         if let (
                             Some(id),
@@ -1130,10 +1091,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 state == ButtonState::Released,
             )
         {
-            session.interactions.grab = crate::input::grab::Grab::None;
-            session
-                .cursor
-                .set_override(crate::cursor::OverrideSource::Grab, None);
+            session.end_grab();
             intercepted = true;
         }
 
@@ -1144,11 +1102,8 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 crate::input::grab::Grab::ResizeWindow(resize) if resize.button == button
             )
         {
-            session.interactions.grab = crate::input::grab::Grab::None;
             crate::input::grab::release_resize_anchor(&mut session.interactions.resize_anchor);
-            session
-                .cursor
-                .set_override(crate::cursor::OverrideSource::Grab, None);
+            session.end_grab();
             intercepted = true;
         }
 

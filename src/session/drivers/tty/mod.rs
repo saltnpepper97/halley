@@ -671,11 +671,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 ) {
                     return;
                 }
-                let modifiers = app
-                    .seat
-                    .get_keyboard()
-                    .expect("keyboard capability added at seat setup")
-                    .modifier_state();
+                let modifiers = app.keyboard_handle().modifier_state();
                 if let Some(vt) = vt::target_from_keycode(
                     event.key_code().raw(),
                     event.state() == smithay::backend::input::KeyState::Pressed,
@@ -716,11 +712,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             }
             match &event {
                 smithay::backend::input::InputEvent::DeviceAdded { device } => {
-                    let leds = app
-                        .seat
-                        .get_keyboard()
-                        .expect("keyboard capability added at seat setup")
-                        .led_state();
+                    let leds = app.keyboard_handle().led_state();
                     let first_touch =
                         app.driver
                             .physical_input

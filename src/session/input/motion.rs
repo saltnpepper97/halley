@@ -7,10 +7,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     position_before: (f64, f64),
     proposed_position: (f64, f64),
 ) -> Option<(f64, f64)> {
-    let pointer_handle = session
-        .seat
-        .get_pointer()
-        .expect("pointer capability added at seat setup");
+    let pointer_handle = session.pointer_handle();
     let motion = match event {
         InputEvent::PointerMotion { event } => Some((
             event.delta(),
@@ -242,12 +239,11 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
         ) {
             PendingWindowMoveMotion::Wait => {}
             PendingWindowMoveMotion::Cancel => {
-                session.interactions.grab = crate::input::grab::Grab::None;
-                session
-                    .cursor
-                    .set_override(crate::cursor::OverrideSource::Grab, None);
+                session.end_grab();
             }
             PendingWindowMoveMotion::Activate => {
+                // Not `end_grab`: a successful hand-off to the client move
+                // keeps the grab cursor, which that move goes on to use.
                 session.interactions.grab = crate::input::grab::Grab::None;
                 if !super::super::activate_client_pointer_move(session, pending) {
                     session

@@ -575,10 +575,7 @@ where
         if event.state() == smithay::backend::input::KeyState::Pressed {
             session.cursor_policy.keyboard_press();
         }
-        let keyboard = session
-            .seat
-            .get_keyboard()
-            .expect("keyboard capability added at seat setup");
+        let keyboard = session.keyboard_handle();
         keyboard.input::<(), _>(
             session,
             event.key_code(),
@@ -632,7 +629,7 @@ where
         }
         InputEvent::PointerButton { event } => {
             update_pointer_focus(session, &pointer, event.time().millis());
-            if event.button_code() == 0x110
+            if event.button_code() == crate::input::buttons::BTN_LEFT
                 && event.state() == ButtonState::Pressed
                 && let Some((surface, _, _)) = session
                     .session_lock
