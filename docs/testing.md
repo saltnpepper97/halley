@@ -83,7 +83,7 @@ your machine.
 
 The `drm_syncobj_protocol` regressions use a real GBM DMA-BUF and unsignaled
 DRM timeline points through the production acquire-readiness helper. They check
-first creation, repeated synchronization-object recreation, unrelated-client
+first creation, repeated synchronization-object recreation, unrelated-surface
 progress, and rejection when the acquire event source cannot be registered.
 They also check that a later bufferless commit has no stale acquire wait.
 
