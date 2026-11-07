@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: split the 1,130-line pointer button handler into named stages
+  that run in the original order. No behavior change.
 - List every older config key and keybind action spelling Halley still reads
   in one table each, and document them in `docs/older-spellings.md` and the
   keybinds reference, which now names every built-in action. Existing configs
