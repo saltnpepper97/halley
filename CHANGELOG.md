@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Stop a non-ASCII character in a colour value from crashing
+  `halleyctl config verify` and the compositor's live config reload. Every
+  colour setting now shares one hex parser, so they all accept the same forms:
+  `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, with the `#` optional. Settings
+  without transparency, such as borders and the wallpaper colour, still reject
+  the alpha forms.
 - Rewrite the README around what Halley does: a new headline, Lift as an
   explicit install step (with `Super+T` working without it), clusters as an
   optional step, retrieval as four questions that now include Trail, ten core
