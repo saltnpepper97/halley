@@ -610,7 +610,11 @@ impl<D: SessionDriver> Session<D> {
     }
 
     pub fn cleanup_fullscreen(&mut self, now: std::time::Duration) -> bool {
-        let mut native_started = false;
+        // Animations-off X11 switches whose client never repainted in time.
+        let mut native_started = !self
+            .fullscreen
+            .release_external_commit_waits(&mut self.wayland, now)
+            .is_empty();
         for surface in self.fullscreen.native_size_retries_due(now) {
             let Some(window) = self
                 .wayland

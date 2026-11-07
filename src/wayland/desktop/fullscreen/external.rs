@@ -105,6 +105,23 @@ impl FullscreenManager {
         )
     }
 
+    /// Animations are off: enter fullscreen in one step once the client has
+    /// repainted at the fullscreen size.
+    pub(crate) fn request_external_instant(
+        &mut self,
+        wayland: &mut WaylandState,
+        window: &Window,
+        origin: FullscreenOrigin,
+    ) -> Option<ExternalTransactionRequest> {
+        self.request_external_transaction(
+            wayland,
+            window,
+            ExternalPresentationKind::Instant,
+            None,
+            origin,
+        )
+    }
+
     pub(crate) fn request_external_opening(
         &mut self,
         wayland: &mut WaylandState,
@@ -211,6 +228,63 @@ impl FullscreenManager {
                 ExternalPresentationKind::Animated
             },
         )
+    }
+
+    /// Animations are off: leave fullscreen in one step once the client has
+    /// repainted at its windowed size.
+    pub(crate) fn unrequest_external_instant(
+        &mut self,
+        window: &Window,
+    ) -> Option<ExternalTransactionRequest> {
+        self.unrequest_external_transaction(window, ExternalPresentationKind::Instant)
+    }
+
+    /// Whether an animations-off switch is still waiting for a client repaint.
+    /// Frames must keep coming while it does, so its deadline is noticed.
+    pub(crate) fn has_external_commit_wait(&self) -> bool {
+        self.windows.values().any(|entry| {
+            entry
+                .external_pending
+                .is_some_and(|pending| pending.commit_deadline.is_some())
+        })
+    }
+
+    /// Present animations-off switches whose client never repainted at the
+    /// new size within [`EXTERNAL_COMMIT_WAIT`], exactly as they would have
+    /// been presented without waiting. Returns the surfaces it settled.
+    pub(crate) fn release_external_commit_waits(
+        &mut self,
+        wayland: &mut WaylandState,
+        now: Duration,
+    ) -> Vec<WlSurface> {
+        let waiting = self
+            .windows
+            .iter()
+            .filter(|(_, entry)| {
+                entry
+                    .external_pending
+                    .is_some_and(|pending| pending.commit_deadline.is_some())
+            })
+            .map(|(surface, _)| surface.clone())
+            .collect::<Vec<_>>();
+        let mut released = Vec::new();
+        for surface in waiting {
+            let Some(window) = find_window(wayland, &surface).cloned() else {
+                continue;
+            };
+            let Some(entry) = self.windows.get_mut(&surface) else {
+                continue;
+            };
+            if !release_commit_wait(entry, &self.animations, now) {
+                continue;
+            }
+            if !relocate_external_window(wayland, &window, entry) {
+                entry.transition = None;
+                entry.presented = entry.desired;
+            }
+            released.push(surface);
+        }
+        released
     }
 
     pub(crate) fn unrequest_external_opening(
@@ -347,7 +421,12 @@ impl FullscreenManager {
         let Some(pending) = entry.external_pending.as_mut() else {
             return;
         };
-        if pending.presentation != ExternalPresentationKind::LiveAnimated {
+        // A game leaving fullscreen may choose its own windowed size, whether
+        // the exit animates or (with animations off) switches in one step.
+        if !matches!(
+            pending.presentation,
+            ExternalPresentationKind::LiveAnimated | ExternalPresentationKind::Instant
+        ) {
             return;
         }
         if pending.geometry == geometry {

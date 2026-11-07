@@ -108,6 +108,7 @@ fn reassigned_x11_transaction_can_exit_without_the_disabled_outputs_acknowledgem
         presentation: ExternalPresentationKind::Animated,
         geometry_acknowledged: false,
         surface_committed: false,
+        commit_deadline: None,
     });
     reassign_fullscreen_entry(
         &mut entry,

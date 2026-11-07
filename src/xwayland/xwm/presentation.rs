@@ -265,27 +265,42 @@ pub(super) fn set_external_fullscreen<D: SessionDriver>(
                 })
             });
     let live_buffers = policy == ExternalPresentationPolicy::LiveAnimated;
-    let animate = !state_only
+    // With animations off there is no motion to cover the client's resize, so
+    // switch in one step once it has repainted at the new size (bounded by a
+    // short deadline) instead of presenting its old buffer at the new place.
+    let instant = !state_only
+        && !session.fullscreen.animations_enabled()
+        && matches!(
+            policy,
+            ExternalPresentationPolicy::Animated | ExternalPresentationPolicy::LiveAnimated
+        );
+    let animate = !instant
+        && !state_only
         && (live_buffers
             || (policy == ExternalPresentationPolicy::Animated
                 && capture_fullscreen_snapshot(session, &window, fullscreen)));
     if policy == ExternalPresentationPolicy::Opening {
         request_opening_fullscreen(session, surface, &window, fullscreen, origin);
-    } else if animate {
-        if live_buffers {
+    } else if animate || instant {
+        if live_buffers || instant {
             remove_fullscreen_snapshot(session, &window);
         }
-        let request = if fullscreen {
-            session.fullscreen.request_external_animated(
+        let request = match (instant, fullscreen) {
+            (true, true) => session.fullscreen.request_external_instant(
+                &mut session.wayland,
+                &window,
+                origin.presentation_origin(),
+            ),
+            (true, false) => session.fullscreen.unrequest_external_instant(&window),
+            (false, true) => session.fullscreen.request_external_animated(
                 &mut session.wayland,
                 &window,
                 origin.presentation_origin(),
                 live_buffers,
-            )
-        } else {
-            session
+            ),
+            (false, false) => session
                 .fullscreen
-                .unrequest_external_animated(&window, live_buffers)
+                .unrequest_external_animated(&window, live_buffers),
         };
         match request {
             Some(ExternalTransactionRequest::Configure(geometry)) => {

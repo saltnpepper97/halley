@@ -896,6 +896,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     || app.settings.debug.overlay_fps && !app.session_lock.active()
                     || fullscreen_cleanup
                     || arrange_cleanup
+                    || app.fullscreen.has_external_commit_wait()
                 {
                     app.request_redraw();
                 }

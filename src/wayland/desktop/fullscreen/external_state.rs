@@ -38,7 +38,12 @@ pub(super) fn begin_external_transaction(
         geometry,
         presentation,
         geometry_acknowledged: false,
-        surface_committed: presentation != ExternalPresentationKind::Animated,
+        surface_committed: !matches!(
+            presentation,
+            ExternalPresentationKind::Animated | ExternalPresentationKind::Instant
+        ),
+        commit_deadline: (presentation == ExternalPresentationKind::Instant)
+            .then(|| now + EXTERNAL_COMMIT_WAIT),
     });
     ExternalTransactionRequest::Configure(geometry)
 }
@@ -82,6 +87,31 @@ pub(super) fn acknowledge_external_surface(
     settle_external_transaction(entry, animations, now)
 }
 
+/// Settle an animations-off switch whose client has not repainted at the new
+/// size by its deadline, as if it had not been waited for. Returns whether it
+/// settled.
+pub(super) fn release_commit_wait(
+    entry: &mut FullscreenWindow,
+    animations: &Animations,
+    now: Duration,
+) -> bool {
+    let Some(pending) = entry.external_pending.as_mut() else {
+        return false;
+    };
+    if pending
+        .commit_deadline
+        .is_none_or(|deadline| now < deadline)
+    {
+        return false;
+    }
+    pending.geometry_acknowledged = true;
+    pending.surface_committed = true;
+    matches!(
+        settle_external_transaction(entry, animations, now),
+        ExternalConfigureResult::Settled { .. }
+    )
+}
+
 pub(super) fn settle_external_transaction(
     entry: &mut FullscreenWindow,
     animations: &Animations,
@@ -96,7 +126,7 @@ pub(super) fn settle_external_transaction(
     entry.external_pending = None;
     let fullscreen = entry.desired;
     match pending.presentation {
-        ExternalPresentationKind::Opening => {
+        ExternalPresentationKind::Opening | ExternalPresentationKind::Instant => {
             entry.active = fullscreen;
             entry.presented = fullscreen;
             entry.transition = None;
