@@ -546,7 +546,7 @@ pub fn toggle<D: crate::session::SessionDriver>(session: &mut crate::session::Se
             .close(None, session.settings.apogee, now)
     } else if session.capture.is_active()
         || session.shell.focus_cycle.is_open()
-        || !matches!(session.interactions.grab, crate::input::grab::Grab::None)
+        || !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
     {
         false
     } else {

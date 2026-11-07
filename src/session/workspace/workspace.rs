@@ -162,5 +162,5 @@ struct AppliedSwitch {
 /// will actually be activated.
 fn switching_allowed<D: SessionDriver>(session: &Session<D>) -> bool {
     !session.session_lock.active()
-        && matches!(session.interactions.grab, crate::input::grab::Grab::None)
+        && matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
 }

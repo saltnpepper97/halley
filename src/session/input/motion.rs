@@ -58,7 +58,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     if let crate::input::grab::Grab::MoveWindow {
         edge_pan: Some(edge_pan),
         ..
-    } = &session.interactions.grab
+    } = session.interactions.grab()
         && let Some(output) = session
             .wayland
             .space
@@ -159,7 +159,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             press_screen,
             screen_offset,
             ..
-        } = &session.interactions.grab
+        } = session.interactions.grab()
     {
         let dx = position_after.0 - press_screen.x;
         let dy = position_after.1 - press_screen.y;
@@ -184,14 +184,16 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 };
                 crate::nodes::set_collapsed_output(session, id, &output);
                 session.nodes.clear_direct_motion(id);
-                session.interactions.grab = crate::input::grab::Grab::MoveNode {
-                    id,
-                    surface,
-                    screen_offset,
-                    last_world: desired,
-                    last_update: crate::frame_clock::monotonic_now(),
-                    velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
-                };
+                session
+                    .interactions
+                    .begin_grab(crate::input::grab::Grab::MoveNode {
+                        id,
+                        surface,
+                        screen_offset,
+                        last_world: desired,
+                        last_update: crate::frame_clock::monotonic_now(),
+                        velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+                    });
                 session.cursor.set_override(
                     crate::cursor::OverrideSource::Grab,
                     Some(smithay::input::pointer::CursorIcon::Grabbing),
@@ -206,7 +208,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             press_screen,
             screen_offset,
             ..
-        } = &session.interactions.grab
+        } = session.interactions.grab()
     {
         let dx = position_after.0 - press_screen.x;
         let dy = position_after.1 - press_screen.y;
@@ -219,8 +221,9 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             let id = *id;
             let screen_offset = *screen_offset;
             begin_cluster_core_direct_motion(&mut session.nodes, session.clusters.core_node(id));
-            session.interactions.grab =
-                crate::input::grab::Grab::MoveClusterCore { id, screen_offset };
+            session
+                .interactions
+                .begin_grab(crate::input::grab::Grab::MoveClusterCore { id, screen_offset });
             session.cursor.set_override(
                 crate::cursor::OverrideSource::Grab,
                 Some(smithay::input::pointer::CursorIcon::Grabbing),
@@ -229,7 +232,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     }
 
     if motion.is_some()
-        && let crate::input::grab::Grab::PendingWindowMove(pending) = &session.interactions.grab
+        && let crate::input::grab::Grab::PendingWindowMove(pending) = session.interactions.grab()
     {
         let pending = pending.clone();
         match pending_window_move_motion(
@@ -242,9 +245,9 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 session.end_grab();
             }
             PendingWindowMoveMotion::Activate => {
-                // Not `end_grab`: a successful hand-off to the client move
-                // keeps the grab cursor, which that move goes on to use.
-                session.interactions.grab = crate::input::grab::Grab::None;
+                // A successful hand-off to the client move keeps the grab
+                // cursor, which that move goes on to use.
+                session.interactions.end_grab_keeping_cursor();
                 if !super::super::activate_client_pointer_move(session, pending) {
                     session
                         .cursor
@@ -256,7 +259,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
 
     let mut resize_preview_changed = false;
     if motion.is_some()
-        && let crate::input::grab::Grab::ResizeWindow(state) = &mut session.interactions.grab
+        && let crate::input::grab::Grab::ResizeWindow(state) = session.interactions.grab_mut()
     {
         let world = crate::input::grab::resize_cursor_from_screen(state, position_after);
         let requested_size = crate::input::grab::resize_target_size(
@@ -278,7 +281,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             animations.smooth_resize.duration_ms,
         );
     }
-    match &session.interactions.grab {
+    match session.interactions.grab() {
         crate::input::grab::Grab::MovePopup { window, offset, .. } if motion.is_some() => {
             let window = window.clone();
             let location: Point<i32, Logical> = (
@@ -391,7 +394,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     && let crate::input::grab::Grab::MoveWindow {
                         edge_pan: Some(live),
                         ..
-                    } = &mut session.interactions.grab
+                    } = session.interactions.grab_mut()
                 {
                     live.update_contact(placement.contact, now);
                 }
@@ -425,7 +428,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     if let crate::input::grab::Grab::MoveWindow {
                         cluster_drag: Some(live),
                         ..
-                    } = &mut session.interactions.grab
+                    } = session.interactions.grab_mut()
                     {
                         live.on_origin_output = drag.on_origin_output;
                     }
@@ -515,7 +518,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     last_update,
                     velocity,
                     ..
-                } = &mut session.interactions.grab
+                } = session.interactions.grab_mut()
                 {
                     *last_world = desired_center;
                     *last_update = now;
@@ -572,7 +575,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     last_update,
                     velocity,
                     ..
-                } = &mut session.interactions.grab
+                } = session.interactions.grab_mut()
                 {
                     *last_world = desired;
                     *last_update = now;
@@ -698,7 +701,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
             session.interactions.titlebar_hovered = titlebar_hovered;
             session.request_redraw();
         }
-        let node_grab_active = session.interactions.grab.landmark_active();
+        let node_grab_active = session.interactions.grab().landmark_active();
         let now = crate::frame_clock::monotonic_now();
         let hovered_action = (!node_grab_active)
             .then(|| cluster_action_at_pointer(session, now))

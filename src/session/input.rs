@@ -355,15 +355,17 @@ fn dispatch_pointer_grab_action<D: SessionDriver>(
             if crate::window::accepts_popup_move(window) {
                 let geometry = route.visual_geometry.unwrap_or_else(|| window.geometry());
                 let pointer = session.pointer.position();
-                session.interactions.grab = crate::input::grab::Grab::MovePopup {
-                    window: window.clone(),
-                    button,
-                    offset: (
-                        f64::from(geometry.loc.x) - pointer.0,
-                        f64::from(geometry.loc.y) - pointer.1,
-                    )
-                        .into(),
-                };
+                session
+                    .interactions
+                    .begin_grab(crate::input::grab::Grab::MovePopup {
+                        window: window.clone(),
+                        button,
+                        offset: (
+                            f64::from(geometry.loc.x) - pointer.0,
+                            f64::from(geometry.loc.y) - pointer.1,
+                        )
+                            .into(),
+                    });
                 session.cursor.set_override(
                     crate::cursor::OverrideSource::Grab,
                     Some(smithay::input::pointer::CursorIcon::Grabbing),
@@ -580,7 +582,7 @@ fn start_field_pan_grab<D: SessionDriver>(
 ) -> bool {
     if !session
         .interactions
-        .grab
+        .grab_mut()
         .try_begin_pan(route.output.name(), button)
     {
         return false;
@@ -596,7 +598,7 @@ pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(
     session: &mut Session<D>,
     now: std::time::Duration,
 ) -> Option<String> {
-    let (id, window, drag_size, anchor, edge_pan) = match &session.interactions.grab {
+    let (id, window, drag_size, anchor, edge_pan) = match session.interactions.grab() {
         crate::input::grab::Grab::MoveWindow {
             id: Some(id),
             window,
@@ -641,7 +643,7 @@ pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(
         if let crate::input::grab::Grab::MoveWindow {
             edge_pan: Some(live),
             ..
-        } = &mut session.interactions.grab
+        } = session.interactions.grab_mut()
         {
             live.update_contact(halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
             live.last_tick = now;
@@ -649,7 +651,7 @@ pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(
         return None;
     };
 
-    let (ready, dt, contact) = match &mut session.interactions.grab {
+    let (ready, dt, contact) = match session.interactions.grab_mut() {
         crate::input::grab::Grab::MoveWindow {
             edge_pan: Some(live),
             last_world,
@@ -696,7 +698,7 @@ pub(crate) fn grabbed_window_edge_pan_active_on<D: SessionDriver>(
     output_name: &str,
 ) -> bool {
     matches!(
-        &session.interactions.grab,
+        session.interactions.grab(),
         crate::input::grab::Grab::MoveWindow {
             edge_pan: Some(edge_pan),
             ..
@@ -706,7 +708,7 @@ pub(crate) fn grabbed_window_edge_pan_active_on<D: SessionDriver>(
 }
 
 fn apply_active_resize<D: SessionDriver>(session: &mut Session<D>) -> bool {
-    let crate::input::grab::Grab::ResizeWindow(state) = &session.interactions.grab else {
+    let crate::input::grab::Grab::ResizeWindow(state) = session.interactions.grab() else {
         return false;
     };
     let state = state.clone();
@@ -784,7 +786,7 @@ pub(crate) fn wakeup_smooth_resize<D: SessionDriver>(
     now: std::time::Duration,
 ) -> bool {
     let animations = &session.settings.animations;
-    let changed = match &mut session.interactions.grab {
+    let changed = match session.interactions.grab_mut() {
         crate::input::grab::Grab::ResizeWindow(state) => {
             crate::input::grab::advance_resize_preview(
                 state,

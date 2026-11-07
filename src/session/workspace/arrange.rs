@@ -74,7 +74,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
         return restore_transaction(session, output_name, transaction);
     }
     if session.clusters.active_on(output_name).is_some()
-        || !matches!(session.interactions.grab, crate::input::grab::Grab::None)
+        || !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
     {
         return false;
     }
@@ -119,7 +119,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
                 && !session.fullscreen.is_fullscreen_or_pending(&record.surface)
                 && !session.maximize.contains(&record.surface)
                 && !crate::input::grab::belongs_to_surface(
-                    &session.interactions.grab,
+                    session.interactions.grab(),
                     &record.surface,
                 )
         })

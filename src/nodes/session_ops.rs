@@ -1018,7 +1018,10 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
             hard_protected_from_decay(
                 session.fullscreen.is_fullscreen_or_pending(&record.surface),
                 session.maximize.contains(&record.surface),
-                crate::input::grab::belongs_to_surface(&session.interactions.grab, &record.surface),
+                crate::input::grab::belongs_to_surface(
+                    session.interactions.grab(),
+                    &record.surface,
+                ),
                 session
                     .interactions
                     .field_arrange

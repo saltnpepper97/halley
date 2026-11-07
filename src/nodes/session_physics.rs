@@ -457,7 +457,7 @@ pub(crate) fn tick_physics<D: crate::session::SessionDriver>(
         session.nodes.physics_last_tick = now;
         return false;
     }
-    let authority = match &session.interactions.grab {
+    let authority = match session.interactions.grab() {
         crate::input::grab::Grab::MoveWindow {
             id: Some(id),
             cluster_drag,

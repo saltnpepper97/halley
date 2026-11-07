@@ -133,7 +133,7 @@ fn route_grabbed_client<D: SessionDriver>(
     use crate::input::pointer::{PointerRoute, PointerTarget};
     use smithay::desktop::layer_map_for_output;
 
-    if !matches!(session.interactions.grab, crate::input::grab::Grab::None) {
+    if !matches!(*session.interactions.grab(), crate::input::grab::Grab::None) {
         return None;
     }
     let pointer = session.seat.get_pointer()?;
@@ -564,7 +564,7 @@ pub(crate) fn refresh_desktop_client_focus<D: SessionDriver>(session: &mut Sessi
         pointer_grabbed: pointer.is_grabbed(),
         constraint_active: has_active_constraint(session),
         compositor_grab_active: !matches!(
-            session.interactions.grab,
+            *session.interactions.grab(),
             crate::input::grab::Grab::None
         ),
         capture_active: session.capture.is_active(),
@@ -801,7 +801,7 @@ pub(super) fn apply_position_hint<D: SessionDriver>(
 
 /// Transfer handoffs must not interrupt an existing drag or constrained pointer.
 pub(crate) fn transfer_pointer_available<D: SessionDriver>(session: &Session<D>) -> bool {
-    matches!(session.interactions.grab, crate::input::grab::Grab::None)
+    matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
         && !session
             .seat
             .get_pointer()

@@ -165,7 +165,7 @@ impl<D: SessionDriver> Session<D> {
     /// together, so a grab can never end with its move or resize cursor left
     /// on screen.
     pub(crate) fn end_grab(&mut self) {
-        self.interactions.grab = crate::input::grab::Grab::None;
+        self.interactions.end_grab_keeping_cursor();
         self.cursor
             .set_override(crate::cursor::OverrideSource::Grab, None);
     }

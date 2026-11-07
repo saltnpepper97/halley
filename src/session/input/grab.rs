@@ -61,25 +61,28 @@ pub(crate) fn begin_window_resize<D: SessionDriver>(
         return false;
     };
     focus::focus_window_from_pointer(session, window, serial);
-    session.interactions.grab =
-        crate::input::grab::Grab::ResizeWindow(crate::input::grab::ResizeState {
-            window: window.clone(),
-            handle,
-            button,
-            start_rect,
-            start_cursor: cursor,
-            start_screen: session.pointer.position(),
-            screen_to_source_scale: crate::input::grab::resize_screen_to_source_scale(
+    session
+        .interactions
+        .begin_grab(crate::input::grab::Grab::ResizeWindow(
+            crate::input::grab::ResizeState {
+                window: window.clone(),
+                handle,
+                button,
                 start_rect,
-                visual_geometry,
-            ),
-            target_size: start_rect.size,
-            preview_size: halley_core::field::Vec2 {
-                x: start_rect.size.w as f32,
-                y: start_rect.size.h as f32,
+                start_cursor: cursor,
+                start_screen: session.pointer.position(),
+                screen_to_source_scale: crate::input::grab::resize_screen_to_source_scale(
+                    start_rect,
+                    visual_geometry,
+                ),
+                target_size: start_rect.size,
+                preview_size: halley_core::field::Vec2 {
+                    x: start_rect.size.w as f32,
+                    y: start_rect.size.h as f32,
+                },
+                last_smooth_tick: crate::frame_clock::monotonic_now(),
             },
-            last_smooth_tick: crate::frame_clock::monotonic_now(),
-        });
+        ));
     session.interactions.resize_anchor =
         window.toplevel().map(|_| crate::input::grab::ResizeAnchor {
             window: window.clone(),
@@ -162,7 +165,7 @@ fn begin_pending_pointer_move<D: SessionDriver>(
     button: u32,
     client_owned: bool,
 ) -> bool {
-    if !matches!(session.interactions.grab, crate::input::grab::Grab::None)
+    if !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
         || !crate::window::accepts_compositor_grab(window)
         || window
             .wl_surface()
@@ -197,17 +200,20 @@ fn begin_pending_pointer_move<D: SessionDriver>(
     let maximized = window
         .wl_surface()
         .is_some_and(|surface| session.maximize.contains(surface.as_ref()));
-    session.interactions.grab =
-        crate::input::grab::Grab::PendingWindowMove(crate::input::grab::PendingWindowMove {
-            window: window.clone(),
-            serial,
-            button,
-            press_screen: smithay::utils::Point::from(session.pointer.position()),
-            output: route.output.name(),
-            visual_geometry,
-            maximized,
-            client_owned,
-        });
+    session
+        .interactions
+        .begin_grab(crate::input::grab::Grab::PendingWindowMove(
+            crate::input::grab::PendingWindowMove {
+                window: window.clone(),
+                serial,
+                button,
+                press_screen: smithay::utils::Point::from(session.pointer.position()),
+                output: route.output.name(),
+                visual_geometry,
+                maximized,
+                client_owned,
+            },
+        ));
     true
 }
 
@@ -510,24 +516,26 @@ fn begin_pointer_move_active<D: SessionDriver>(
                 })
         })
         .unwrap_or(world);
-    session.interactions.grab = crate::input::grab::Grab::MoveWindow {
-        id,
-        window: window.clone(),
-        cluster_drag,
-        drag_size,
-        button,
-        client_owned,
-        anchor,
-        edge_pan: edge_pan_requested.then(|| {
-            crate::input::grab::WindowEdgePan::new(
-                output_name.clone(),
-                crate::frame_clock::monotonic_now(),
-            )
-        }),
-        last_world: center,
-        last_update: crate::frame_clock::monotonic_now(),
-        velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
-    };
+    session
+        .interactions
+        .begin_grab(crate::input::grab::Grab::MoveWindow {
+            id,
+            window: window.clone(),
+            cluster_drag,
+            drag_size,
+            button,
+            client_owned,
+            anchor,
+            edge_pan: edge_pan_requested.then(|| {
+                crate::input::grab::WindowEdgePan::new(
+                    output_name.clone(),
+                    crate::frame_clock::monotonic_now(),
+                )
+            }),
+            last_world: center,
+            last_update: crate::frame_clock::monotonic_now(),
+            velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+        });
     session.cursor.set_override(
         crate::cursor::OverrideSource::Grab,
         Some(smithay::input::pointer::CursorIcon::Grabbing),

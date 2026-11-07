@@ -9,7 +9,10 @@ use crate::input::{SuppressedButtons, SuppressedKeys, SuppressedReleases};
 /// explicit and keeps the session coordinator from exposing six independent
 /// mutation points.
 pub struct InteractionState {
-    pub(crate) grab: Grab,
+    /// The compositor pointer grab in progress. Start one with
+    /// [`InteractionState::begin_grab`] and end it with
+    /// `Session::end_grab`, which also drops the grab cursor.
+    grab: Grab,
     pub(crate) resize_anchor: Option<ResizeAnchor>,
     pub(crate) suppressed_buttons: SuppressedButtons,
     pub(crate) suppressed_keys: SuppressedKeys,
@@ -28,6 +31,34 @@ pub struct InteractionState {
     pub(crate) steam_close_pressed: Option<smithay::desktop::Window>,
     pub(crate) titlebar_pressed: Option<crate::titlebar::ButtonTarget>,
     pub(crate) titlebar_last_click: Option<crate::titlebar::LastClick>,
+}
+
+impl InteractionState {
+    /// The compositor pointer grab in progress, or [`Grab::None`].
+    pub(crate) fn grab(&self) -> &Grab {
+        &self.grab
+    }
+
+    /// Update the grab in progress, such as a drag's latest position. End a
+    /// grab with `Session::end_grab` instead of overwriting it here.
+    pub(crate) fn grab_mut(&mut self) -> &mut Grab {
+        &mut self.grab
+    }
+
+    /// Start a compositor pointer grab, replacing any grab in progress.
+    pub(crate) fn begin_grab(&mut self, grab: Grab) {
+        debug_assert!(
+            !matches!(grab, Grab::None),
+            "end grabs with Session::end_grab so the grab cursor is dropped too"
+        );
+        self.grab = grab;
+    }
+
+    /// End the grab but keep the grab cursor, for a hand-off to a client
+    /// move that goes on showing it. Everything else uses `Session::end_grab`.
+    pub(crate) fn end_grab_keeping_cursor(&mut self) {
+        self.grab = Grab::None;
+    }
 }
 
 impl Default for InteractionState {

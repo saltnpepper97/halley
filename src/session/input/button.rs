@@ -117,7 +117,7 @@ fn finish_popup_move<D: SessionDriver>(session: &mut Session<D>, click: Click) -
         time,
         ..
     } = click;
-    if let crate::input::grab::Grab::MovePopup { button: owner, .. } = &session.interactions.grab {
+    if let crate::input::grab::Grab::MovePopup { button: owner, .. } = session.interactions.grab() {
         if *owner == button && state == ButtonState::Released {
             session.end_grab();
             super::super::pointer::update_client_state(session, time);
@@ -134,7 +134,7 @@ fn finish_popup_move<D: SessionDriver>(session: &mut Session<D>, click: Click) -
 fn release_unclaimed_client_move<D: SessionDriver>(session: &mut Session<D>, click: Click) {
     let Click { button, state, .. } = click;
     if matches!(
-        &session.interactions.grab,
+        session.interactions.grab(),
         crate::input::grab::Grab::PendingWindowMove(pending)
             if pending.client_owned && releases_pending_window_move(
                 pending.button,
@@ -250,7 +250,7 @@ fn finish_left_release_drag<D: SessionDriver>(session: &mut Session<D>, click: C
             session.request_redraw();
             return true;
         }
-        match &session.interactions.grab {
+        match session.interactions.grab() {
             crate::input::grab::Grab::PendingNode { id, .. } => {
                 let id = *id;
                 session.end_grab();
@@ -641,7 +641,7 @@ fn titlebar_click<D: SessionDriver>(
                     session.request_redraw();
                     return true;
                 }
-                let pending_titlebar = match &session.interactions.grab {
+                let pending_titlebar = match session.interactions.grab() {
                     crate::input::grab::Grab::PendingWindowMove(pending)
                         if !pending.client_owned && pending.button == button =>
                     {
@@ -868,20 +868,23 @@ fn cluster_core_press<D: SessionDriver>(
                     &mut session.nodes,
                     session.clusters.core_node(id),
                 );
-                session.interactions.grab =
-                    crate::input::grab::Grab::MoveClusterCore { id, screen_offset };
+                session
+                    .interactions
+                    .begin_grab(crate::input::grab::Grab::MoveClusterCore { id, screen_offset });
                 session.cursor.set_override(
                     crate::cursor::OverrideSource::Grab,
                     Some(smithay::input::pointer::CursorIcon::Grabbing),
                 );
             }
         } else {
-            session.interactions.grab = crate::input::grab::Grab::PendingClusterCore {
-                id,
-                output: output.name(),
-                press_screen: Point::<f64, Logical>::from(position_after),
-                screen_offset,
-            };
+            session
+                .interactions
+                .begin_grab(crate::input::grab::Grab::PendingClusterCore {
+                    id,
+                    output: output.name(),
+                    press_screen: Point::<f64, Logical>::from(position_after),
+                    screen_offset,
+                });
             session
                 .cursor
                 .set_override(crate::cursor::OverrideSource::Grab, None);
@@ -1045,26 +1048,30 @@ fn node_press<D: SessionDriver>(
         if mod_held {
             if !crate::session::node_user_pinned(session, id) {
                 session.nodes.clear_direct_motion(id);
-                session.interactions.grab = crate::input::grab::Grab::MoveNode {
-                    id,
-                    surface: record.surface,
-                    screen_offset,
-                    last_world: node_position,
-                    last_update: crate::frame_clock::monotonic_now(),
-                    velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
-                };
+                session
+                    .interactions
+                    .begin_grab(crate::input::grab::Grab::MoveNode {
+                        id,
+                        surface: record.surface,
+                        screen_offset,
+                        last_world: node_position,
+                        last_update: crate::frame_clock::monotonic_now(),
+                        velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+                    });
                 session.cursor.set_override(
                     crate::cursor::OverrideSource::Grab,
                     Some(smithay::input::pointer::CursorIcon::Grabbing),
                 );
             }
         } else {
-            session.interactions.grab = crate::input::grab::Grab::PendingNode {
-                id,
-                surface: record.surface,
-                press_screen: Point::<f64, Logical>::from(position_after),
-                screen_offset,
-            };
+            session
+                .interactions
+                .begin_grab(crate::input::grab::Grab::PendingNode {
+                    id,
+                    surface: record.surface,
+                    press_screen: Point::<f64, Logical>::from(position_after),
+                    screen_offset,
+                });
         }
         intercepted = true;
     }
@@ -1132,7 +1139,7 @@ fn field_left_button<D: SessionDriver>(
                 None => {}
             },
             ButtonState::Released => {
-                let released_window = match &session.interactions.grab {
+                let released_window = match session.interactions.grab() {
                     crate::input::grab::Grab::MoveWindow {
                         id,
                         window,
@@ -1354,7 +1361,7 @@ fn release_ends_grab<D: SessionDriver>(
     // may be any pointer button a `pan-field`/`pan-field-always` chord uses.
     if !intercepted
         && releases_field_pan(
-            &session.interactions.grab,
+            session.interactions.grab(),
             button,
             state == ButtonState::Released,
         )
@@ -1366,7 +1373,7 @@ fn release_ends_grab<D: SessionDriver>(
     if !intercepted
         && state == ButtonState::Released
         && matches!(
-            &session.interactions.grab,
+            session.interactions.grab(),
             crate::input::grab::Grab::ResizeWindow(resize) if resize.button == button
         )
     {
