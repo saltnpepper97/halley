@@ -45,6 +45,9 @@ pub fn reload<D>(session: &mut Session<D>, requested: &halley_config::Input)
 where
     D: SessionDriver,
 {
+    if !super::virtual_keyboard::restore(session) {
+        return;
+    }
     let keyboard = session
         .seat
         .get_keyboard()

@@ -37,7 +37,7 @@ rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ../Cargo.lock;
     # Both crates use the same unmodified upstream checkout; one hash covers it.
-    outputHashes."smithay-0.7.0" = "sha256-DUSciVTN5Ds2AYZVaGmMu7DBINRxu3CIdUCT4QCplTY=";
+    outputHashes."smithay-0.7.0" = "sha256-YD7P5iZAr+0XdeURhq6DkRkFws6Dpn0zSU5Y9qvsyZQ=";
   };
 
   nativeBuildInputs = [

@@ -1011,6 +1011,9 @@ where
     D: SessionDriver,
     B: InputBackend,
 {
+    if !crate::input::virtual_keyboard::restore(session) {
+        return;
+    }
     let steam_close_press = match event {
         InputEvent::PointerButton { event } => take_steam_close_press(
             &mut session.interactions.steam_close_pressed,

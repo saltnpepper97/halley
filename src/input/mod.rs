@@ -4,6 +4,7 @@ pub mod grab;
 pub mod keybinds;
 pub(crate) mod keyboard_delivery;
 pub mod pointer;
+pub(crate) mod virtual_keyboard;
 pub mod zoom;
 
 use std::collections::HashSet;

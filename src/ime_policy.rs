@@ -45,7 +45,13 @@ pub(crate) use {
     ti::ZwpTextInputV3 as Text, tm::ZwpTextInputManagerV3 as TextManager,
 };
 
-pub(crate) trait ImeHost: SeatHandler + InputMethodHandler + Sized + 'static {
+pub(crate) trait ImeHost:
+    SeatHandler
+    + InputMethodHandler
+    + smithay::wayland::text_input::TextInputActivation
+    + Sized
+    + 'static
+{
     fn ime_seat(&self) -> Seat<Self>;
     fn ime_repeat(&self) -> (i32, i32);
 }
