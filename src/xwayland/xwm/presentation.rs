@@ -776,7 +776,7 @@ fn presentation_geometry_is_moving<D: SessionDriver>(
             .is_animating(surface.as_ref(), now)
     });
     let grabbed = window.wl_surface().is_some_and(|surface| {
-        crate::input::grab::belongs_to_surface(&session.interactions.grab, surface.as_ref())
+        crate::input::grab::belongs_to_surface(session.interactions.grab(), surface.as_ref())
     });
     camera_moving
         || opening

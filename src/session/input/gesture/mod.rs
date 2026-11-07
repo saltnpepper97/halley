@@ -148,8 +148,7 @@ fn begin_route<D: SessionDriver>(
     super::pointer::finish_frame(session, &pointer);
     let owner = pointer.current_focus();
     let client_available = owner.is_some();
-    let blocked = session.capture.is_active()
-        || !matches!(session.interactions.grab, crate::input::grab::Grab::None);
+    let blocked = session.capture.is_active() || session.interactions.has_grab();
     let client_forced = super::pointer::has_active_constraint(session) || pointer.is_grabbed();
     let choice = RoutePolicy {
         behavior_enabled: session.settings.input.gestures.enabled && behavior_enabled,

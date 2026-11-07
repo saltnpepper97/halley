@@ -655,7 +655,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             window_rules: &app.window_rules,
                             screencast: &app.capture.screencast,
                             layer_rules: &app.settings.layer_rules,
-                            node_grab_active: app.interactions.grab.landmark_active(),
+                            node_grab_active: app.interactions.grab().landmark_active(),
                             titlebar_hovered: app.interactions.titlebar_hovered.as_ref(),
                             titlebar_pressed: app.interactions.titlebar_pressed.as_ref(),
                         },

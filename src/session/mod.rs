@@ -140,7 +140,7 @@ pub(crate) fn cancel_grab_for_surface<D: SessionDriver>(
     session: &mut Session<D>,
     surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) {
-    if crate::input::grab::belongs_to_surface(&session.interactions.grab, surface) {
+    if crate::input::grab::belongs_to_surface(session.interactions.grab(), surface) {
         cancel_compositor_grab(session);
         crate::input::grab::forget_resize_anchor(&mut session.interactions.resize_anchor, surface);
     }
@@ -152,7 +152,7 @@ pub(crate) fn cancel_grab_for_surface<D: SessionDriver>(
 /// floating or assigned to the wrong output.
 pub(crate) fn cancel_compositor_grab<D: SessionDriver>(session: &mut Session<D>) {
     session.interactions.steam_close_pressed = None;
-    let provisional_cluster = match &session.interactions.grab {
+    let provisional_cluster = match session.interactions.grab() {
         crate::input::grab::Grab::MoveWindow {
             id: Some(id),
             cluster_drag: Some(drag),
@@ -161,7 +161,7 @@ pub(crate) fn cancel_compositor_grab<D: SessionDriver>(session: &mut Session<D>)
         _ => None,
     };
     if matches!(
-        &session.interactions.grab,
+        session.interactions.grab(),
         crate::input::grab::Grab::ResizeWindow(_)
     ) {
         crate::input::grab::release_resize_anchor(&mut session.interactions.resize_anchor);

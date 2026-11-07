@@ -106,7 +106,7 @@ pub trait SessionDriver: RenderDriver + OutputDriver + 'static {
 pub struct Session<D: SessionDriver> {
     pub driver: D,
     pub keyboard: Keyboard,
-    pub(crate) key_repeat: super::input::repeat::Policy<D>,
+    pub(super) key_repeat: super::input::repeat::Policy<D>,
     pub(super) launch: super::launch::LaunchState,
     /// One-time onboarding state, persisted outside the configuration.
     pub(super) user_state: super::basics::UserState,
@@ -114,14 +114,17 @@ pub struct Session<D: SessionDriver> {
     pub cursor: CursorManager,
     pub(crate) cursor_policy: super::cursor::Policy<D>,
     pub wayland: WaylandState,
-    pub seat_state: SeatState<Self>,
+    pub(super) seat_state: SeatState<Self>,
     pub seat: Seat<Self>,
     pub(crate) popup_grab: Option<smithay::desktop::PopupGrab<Self>>,
     pub idle_notifier_state: IdleNotifierState<Self>,
     pub(crate) idle_service: Option<crate::idle_service::Service>,
-    pub presentation_state: PresentationState,
+    /// Owns the `wp_presentation` global for the session's lifetime. Halley
+    /// never reads it; presentation feedback is sent per frame elsewhere.
+    #[allow(dead_code)]
+    pub(super) presentation_state: PresentationState,
     pub(super) commit_timing: super::commit_timing::Policy<D>,
-    pub drm_syncobj_state: Option<DrmSyncobjState>,
+    pub(super) drm_syncobj_state: Option<DrmSyncobjState>,
     pub session_lock: crate::wayland::session_lock::State,
     pub start_time: std::time::Instant,
     pub(crate) wayland_display: Option<std::ffi::OsString>,
@@ -133,7 +136,7 @@ pub struct Session<D: SessionDriver> {
     pub clusters: crate::clusters::ClusterSystem,
     pub(crate) api_subscriptions: crate::ipc::ApiSubscriptions,
     pub window_rules: crate::window::rules::WindowRulesState,
-    pub(crate) presentation_close_size_recovery:
+    pub(super) presentation_close_size_recovery:
         crate::window::recovery::PresentationCloseSizeRecovery,
     pub cameras: OutputCameras,
     pub capture: crate::capture::CaptureState,
@@ -165,7 +168,7 @@ impl<D: SessionDriver> Session<D> {
     /// together, so a grab can never end with its move or resize cursor left
     /// on screen.
     pub(crate) fn end_grab(&mut self) {
-        self.interactions.grab = crate::input::grab::Grab::None;
+        self.interactions.end_grab_keeping_cursor();
         self.cursor
             .set_override(crate::cursor::OverrideSource::Grab, None);
     }

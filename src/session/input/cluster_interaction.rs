@@ -143,7 +143,7 @@ pub(super) fn close_blooms_for_keybind<D: SessionDriver>(
 
 pub(super) fn close_blooms_for_typing_away<D: SessionDriver>(session: &mut Session<D>) -> bool {
     let window_drag_active = matches!(
-        &session.interactions.grab,
+        session.interactions.grab(),
         crate::input::grab::Grab::PendingWindowMove(_)
             | crate::input::grab::Grab::MoveWindow { .. }
     );
@@ -426,19 +426,21 @@ pub(crate) fn wakeup_cluster_interactions<D: SessionDriver>(
             .map(|geometry| geometry.size)
             .unwrap_or(record.geometry.size);
         let (source_offset, center) = bloom_drag_handoff(window_location, window_size, world);
-        session.interactions.grab = crate::input::grab::Grab::MoveWindow {
-            id: Some(member_id),
-            window: record.window.clone(),
-            cluster_drag: None,
-            drag_size: None,
-            button: BTN_LEFT,
-            client_owned: false,
-            anchor: crate::input::grab::WindowGrabAnchor::Source(source_offset),
-            edge_pan: None,
-            last_world: center,
-            last_update: now,
-            velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
-        };
+        session
+            .interactions
+            .begin_grab(crate::input::grab::Grab::MoveWindow {
+                id: Some(member_id),
+                window: record.window.clone(),
+                cluster_drag: None,
+                drag_size: None,
+                button: BTN_LEFT,
+                client_owned: false,
+                anchor: crate::input::grab::WindowGrabAnchor::Source(source_offset),
+                edge_pan: None,
+                last_world: center,
+                last_update: now,
+                velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            });
         // The bloom press was compositor-only. Retire its suppression at the
         // handoff so the physical release reaches the MoveWindow cleanup
         // below; that cleanup still intercepts it, so no orphan release is

@@ -400,7 +400,7 @@ fn hover_is_blocked<D: SessionDriver>(session: &Session<D>) -> bool {
     );
 
     pointer_grabbed
-        || !matches!(session.interactions.grab, crate::input::grab::Grab::None)
+        || session.interactions.has_grab()
         || session.capture.is_active()
         || session.shell.apogee.is_active()
         || session.shell.focus_cycle.is_open()

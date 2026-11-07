@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: make the compositor pointer grab private, so a grab can only be
+  started, updated or ended through methods that keep the grab cursor in step,
+  and narrow session fields that only the session module uses. No behavior
+  change.
 - Internal: split the 1,130-line pointer button handler into named stages
   that run in the original order. No behavior change.
 - List every older config key and keybind action spelling Halley still reads

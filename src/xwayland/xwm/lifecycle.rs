@@ -440,7 +440,7 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
             };
             // During an explicit move, older ConfigureNotify replies must not
             // pull the rendered pop-out behind the current pointer position.
-            if matches!(&self.interactions.grab,
+            if matches!(self.interactions.grab(),
                 crate::input::grab::Grab::MovePopup { window: grabbed, .. } if grabbed == &window)
             {
                 return;
@@ -498,7 +498,7 @@ impl<D: SessionDriver> XwmHandler for Session<D> {
                     .client_geometry_guarded(surface.window_id(), now);
                 let grabbed = window.wl_surface().is_some_and(|wl_surface| {
                     crate::input::grab::belongs_to_surface(
-                        &self.interactions.grab,
+                        self.interactions.grab(),
                         wl_surface.as_ref(),
                     )
                 });

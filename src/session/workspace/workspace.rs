@@ -161,6 +161,5 @@ struct AppliedSwitch {
 /// which is allowed because the protocol promises no guarantee that a workspace
 /// will actually be activated.
 fn switching_allowed<D: SessionDriver>(session: &Session<D>) -> bool {
-    !session.session_lock.active()
-        && matches!(session.interactions.grab, crate::input::grab::Grab::None)
+    !session.session_lock.active() && !session.interactions.has_grab()
 }

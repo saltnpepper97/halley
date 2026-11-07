@@ -436,7 +436,7 @@ fn place_node<D: crate::session::SessionDriver>(
         || session.clusters.is_member(id)
         || session.fullscreen.is_fullscreen_or_pending(&record.surface)
         || session.maximize.contains(&record.surface)
-        || crate::input::grab::belongs_to_surface(&session.interactions.grab, &record.surface)
+        || crate::input::grab::belongs_to_surface(session.interactions.grab(), &record.surface)
         || session
             .window_animations
             .is_arranging(&record.surface, crate::frame_clock::monotonic_now())

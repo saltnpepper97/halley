@@ -318,7 +318,7 @@ fn owner_is_authoritative<D: SessionDriver>(session: &Session<D>, surface: &WlSu
 }
 
 fn grab_owns_surface<D: SessionDriver>(session: &Session<D>, surface: &WlSurface) -> bool {
-    crate::input::grab::belongs_to_surface(&session.interactions.grab, surface)
+    crate::input::grab::belongs_to_surface(session.interactions.grab(), surface)
 }
 
 fn sync_grab_suspension<D: SessionDriver>(

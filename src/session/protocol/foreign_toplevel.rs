@@ -135,9 +135,7 @@ impl<D: SessionDriver> Handler for Session<D> {
     }
     fn foreign_toplevel_action(&mut self, key: u64, action: Action) {
         // An external taskbar cannot bypass the lock or cancel an interactive grab.
-        if self.session_lock.active()
-            || !matches!(self.interactions.grab, crate::input::grab::Grab::None)
-        {
+        if self.session_lock.active() || self.interactions.has_grab() {
             return;
         }
         let id = NodeId::new(key);
