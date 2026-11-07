@@ -1556,8 +1556,10 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
             RenderOutcome::new(RenderStatus::Skipped, None)
         }
     };
-    frame_demand.keep_redrawing |=
-        outcome.needs_redraw() || app.render.node_renderer.has_pending_icons();
+    frame_demand.keep_redrawing |= outcome.needs_redraw()
+        || app.render.node_renderer.has_pending_icons()
+        // Keep frames coming so an animations-off X11 switch's deadline fires.
+        || app.fullscreen.has_external_commit_wait();
     if app.window_animations.cleanup(target_presentation_time) {
         // The frame just composed can still scale a lagging pre-configure
         // client buffer into the arrangement endpoint. Owe one live-geometry

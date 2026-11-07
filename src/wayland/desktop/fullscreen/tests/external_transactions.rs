@@ -370,6 +370,7 @@ fn settled_windowed_resize_can_replace_the_saved_restore() {
         presentation: ExternalPresentationKind::Animated,
         geometry_acknowledged: false,
         surface_committed: false,
+        commit_deadline: None,
     });
     assert!(!can_update_external_restore(&entry));
 }
@@ -409,6 +410,7 @@ fn external_state_churn_keeps_only_the_latest_geometry() {
             presentation: ExternalPresentationKind::Opening,
             geometry_acknowledged: false,
             surface_committed: true,
+            commit_deadline: None,
         })
     );
     assert!(entry.desired);
@@ -467,4 +469,140 @@ fn finishing_external_animation_snaps_to_desired_state() {
     assert!(entry.desired);
     assert!(entry.external_pending.is_none());
     assert!(entry.transition.is_none());
+}
+
+/// With animations off, an X11 switch waits for the client's resized buffer
+/// instead of presenting its old buffer at the new place, then switches in one
+/// step.
+#[test]
+fn instant_transaction_waits_for_the_resized_buffer_then_switches_in_one_step() {
+    let animations = Animations {
+        enabled: false,
+        ..Animations::default()
+    };
+    let mut entry = test_entry(true);
+    entry.native = None;
+    let started = Duration::from_secs(1);
+    let windowed = Rectangle::new((520, 320).into(), (240, 160).into());
+
+    begin_external_transaction(
+        &mut entry,
+        false,
+        windowed,
+        ExternalPresentationKind::Instant,
+        started,
+    );
+    assert_eq!(
+        entry
+            .external_pending
+            .and_then(|pending| pending.commit_deadline),
+        Some(started + EXTERNAL_COMMIT_WAIT)
+    );
+
+    // X acknowledging the geometry is not enough: the old buffer is still up.
+    assert_eq!(
+        acknowledge_external_geometry(&mut entry, windowed, &animations, started),
+        ExternalConfigureResult::Waiting
+    );
+    assert!(entry.presented, "still presented fullscreen while waiting");
+    // A commit still at the fullscreen size keeps waiting.
+    assert_eq!(
+        acknowledge_external_surface(&mut entry, Some((1280, 800).into()), &animations, started),
+        ExternalConfigureResult::Waiting
+    );
+    assert!(entry.presented);
+
+    assert_eq!(
+        acknowledge_external_surface(&mut entry, Some(windowed.size), &animations, started),
+        ExternalConfigureResult::Settled {
+            fullscreen: false,
+            animated: false,
+        }
+    );
+    assert!(!entry.presented && !entry.active);
+    assert!(entry.transition.is_none());
+    assert!(entry.external_pending.is_none());
+}
+
+/// Animated and opening transactions never carry the animations-off deadline.
+#[test]
+fn only_instant_transactions_have_a_commit_deadline() {
+    let target = Rectangle::new((0, 0).into(), (1920, 1080).into());
+    for presentation in [
+        ExternalPresentationKind::Animated,
+        ExternalPresentationKind::LiveAnimated,
+        ExternalPresentationKind::Opening,
+    ] {
+        let mut entry = test_entry(false);
+        begin_external_transaction(&mut entry, true, target, presentation, Duration::ZERO);
+        assert_eq!(
+            entry
+                .external_pending
+                .and_then(|pending| pending.commit_deadline),
+            None,
+            "{presentation:?}"
+        );
+    }
+}
+
+/// A client that never repaints at the new size is presented anyway once the
+/// deadline passes, exactly as it would have been without the wait, so a game
+/// can never be left stuck in its old presentation.
+#[test]
+fn instant_transaction_is_released_at_its_deadline() {
+    let animations = Animations {
+        enabled: false,
+        ..Animations::default()
+    };
+    let mut entry = test_entry(true);
+    entry.native = None;
+    let started = Duration::from_secs(1);
+    let windowed = Rectangle::new((520, 320).into(), (240, 160).into());
+    begin_external_transaction(
+        &mut entry,
+        false,
+        windowed,
+        ExternalPresentationKind::Instant,
+        started,
+    );
+
+    let just_before = started + EXTERNAL_COMMIT_WAIT - Duration::from_nanos(1);
+    assert!(!release_commit_wait(&mut entry, &animations, just_before));
+    assert!(entry.presented && entry.external_pending.is_some());
+
+    assert!(release_commit_wait(
+        &mut entry,
+        &animations,
+        started + EXTERNAL_COMMIT_WAIT
+    ));
+    assert!(!entry.presented && !entry.active);
+    assert!(entry.external_pending.is_none());
+    assert!(entry.transition.is_none());
+
+    // Nothing left to release.
+    assert!(!release_commit_wait(
+        &mut entry,
+        &animations,
+        started + EXTERNAL_COMMIT_WAIT
+    ));
+}
+
+#[test]
+fn animated_transactions_are_never_released_by_the_deadline() {
+    let animations = Animations::default();
+    let mut entry = test_entry(true);
+    entry.native = None;
+    begin_external_transaction(
+        &mut entry,
+        false,
+        Rectangle::new((520, 320).into(), (240, 160).into()),
+        ExternalPresentationKind::LiveAnimated,
+        Duration::ZERO,
+    );
+    assert!(!release_commit_wait(
+        &mut entry,
+        &animations,
+        Duration::from_secs(60)
+    ));
+    assert!(entry.external_pending.is_some());
 }

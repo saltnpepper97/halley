@@ -128,6 +128,11 @@ Detected games use live frames during the configured fullscreen easing or spring
 animation. Ordinary apps retain their buffer crossfade. Game detection uses the
 existing [game rules](window-rules.md), without title-specific fullscreen policy.
 
+With fullscreen animations off, an X11 window entering or leaving fullscreen
+switches in one step once it has repainted at its new size, so its old buffer is
+never shown at the new position. A client that does not repaint at that size
+within 150 ms switches anyway, so a game can never be held in its old state.
+
 Mod+F enters or leaves fullscreen through the same state-and-size negotiation as
 the game's display-menu requests. Leaving restores an ordinary managed window,
 with its requested decorations and the configured rounding. There is no separate

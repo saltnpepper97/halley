@@ -32,6 +32,12 @@ use super::super::WaylandState;
 // target buffer, without pinning a valid fixed-size client indefinitely.
 const NATIVE_SIZE_WAIT: Duration = Duration::from_millis(200);
 
+// With animations off, an X11 window keeps its old presentation until it
+// commits a buffer at the new size, so it never flashes its old buffer at the
+// new position. A client that never repaints at that size is presented anyway
+// after this long, exactly as if it had not been waited for.
+pub(crate) const EXTERNAL_COMMIT_WAIT: Duration = Duration::from_millis(150);
+
 #[derive(Clone, Copy, Debug)]
 struct NativePending {
     serial: Serial,
@@ -179,6 +185,9 @@ enum ExternalPresentationKind {
     /// Keep client buffers live while the compositor animates geometry. Game
     /// swapchains must not wait on a captured endpoint or full-buffer damage.
     LiveAnimated,
+    /// Animations are off: switch in one step once the client commits a
+    /// buffer at the new size, or after [`EXTERNAL_COMMIT_WAIT`].
+    Instant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +196,9 @@ struct ExternalPending {
     presentation: ExternalPresentationKind,
     geometry_acknowledged: bool,
     surface_committed: bool,
+    /// When an [`ExternalPresentationKind::Instant`] switch stops waiting for
+    /// the client's resized buffer.
+    commit_deadline: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -545,6 +557,12 @@ impl FullscreenManager {
         }
         settle_visual_commit(entry, &self.animations, now, visual_desired);
         true
+    }
+
+    /// Whether fullscreen changes animate. With animations off, X11 changes
+    /// switch in one step instead; see [`ExternalPresentationKind::Instant`].
+    pub(crate) fn animations_enabled(&self) -> bool {
+        animations_enabled(&self.animations)
     }
 
     pub(crate) fn should_capture_external_snapshot(
