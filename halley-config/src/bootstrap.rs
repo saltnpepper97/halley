@@ -183,6 +183,67 @@ mod tests {
         assert_eq!(runtime.decay.outside_delay_seconds, 45);
         assert_eq!(runtime.decay.inside_delay_seconds, 90);
     }
+
+    /// The generated config and the built-in defaults describe the same
+    /// desktop. A config that leaves a section out must behave exactly like the
+    /// file Halley writes on first run, so a shorter starter can never silently
+    /// change behaviour. Keybinds, autostart, environment and per-output
+    /// entries are the user's own and are compared elsewhere or not at all.
+    #[test]
+    fn generated_config_matches_built_in_defaults() {
+        let generated = crate::parse_runtime_config(
+            &rune_cfg::RuneConfig::from_str(DEFAULT_CONFIG).expect("generated config parses"),
+        )
+        .expect("generated config is valid");
+        let built_in = crate::parse_runtime_config(
+            &rune_cfg::RuneConfig::from_str("keybinds:\n  mod \"super\"\nend\n")
+                .expect("keybinds-only config parses"),
+        )
+        .expect("keybinds-only config is valid");
+
+        let mut drift = Vec::new();
+        macro_rules! same {
+            ($($($field:ident).+),* $(,)?) => {$(
+                if generated.$($field).+ != built_in.$($field).+ {
+                    drift.push(format!(
+                        "{}:\n  generated: {:?}\n  built-in:  {:?}",
+                        stringify!($($field).+),
+                        generated.$($field).+,
+                        built_in.$($field).+,
+                    ));
+                }
+            )*};
+        }
+        same!(
+            decorations,
+            background,
+            window_rules,
+            layer_rules,
+            field,
+            screenshot,
+            cursor,
+            input,
+            animations,
+            apogee,
+            bearings,
+            trail,
+            clusters,
+            font,
+            physics,
+            decay,
+            nodes,
+            overlays,
+            effects,
+            debug,
+        );
+        // Per-output rings belong to the user's monitors; the fallback is shared.
+        same!(focus_rings.fallback);
+        assert!(
+            drift.is_empty(),
+            "generated config and built-in defaults differ:\n{}",
+            drift.join("\n")
+        );
+    }
 }
 
 #[cfg(all(test, unix))]

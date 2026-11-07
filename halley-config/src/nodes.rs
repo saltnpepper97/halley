@@ -55,15 +55,13 @@ pub struct Decay {
 
 impl Default for Decay {
     /// The built-in delays used when a configuration omits the `decay:`
-    /// section. They deliberately stay at 0.8.0's original 3 and 30 minutes:
-    /// a config that predates the release must keep behaving exactly as it did.
-    /// Only a configuration Halley generates itself carries the longer
-    /// conservative defaults (see `halley.default.rune`).
+    /// section: 10 minutes outside a cluster and 90 inside, the same values
+    /// the generated config writes (see `halley.default.rune`).
     fn default() -> Self {
         Self {
             enabled: true,
-            outside_delay_seconds: 180,
-            inside_delay_seconds: 1_800,
+            outside_delay_seconds: 600,
+            inside_delay_seconds: 5_400,
         }
     }
 }

@@ -9,8 +9,8 @@ pub struct Physics {
 impl Default for Physics {
     fn default() -> Self {
         Self {
-            enabled: true,
-            damping: 0.65,
+            enabled: false,
+            damping: 0.45,
         }
     }
 }

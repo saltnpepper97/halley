@@ -80,12 +80,10 @@ end
 
 `outside-delay-seconds` counts from the moment a window becomes ineligible
 while it sits outside its output's focus ring; `inside-delay-seconds` counts the
-same way for a window still inside the ring. These 10-minute and 90-minute
-values are what Halley writes into a **newly generated** configuration, so
-genuinely abandoned work survives an ordinary interruption. Decay is not
-migrated: an existing configuration keeps the values it states, and one that
-omits the `decay:` section keeps Halley's built-in 180-second and
-1800-second behavior.
+same way for a window still inside the ring. The defaults are 10 minutes and
+90 minutes, so genuinely abandoned work survives an ordinary interruption. They
+apply both to a newly generated configuration and to one that omits the
+`decay:` section; an existing configuration keeps the values it states.
 
 The first automatic collapse explains itself once, in a non-modal notice:
 `<Application> was collapsed into a node. It's still running. Click its node,
@@ -292,10 +290,13 @@ work area. See [Field behavior and maximize](field.md).
 
 ```rune
 physics:
-  enabled true
+  enabled false
   damping 0.45
 end
 ```
+
+Physics is off by default, so movement is rigid unless you set
+`enabled true`.
 
 With physics disabled, a dragged window transfers displacement directly: after
 contact, moving the window one field unit moves the contacted node or movable
