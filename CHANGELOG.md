@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Show a short notice when a cluster-slot key is pressed for an empty slot,
+  naming the key bound to `cluster-mode`, instead of silently doing nothing.
 - Stop clusters from slowing down rendering. A collapsed cluster's core and
   icon shared one color-keyed cache, so drawing them in the same frame rebuilt
   the core shader, re-rasterized the icon and re-uploaded its textures every

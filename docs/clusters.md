@@ -97,7 +97,10 @@ A freshly bootstrapped config declares no startup clusters, and neither shipped
 config example declares any either. A new session therefore begins on an empty
 Field: windows you launch open directly into it. Numbered cluster slots are an
 opt-in way to revisit named workspaces later, not Halley's default way to
-organize windows.
+organize windows. Pressing a slot key with no cluster in that slot changes
+nothing and shows a short notice, such as `Slot 3 is empty. Super+Shift+C makes
+a cluster.`, naming the key actually bound to `cluster-mode`, or no key when
+it is unbound.
 Startup clusters are opt-in — add `autostart.cluster` declarations like the ones
 above only when you want an output to begin with a named core. Existing user
 configs are never rewritten by bootstrap, so a config that already declares
