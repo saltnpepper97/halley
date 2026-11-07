@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: fix an intermittent nested XWayland test that read a game window's
+  frame in the instant after it left fullscreen, before the client's new size
+  arrived, and then indexed outside the screen capture.
 - Internal: make the compositor pointer grab private, so a grab can only be
   started, updated or ended through methods that keep the grab cursor in step,
   and narrow session fields that only the session module uses. No behavior

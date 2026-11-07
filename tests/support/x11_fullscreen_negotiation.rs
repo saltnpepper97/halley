@@ -861,16 +861,25 @@ end
     };
     input.key(68, true);
     input.key(68, false);
-    wait_for("game exits into a normal window", || {
-        (presented()["fullscreen"] == false).then_some(())
+    // Leaving fullscreen moves the window before the game's 240x160 buffer
+    // arrives, so for about a frame it is presented at its windowed position
+    // with its fullscreen size. Wait for the size to settle as well.
+    wait_for("game exits into a normal 240x160 window", || {
+        (presented()["fullscreen"] == false && (rect().2, rect().3) == (240, 160)).then_some(())
     });
-    let (x, y, w, h) = rect();
     wait_for("server titlebar and rounded live client", || {
+        // Re-read the frame each attempt: it can still shift while settling.
+        let (x, y, w, h) = rect();
         let (pixels, stride) = capture_frame_pixels_on(&mut fixture, Some("winit"));
-        let pixel = |px: i32, py: i32| &pixels[(py as usize * stride + px as usize) * 4..][..3];
-        let title = pixel(x + 25, y - 16);
-        let center = pixel(x + w / 2, y + h / 2);
-        let corner = pixel(x + w - 2, y + h - 2);
+        let height = pixels.len() / 4 / stride;
+        // A point outside the capture retries instead of panicking.
+        let pixel = |px: i32, py: i32| {
+            let (px, py) = (usize::try_from(px).ok()?, usize::try_from(py).ok()?);
+            (px < stride && py < height).then(|| &pixels[(py * stride + px) * 4..][..3])
+        };
+        let title = pixel(x + 25, y - 16)?;
+        let center = pixel(x + w / 2, y + h / 2)?;
+        let corner = pixel(x + w - 2, y + h - 2)?;
         (title[1] > 220
             && title[0] < 40
             && title[2] < 40
