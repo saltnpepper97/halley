@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- List every older config key and keybind action spelling Halley still reads
+  in one table each, and document them in `docs/older-spellings.md` and the
+  keybinds reference, which now names every built-in action. Existing configs
+  read exactly as before. Underscore word forms such as `pan_field left` now
+  run their action instead of an unknown shell command, and an old section
+  name such as `overlay:` now reaches every key in its section.
 - Internal: pass the renderers that draw overlay cards, dialogs and badges as
   one draw context instead of three separate arguments, and share the text and
   card helpers that overlays each kept a copy of. No behavior change.
