@@ -22,7 +22,8 @@ pub use output::protocols::{wlr_gamma_control, wlr_output_management, wlr_output
 use output::surface_scale;
 pub use session::session_lock;
 pub use surface::{
-    background_effect, buffer_readiness, commit_timing, dmabuf, fifo, frame_callbacks, presentation,
+    background_effect, buffer_readiness, commit_timing, dmabuf, explicit_sync, fifo,
+    frame_callbacks, presentation,
 };
 
 use std::collections::{HashMap, HashSet};
