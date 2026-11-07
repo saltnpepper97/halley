@@ -2,6 +2,8 @@ use std::fmt;
 
 use rune_cfg::RuneConfig;
 
+use crate::aliases::lookup;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BackgroundMode {
     #[default]
@@ -87,7 +89,7 @@ impl From<rune_cfg::RuneError> for BackgroundParseError {
 
 pub fn parse_background(config: &RuneConfig) -> Result<Background, BackgroundParseError> {
     let defaults = Background::default();
-    let mode = match optional_string(config, &["wallpaper.mode", "background.mode", "gesso.mode"])?
+    let mode = match lookup::<String>(config, "wallpaper.mode")?
         .as_deref()
         .map(str::to_ascii_lowercase)
         .as_deref()
@@ -102,7 +104,7 @@ pub fn parse_background(config: &RuneConfig) -> Result<Background, BackgroundPar
             });
         }
     };
-    let fit = match optional_string(config, &["wallpaper.fit", "background.fit", "gesso.fit"])?
+    let fit = match lookup::<String>(config, "wallpaper.fit")?
         .as_deref()
         .map(str::to_ascii_lowercase)
         .as_deref()
@@ -117,15 +119,7 @@ pub fn parse_background(config: &RuneConfig) -> Result<Background, BackgroundPar
             });
         }
     };
-    let intensity = optional_f32(
-        config,
-        &[
-            "wallpaper.intensity",
-            "background.intensity",
-            "gesso.intensity",
-        ],
-    )?
-    .unwrap_or(1.0);
+    let intensity = lookup::<f32>(config, "wallpaper.intensity")?.unwrap_or(1.0);
     if !intensity.is_finite() || intensity < 0.0 {
         return Err(BackgroundParseError::InvalidValue {
             path: "wallpaper.intensity",
@@ -135,104 +129,27 @@ pub fn parse_background(config: &RuneConfig) -> Result<Background, BackgroundPar
 
     Ok(Background {
         mode,
-        path: optional_string(config, &["wallpaper.path", "background.path", "gesso.path"])?
-            .unwrap_or_default(),
-        shader: optional_string(
-            config,
-            &["wallpaper.shader", "background.shader", "gesso.shader"],
-        )?
-        .unwrap_or(defaults.shader),
+        path: lookup::<String>(config, "wallpaper.path")?.unwrap_or_default(),
+        shader: lookup::<String>(config, "wallpaper.shader")?.unwrap_or(defaults.shader),
         fit,
         intensity,
-        animated: optional_bool(
-            config,
-            &[
-                "wallpaper.animated",
-                "background.animated",
-                "gesso.animated",
-            ],
-        )?
-        .unwrap_or(false),
-        color: optional_color(
-            config,
-            &[
-                "wallpaper.colour",
-                "wallpaper.color",
-                "background.colour",
-                "background.color",
-                "gesso.colour",
-                "gesso.color",
-            ],
-            defaults.color,
-            "wallpaper.colour",
-        )?,
-        accent_color: optional_color(
-            config,
-            &[
-                "wallpaper.accent-colour",
-                "wallpaper.accent_colour",
-                "wallpaper.accent-color",
-                "wallpaper.accent_color",
-                "background.accent-colour",
-                "background.accent_colour",
-                "background.accent-color",
-                "background.accent_color",
-                "gesso.accent-colour",
-                "gesso.accent_colour",
-                "gesso.accent-color",
-                "gesso.accent_color",
-            ],
-            defaults.accent_color,
-            "wallpaper.accent-colour",
-        )?,
+        animated: lookup::<bool>(config, "wallpaper.animated")?.unwrap_or(false),
+        color: optional_color(config, "wallpaper.colour", defaults.color)?,
+        accent_color: optional_color(config, "wallpaper.accent-colour", defaults.accent_color)?,
     })
-}
-
-fn optional_string(
-    config: &RuneConfig,
-    paths: &[&str],
-) -> Result<Option<String>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<String>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_f32(config: &RuneConfig, paths: &[&str]) -> Result<Option<f32>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<f32>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_bool(config: &RuneConfig, paths: &[&str]) -> Result<Option<bool>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<bool>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
 }
 
 fn optional_color(
     config: &RuneConfig,
-    paths: &[&str],
+    key: &'static str,
     default: BackgroundColor,
-    canonical_path: &'static str,
 ) -> Result<BackgroundColor, BackgroundParseError> {
-    let Some(value) = optional_string(config, paths)? else {
+    let Some(value) = lookup::<String>(config, key)? else {
         return Ok(default);
     };
     crate::color::parse_hex_rgb(&value)
         .map(|[r, g, b]| BackgroundColor { r, g, b })
-        .ok_or(BackgroundParseError::InvalidValue {
-            path: canonical_path,
-            value,
-        })
+        .ok_or(BackgroundParseError::InvalidValue { path: key, value })
 }
 
 #[cfg(test)]

@@ -93,72 +93,53 @@ impl Default for Clusters {
     }
 }
 
-fn optional<T>(config: &RuneConfig, paths: &[&str]) -> Option<T>
+fn optional<T>(config: &RuneConfig, key: &str) -> Option<T>
 where
     T: TryFrom<rune_cfg::Value, Error = rune_cfg::RuneError>,
 {
-    paths
+    crate::aliases::spellings(key)
         .iter()
         .find_map(|path| config.get_optional::<T>(path).ok().flatten())
 }
 
 pub fn parse_clusters(config: &RuneConfig) -> Clusters {
     let defaults = Clusters::default();
-    let default_layout = optional::<String>(config, &["clusters.default-layout"])
+    let default_layout = optional::<String>(config, "clusters.default-layout")
         .and_then(|value| ClusterLayout::parse(&value))
         .unwrap_or(defaults.default_layout);
-    let bloom_direction = optional::<String>(config, &["clusters.bloom-direction"])
+    let bloom_direction = optional::<String>(config, "clusters.bloom-direction")
         .and_then(|value| ClusterBloomDirection::parse(&value))
         .unwrap_or(defaults.bloom_direction);
 
     Clusters {
         default_layout,
-        join_dwell_ms: optional(
-            config,
-            &[
-                "clusters.join-dwell-ms",
-                "clusters.cluster-dwell-ms",
-                "clusters.dwell-ms",
-            ],
-        )
-        .unwrap_or(defaults.join_dwell_ms)
-        .clamp(50, 60_000),
-        join_distance_px: optional(
-            config,
-            &["clusters.join-distance-px", "clusters.distance-px"],
-        )
-        .unwrap_or(defaults.join_distance_px)
-        .clamp(1.0, 4_096.0),
-        show_icons: optional(config, &["clusters.show-icons"]).unwrap_or(defaults.show_icons),
+        join_dwell_ms: optional(config, "clusters.join-dwell-ms")
+            .unwrap_or(defaults.join_dwell_ms)
+            .clamp(50, 60_000),
+        join_distance_px: optional(config, "clusters.join-distance-px")
+            .unwrap_or(defaults.join_distance_px)
+            .clamp(1.0, 4_096.0),
+        show_icons: optional(config, "clusters.show-icons").unwrap_or(defaults.show_icons),
         bloom_direction,
         tiling: ClusterTiling {
-            new_on_top: optional(config, &["clusters.tiling.new-on-top", "tile.new-on-top"])
+            new_on_top: optional(config, "clusters.tiling.new-on-top")
                 .unwrap_or(defaults.tiling.new_on_top),
-            gaps_inner_px: optional(config, &["clusters.tiling.gaps-inner", "tile.gaps-inner"])
+            gaps_inner_px: optional(config, "clusters.tiling.gaps-inner")
                 .unwrap_or(defaults.tiling.gaps_inner_px)
                 .clamp(0.0, 256.0),
-            gaps_outer_px: optional(config, &["clusters.tiling.gaps-outer", "tile.gaps-outer"])
+            gaps_outer_px: optional(config, "clusters.tiling.gaps-outer")
                 .unwrap_or(defaults.tiling.gaps_outer_px)
                 .clamp(0.0, 512.0),
-            max_stack: optional(config, &["clusters.tiling.max-stack", "tile.max-stack"])
+            max_stack: optional(config, "clusters.tiling.max-stack")
                 .unwrap_or(defaults.tiling.max_stack)
                 .clamp(0, 64),
-            overflow_show_icons: optional(
-                config,
-                &[
-                    "clusters.tiling.overflow-show-icons",
-                    "tile.queue-show-icons",
-                ],
-            )
-            .unwrap_or(defaults.tiling.overflow_show_icons),
+            overflow_show_icons: optional(config, "clusters.tiling.overflow-show-icons")
+                .unwrap_or(defaults.tiling.overflow_show_icons),
         },
         stacking: ClusterStacking {
-            max_visible: optional(
-                config,
-                &["clusters.stacking.max-visible", "stacking.max-visible"],
-            )
-            .unwrap_or(defaults.stacking.max_visible)
-            .clamp(0, 64),
+            max_visible: optional(config, "clusters.stacking.max-visible")
+                .unwrap_or(defaults.stacking.max_visible)
+                .clamp(0, 64),
         },
     }
 }

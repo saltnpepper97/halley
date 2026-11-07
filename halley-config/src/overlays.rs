@@ -2,6 +2,8 @@ use std::fmt;
 
 use rune_cfg::RuneConfig;
 
+use crate::aliases::lookup;
+
 pub const DEFAULT_SUCCESS_DURATION_MS: u64 = 4_000;
 pub const DEFAULT_ERROR_DURATION_MS: u64 = 9_000;
 pub const DEFAULT_ZOOM_INDICATOR_HOLD_DURATION_MS: u64 = 750;
@@ -207,128 +209,60 @@ impl From<rune_cfg::RuneError> for OverlayParseError {
 pub fn parse_overlays_checked(config: &RuneConfig) -> Result<Overlays, OverlayParseError> {
     let defaults = Overlays::default();
     let background_color = parse_color(
-        optional_string(
-            config,
-            &[
-                "overlays.background-colour",
-                "overlays.background-color",
-                "overlay.background-colour",
-                "overlay.background-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.background-colour")?,
         "overlays.background-colour",
         defaults.background_color,
     )?;
     let text_color = parse_color(
-        optional_string(
-            config,
-            &[
-                "overlays.text-colour",
-                "overlays.text-color",
-                "overlay.text-colour",
-                "overlay.text-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.text-colour")?,
         "overlays.text-colour",
         defaults.text_color,
     )?;
     let error_color = parse_color(
-        optional_string(
-            config,
-            &[
-                "overlays.error-colour",
-                "overlays.error-color",
-                "overlay.error-colour",
-                "overlay.error-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.error-colour")?,
         "overlays.error-colour",
         defaults.error_color,
     )?;
     let border_color = parse_color(
-        optional_string(
-            config,
-            &[
-                "overlays.border-colour",
-                "overlays.border-color",
-                "overlay.border-colour",
-                "overlay.border-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.border-colour")?,
         "overlays.border-colour",
         defaults.border_color,
     )?;
-    let radius_px = optional_i32(config, &["overlays.radius", "overlay.radius"])?
+    let radius_px = lookup::<i32>(config, "overlays.radius")?
         .unwrap_or(defaults.radius_px)
         .clamp(0, 256);
     let notification_position = parse_position(
-        optional_string(
-            config,
-            &[
-                "overlays.notifications.position",
-                "overlay.notifications.position",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.notifications.position")?,
         "overlays.notifications.position",
         defaults.notifications.position,
     )?;
     let zoom_indicator_position = parse_position(
-        optional_string(config, &["overlays.zoom-indicator.position"])?,
+        lookup::<String>(config, "overlays.zoom-indicator.position")?,
         "overlays.zoom-indicator.position",
         defaults.zoom_indicator.position,
     )?;
     let zoom_indicator_hold_duration_ms =
-        optional_u64(config, &["overlays.zoom-indicator.hold-duration-ms"])?
+        lookup::<u64>(config, "overlays.zoom-indicator.hold-duration-ms")?
             .unwrap_or(defaults.zoom_indicator.hold_duration_ms);
     let zoom_indicator_fade_duration_ms =
-        optional_u64(config, &["overlays.zoom-indicator.fade-duration-ms"])?
+        lookup::<u64>(config, "overlays.zoom-indicator.fade-duration-ms")?
             .unwrap_or(defaults.zoom_indicator.fade_duration_ms);
     let zoom_indicator_text_color = parse_optional_color(
-        optional_string(
-            config,
-            &[
-                "overlays.zoom-indicator.text-colour",
-                "overlays.zoom-indicator.text-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.zoom-indicator.text-colour")?,
         "overlays.zoom-indicator.text-colour",
     )?;
     let zoom_indicator_background_color = parse_optional_color(
-        optional_string(
-            config,
-            &[
-                "overlays.zoom-indicator.background-colour",
-                "overlays.zoom-indicator.background-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.zoom-indicator.background-colour")?,
         "overlays.zoom-indicator.background-colour",
     )?;
     let zoom_indicator_border_color = parse_optional_color(
-        optional_string(
-            config,
-            &[
-                "overlays.zoom-indicator.border-colour",
-                "overlays.zoom-indicator.border-color",
-            ],
-        )?,
+        lookup::<String>(config, "overlays.zoom-indicator.border-colour")?,
         "overlays.zoom-indicator.border-colour",
     )?;
-    let success_duration_ms = optional_u64(
-        config,
-        &[
-            "overlays.notifications.success-duration-ms",
-            "overlay.notifications.success-duration-ms",
-        ],
-    )?
-    .unwrap_or(defaults.notifications.success_duration_ms);
-    let error_duration_ms = optional_u64(
-        config,
-        &[
-            "overlays.notifications.error-duration-ms",
-            "overlay.notifications.error-duration-ms",
-        ],
-    )?
-    .unwrap_or(defaults.notifications.error_duration_ms);
+    let success_duration_ms = lookup::<u64>(config, "overlays.notifications.success-duration-ms")?
+        .unwrap_or(defaults.notifications.success_duration_ms);
+    let error_duration_ms = lookup::<u64>(config, "overlays.notifications.error-duration-ms")?
+        .unwrap_or(defaults.notifications.error_duration_ms);
     validate_duration(
         "overlays.notifications.success-duration-ms",
         success_duration_ms,
@@ -352,51 +286,38 @@ pub fn parse_overlays_checked(config: &RuneConfig) -> Result<Overlays, OverlayPa
         error_color,
         border_color,
         radius_px,
-        borders: optional_bool(config, &["overlays.borders", "overlay.borders"])?
-            .unwrap_or(defaults.borders),
-        border_size_px: optional_i32(config, &["overlays.border-size", "overlay.border-size"])?
+        borders: lookup::<bool>(config, "overlays.borders")?.unwrap_or(defaults.borders),
+        border_size_px: lookup::<i32>(config, "overlays.border-size")?
             .unwrap_or(defaults.border_size_px)
             .clamp(0, 64),
         notifications: Notifications {
             position: notification_position,
-            offset_x: optional_i32(
-                config,
-                &[
-                    "overlays.notifications.offset-x",
-                    "overlay.notifications.offset-x",
-                ],
-            )?
-            .unwrap_or(defaults.notifications.offset_x),
-            offset_y: optional_i32(
-                config,
-                &[
-                    "overlays.notifications.offset-y",
-                    "overlay.notifications.offset-y",
-                ],
-            )?
-            .unwrap_or(defaults.notifications.offset_y),
+            offset_x: lookup::<i32>(config, "overlays.notifications.offset-x")?
+                .unwrap_or(defaults.notifications.offset_x),
+            offset_y: lookup::<i32>(config, "overlays.notifications.offset-y")?
+                .unwrap_or(defaults.notifications.offset_y),
             success_duration_ms,
             error_duration_ms,
         },
         zoom_indicator: ZoomIndicator {
-            enabled: optional_bool(config, &["overlays.zoom-indicator.enabled"])?
+            enabled: lookup::<bool>(config, "overlays.zoom-indicator.enabled")?
                 .unwrap_or(defaults.zoom_indicator.enabled),
             position: zoom_indicator_position,
             hold_duration_ms: zoom_indicator_hold_duration_ms,
             fade_duration_ms: zoom_indicator_fade_duration_ms,
-            background: optional_bool(config, &["overlays.zoom-indicator.background"])?
+            background: lookup::<bool>(config, "overlays.zoom-indicator.background")?
                 .unwrap_or(defaults.zoom_indicator.background),
-            text_size: optional_u64(config, &["overlays.zoom-indicator.text-size"])?
+            text_size: lookup::<u64>(config, "overlays.zoom-indicator.text-size")?
                 .map(|size| size.clamp(6, 96) as u16),
             text_color: zoom_indicator_text_color,
             background_color: zoom_indicator_background_color,
             border_color: zoom_indicator_border_color,
-            opacity: optional_f32(config, &["overlays.zoom-indicator.opacity"])?
+            opacity: lookup::<f32>(config, "overlays.zoom-indicator.opacity")?
                 .filter(|value| value.is_finite())
                 .unwrap_or(defaults.zoom_indicator.opacity)
                 .clamp(0.0, 1.0),
-            borders: optional_bool(config, &["overlays.zoom-indicator.borders"])?,
-            radius_px: optional_i32(config, &["overlays.zoom-indicator.radius"])?
+            borders: lookup::<bool>(config, "overlays.zoom-indicator.borders")?,
+            radius_px: lookup::<i32>(config, "overlays.zoom-indicator.radius")?
                 .map(|radius| radius.clamp(0, 256)),
         },
     })
@@ -420,54 +341,6 @@ fn parse_position(
             value: value.to_string(),
         }),
     }
-}
-
-fn optional_string(
-    config: &RuneConfig,
-    paths: &[&str],
-) -> Result<Option<String>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<String>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_bool(config: &RuneConfig, paths: &[&str]) -> Result<Option<bool>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<bool>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_u64(config: &RuneConfig, paths: &[&str]) -> Result<Option<u64>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<u64>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_f32(config: &RuneConfig, paths: &[&str]) -> Result<Option<f32>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<f32>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
-}
-
-fn optional_i32(config: &RuneConfig, paths: &[&str]) -> Result<Option<i32>, rune_cfg::RuneError> {
-    for path in paths {
-        if let Some(value) = config.get_optional::<i32>(path)? {
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
 }
 
 fn parse_color(

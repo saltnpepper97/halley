@@ -240,17 +240,10 @@ pub fn parse_nodes(config: &RuneConfig) -> Nodes {
             })
             .unwrap_or(defaults.restore_centering),
         background_color: parse_background_color(config, defaults.background_color),
-        border_color: parse_node_color(
-            config,
-            &["node.border-colour", "node.border-color"],
-            defaults.border_color,
-        ),
+        border_color: parse_node_color(config, "node.border-colour", defaults.border_color),
         border_color_highlighted: parse_node_color(
             config,
-            &[
-                "node.border-colour-highlighted",
-                "node.border-color-highlighted",
-            ],
+            "node.border-colour-highlighted",
             defaults.border_color_highlighted,
         ),
     }
@@ -342,10 +335,10 @@ fn parse_background_color(
 
 fn parse_node_color(
     config: &RuneConfig,
-    paths: &[&str],
+    key: &str,
     default: crate::BorderColor,
 ) -> crate::BorderColor {
-    let value = paths
+    let value = crate::aliases::spellings(key)
         .iter()
         .find_map(|path| config.get_optional::<String>(path).ok().flatten());
     let Some(value) = value else {
