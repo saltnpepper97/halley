@@ -472,6 +472,21 @@ pub(crate) fn dispatch<D: SessionDriver>(
                         }
                     }
                     session.request_redraw();
+                } else {
+                    // An empty slot used to do nothing at all, which reads as
+                    // a broken key to anyone expecting numbered workspaces.
+                    let cluster_mode = crate::input::keybinds::shortcut_label(
+                        &session.keyboard.binds,
+                        super::binding_context_for_output(session, Some(&output_name)),
+                        |action| *action == halley_config::Action::ClusterMode,
+                    );
+                    session.shell.overlays.show_notice(
+                        output_name,
+                        empty_slot_message(slot, cluster_mode.as_deref()),
+                        session.settings.overlays.notifications.success_duration_ms,
+                        crate::frame_clock::monotonic_now(),
+                    );
+                    session.request_redraw();
                 }
             }
         }
@@ -540,9 +555,27 @@ pub(crate) fn dispatch<D: SessionDriver>(
     }
 }
 
+/// The notice for a cluster-slot key with no cluster in that slot: what
+/// happened and, when cluster-mode is bound, the key that makes one.
+fn empty_slot_message(slot: u8, cluster_mode_key: Option<&str>) -> String {
+    match cluster_mode_key {
+        Some(key) => format!("Slot {slot} is empty. {key} makes a cluster."),
+        None => format!("Slot {slot} is empty."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_slot_message_names_only_a_bound_cluster_mode_key() {
+        assert_eq!(
+            empty_slot_message(3, Some("Super+Shift+C")),
+            "Slot 3 is empty. Super+Shift+C makes a cluster."
+        );
+        assert_eq!(empty_slot_message(10, None), "Slot 10 is empty.");
+    }
 
     #[test]
     fn mod_q_targets_only_the_focused_collapsed_core_on_its_output() {

@@ -438,6 +438,18 @@ impl OverlayManager {
         duration_ms: u64,
         now: Duration,
     ) {
+        self.show_notice(output, message, duration_ms, now);
+    }
+
+    /// A short informational notice on the ordinary non-modal notification
+    /// surface, such as the hint for an empty cluster slot.
+    pub fn show_notice(
+        &mut self,
+        output: String,
+        message: String,
+        duration_ms: u64,
+        now: Duration,
+    ) {
         self.show_notification(output, message, NotificationKind::Success, duration_ms, now);
     }
 
