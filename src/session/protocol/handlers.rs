@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,7 +10,6 @@ use smithay::input::pointer::PointerHandle;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode;
-use smithay::reexports::wayland_protocols::wp::linux_drm_syncobj::v1::server::wp_linux_drm_syncobj_surface_v1::WpLinuxDrmSyncobjSurfaceV1;
 use smithay::reexports::wayland_protocols::ext::workspace::v1::server::{
     ext_workspace_group_handle_v1::{self, ExtWorkspaceGroupHandleV1},
     ext_workspace_handle_v1::{self, ExtWorkspaceHandleV1},
@@ -33,7 +31,7 @@ use smithay::wayland::compositor::{
 };
 use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier};
 use smithay::wayland::drm_syncobj::{
-    DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState,
+    DrmSyncobjHandler, DrmSyncobjState,
 };
 use smithay::wayland::fractional_scale::{FractionalScaleHandler, with_fractional_scale};
 use smithay::wayland::idle_notify::{IdleNotifierHandler, IdleNotifierState};
@@ -180,83 +178,44 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                 super::closing::capture_native_toplevel_before_unmap(session, surface);
             }
 
-            let explicit_sync = with_states(surface, |states| {
-                states
-                    .data_map
-                    .get::<RefCell<Option<WpLinuxDrmSyncobjSurfaceV1>>>()
-                    .is_some_and(|surface| surface.borrow().is_some())
-            });
-            if !explicit_sync {
-                // Defer implicit-sync buffers too. Importing/sampling an unfinished
-                // client buffer can otherwise stall the compositor's render queue.
-                let dmabuf = with_states(surface, |states| {
-                    let mut attributes = states.cached_state.get::<SurfaceAttributes>();
-                    match attributes.pending().buffer.as_ref() {
-                        Some(BufferAssignment::NewBuffer(buffer)) => {
-                            smithay::wayland::dmabuf::get_dmabuf(buffer).cloned().ok()
-                        }
-                        _ => None,
-                    }
-                });
-                if let Some(dmabuf) = dmabuf
-                    && let Some(client) = surface.client()
-                {
-                    match wayland::dmabuf::defer_until_readable(&dmabuf, |source| {
-                        session.driver.register_dmabuf_source(client, source)
-                    }) {
-                        Ok(Some(blocker)) => {
-                            smithay::wayland::compositor::add_blocker(surface, blocker);
-                        }
-                        Ok(None) => {}
-                        Err(err) => reject_unready_commit(
-                            session,
-                            surface,
-                            dh,
-                            format!("implicit synchronization setup failed: {err}"),
-                        ),
-                    }
-                }
-                return;
-            }
-            // Explicit-sync surfaces must never also wait on implicit fences.
-            // The protocol implementation validates missing acquire points.
-            let acquire_point = with_states(surface, |states| {
-                states
-                    .cached_state
-                    .get::<DrmSyncobjCachedState>()
-                    .pending()
-                    .acquire_point
-                    .clone()
-            });
-            let Some(acquire_point) = acquire_point else {
-                return;
-            };
-            let Some(client) = surface.client() else {
-                return;
-            };
-            match acquire_point.generate_blocker() {
-                Ok((blocker, source)) => {
-                    let registered = session.driver.register_drm_syncobj_source(client, source);
-                    if registered {
-                        smithay::wayland::compositor::add_blocker(surface, blocker);
-                    } else {
-                        reject_unready_commit(
-                            session,
-                            surface,
-                            dh,
-                            "explicit synchronization setup failed: acquire-point source was not registered".into(),
-                        );
-                    }
-                }
+            match wayland::explicit_sync::defer_until_acquired(surface, |client, source| {
+                session.driver.register_drm_syncobj_source(client, source)
+            }) {
+                Ok(true) => return,
+                Ok(false) => {}
                 Err(err) => {
-                    reject_unready_commit(
+                    reject_unready_commit(session, surface, dh, err);
+                    return;
+                }
+            }
+
+            // No explicit acquire point is pending. Defer implicit-sync buffers
+            // too, so unfinished client work cannot stall the render queue.
+            let dmabuf = with_states(surface, |states| {
+                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+                match attributes.pending().buffer.as_ref() {
+                    Some(BufferAssignment::NewBuffer(buffer)) => {
+                        smithay::wayland::dmabuf::get_dmabuf(buffer).cloned().ok()
+                    }
+                    _ => None,
+                }
+            });
+            if let Some(dmabuf) = dmabuf
+                && let Some(client) = surface.client()
+            {
+                match wayland::dmabuf::defer_until_readable(&dmabuf, |source| {
+                    session.driver.register_dmabuf_source(client, source)
+                }) {
+                    Ok(Some(blocker)) => {
+                        smithay::wayland::compositor::add_blocker(surface, blocker);
+                    }
+                    Ok(None) => {}
+                    Err(err) => reject_unready_commit(
                         session,
                         surface,
                         dh,
-                        format!(
-                            "explicit synchronization setup failed: could not create acquire-point blocker: {err}"
-                        ),
-                    );
+                        format!("implicit synchronization setup failed: {err}"),
+                    ),
                 }
             }
         });

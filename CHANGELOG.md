@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Honor explicit-sync acquire points after an application destroys and recreates
+  its synchronization object on the same surface. Previously, Halley could
+  fall back to implicit synchronization and read a buffer before the client's
+  rendering completed. Keep explicit and implicit waits separate and reject
+  commits whose acquire wait cannot be registered. (#264)
+
 - Make configs that leave a section out behave like the file Halley writes on
   first run. Without a `decay:` section, windows now wait 10 minutes (90 inside
   the focus ring) before collapsing, instead of 3 and 30. Physics is off by

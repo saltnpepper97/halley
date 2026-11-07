@@ -79,6 +79,26 @@ tools. Physical GPU, DRM/KMS, multi-monitor and real-application behavior still
 need separate live testing. These workflows do not publish or install Halley on
 your machine.
 
+## DRM acquire synchronization
+
+The `drm_syncobj_protocol` regressions use a real GBM DMA-BUF and unsignaled
+DRM timeline points through the production acquire-readiness helper. They check
+first creation, repeated synchronization-object recreation, unrelated-client
+progress, and rejection when the acquire event source cannot be registered.
+They also check that a later bufferless commit has no stale acquire wait.
+
+Choose the render node for the GPU under test, then run:
+
+```sh
+HALLEY_TEST_DRM_RENDER_NODE=/dev/dri/renderD128 \
+  cargo test --locked --test drm_syncobj_protocol -- --ignored --test-threads=1
+```
+
+These tests open only the selected render node; they do not acquire KMS or
+restart the desktop. They are ignored in hardware-free CI and must be run
+explicitly. Passing them verifies commit readiness, not the absence of visible
+flicker in a particular application or driver.
+
 ## Orca accessibility
 
 With Orca, Python GI/AT-SPI, XWayland and a running Wayland desktop installed,
