@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: end compositor pointer grabs through one helper that also clears
+  the grab cursor, look up the seat keyboard and pointer through shared
+  helpers, and name pointer button codes instead of writing raw evdev numbers.
+  No behavior change.
 - Stop a non-ASCII character in a colour value from crashing
   `halleyctl config verify` and the compositor's live config reload. Every
   colour setting now shares one hex parser, so they all accept the same forms:
