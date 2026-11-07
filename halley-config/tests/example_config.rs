@@ -3,7 +3,15 @@ use halley_config::{
 };
 use rune_cfg::RuneConfig;
 
-const EXAMPLE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/halley.rune");
+/// Every option with its default, for people to copy from. Halley never
+/// writes it; the detailed checks below run against it.
+const REFERENCE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../examples/halley.reference.rune"
+);
+/// The short starter Halley writes on first run (identical to
+/// `halley_config::DEFAULT_CONFIG`).
+const STARTER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/halley.rune");
 const SPLIT_EXAMPLE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../examples/split-config/halley.rune"
@@ -14,7 +22,7 @@ const SPLIT_EXAMPLE_PATH: &str = concat!(
 /// elsewhere in this crate use.
 #[test]
 fn example_config_parses_end_to_end() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
+    let config = RuneConfig::from_file(REFERENCE_PATH).expect("example config parses");
     let keybinds = parse_keybinds(&config).expect("example keybinds section parses");
 
     assert_eq!(keybinds.modifier, ModifierKey::Super);
@@ -349,7 +357,7 @@ fn assert_field_first_autostart(autostart: &halley_config::Autostart) {
 
 #[test]
 fn example_config_starts_field_first_without_autostart_or_clusters() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
+    let config = RuneConfig::from_file(REFERENCE_PATH).expect("example config parses");
     let runtime = halley_config::parse_runtime_config(&config).expect("runtime config parses");
 
     assert!(runtime.env.is_empty());
@@ -358,7 +366,7 @@ fn example_config_starts_field_first_without_autostart_or_clusters() {
 
 #[test]
 fn example_config_keeps_wallpaper_and_window_rules_inert() {
-    let config = RuneConfig::from_file(EXAMPLE_PATH).expect("example config parses");
+    let config = RuneConfig::from_file(REFERENCE_PATH).expect("example config parses");
     let runtime = halley_config::parse_runtime_config(&config).expect("runtime config parses");
 
     assert_eq!(runtime.background, halley_config::Background::default());
@@ -367,10 +375,9 @@ fn example_config_keeps_wallpaper_and_window_rules_inert() {
 
 #[test]
 fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
-    let canonical = RuneConfig::from_file(EXAMPLE_PATH).unwrap();
+    let canonical = RuneConfig::from_file(REFERENCE_PATH).unwrap();
     let split = RuneConfig::from_file(SPLIT_EXAMPLE_PATH).unwrap();
-    let bootstrap = RuneConfig::from_str(halley_config::DEFAULT_CONFIG).unwrap();
-    for config in [&canonical, &split, &bootstrap] {
+    for config in [&canonical, &split] {
         let runtime = halley_config::parse_runtime_config(config).unwrap();
         assert!(runtime.outputs.iter().all(|output| output.scale == 1.0));
         assert!(
@@ -449,7 +456,7 @@ fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
         );
     }
     for path in [
-        EXAMPLE_PATH,
+        REFERENCE_PATH,
         concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../examples/split-config/theme.rune"
@@ -507,4 +514,71 @@ fn omitted_recent_options_use_defaults_without_backfilling_the_file() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);
     assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The starter keeps every built-in binding except the advanced node-move and
+/// window-transfer chords, and always keeps the pointer grabs: without
+/// `click-left` the empty Field could not be dragged.
+#[test]
+fn starter_binds_the_essentials_and_every_pointer_grab() {
+    let config = RuneConfig::from_file(STARTER_PATH).expect("starter config parses");
+    let keybinds = parse_keybinds(&config).expect("starter keybinds parse");
+    assert_eq!(keybinds.modifier, ModifierKey::Super);
+    assert_eq!(keybinds.binds.len(), 58);
+    assert!(!keybinds.binds.iter().any(|bind| matches!(
+        bind.action,
+        Action::MoveNode(_) | Action::MoveNodeBy { .. } | Action::TransferWindow(_)
+    )));
+    for action in [
+        Action::PointerMoveWindow,
+        Action::PointerResizeWindow,
+        Action::PointerDragPan,
+        Action::PointerPanField,
+    ] {
+        assert!(
+            keybinds.binds.iter().any(|bind| bind.action == action),
+            "{action:?} must stay bound"
+        );
+    }
+}
+
+/// The starter stays short, starts on an empty Field, and points to the
+/// documentation for everything it leaves out.
+#[test]
+fn starter_is_short_and_links_the_full_documentation() {
+    let starter = std::fs::read_to_string(STARTER_PATH).unwrap();
+    assert!(
+        starter.lines().count() < 200,
+        "the starter grew past 200 lines"
+    );
+    assert!(
+        !starter.contains("\nview:"),
+        "the starter must not name anyone's monitors"
+    );
+    assert!(!starter.contains("\nwallpaper:"));
+    assert!(starter.contains("https://saltnpepper97.github.io/halley-site/wiki/config"));
+    for section in [
+        "autostart",
+        "input",
+        "cursor",
+        "decorations",
+        "font",
+        "decay",
+        "screenshot",
+        "animations",
+        "keybinds",
+    ] {
+        assert!(
+            starter.contains(&format!("\n{section}:\n")),
+            "starter is missing {section}"
+        );
+        assert!(
+            starter.contains(&format!("wiki/config/{section}\n")),
+            "starter section {section} has no documentation link"
+        );
+    }
+    let runtime = halley_config::load_runtime_config_at(std::path::Path::new(STARTER_PATH))
+        .expect("starter config is valid");
+    assert_field_first_autostart(&runtime.autostart);
+    assert!(runtime.outputs.is_empty());
 }

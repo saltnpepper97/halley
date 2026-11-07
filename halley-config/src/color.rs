@@ -86,12 +86,17 @@ mod tests {
         }
     }
 
-    /// Every hex colour the generated config sets, replaced in turn with text
+    /// Every hex colour the reference config sets, replaced in turn with text
     /// that used to panic, must load or fail cleanly. New colour settings are
-    /// covered automatically because the template lists them.
+    /// covered automatically because the reference lists them all.
     #[test]
     fn every_colour_setting_survives_non_ascii_text() {
-        let lines = crate::DEFAULT_CONFIG.lines().collect::<Vec<_>>();
+        let reference = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/halley.reference.rune"
+        ))
+        .expect("reference config exists in the workspace");
+        let lines = reference.lines().collect::<Vec<_>>();
         let mut checked = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();

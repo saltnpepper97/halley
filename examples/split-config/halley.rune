@@ -25,8 +25,8 @@ autostart:
   # Startup clusters are optional, and a fresh config declares none: windows you
   # open begin on the empty Field. Add a `cluster` block here when you want an
   # output to start with a named core. See docs/clusters.md for the complete
-  # syntax and launch attribution; the exhaustive template in
-  # examples/halley.rune shows a commented declaration you can copy.
+  # syntax and launch attribution; the complete reference in
+  # examples/halley.reference.rune shows a commented declaration you can copy.
 end
 
 keybinds:

@@ -1,914 +1,164 @@
-# Halley compositor configuration.
+# Halley configuration.
 #
-# The default location is:
-#   $XDG_CONFIG_HOME/halley/halley.rune
-# or, when XDG_CONFIG_HOME is unset:
-#   $HOME/.config/halley/halley.rune
+# A short starter: the settings people change first. Every other option keeps
+# its default and is documented at
+#   https://saltnpepper97.github.io/halley-site/wiki/config
+# examples/halley.reference.rune in the Halley repository lists them all.
 #
-# Halley creates this file only when it does not already exist. Startup never
-# rewrites an existing config. Halley does not back up or replace it.
-# Edit settings and bindings yourself and check the result with
-# `halleyctl config verify`. While Halley is running, valid saves are applied
-# automatically. A syntactically invalid or incomplete save is rejected as one
-# unit and the last valid configuration remains active.
+#   halleyctl config edit     open this file in $VISUAL or $EDITOR
+#   halleyctl config verify   check it for mistakes
 #
-# Sections and fields may be omitted unless noted otherwise; omitted values
-# use their built-in defaults. `keybinds:` is required because it defines the
-# compositor's input map. Strings are quoted, booleans are `true` or `false`,
-# and each nested block ends with `end`.
-# Nested Rune `gather` dependencies are watched with the root file, and the
-# watched dependency set is refreshed after every accepted reload.
+# Valid saves apply immediately. An invalid save is rejected and the last
+# valid configuration stays active. Halley never rewrites this file.
 
-# Optional environment variables for applications launched by Halley.
-# Additions and changes apply to future launches after a valid live reload;
-# already-running applications keep the environment they started with.
-# Removing a variable takes effect after restarting Halley.
-#
-# env:
-#   QT_QPA_PLATFORM "wayland"
-#   QT_QPA_PLATFORMTHEME "qt6ct"
-# end
-
-# Autostart launches session services through the same shell and environment
-# as configured keybind commands. `once` runs only when a real TTY compositor
-# session starts. `on-reload` runs after every valid config reload. Nested
-# Winit development sessions run neither category.
+# Programs to start with the session.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/autostart
 autostart:
   # once "waybar"
   # once "mako"
-
-  # on-reload "notify-send 'Halley configuration reloaded'"
-
-  # Fresh sessions start on an empty Field. No clusters are pre-created, so
-  # windows you open land directly on the Field instead of in a numbered
-  # workspace. Startup clusters are optional named contexts: declare one here
-  # when you want an output to begin with a named core. Empty `members []`
-  # launches no applications. See docs/clusters.md for the complete syntax,
-  # including optional `layout` and `output` selection and launch attribution.
-  #
-  # cluster:
-  #   name "Work"
-  #   members []
-  # end
 end
 
-# `view` groups settings by physical output. Repeat `output:` inside this one
-# section for each connector (find connector names and modes with
-# `halleyctl outputs`). A ring-only entry is safe on any machine: it changes
-# Halley's view policy without selecting a hardware mode.
-view:
-  output:
-    # DRM connector name exactly as printed by `halleyctl outputs`.
-    name "DP-1"
-
-    # Display size multiplier: 1.0 = 100%, 1.5 = 150%, 2.0 = 200%.
-    # Optional without width/height; keeps the preferred mode when omitted.
-    # Monitor positions and UI dimensions are logical pixels.
-    scale 1.0
-
-    # Uncomment and edit the complete hardware group to select a mode. Width
-    # and height must be supplied together; offset, rate, transform, and VRR
-    # are only valid when both are present.
-    # width 2560
-    # height 1440
-    # offset-x 0
-    # offset-y 0
-
-    # `rate` must exactly match an advertised mode. When omitted, Halley uses
-    # the highest advertised refresh for the configured width and height.
-    # rate 179.998
-
-    # Clockwise rotation in degrees: 0, 90, 180, or 270.
-    # transform 0
-
-    # "off", "on", or "auto". Auto enables VRR for a settled fullscreen
-    # window when the backend can switch without a modeset.
-    # vrr "auto"
-
-    # Camera-relative decay ellipse for this connector.
-    focus-ring:
-      radius-x 820.0
-      radius-y 420.0
-      offset-x 0.0
-      offset-y 0.0
-    end
-  end
-
-  output:
-    name "DP-2"
-    scale 1.0
-    focus-ring:
-      radius-x 820.0
-      radius-y 420.0
-      offset-x 0.0
-      offset-y 0.0
-    end
-  end
-end
-
-# Hardware output reloads are diffed per connector. Changing one output does
-# not force an unchanged output through a redundant mode set. A ring-only
-# change never creates hardware output work.
-
-# Keyboard, pointer-focus, physical-device, touch, and gesture settings.
-# Keyboard/focus policy and client gesture protocols are backend-independent.
-# Physical device settings apply when Halley owns libinput devices on a tty.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/input
 input:
-  # Key-repeat frequency in presses per second and the delay before repeating.
-  # These drive clients and repeat-enabled compositor keybinds. A rate of 0
-  # disables repeat. Both values update without restarting.
-  repeat-rate 30
-  repeat-delay 500
-
-  # "click" keeps keyboard focus where you click. "hover" follows the pointer
-  # across windows and outputs, but never raises windows merely by hovering.
+  # "click" focuses a window when you click it; "hover" when the pointer
+  # enters it.
   focus-mode "click"
 
-  # Whether clicking a window also brings it to the top. When false, the click
-  # still focuses and activates the window without changing stacking order.
-  raise-on-click true
-
   keyboard:
-    # Standard XKB names. Empty variant/options/model use XKB defaults.
     layout "us"
-    variant ""
-    options ""
-    model ""
   end
-
-  gestures:
-    # Master switch for Halley's camera gestures. Native client gestures are
-    # still passed through when this is false if client-passthrough is true.
-    enabled true
-
-    # Send swipe, pinch, and hold sequences to the client under the pointer.
-    # Raw touchscreen contacts are controlled separately by touch-passthrough.
-    client-passthrough true
-    touch-passthrough true
-
-    # The default hybrid routing lets applications own gestures over their
-    # windows and lets Halley own gestures on empty field. Holding `modifier`
-    # forces eligible gestures to Halley. An active pointer constraint or
-    # client grab always remains client-owned.
-    pinch-to-zoom true
-    pinch-scope "empty-field"      # "empty-field" or "global"
-    compositor-scope "empty-field" # camera pan and ordinary action gestures
-    modifier "mod"                 # keybind Mod; also "off" or an exact modifier
-
-    # Two-finger touchpad scrolling pans only when it begins on empty field.
-    # Use "off" to always pass finger scrolling through to clients.
-    scroll-pan "empty-field"
-
-    # Swipe finger count and optional momentum after a swipe/pinch pan.
-    # Set pan-fingers to 0 to disable compositor swipe-panning.
-    pan-fingers 3
-    pan-momentum true
-    pan-decay-rate 6.0
-    flick-min-px-per-s 200.0
-
-    # Discrete swipes use `swipe-DIRECTION-FINGERS`; while Apogee is open they
-    # use the separate `apogee-swipe-DIRECTION-FINGERS` map. Holds use
-    # `hold-FINGERS`. Values may be any built-in compositor keybind action.
-    # A configured binding replaces the defaults in its normal/Apogee map.
-    # Apogee open/close actions are global unless a pointer constraint or
-    # client grab owns the sequence. Opening is interactive and reversible.
-    swipe-threshold-px 120.0
-    swipe-up-4 "apogee-open"
-    apogee-swipe-down-4 "apogee-close"
-    # swipe-left-4 "trail-prev"
-    # swipe-right-4 "trail-next"
-    # hold-3 "toggle-state"
-  end
-
-  touchpad:
-    # All fields are optional. Omission restores the device's own libinput
-    # default. Unsupported capabilities are ignored by libinput.
-    #
-    # enabled true
-    # natural-scroll false
-    # accel-speed -0.5            # -1.0 through 1.0; sensitivity is an alias
-    # accel-profile "adaptive"    # "adaptive" or "flat"
-    # scroll-method "two-finger"  # "none", "two-finger", "edge", or
-    #                             # "on-button-down"
-    # scroll-button 274
-    # scroll-button-lock false
-    # left-handed false
-    # middle-emulation false
-    # tap true
-    # tap-button-map "left-right-middle" # or "left-middle-right"
-    # dwt true                    # disable while typing
-    # click-method "clickfinger"  # or "button-areas"
-    # drag true
-    # drag-lock false
-    # disabled-on-external-mouse false
-  end
-
-  mouse:
-    # Every setting is optional. Omitted values preserve each device's own
-    # libinput default, including after a live reload removes an old setting.
-    #
-    # enabled true
-    # natural-scroll false
-    # accel-speed 0.0
-    # accel-profile "adaptive" # "adaptive" or "flat"
-    # scroll-method "none"     # "none", "two-finger", "edge", or
-    #                          # "on-button-down"
-    # scroll-button 274        # Linux input button code
-    # scroll-button-lock false
-    # left-handed false
-    # middle-emulation false
-  end
-
-  trackpoint:
-    # Uses the same pointer fields as mouse. On-button scrolling is common:
-    # scroll-method "on-button-down"
-    # scroll-button 274
-    # scroll-button-lock false
-  end
-
-  trackball:
-    # Uses the same pointer fields as mouse.
-    # accel-profile "flat"
-    # middle-emulation true
-  end
-
-  touchscreen:
-    # Raw contacts are exposed through wl_touch when a touchscreen is present.
-    # map-to-output accepts an exact connector name. The calibration matrix is
-    # libinput's row-major 2x3 affine transform.
-    # enabled true
-    # map-to-output "eDP-1"
-    # calibration-matrix [1, 0, 0, 0, 1, 0]
-  end
-
-  # Optional exact-name overrides for individual devices. Names match
-  # libinput's full device name, ignoring ASCII letter case; partial names do
-  # not match. Values layer over the device's class block above.
-  #
-  # devices:
-  #   "Logitech MX Master 3":
-  #     accel-speed 0.6
-  #     natural-scroll true
-  #   end
-  # end
 end
 
-# Cursor themes use the standard Xcursor search path and theme inheritance.
-# Theme changes apply immediately to Halley's compositor cursor. The theme
-# and size are also exported to newly launched apps as XCURSOR_THEME and
-# XCURSOR_SIZE; running apps may need a restart to adopt a new theme.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/cursor
 cursor:
-  # This configured name is authoritative; Halley does not inherit the theme
-  # from its process environment. Theme names are case-sensitive.
   theme "default"
-
-  # Base logical size. Halley selects the closest frame supplied by the theme
-  # for each output scale.
   size 24
-
-  # Native DRM cursor planes are enabled when supported. Set true if the
-  # driver produces cursor artifacts; reload applies the change.
-  disable-hardware-cursor false
-
-  # Hide after a physical keyboard press, without changing pointer focus,
-  # grabs, or constraints. Pointer motion, buttons, and scrolling reveal it.
-  hide-when-typing false
-
-  # Hide only the rendered cursor while navigating Halley with the keyboard.
-  # The pointer position and hover/focus routing are not changed. Physical
-  # pointer motion, buttons, and scrolling reveal it immediately.
-  hide-on-keyboard-nav true
-
-  # Hide on touch-down so a stale mouse cursor does not sit over touch UI.
-  # Physical pointer activity reveals it again.
-  hide-on-touch true
-
-  # Hide after this many milliseconds without pointer activity. Set to 0 to
-  # disable inactivity hiding.
-  hide-after-ms 2000
 end
 
-# Window appearance settings. Borders and titlebars apply only to managed
-# top-levels; the content radius also clips unmanaged X11 popup windows.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/decorations
 decorations:
   border:
-    # Border width in logical pixels. It follows camera zoom visually.
-    size 3
-
-    # Client-content corner radius in logical pixels. The compositor grows the
-    # outer border radius concentrically. Set to 0 for square corners.
-    radius 8
-
-    # Focused and unfocused colors accept "#rrggbb" or shorthand "#rgb".
     colour-focused "#f4f5f7"
     colour-unfocused "#474d59"
   end
 
-  # Resize managed windows by left-dragging their outer edge or corner. The
-  # hit band remains usable when the visible border is thin or hidden.
-  resize-using-border true
-
-  # Compositor-owned titlebars are added only to windows using server-side
-  # decorations. They replace the border's top edge, not the other 3 sides.
   titlebars:
     enabled true
-    # Left uses close/maximize/minimize; right uses minimize/maximize/close.
-    button-position "right"
-    # The application icon follows the title as one left/center/right group.
-    title-position "center"
-    show-buttons true
-    show-icons false
-    show-title true
-    # Optional title-only font size; omit to inherit global font.size.
-    # text-size 11
-    radius 8
-    height 32
-
-    colour-focused "#d65d26"
-    colour-unfocused "#474d59"
-    foreground-colour-focused "#101418"
-    foreground-colour-unfocused "#f4f5f7"
-    button-hover-colour "#ffffff"
-    button-pressed-colour "#101418"
   end
 end
 
-# Destination for PNG files created by the native screenshot menu and the
-# desktop portal. `$env.HOME`, `$HOME`, and `~` home-directory spellings are
-# supported. Missing directories are created when a screenshot is saved.
-screenshot:
-  directory "$env.HOME/Pictures/Screenshots"
-end
-
-# Global font for compositor-owned UI. Every compositor label, badge, dialog,
-# notification, and overlay uses this exact size.
+# The font for Halley's own labels, cards and notices.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/font
 font:
   family "monospace"
   size 11
 end
 
-# Shared compositor-owned UI. This styles Apogee, Alt+Tab, Bearings,
-# configuration notices, the zoom indicator, and the exit confirmation.
-# Window decorations and node labels keep their own existing configuration.
-overlays:
-  background-colour "auto"
-  text-colour "auto"
-  error-colour "#fb4934"
-  border-colour "#d65d26"
-  radius 8
-  borders true
-  border-size 3
-
-  notifications:
-    position "top-center"
-    # Offset from the selected position; positive moves right/down.
-    offset-x 0
-    offset-y 0
-    success-duration-ms 4000
-    error-duration-ms 9000
-  end
-
-  # Per-monitor camera scale shown while zooming. Activity keeps the card
-  # visible; the hold begins only after input and smooth motion stop.
-  zoom-indicator:
-    enabled true
-    position "bottom-center"
-    hold-duration-ms 750
-    fade-duration-ms 180
-    background true
-    opacity 1.0
-
-    # Optional per-indicator visual overrides. Leave these commented to
-    # inherit the shared font, palette, border, and radius above.
-    # text-size 18
-    # text-colour "auto"
-    # background-colour "auto"
-    # border-colour "#d65d26"
-    # borders true
-    # radius 8
-  end
-end
-
-# Renderer-level visual effects: backdrop blur and shadows.
-# These sample or extend the world behind a surface, so they live here rather
-# than under `decorations:` (which is compositor chrome attached to surfaces).
-effects:
-  blur:
-    # Allow compositor-owned overlays (Bearings, Apogee, Alt-Tab,
-    # notifications, popups, and labels) to use blur.
-    overlays true
-
-    # Methods: "dual-kawase" (default), "gaussian", or "box".
-    # Dual Kawase uses a downsample/upsample pyramid; passes sets its depth.
-    # Gaussian and box use horizontal/vertical filter pairs; passes sets the
-    # number of pairs, with radius distributed to keep spread roughly stable.
-    # Large Gaussian/box radii use a smaller working texture to bound GPU cost.
-    # See docs/effects.md for appearance and performance tradeoffs.
-    method "dual-kawase"
-    radius 24
-    passes 3
-
-    # Frosted-glass polish.
-    saturation 1.10
-    noise 0.012
-  end
-
-  # Independent shadow layers. blur-radius controls softness; spread expands
-  # the solid caster before the falloff; offsets move the shadow in pixels.
-  # Colours use #rrggbbaa, with the final byte controlling shadow opacity.
-  # The caster punches a hole in its own shadow so transparent windows are
-  # not filled in by the halo behind them.
-  shadows:
-    window:
-      enabled true
-      blur-radius 8
-      spread 0
-      offset-x 0
-      offset-y 5
-      colour "#05030530"
-    end
-
-    node:
-      enabled true
-      blur-radius 14
-      spread 0
-      offset-x 0
-      offset-y 3
-      colour "#05030524"
-    end
-
-    overlay:
-      enabled true
-      blur-radius 24
-      spread 1
-      offset-x 0
-      offset-y 7
-      colour "#05030538"
-    end
-  end
-end
-
-# The compositor wallpaper is the absolute back of the scene: protocol
-# background-layer surfaces, windows, panels, overlays, and the cursor all draw
-# above it. "none" creates no wallpaper and leaves empty pixels plain black.
-wallpaper:
-  mode "none" # no wallpaper; also "classic" or "field-shader"
-
-  # Classic image example. Relative paths resolve beside this config file.
-  # mode "classic"
-  # path "~/Pictures/wallpaper.png"
-  # fit "cover" # "cover", "contain", or "stretch"
-  # intensity 1.0
-
-  # Field shader example. "space" is Halley's bundled old-Halley shader; a
-  # file path selects a compatible custom fragment shader instead.
-  # mode "field-shader"
-  # shader "space"
-  # colour "#181a26"
-  # accent-colour "#8fa8d8"
-  # intensity 1.0
-  # Animate the old-Halley star field. Set false for a completely static field.
-  # animated true
-end
-
-# Window and layer-shell rules are the only client blur activation policy.
-# Managed-window rules are shared by native Wayland and XWayland windows.
-# Rules are checked top-to-bottom and only the first complete match applies.
-# Exact strings are case-sensitive; r"..." values are regular expressions.
-rules:
-  # Set window-rule-mode "compose" to combine matching rules; later explicitly
-  # specified properties override earlier ones. Omit it for first-match behavior.
-  # window-rule-mode "compose"
-  # window-rule:
-  #   app-id ["firefox", r"org\.mozilla\..*"]
-  #   title r"Picture.*"
-  #   width 720
-  #   height 520
-  #   opacity 0.90
-  #   blur true
-  #   game false  # Optional override; omit for automatic game detection.
-  #   spawn-placement "cursor"
-  #   cluster-participation "float"
-  # end
-  #
-  # layer-rule:
-  #   namespace ["waybar", r"^fuzzel$"]
-  #   layer ["top", "overlay"]
-  #   blur true
-  # end
-end
-
-# Offscreen node navigation. Bearings are laid out independently per monitor
-# around that monitor's current camera view. Hold Mod+Z for a temporary view;
-# Mod+Shift+Z toggles a persistent view.
-bearings:
-  show-distance true
-  show-icons true
-  show-pinned true
-  fade-distance 1200.0
-
-  # One shared backdrop capture and blur chain is reused by every chip on an
-  # output; disabling this removes the frosted backdrop entirely.
-  blur true
-end
-
-# Collapse focused work manually with Mod+N; its node remains clickable, and
-# either the node or Mod+N restores the window immediately. Automatic decay is
-# only a later fallback for unfocused work: the outside delay applies beyond
-# this output's focus ring, and the inside delay applies within it. These
-# conservative generated defaults are 10 and 90 minutes. They apply only to a
-# config Halley generates: an existing config keeps its own values, and one
-# that omits this section keeps Halley's shorter built-in delays (180 and 1800
-# seconds). The first automatic collapse explains itself once in a non-modal
-# notice.
+# Windows you stop using collapse into nodes after a while: the first delay
+# applies outside the focus ring at the center of the screen, the second
+# inside it. Mod+N collapses or restores a window yourself.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/decay
 decay:
   enabled true
   outside-delay-seconds 600
   inside-delay-seconds 5400
 end
 
-# Field behavior shared by active windows, collapsed landmarks, and camera
-# movement. Active windows may overlap one another; only collapsed landmarks
-# reserve readable space against nodes and active windows.
-field:
-  # Maximized windows are inset from the usable output area by this amount.
-  # The same value is the clearance between landmarks and active windows.
-  gap 20.0
-
-  # Pinned windows, nodes, and cluster cores stay locked in place. A window
-  # with a server titlebar shows its badge opposite the control buttons;
-  # fullscreen hides it with the rest of the compositor chrome. The same
-  # badge is shown on the entity and on its offscreen Bearings chip.
-  pins:
-    corner "top-right"
-    colour "#d65d26"
-    background-colour "auto"
-    size 1.0
-  end
-
-  # After the focused window closes, prefer the active cluster's next layout
-  # member. In tiling, this keeps focus in the vacated slot (and on the newly
-  # promoted master); in stacking, it selects the first surviving card. Then
-  # fall back to same-output and global MRU order. Set this to false to clear
-  # focus instead; the two settings below then have no effect.
-  close-restore-focus true
-
-  # The selected successor may already be a collapsed node. False keeps it
-  # collapsed while making it Halley's logical node focus, so node-aware
-  # commands still target it without unexpectedly turning it back into a
-  # window. True restores the node and focuses it as part of the close.
-  close-restore-nodes false
-
-  # Camera behavior after focusing an active successor or restoring a node:
-  # "never" leaves the camera alone, "if-offscreen" minimally reveals only a
-  # fully offscreen successor, and "always" centers the successor. A node kept
-  # collapsed by close-restore-nodes false does not move the camera.
-  close-restore-pan "if-offscreen"
-
-  # Camera zoom changes both presentation and input coordinates. Halley only
-  # zooms outward: 1.0 is native size, and zooming in walks back toward 1.0
-  # without magnifying beyond it.
-  zoom:
-    enabled true
-    min 0.35
-    step 1.10
-    smooth-rate 12.5
-  end
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/screenshot
+screenshot:
+  directory "$env.HOME/Pictures/Screenshots"
 end
 
-# Old-Halley contact motion for nodes and node/window displacement. Off by
-# default for rigid movement: once contact begins, each unit pushed transfers
-# directly to the contacted node or movable node chain. Enable it for
-# springy contact motion; `damping` only applies while it is enabled.
-physics:
-  enabled false
-  damping 0.45
-end
-
-placement:
-  landmarks:
-    strategy "nearest-free"
-    normal-blocker "relocate"
-  end
-end
-
-node:
-  show-labels "hover"
-  show-app-icons "always"
-  shape "squircle"
-  label-shape "squircle"
-  icon-size 0.72
-  opacity 1.0
-  background-colour "auto"
-  border-colour "#474d59"
-  border-colour-highlighted "#d65d26"
-
-  # "never", "if-offscreen", or "always". Panning and restoration begin
-  # together; there is no center-first, restore-second interaction.
-  click-collapsed-pan "never"
-end
-
-debug:
-  # Graphics compatibility workaround. Requires restarting Halley.
-  # Set true to stop advertising explicit sync to applications.
-  disable-explicit-sync false
-
-  # The ring is still previewed briefly when its configuration changes.
-  show-focus-ring false
-
-  # Show a live per-output FPS chip. This keeps each unlocked output repainting.
-  overlay-fps false
-end
-
-# Clusters group related windows behind one circular desktop icon. Press the
-# cluster-mode binding to open a non-overlapping composer. Use arrows or the
-# pointer to focus, Space or click to select, Enter to name, and Escape to back
-# out or cancel.
-clusters:
-  # New clusters open in "stacking" (overlapping cards) or "tiling" (one
-  # master window beside a vertical stack). Mod+L changes the active cluster.
-  default-layout "stacking"
-
-  # Bloom a collapsed cluster, then Mod-drag a normal window until it docks
-  # against the fixed core. Hold it there for this long; the core's own border
-  # thickens and a matching accent wash marks the dragged window when the join
-  # is armed. Releasing adds it; moving away or releasing early cancels.
-  join-dwell-ms 2000
-
-  # Older configs may still contain join-distance-px. It remains accepted for
-  # compatibility, but manual bloom joining now uses the actual window/core
-  # bounds plus field.gap instead of a center-distance threshold.
-
-  # Draw the restored old-Halley cluster glyph inside each circular core.
-  show-icons true
-
-  # Rest the pointer on a collapsed cluster core for 1.7 seconds to reveal
-  # its member windows as a circular bloom. Tokens begin above the core;
-  # choose "clockwise" or "counter-clockwise" for their ordering direction.
-  bloom-direction "clockwise"
-
-  tiling:
-    # false appends newly joined windows; true inserts them at the front.
-    new-on-top false
-
-    # Outer is the distance from the monitor work area. Inner is the gap
-    # between cluster windows. Both values are logical pixels.
-    gaps-inner 20.0
-    gaps-outer 20.0
-
-    # The master plus this many stack windows are visible. Extra windows stay
-    # in the overflow queue instead of being destroyed or removed.
-    max-stack 4
-    overflow-show-icons true
-  end
-
-  stacking:
-    # Maximum overlapping cards drawn at once. 0 means no limit.
-    max-visible 5
-  end
-end
-
-# Multi-monitor window overview. It replaces the desktop with tiles over the
-# wallpaper only. GPU-local previews coalesce commits at the configured
-# ceiling; max-rows accepts the old-Halley range 1 through 5.
-apogee:
-  enabled true
-  live-previews true
-  preview-max-fps 30
-  transition-ms 320
-  gap 24.0
-  max-rows 3
-  background-dim 0.85
-end
-
-# Browser-like per-monitor window focus history. Navigating the trail restores
-# collapsed nodes and minimally reveals live windows without disturbing the
-# forward history. Cluster workspaces keep their own navigation and are not
-# recorded here.
-trail:
-  history-length 32
-  wrap true
-end
-
-# Animation settings are reloaded for future motion. Existing window-open and
-# window-close animations keep the parameters with which they started.
+# Halley animates opening, closing, fullscreen, arrange and nodes. Set
+# `enabled false` to switch every animation off at once.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/animations
 animations:
-  # Master switch for window-open, window-close, window-move, fullscreen,
-  # maximize, arrange, smooth resize, node, and cluster animations.
   enabled true
-
-  # CLI and keyboard Field movement. Pointer dragging remains direct.
-  window-move:
-    enabled true
-    motion "easing"
-    duration-ms 250
-    curve "ease-out-cubic"
-    # Or use motion "spring" with damping-ratio 1.0 and stiffness 800.0.
-  end
-
-  # Low-pass filtering for pointer-driven window resize. Lower durations hug
-  # the pointer more tightly; release stops at the currently presented size.
-  smooth-resize:
-    enabled true
-    duration-ms 90
-  end
 
   window-open:
-    # Independent switch for newly mapped windows.
-    enabled true
-
-    # Visual style:
-    #   "center-out" - scale the window outward from its final center.
-    #   "fade"       - keep the final geometry and fade from transparent to
-    #                  opaque.
-    #   "launch"     - travel along a short arc from the launcher, cursor,
-    #                  focused window, or output center. The travel distance
-    #                  is capped and the window settles after a tiny overshoot.
+    # "center-out", "fade", or "launch" (an arc from where it was launched).
     type "center-out"
-
-    # duration-ms is the complete time from the first frame through the
-    # settled final frame. Curves redistribute progress inside that time:
-    # "linear" advances evenly; "ease-out-quad", "ease-out-cubic", and
-    # "ease-out-expo" cover increasingly more distance near the beginning;
-    # "elastic" crosses the destination, then settles back. Launch applies
-    # the curve once to travel while keeping its opacity and scale phases
-    # anchored to the configured duration.
     duration-ms 300
-    curve "linear"
-
-    # Optional fragment shader; an empty/omitted path keeps the built-in type.
-    # Paths are relative to the root config directory. Copy the shader there
-    # before enabling it. See docs/window-shaders.md for the 900 ms wave setup.
-    # custom-shader "shaders/open-wave.frag"
-
-    # Recommended launch motion:
-    # type "launch"
-    # duration-ms 220
-    # curve "ease-out-cubic"
-    #
-    # Window-open motion also accepts `motion "spring"`. With spring motion,
-    # use damping-ratio and stiffness as documented below instead of
-    # duration-ms and curve.
   end
 
   window-close:
-    # Independent switch for ordinary Wayland and XWayland toplevels.
-    enabled true
-
-    # Close counterparts:
-    #   "shrink"  - reverse "center-out" into the window's center.
-    #   "fade"    - reverse "fade" without changing geometry.
-    #   "retract" - reverse "launch" along the same restrained arc toward its
-    #               remembered launch origin (or the current fallback origin).
-    # Window-to-node transitions always fly and shrink into the node at the
-    # window's original stack depth.
+    # "shrink", "fade", or "retract".
     type "shrink"
-
-    # Optional close shader, independent of the opening shader.
-    # custom-shader "shaders/close-wave.frag"
-
-    # Close animations use the original ease-in-out cubic timing internally.
     duration-ms 270
   end
 
   fullscreen:
-    # Independent switch for fullscreen enter and exit transitions.
-    enabled true
-
-    # Motion model:
-    #   "spring" - physically settles toward the target using the values
-    #              below.
-    #   "easing" - uses `duration-ms` and `curve` instead.
     motion "spring"
-
-    # 1.0 is critically damped. Values below 1.0 permit bounce; values above
-    # 1.0 remove overshoot but can settle more slowly.
     damping-ratio 1.0
-
-    # Spring strength. Higher values reach the target more aggressively.
     stiffness 800.0
-
-    # Example easing alternative:
-    # motion "easing"
-    # duration-ms 250
-    # curve "ease-out-cubic"
-  end
-
-  maximize:
-    # Maximize accepts the same spring/easing motion knobs as fullscreen.
-    # Its default preserves the original 240 ms ease-in-out cubic feel.
-    enabled true
-
-    # Easing motion:
-    motion "easing"
-    duration-ms 240
-    curve "ease-in-out-cubic"
-
-    # Spring alternative:
-    # motion "spring"
-    # damping-ratio 1.0
-    # stiffness 800.0
-  end
-
-  arrange:
-    # Smoothly gathers visible Field windows into a mosaic and returns them
-    # when the arrange-visible action is toggled again.
-    enabled true
-    motion "easing"
-    duration-ms 360
-    curve "ease-in-out-cubic"
-
-    # Spring alternative:
-    # motion "spring"
-    # damping-ratio 1.0
-    # stiffness 800.0
-  end
-
-  node:
-    enabled true
-    duration-ms 280 # Node marker appearance.
-    collapse-duration-ms 280 # Window snapshot shrinking/traveling into the node.
-  end
-
-  cluster:
-    # One switch for cluster workspace motion; it does not affect Field,
-    # fullscreen, maximize, node, or cursor behavior.
-    enabled true
-
-    tiling:
-      # Opening and closing control transitions between the circular core and
-      # the 1.0-scale workspace. Reflow covers tile order/size changes.
-      open-duration-ms 300
-      close-duration-ms 420
-      reflow-duration-ms 240
-
-      # Delay between consecutive tile starts. Set to 0 for simultaneous
-      # motion while keeping the same open/close durations.
-      stagger-ms 55
-    end
-
-    stacking:
-      open-duration-ms 240
-      close-duration-ms 360
-      cycle-duration-ms 220
-    end
   end
 end
 
-# A keybind entry is `"chord" "action"`. Continuous built-in actions repeat
-# automatically. Override any keyboard bind on one line with
-# `"chord" "action" with repeat true|false`. A binding may also use
-# `with scope "global|field|cluster|tile|stack"`. Modifiers are matched
-# exactly: extra held modifiers prevent a chord from matching unless they are
-# written into that chord. Trigger names are case-insensitive.
+# Everything else keeps its default, documented at the link above:
+# wallpaper, effects (blur and shadows), overlays, field, node, clusters,
+# apogee, bearings, trail, physics, placement, rules, view and debug.
+
+# Bindings. This list replaces Halley's built-in bindings rather than adding
+# to them, so a binding removed here is unbound.
+# More: https://saltnpepper97.github.io/halley-site/wiki/config/keybinds
 keybinds:
-  # `$var.mod` in chord names expands to this modifier. Accepted values are
-  # "super", "alt", "ctrl", and "shift", or an exact side such as
-  # "left-super", "right-alt", or "left-ctrl".
+  # The key `$var.mod` stands for: "super", "alt", "ctrl" or "shift".
   mod "super"
 
-  # The normal Field loop: launch freely, position and overlap naturally, tidy
-  # the visible Field with Mod+A when it gets messy, collapse finished work with
-  # Mod+N, retrieve it spatially, and add clusters later only when deliberately
-  # configured.
-  #
-  # Built-in compositor actions.
-  # `quit` opens the compositor-owned confirmation; Enter leaves and Escape
-  # returns to the running session.
+  # Basics. `quit` asks before leaving.
   "$var.mod+shift+e" "quit"
   "$var.mod+q" "close-focused"
   "$var.mod+f" "toggle-fullscreen"
   "$var.mod+m" "maximize-focused"
-  # Collapse the focused window into its clickable node, or restore it. A single
-  # click on the node does the same. Automatic decay is a separate, conservative
-  # timer for genuinely abandoned work.
   "$var.mod+n" "toggle-state"
   "$var.mod+p" "toggle-focused-pin"
+  "$var.mod+shift+r" "reload"
+
+  # Launch. `default-terminal` opens the first terminal it finds; Lift is
+  # Halley's launcher, installed separately.
+  "$var.mod+t" "default-terminal"
+  "$var.mod+d" "halley-lift"
+
+  # Tidy the visible windows into a mosaic; press again to undo.
+  "$var.mod+a" "arrange-visible"
+
+  # Finding things: Apogee shows everything, Bearings points to what is off
+  # screen, Alt+Tab and the Trail walk recent windows.
   "$var.mod+o" "apogee"
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
   "alt+tab" "cycle-focus"
   "alt+shift+tab" "cycle-focus-backward"
-  # Focus the most recently used Field window and pan it to the center without
-  # changing its geometry or restoring it from a collapsed node.
   "$var.mod+h" "center-last-focused"
+  "$var.mod+comma" "trail-prev"
+  "$var.mod+period" "trail-next"
 
-  # Jump to the adjacent monitor and focus its most recently focused window.
-  # This works from both the Field and an open cluster workspace.
+  # Focus the nearest window in a direction.
+  "$var.mod+left" "focus-left"
+  "$var.mod+right" "focus-right"
+  "$var.mod+up" "focus-up"
+  "$var.mod+down" "focus-down"
+
+  # Focus the next monitor in a direction.
   "$var.mod+shift+left" "monitor-focus left"
   "$var.mod+shift+right" "monitor-focus right"
   "$var.mod+shift+up" "monitor-focus up"
   "$var.mod+shift+down" "monitor-focus down"
-  # Example exact connector target: "monitor-focus DP-1".
 
-  # Create a cluster, switch the active cluster's layout, or open a numbered
-  # cluster slot on the currently selected monitor. Clusters are opt-in: these
-  # slots do nothing until you declare or create a cluster. Press an open slot
-  # again to return to the Field. Slot 10 uses 0.
+  # Resize the focused window on the Field, or swap tiles inside a cluster.
+  "$var.mod+ctrl+left" "cluster-tile-swap-left" with scope "tile"
+  "$var.mod+ctrl+right" "cluster-tile-swap-right" with scope "tile"
+  "$var.mod+ctrl+up" "cluster-tile-swap-up" with scope "tile"
+  "$var.mod+ctrl+down" "cluster-tile-swap-down" with scope "tile"
+  "$var.mod+ctrl+left" "resize-window-left" with scope "field"
+  "$var.mod+ctrl+right" "resize-window-right" with scope "field"
+  "$var.mod+ctrl+up" "resize-window-up" with scope "field"
+  "$var.mod+ctrl+down" "resize-window-down" with scope "field"
+
+  # Clusters are optional named groups of windows. Make one, change its
+  # layout, float a member, or open one by slot (0 is slot 10).
   "$var.mod+shift+c" "cluster-mode"
   "$var.mod+l" "cluster-layout-cycle"
-  # Float the focused member inside the active cluster. Its layout slot and
-  # last floating geometry are retained for the next toggle.
   "$var.mod+v" "cluster-toggle-float"
   "$var.mod+1" "cluster-slot-1"
   "$var.mod+2" "cluster-slot-2"
@@ -921,116 +171,22 @@ keybinds:
   "$var.mod+9" "cluster-slot-9"
   "$var.mod+0" "cluster-slot-10"
 
-  # Contextual directional navigation. In the Field each arrow focuses the
-  # nearest window in that direction. Tiling clusters use the nearest tile;
-  # stacking clusters cycle with Left/Right and ignore Up/Down.
-  "$var.mod+left" "focus-left"
-  "$var.mod+right" "focus-right"
-  "$var.mod+up" "focus-up"
-  "$var.mod+down" "focus-down"
-
-  # Walk backward and forward through this monitor's Field focus history.
-  "$var.mod+comma" "trail-prev"
-  "$var.mod+period" "trail-next"
-
-  # Optional keyboard camera panning. These actions repeat while held.
-  # "$var.mod+shift+h" "pan-field left" with scope "field"
-  # "$var.mod+shift+j" "pan-field down" with scope "field"
-  # "$var.mod+shift+k" "pan-field up" with scope "field"
-  # "$var.mod+shift+l" "pan-field right" with scope "field"
-
-  # Move the focused or most-recent Field window/node by 80 Field units.
-  # Optional distance: "node-move right 10" stops at obstacles along that axis.
-  # Alt keeps this distinct from directional focus and cluster tile swapping.
-  "$var.mod+alt+left" "node-move left"
-  "$var.mod+alt+right" "node-move right"
-  "$var.mod+alt+up" "node-move up"
-  "$var.mod+alt+down" "node-move down"
-
-
-  # Send the selected Field window to an adjacent monitor and follow it.
-  "$var.mod+alt+shift+left" "window-transfer left"
-  "$var.mod+alt+shift+right" "window-transfer right"
-  "$var.mod+alt+shift+up" "window-transfer up"
-  "$var.mod+alt+shift+down" "window-transfer down"
-
-  # The same Mod+Ctrl+Arrow chords resize in the Field and reorder tiles in a
-  # tiling cluster. Explicit non-overlapping scopes retain both bindings.
-  "$var.mod+ctrl+left" "cluster-tile-swap-left" with scope "tile"
-  "$var.mod+ctrl+right" "cluster-tile-swap-right" with scope "tile"
-  "$var.mod+ctrl+up" "cluster-tile-swap-up" with scope "tile"
-  "$var.mod+ctrl+down" "cluster-tile-swap-down" with scope "tile"
-  "$var.mod+ctrl+left" "resize-window-left" with scope "field"
-  "$var.mod+ctrl+right" "resize-window-right" with scope "field"
-  "$var.mod+ctrl+up" "resize-window-up" with scope "field"
-  "$var.mod+ctrl+down" "resize-window-down" with scope "field"
-
-  # Reversible cleanup, not a layout mode: gather ordinary windows visible on
-  # this Field output into a balanced mosaic. Press it again to restore their
-  # exact saved geometry.
-  "$var.mod+a" "arrange-visible"
-
-  # Re-read this file immediately. Valid saves are still watched automatically.
-  "$var.mod+shift+r" "reload"
-
-  # `default-terminal` launches the first installed terminal from Halley's built-in
-  # priority list. Replace this bind with e.g. `"$var.mod+t" "kitty"` to use
-  # one command explicitly.
-  "$var.mod+t" "default-terminal"
-
-  # Open Halley Lift, the separately installed search and action launcher. Lift searches
-  # applications, running nodes, clusters, actions, and config files, and it
-  # can run terminal commands.
-  "$var.mod+d" "halley-lift"
-
-  # Prefer a separate launcher instead? Fuzzel is an easy alternative:
-  # "$var.mod+d" "fuzzel"
-
-  # Any action string that is not a built-in action is executed as a command
-  # line. These bindings control the default PipeWire sink through `wpctl`.
-  "XF86AudioRaiseVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ --limit 1.0" with repeat true
-  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-" with repeat true
-  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
-
-  # Zoom out, walk back inward, or reset directly to native scale.
+  # Zoom the Field out, in, or back to normal.
   "$var.mod+minus" "zoom-out"
   "$var.mod+equal" "zoom-in"
   "$var.mod+shift+0" "zoom-reset"
 
-  # Open the Region, Screen, and Window screenshot menu.
   "Print" "screenshot"
 
-  # Compositor pointer grabs are ordinary remappable actions. Remove a line
-  # to disable that grab, or put the action on a different button/chord.
-  # The move action pans instead when the same grab starts on empty Field.
-  # Drag-pan keeps a window on its output; dwell against an edge to carry it
-  # through that output's Field instead of transferring it to another output.
+  # Anything that is not a built-in action runs as a command.
+  "XF86AudioRaiseVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ --limit 1.0" with repeat true
+  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-" with repeat true
+  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+
+  # Mouse: Mod+drag moves a window, Mod+right-drag resizes it,
+  # Mod+Shift+drag pans while carrying it, and dragging empty Field pans.
   "$var.mod+click-left" "move-window"
   "$var.mod+click-right" "resize-window"
   "$var.mod+shift+click-left" "drag-pan"
   "click-left" "pan-field"
-
-  # `pan-field` starts only on empty Field. To pan the camera from anywhere,
-  # including over applications, bind `pan-field-always` to a chord with a
-  # modifier (on a bare button it would take that button's click everywhere).
-  # It is skipped over fullscreen windows and while fullscreen, maximize, or a
-  # cluster workspace owns the camera.
-  #
-  # "$var.mod+click-middle" "pan-field-always"
-
-  # Keyboard, pointer-button, and physical-wheel triggers all use the same
-  # chord syntax. Pointer and wheel bindings may also include `$var.mod`.
-  # These are examples only; uncomment only the bindings you want.
-  #
-  # "$var.mod+Page_Up" "some-command"
-  # "$var.mod+click-forward" "some-command"
-  # "$var.mod+scroll-up" "zoom-in"
-  # "$var.mod+scroll-down" "zoom-out"
-  #
-  # Unusual hardware can be addressed by its decimal Linux evdev code:
-  # "keycode-99" "some-command"
-  # "$var.mod+button-279" "some-command"
-  #
-  # See docs/keybinds.md for the complete trigger reference.
-
 end
