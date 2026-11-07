@@ -13,14 +13,12 @@
 
 ---
 
-> **Windows as nodes. Windows as clusters. Windows as your command center.**
+> **A spatial desktop where windows drift away when you're done and return when you need them.**
 
 Halley is a spatial Wayland compositor built for multi-monitor desktops. Each
-display has an independent infinite Field: a camera over freely overlapping
-windows, collapsed node landmarks, and clusters assembled around the work you
-actually want to keep together. Windows can decay when they leave your active
-area, return through history-aware navigation, or remain pinned as durable
-landmarks.
+display has its own infinite Field: a camera over freely overlapping windows.
+Windows you stop using collapse into nodes that keep their place, and come back
+when you reach for them again.
 
 ---
 
@@ -38,53 +36,49 @@ Before installing, check the [requirements](#requirements).
 For Nix and NixOS, see [the flake and NixOS setup guide](docs/nix.md).
 For CI coverage and local checks, see [testing](docs/testing.md).
 
-Build the complete workspace:
+1. **Build Halley.**
 
-```sh
-git clone https://github.com/saltnpepper97/halley
-cd halley
-cargo build --release --workspace
-```
+   ```sh
+   git clone https://github.com/saltnpepper97/halley
+   cd halley
+   cargo build --release --workspace
+   ```
 
-The compositor workspace builds Halley, its CLI, and its portal. Install
-[Lift separately](https://github.com/saltnpepper97/halley-lift#install);
-it provides the default application launcher.
+   This builds the compositor, its CLI, and its portal:
 
-The build produces:
+   ```text
+   target/release/halley
+   target/release/halleyctl
+   target/release/xdg-desktop-portal-halley
+   ```
 
-```text
-target/release/halley
-target/release/halleyctl
-target/release/xdg-desktop-portal-halley
-```
+2. **Install it.** For user-local testing:
 
-For user-local testing:
+   ```sh
+   install -Dm755 target/release/halley ~/.local/bin/halley
+   install -Dm755 target/release/halleyctl ~/.local/bin/halleyctl
+   install -Dm755 target/release/xdg-desktop-portal-halley \
+     ~/.local/bin/xdg-desktop-portal-halley
+   ```
 
-```sh
-install -Dm755 target/release/halley ~/.local/bin/halley
-install -Dm755 target/release/halleyctl ~/.local/bin/halleyctl
-install -Dm755 target/release/xdg-desktop-portal-halley \
-  ~/.local/bin/xdg-desktop-portal-halley
-```
+3. **Install Lift.** [Lift](https://github.com/saltnpepper97/halley-lift#install)
+   is Halley's launcher, packaged separately, and `Super+D` opens it. Without
+   it, `Super+T` still opens a terminal.
 
-Run a nested development compositor with:
-
-```sh
-halley --winit
-```
-
-Use `halley-session` or `halley --session` for a native desktop session. See
-[the packaging guide](docs/packaging.md) for display-manager assets, portal
-metadata, systemd, dinit, runit, s6, OpenRC, and distribution paths.
+4. **Run it.** `halley --winit` starts a nested development compositor inside
+   your current desktop. Use `halley-session` or `halley --session` for a
+   native desktop session. See [the packaging guide](docs/packaging.md) for
+   display-manager assets, portal metadata, systemd, dinit, runit, s6, OpenRC,
+   and distribution paths.
 
 ---
 
 ## First Run
 
 Your first native session shows a **Halley basics** card with the essential
-controls. Dismiss it with `Enter`, `Escape`, or a click, and reopen it from
-Lift or with `halleyctl basics`. The card uses your configured modifier key.
-Nested `halley --winit` sessions do not show it automatically.
+controls, labelled with your own keybinds. Dismiss it with `Enter`, `Escape`,
+or a click, and reopen it from Lift or with `halleyctl basics`. Nested
+`halley --winit` sessions do not show it automatically.
 
 ---
 
@@ -95,10 +89,9 @@ you work, and you clean up when the visible Field becomes cluttered. The whole
 daily workflow is one loop:
 
 > Launch freely → position and overlap naturally → arrange when the visible
-> Field becomes messy → collapse work intentionally → retrieve it spatially →
-> use clusters later only when deliberately configured.
+> Field becomes messy → collapse work intentionally → retrieve it spatially.
 
-1. **Launch freely.** `Super+D` opens [Lift](https://github.com/saltnpepper97/halley-lift), the separately installed launcher, so whatever you start lands
+1. **Launch freely.** `Super+D` opens Lift, so whatever you start lands
    directly on the Field.
 2. **Position and overlap naturally.** `Super+Left-drag` moves a window, and
    ordinary windows are free to overlap instead of being solved into slots.
@@ -108,24 +101,26 @@ daily workflow is one loop:
 4. **Collapse work intentionally.** `Super+N` collapses the focused window into
    its clickable node — the marker that keeps the window's place on the Field —
    and restores it again.
-5. **Retrieve it spatially.** `Super+Arrow` walks to the nearest window or node;
-   the retrieval layers below cover recent work, offscreen work, and everything
-   open across your monitors.
-6. **Use clusters later, only when deliberately configured.** A cluster is an
-   optional named context, not the way Halley expects you to organize windows.
+5. **Retrieve it spatially.** See [Retrieval](#retrieval) below.
+6. **Optional: name a group of windows as a cluster.** `Super+Shift+C` picks
+   windows for a cluster, which opens into its own tiling or stacking
+   workspace. See [Clusters](#clusters).
 
 ### Retrieval
 
-Halley keeps five retrieval mechanisms because they answer five different
-questions. They are layers, not replacements for each other.
+Finding a window again comes down to four questions:
 
-| Mechanism | Binding | Question it answers |
-|---|---|---|
-| Directional focus | `Super+Arrow` | Nearby spatial navigation — which window or node is next in this direction? |
-| Focus carousel | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation — what did I just come from? |
-| Bearings | `Super+Z` hold / `Super+Shift+Z` toggle | Offscreen spatial retrieval — where did work go beyond this monitor's view? |
-| Apogee | `Super+O` | Visual inventory across monitors — what is open on every display? |
-| Lift | `Super+D` | Direct search by application, node, cluster, or compositor action — what is this called? |
+- **What's next to this?** `Super+Arrow` moves focus to the nearest window or
+  node in that direction.
+- **What was I just using?** `Alt+Tab` / `Alt+Shift+Tab` cycles recent windows.
+  Trail walks this monitor's focus history with `Super+,` and `Super+.`, and
+  `Super+H` centers the last-focused window.
+- **What's out there?** `Super+O` opens Apogee, an overview of everything open
+  on every monitor. For this monitor alone, hold `Super+Z` (or toggle it with
+  `Super+Shift+Z`) to show Bearings: chips at the screen edges pointing to
+  offscreen nodes and clusters.
+- **What's it called?** `Super+D` opens Lift to search applications, running
+  nodes, clusters, and compositor actions by name.
 
 ---
 
@@ -134,15 +129,15 @@ questions. They are layers, not replacements for each other.
 | Term | What it is |
 |---|---|
 | **Field** | An infinite, zoomable 2D canvas with an independent camera on each monitor. |
-| **Node** | A managed window's stable identity and its collapsed representation on the Field. |
-| **Focus Ring** | An elliptical active region used by decay and navigation policy. |
-| **Decay** | Configurable timers that collapse inactive windows into nodes. |
-| **Landmark** | A collapsed or pinned object that remains spatially meaningful while ordinary windows overlap freely. |
-| **Cluster** | A group of windows that opens into its own tiling or stacking workspace. |
-| **Core** | The collapsed Field representation of a cluster. |
-| **Trail** | Per-monitor focus history with backward, forward, list, and exact goto controls. |
-| **Bearings** | A directional overlay for finding and navigating offscreen nodes and cluster cores. |
-| **Apogee** | A multi-monitor overview with live compositor-owned previews. |
+| **Node** | A window collapsed into a small marker that keeps its place on the Field. It is still running. |
+| **Decay** | Timers that collapse windows you have stopped using into nodes. |
+| **Pin** | Exempts a window from decay. You can still collapse and restore it yourself. |
+| **Arrange** | Gathers the visible windows into a mosaic, and restores their saved geometry when pressed again. |
+| **Cluster** | An optional named group of windows that opens into its own tiling or stacking workspace. |
+| **Trail** | Per-monitor focus history you can walk backward and forward. |
+| **Bearings** | Edge chips pointing to offscreen nodes and clusters on this monitor. |
+| **Apogee** | An overview of every window across all monitors, with live previews. |
+| **Lift** | Halley's separately installed launcher and search. |
 
 ---
 
@@ -150,26 +145,19 @@ questions. They are layers, not replacements for each other.
 
 Multi-monitor behavior is not an extension of one shared workspace. Every
 output owns its own camera, focus history, active cluster, fullscreen state,
-maximize state, and focus-ring policy.
+maximize state, and decay policy.
 
 - **Independent cameras** — pan and zoom one monitor without disturbing the
   others.
 - **Free overlap** — normal active windows overlap by default instead of being
   forced through a global no-overlap solver.
-- **Decay and landmarks** — inactive windows can collapse into durable nodes;
-  pinned nodes stay fixed until explicitly moved.
+- **Decay and pins** — windows you stop using collapse into nodes after a
+  timer; pinned windows never decay.
 - **Move or carry** — Mod+drag crosses monitor boundaries, while
   Mod+Shift+drag dwells at an edge to carry the window through its current
   output's Field.
-- **Trail navigation** — walk backward and forward through each monitor's
-  recent Field focus history.
 - **Directional focus** — the same action vocabulary adapts to the Field,
   tiling clusters, and stacking clusters.
-
-The focus ring is an invisible ellipse around the useful part of a monitor's
-camera. Its dimensions and offset are configurable per output. Windows outside
-that ring become candidates for timer-driven decay rather than disappearing
-because an arbitrary global window count was exceeded.
 
 See [nodes and decay](docs/nodes.md) for configuration and behavior.
 
@@ -182,101 +170,48 @@ declared at startup. Each cluster opens into a monitor-local workspace with a
 tiling or stacking layout, leaving the Field behind it intact.
 
 Use `Super+Shift+C` to open the Cluster Composer and select windows for a new
-cluster. See [clusters](docs/clusters.md) for creation, layouts, and startup
+cluster, then `Super+1` through `Super+0` to open a monitor's cluster slots.
+See [clusters](docs/clusters.md) for creation, layouts, and startup
 configuration.
 
 ---
 
-## Default Keybinds
+## Essential Keybinds
 
-The canonical defaults live in
-[`examples/halley.rune`](examples/halley.rune). Keybinds are configurable,
-context-scoped, side-aware, and shared by keyboard, pointer-button, wheel,
-swipe, and hold actions.
+| Keybind | Action |
+|---|---|
+| `Super+D` | Open Lift |
+| `Super+T` | Open a terminal |
+| `Super+Q` | Close the focused window |
+| `Super+Left-drag` | Move a window |
+| `Super+Right-drag` | Resize a window |
+| `Super+A` | Arrange visible windows, or restore their saved geometry |
+| `Super+N` | Collapse the focused window into a node, or restore it |
+| `Super+P` | Pin or unpin the focused window |
+| `Super+F` | Toggle fullscreen |
+| `Super+Arrow` | Focus the nearest window or node in that direction |
+| `Alt+Tab` | Cycle recent windows |
+| `Super+O` | Open Apogee |
+| `Super+Shift+E` | Quit Halley |
 
-| Category | Keybind | Action |
-|---|---|---|
-| Basic | `Super+Shift+E` | Open Halley's quit confirmation |
-| Basic | `Super+Q` | Close the focused window |
-| Basic | `Super+F` | Toggle fullscreen |
-| Basic | `Super+M` | Toggle Field maximize |
-| Basic | `Super+N` | Collapse the focused window into its node, or restore it (a collapsed node also restores on click) |
-| Basic | `Super+P` | Pin or unpin the focused window |
-| Overview | `Super+O` | Toggle Apogee, the visual inventory across monitors |
-| Focus | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation: cycle the focus carousel forward/backward |
-| Focus | `Super+Arrow` | Nearby spatial navigation: directional focus in the active context |
-| Focus | `Super+H` | Center the last-focused Field window |
-| Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
-| Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
-| Move | `Super+Alt+Arrow` | Move the focused Field node; [custom distances](docs/keybinds.md#actions) are optional |
-| Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
-| Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
-| Clusters | `Super+Shift+C` | Enter cluster creation mode |
-| Clusters | `Super+L` | Cycle cluster layout |
-| Clusters | `Super+V` | Toggle the focused cluster member floating |
-| Clusters | `Super+0..9` | Open a per-monitor cluster slot |
-| Bearings | `Super+Z` / `Super+Shift+Z` | Offscreen retrieval: hold or toggle Bearings |
-| Launch | `Super+T` | Open the first supported terminal |
-| Launch | `Super+D` | Open Lift to search applications, nodes, clusters, and compositor actions (Fuzzel is a commented alternative) |
-| Reload | `Super+Shift+R` | Reload the selected configuration |
-| Zoom | `Super+-` / `Super+=` / `Super+Shift+0` | Zoom out, in, or reset |
-| Pointer | `Super+Left Mouse` | Move a window |
-| Pointer | `Super+Right Mouse` | Smoothly resize a window |
-| Pointer | `Left Mouse` on empty Field | Pan the Field |
-| Screenshot | `Print` | Open native capture |
-
-The same chord may be assigned distinct actions in `field`, `cluster`, `tile`,
-and `stack` scopes. Left/right Super, Alt, Ctrl, and Shift can be matched
-independently. Compositor move, resize, and pan grabs are ordinary remappable
-bindings rather than hardcoded mouse policy.
-
-`Super+D` opens [Lift](https://github.com/saltnpepper97/halley-lift),
-the independently packaged search and action launcher. It searches applications,
-running nodes, clusters, compositor actions, and config files from one field,
-and it can run terminal commands. Prefer a separate launcher? Any non-built-in
-action string is a command line, so replacing one line is enough:
-
-```rune
-"$var.mod+d" "fuzzel"
-```
-
-Existing configurations keep their current launcher binding. Newly generated
-configs default to Lift.
+Every binding is configurable. See [keybinds](docs/keybinds.md) for the full
+list of defaults, actions, and trigger types.
 
 ---
 
 ## Configuration
 
-On first launch Halley creates
-`$XDG_CONFIG_HOME/halley/halley.rune`, falling back to
-`~/.config/halley/halley.rune`, from the canonical
-[`examples/halley.rune`](examples/halley.rune) template. Startup never modifies
-an existing config, and configs need no version marker. Halley does not back up,
-migrate, or replace existing configs. Update settings and bindings yourself,
-using the example as a reference, and check the result with
-`halleyctl config verify`. Omitted settings use built-in defaults; an
-incompatible config reports an error and remains unchanged.
-
-Pass `-c PATH` or `--config PATH` to select another file. Valid edits reload as
-one atomic snapshot; invalid edits leave the last valid runtime state active.
-Nested Rune `gather` dependencies are watched recursively, including missing
-dependencies that are created after startup.
-
-See [display scaling](docs/display-scale.md),
-[explicit synchronization](docs/wayland-protocols.md#explicit-synchronization),
-[startup clusters](docs/clusters.md#startup-clusters), and
-[autostart logs](docs/autostart.md) for more configuration details.
-
-Useful controls:
+On first launch Halley writes a config file to
+`$XDG_CONFIG_HOME/halley/halley.rune` (or `~/.config/halley/halley.rune`), and
+edits to it reload live. Every option is documented on the
+[website](https://saltnpepper97.github.io/halley-site/) and in the
+[configuration template](examples/halley.rune).
 
 ```sh
-halleyctl config verify
 halleyctl config edit
+halleyctl config verify
 halleyctl reload
 ```
-
-Run `halleyctl --help` for compositor controls, or see the
-[capture API](docs/api.md#screenshots-and-automation) for automated screenshots.
 
 ---
 
