@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Rewrite the README around what Halley does: a new headline, Lift as an
+  explicit install step (with `Super+T` working without it), clusters as an
+  optional step, retrieval as four questions that now include Trail, ten core
+  concepts, and a short essential keybinds table. The full default keybinds
+  table moved to `docs/keybinds.md`.
 - Update both official Smithay dependencies to the November 4 revision and
   x11rb to 0.14. Adapt virtual-keyboard and text-input integration while
   preserving direct virtual-key delivery, independent modifier masks,
