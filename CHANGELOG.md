@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Write a short starter config on first run instead of the full 1,000-line
+  file. It covers autostart, input, cursor, decorations, font, decay,
+  screenshots, animations and keybinds, and links each section to its page on
+  the website. Everything it leaves out keeps the same default as before. The
+  full file is now `examples/halley.reference.rune`, for copying options from.
+  New configs no longer bind node movement (`Mod+Alt+Arrow`) or monitor
+  transfer (`Mod+Alt+Shift+Arrow`); add them from the reference if you use
+  them. Existing configs are not changed.
 - With fullscreen animations off, stop an X11 window or game from flashing its
   old buffer at the new position for a frame when entering or leaving
   fullscreen. It now switches in one step once it has repainted at the new size,
