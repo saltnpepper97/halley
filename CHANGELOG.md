@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Make configs that leave a section out behave like the file Halley writes on
+  first run. Without a `decay:` section, windows now wait 10 minutes (90 inside
+  the focus ring) before collapsing, instead of 3 and 30. Physics is off by
+  default; set `physics.enabled true` to keep it, and its damping default is
+  now 0.45. Pins default to Halley orange (`#d65d26`). Settings your config
+  states are unchanged, and a test now fails if the generated config and the
+  built-in defaults drift apart.
 - Show a short notice when a cluster-slot key is pressed for an empty slot,
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 - Stop clusters from slowing down rendering. A collapsed cluster's core and

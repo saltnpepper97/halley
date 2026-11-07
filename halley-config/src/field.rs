@@ -42,7 +42,13 @@ impl Default for Pins {
     fn default() -> Self {
         Self {
             corner: PinBadgeCorner::TopRight,
-            color: OverlayColorMode::Auto,
+            // Halley orange (#d65d26), the colour the generated config writes.
+            color: OverlayColorMode::Fixed {
+                r: 214.0 / 255.0,
+                g: 93.0 / 255.0,
+                b: 38.0 / 255.0,
+                a: 1.0,
+            },
             background_color: OverlayColorMode::Auto,
             size: 1.0,
         }

@@ -502,8 +502,8 @@ fn omitted_recent_options_use_defaults_without_backfilling_the_file() {
             }),
         }
     );
-    assert_eq!(runtime.decay.outside_delay_seconds, 180);
-    assert_eq!(runtime.decay.inside_delay_seconds, 1800);
+    assert_eq!(runtime.decay.outside_delay_seconds, 600);
+    assert_eq!(runtime.decay.inside_delay_seconds, 5400);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);
     assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
     std::fs::remove_dir_all(root).unwrap();

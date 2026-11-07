@@ -337,7 +337,7 @@ end
 # desktop portal. `$env.HOME`, `$HOME`, and `~` home-directory spellings are
 # supported. Missing directories are created when a screenshot is saved.
 screenshot:
-  directory "$env.HOME/Pictures/Screenshots/"
+  directory "$env.HOME/Pictures/Screenshots"
 end
 
 # Global font for compositor-owned UI. Every compositor label, badge, dialog,
@@ -576,11 +576,12 @@ field:
   end
 end
 
-# Old-Halley contact motion for nodes and node/window displacement. Disable
-# this for rigid movement: once contact begins, each unit pushed transfers
-# directly to the contacted node or movable node chain.
+# Old-Halley contact motion for nodes and node/window displacement. Off by
+# default for rigid movement: once contact begins, each unit pushed transfers
+# directly to the contacted node or movable node chain. Enable it for
+# springy contact motion; `damping` only applies while it is enabled.
 physics:
-  enabled true
+  enabled false
   damping 0.45
 end
 
