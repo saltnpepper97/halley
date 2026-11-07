@@ -11,12 +11,14 @@ pub(super) fn prepend_common_overlays(
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let mut overlay_elements = crate::render::overlays::shell::elements(
-        renderer,
+        &mut crate::render::draw::DrawContext {
+            renderer,
+            node: request.resources.node_renderer,
+            text: request.resources.ui_text,
+        },
         output_geometry,
         overlay_snapshot,
         request.overlays.overlay_config,
-        request.resources.node_renderer,
-        request.resources.ui_text,
     )?;
     append_compositor_overlay_blur(
         renderer,
@@ -35,14 +37,16 @@ pub(super) fn prepend_common_overlays(
 
     if request.visuals.debug.overlay_fps {
         let mut fps_elements = crate::render::overlays::fps::elements(
-            renderer,
+            &mut crate::render::draw::DrawContext {
+                renderer,
+                node: request.resources.node_renderer,
+                text: request.resources.ui_text,
+            },
             &output.name(),
             request.frame.target_presentation_time,
             request.resources.debug_fps_overlay,
             request.overlays.overlay_config,
             request.visuals.decorations,
-            request.resources.node_renderer,
-            request.resources.ui_text,
         )?;
         append_compositor_overlay_blur(
             renderer,

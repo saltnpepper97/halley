@@ -4,9 +4,9 @@ use smithay::backend::renderer::Color32F;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Buffer, Logical, Physical, Rectangle};
 
+use crate::render::draw::DrawContext;
 use crate::render::node::{LabelRenderElement, NodeRenderer, OverlayCardStyle};
 use crate::render::scene::SceneElement;
-use crate::render::text::UiTextRenderer;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayRgb {
@@ -214,79 +214,61 @@ pub fn label_card_element(
 }
 
 pub fn elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     output_geometry: Rectangle<i32, Logical>,
     snapshot: crate::shell::overlay::OverlaySnapshot,
     config: &halley_config::Overlays,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let visuals = resolve_visuals(config);
     let screen = Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1));
     let mut elements = Vec::new();
     if let Some(basics) = snapshot.basics {
-        super::basics::elements(
-            renderer,
-            screen,
-            basics,
-            visuals,
-            node_renderer,
-            ui_text,
-            &mut elements,
-        )?;
+        super::basics::elements(ctx, screen, basics, visuals, &mut elements)?;
     }
     if let Some(mix) = snapshot.exit_mix {
         confirmation_elements(
-            renderer,
+            ctx,
             screen,
             mix,
             "Are you sure you want to leave?",
             None,
             "leave",
             visuals,
-            node_renderer,
-            ui_text,
             &mut elements,
         )?;
     }
     if let Some(confirmation) = snapshot.confirmation {
         confirmation_elements(
-            renderer,
+            ctx,
             screen,
             1.0,
             &confirmation.title,
             Some(&confirmation.message),
             confirmation.confirm_label,
             visuals,
-            node_renderer,
-            ui_text,
             &mut elements,
         )?;
     }
     if let Some(notification) = snapshot.notification {
         notification_elements(
-            renderer,
+            ctx,
             screen,
             notification,
             config.notifications,
             visuals,
-            node_renderer,
-            ui_text,
             &mut elements,
         )?;
     }
     if let Some(empty) = snapshot.empty_cluster {
         let title = format!("{} is empty", empty.name.trim());
         let (title, _) = fit_middle(
-            renderer,
-            ui_text,
+            ctx,
             &title,
             visuals.text.bytes(),
             (screen.size.w - 84).max(80),
         )?;
         let (shortcut, _) = fit_middle(
-            renderer,
-            ui_text,
+            ctx,
             &empty.shortcut,
             visuals.text.bytes(),
             (screen.size.w - 260).max(80),
@@ -300,7 +282,7 @@ pub fn elements(
             vec![(shortcut.as_str(), "press to delete cluster")]
         };
         shortcut_card_elements(
-            renderer,
+            ctx,
             screen,
             1.0,
             &title,
@@ -308,21 +290,11 @@ pub fn elements(
             &actions,
             false,
             visuals,
-            node_renderer,
-            ui_text,
             &mut elements,
         )?;
     }
     if let Some(indicator) = snapshot.cluster_indicator {
-        cluster_indicator_elements(
-            renderer,
-            screen,
-            indicator,
-            visuals,
-            node_renderer,
-            ui_text,
-            &mut elements,
-        )?;
+        cluster_indicator_elements(ctx, screen, indicator, visuals, &mut elements)?;
     }
     if config.zoom_indicator.enabled
         && let Some(zoom_indicator) = snapshot.zoom_indicator
@@ -330,13 +302,11 @@ pub fn elements(
         let zoom_visuals =
             resolve_zoom_indicator_visuals(config.zoom_indicator, visuals, config.border_size_px);
         zoom_indicator_elements(
-            renderer,
+            ctx,
             screen,
             zoom_indicator,
             config.zoom_indicator,
             zoom_visuals,
-            node_renderer,
-            ui_text,
             &mut elements,
         )?;
     }
@@ -345,19 +315,17 @@ pub fn elements(
 
 #[allow(clippy::too_many_arguments)]
 fn confirmation_elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     mix: f32,
     title: &str,
     message: Option<&str>,
     confirm_label: &str,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     shortcut_card_elements(
-        renderer,
+        ctx,
         screen,
         mix,
         title,
@@ -365,15 +333,13 @@ fn confirmation_elements(
         &[("Enter", confirm_label), ("Esc", "cancel")],
         true,
         visuals,
-        node_renderer,
-        ui_text,
         elements,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn shortcut_card_elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     mix: f32,
     title: &str,
@@ -381,15 +347,17 @@ fn shortcut_card_elements(
     actions: &[(&str, &str)],
     dim: bool,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
-    let title_size = ui_text
-        .measure(renderer, title, visuals.text.bytes())?
+    let title_size = ctx
+        .text
+        .measure(ctx.renderer, title, visuals.text.bytes())?
         .unwrap_or((0, 0).into());
     let message_size = message
-        .map(|message| ui_text.measure(renderer, message, visuals.subtext.bytes()))
+        .map(|message| {
+            ctx.text
+                .measure(ctx.renderer, message, visuals.subtext.bytes())
+        })
         .transpose()?
         .flatten()
         .unwrap_or((0, 0).into());
@@ -397,11 +365,13 @@ fn shortcut_card_elements(
     let mut action_height = 0;
     let mut action_sizes = Vec::new();
     for &(key, label) in actions {
-        let key_size = ui_text
-            .measure(renderer, key, visuals.text.bytes())?
+        let key_size = ctx
+            .text
+            .measure(ctx.renderer, key, visuals.text.bytes())?
             .unwrap_or((0, 0).into());
-        let label_size = ui_text
-            .measure(renderer, label, visuals.subtext.bytes())?
+        let label_size = ctx
+            .text
+            .measure(ctx.renderer, label, visuals.subtext.bytes())?
             .unwrap_or((0, 0).into());
         let chip_width = key_size.w + 16;
         action_width += chip_width + 8 + label_size.w + 22;
@@ -424,8 +394,8 @@ fn shortcut_card_elements(
     );
     let title_x = card.loc.x + 24;
     let title_y = card.loc.y + 18;
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (title_x, title_y).into(),
         title,
         visuals.text.bytes(),
@@ -434,8 +404,8 @@ fn shortcut_card_elements(
         elements.push(SceneElement::UiText(text.element));
     }
     if let Some(message) = message
-        && let Some(text) = ui_text.element(
-            renderer,
+        && let Some(text) = ctx.text.element(
+            ctx.renderer,
             (title_x, title_y + title_size.h + 12).into(),
             message,
             visuals.subtext.bytes(),
@@ -448,8 +418,8 @@ fn shortcut_card_elements(
     let action_y = card.loc.y + card.size.h - action_height - 16;
     for (key, label, key_size, label_size, chip_width) in action_sizes {
         let chip = Rectangle::new((x, action_y).into(), (chip_width, action_height).into());
-        if let Some(text) = ui_text.element(
-            renderer,
+        if let Some(text) = ctx.text.element(
+            ctx.renderer,
             (chip.loc.x + 8, chip.loc.y + (chip.size.h - key_size.h) / 2).into(),
             key,
             visuals.text.bytes(),
@@ -457,9 +427,7 @@ fn shortcut_card_elements(
         )? {
             elements.push(SceneElement::UiText(text.element));
         }
-        elements.push(SceneElement::NodeLabel(card_element(
-            renderer,
-            node_renderer,
+        elements.push(SceneElement::NodeLabel(ctx.card(
             chip,
             OverlayVisuals {
                 border_px: 0.0,
@@ -469,8 +437,8 @@ fn shortcut_card_elements(
             0.96 * mix,
         )?));
         x += chip_width + 8;
-        if let Some(text) = ui_text.element(
-            renderer,
+        if let Some(text) = ctx.text.element(
+            ctx.renderer,
             (x, action_y + (action_height - label_size.h) / 2).into(),
             label,
             visuals.subtext.bytes(),
@@ -480,9 +448,7 @@ fn shortcut_card_elements(
         }
         x += label_size.w + 22;
     }
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         card,
         visuals,
         visuals.fill,
@@ -491,7 +457,8 @@ fn shortcut_card_elements(
     if dim {
         let color = backdrop_dim(0.62 * mix);
         elements.push(SceneElement::Border(crate::render::solid_color_element(
-            node_renderer.active_slot_id(crate::render::node::NodeSlot::ShellBackdrop),
+            ctx.node
+                .active_slot_id(crate::render::node::NodeSlot::ShellBackdrop),
             screen,
             color,
         )));
@@ -499,42 +466,25 @@ fn shortcut_card_elements(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn notification_elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     notification: crate::shell::overlay::NotificationSnapshot,
     config: halley_config::Notifications,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     if notification.screenshot.is_some() {
-        return super::screenshot::elements(
-            renderer,
-            screen,
-            notification,
-            config,
-            visuals,
-            node_renderer,
-            ui_text,
-            elements,
-        );
+        return super::screenshot::elements(ctx, screen, notification, config, visuals, elements);
     }
     let max_text_width = ((screen.size.w as f32 * 0.70).round() as i32 - 32).max(80);
     let color = match notification.kind {
         crate::shell::overlay::NotificationKind::Success => visuals.text,
         crate::shell::overlay::NotificationKind::Error => visuals.error,
     };
-    let (message, text_size) = fit_middle(
-        renderer,
-        ui_text,
-        &notification.message,
-        color.bytes(),
-        max_text_width,
-    )?;
-    let layout = ui_text.padded_label_layout(text_size)?;
+    let (message, text_size) =
+        fit_middle(ctx, &notification.message, color.bytes(), max_text_width)?;
+    let layout = ctx.text.padded_label_layout(text_size)?;
     let card_size: smithay::utils::Size<i32, Logical> = (
         layout.card.width.round() as i32,
         layout.card.height.round() as i32,
@@ -547,8 +497,8 @@ fn notification_elements(
         notification.mix,
     )
     .to_physical(1);
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (
             card.loc.x + layout.label.origin.x.round() as i32,
             card.loc.y + layout.label.origin.y.round() as i32,
@@ -560,9 +510,7 @@ fn notification_elements(
     )? {
         elements.push(SceneElement::UiText(text.element));
     }
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         card,
         visuals,
         visuals.fill,
@@ -571,24 +519,16 @@ fn notification_elements(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn cluster_indicator_elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     indicator: crate::shell::overlay::ClusterIndicatorSnapshot,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let max_text_width = ((screen.size.w as f32 * 0.70).round() as i32 - 40).max(80);
-    let (label, text_size) = fit_middle(
-        renderer,
-        ui_text,
-        &indicator.label,
-        visuals.text.bytes(),
-        max_text_width,
-    )?;
+    let (label, text_size) =
+        fit_middle(ctx, &indicator.label, visuals.text.bytes(), max_text_width)?;
     let card_size =
         smithay::utils::Size::<i32, Physical>::from((text_size.w + 40, text_size.h + 24));
     let card = Rectangle::<i32, Physical>::new(
@@ -599,8 +539,8 @@ fn cluster_indicator_elements(
             .into(),
         card_size,
     );
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (
             card.loc.x + 20,
             card.loc.y + (card.size.h - text_size.h) / 2,
@@ -612,9 +552,7 @@ fn cluster_indicator_elements(
     )? {
         elements.push(SceneElement::UiText(text.element));
     }
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         card,
         visuals,
         visuals.fill,
@@ -623,23 +561,23 @@ fn cluster_indicator_elements(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn zoom_indicator_elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     indicator: crate::shell::overlay::ZoomIndicatorSnapshot,
     config: halley_config::ZoomIndicator,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let label = zoom_indicator_label(indicator.scale);
     let measured = match config.text_size {
         Some(size_px) => {
-            ui_text.measure_at_size(renderer, &label, visuals.text.bytes(), size_px)?
+            ctx.text
+                .measure_at_size(ctx.renderer, &label, visuals.text.bytes(), size_px)?
         }
-        None => ui_text.measure(renderer, &label, visuals.text.bytes())?,
+        None => ctx
+            .text
+            .measure(ctx.renderer, &label, visuals.text.bytes())?,
     };
     let Some(text_size) = measured else {
         return Ok(());
@@ -652,16 +590,16 @@ fn zoom_indicator_elements(
         .into();
     let alpha = indicator.mix * config.opacity;
     let text = match config.text_size {
-        Some(size_px) => ui_text.element_at_size(
-            renderer,
+        Some(size_px) => ctx.text.element_at_size(
+            ctx.renderer,
             origin,
             &label,
             visuals.text.bytes(),
             visuals.text.a * alpha,
             size_px,
         )?,
-        None => ui_text.element(
-            renderer,
+        None => ctx.text.element(
+            ctx.renderer,
             origin,
             &label,
             visuals.text.bytes(),
@@ -672,9 +610,7 @@ fn zoom_indicator_elements(
         elements.push(SceneElement::UiText(text.element));
     }
     if config.background {
-        elements.push(SceneElement::NodeLabel(card_element(
-            renderer,
-            node_renderer,
+        elements.push(SceneElement::NodeLabel(ctx.card(
             card,
             visuals,
             visuals.fill,
@@ -743,14 +679,14 @@ fn zoom_indicator_card_rect(
 }
 
 pub(super) fn fit_middle(
-    renderer: &mut GlesRenderer,
-    ui_text: &mut UiTextRenderer,
+    ctx: &mut DrawContext<'_>,
     value: &str,
     color: [u8; 3],
     max_width: i32,
 ) -> Result<(String, smithay::utils::Size<i32, Buffer>), Box<dyn Error>> {
-    let measured = ui_text
-        .measure(renderer, value, color)?
+    let measured = ctx
+        .text
+        .measure(ctx.renderer, value, color)?
         .unwrap_or((0, 0).into());
     if measured.w <= max_width {
         return Ok((value.to_string(), measured));
@@ -764,8 +700,9 @@ pub(super) fn fit_middle(
             chars[..left].iter().collect::<String>(),
             chars[chars.len() - right..].iter().collect::<String>()
         );
-        let measured = ui_text
-            .measure(renderer, &candidate, color)?
+        let measured = ctx
+            .text
+            .measure(ctx.renderer, &candidate, color)?
             .unwrap_or((0, 0).into());
         if measured.w <= max_width {
             return Ok((candidate, measured));

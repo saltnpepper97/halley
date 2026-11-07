@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::render::draw::DrawContext;
+
 const RAIL_TOP: i32 = 24;
 const RAIL_PAD_X: i32 = 18;
 const RAIL_PAD_Y: i32 = 12;
@@ -195,9 +197,11 @@ pub(super) fn cluster_composer_elements(
 
     if !committing {
         push_draft_rail(
-            renderer,
-            node_renderer,
-            ui_text,
+            &mut crate::render::draw::DrawContext {
+                renderer,
+                node: node_renderer,
+                text: ui_text,
+            },
             &mut elements,
             output_local,
             creation,
@@ -378,11 +382,8 @@ fn push_selection_badge(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_draft_rail(
-    renderer: &mut GlesRenderer,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
+    ctx: &mut DrawContext<'_>,
     elements: &mut Vec<SceneElement>,
     screen: Rectangle<i32, Physical>,
     creation: Option<&crate::clusters::CreationState>,
@@ -406,21 +407,25 @@ fn push_draft_rail(
         visuals.fill
     };
     let mut hints = "Space select  ·  Enter name  ·  Esc cancel";
-    let title_size = ui_text
-        .measure(renderer, title, visuals.text.bytes())?
+    let title_size = ctx
+        .text
+        .measure(ctx.renderer, title, visuals.text.bytes())?
         .unwrap_or_default();
-    let status_size = ui_text
-        .measure(renderer, &status, status_text.bytes())?
+    let status_size = ctx
+        .text
+        .measure(ctx.renderer, &status, status_text.bytes())?
         .unwrap_or_default();
     let max_rail_width = (screen.size.w - RAIL_SCREEN_MARGIN * 2).max(0);
     let max_content_width = (max_rail_width - RAIL_PAD_X * 2).max(0);
-    let mut hint_size = ui_text
-        .measure(renderer, hints, visuals.subtext.bytes())?
+    let mut hint_size = ctx
+        .text
+        .measure(ctx.renderer, hints, visuals.subtext.bytes())?
         .unwrap_or_default();
     if hint_size.w + RAIL_TEXT_GUARD > max_content_width {
         hints = "Space  ·  Enter  ·  Esc";
-        hint_size = ui_text
-            .measure(renderer, hints, visuals.subtext.bytes())?
+        hint_size = ctx
+            .text
+            .measure(ctx.renderer, hints, visuals.subtext.bytes())?
             .unwrap_or_default();
     }
     let status_width = status_size.w + STATUS_PAD_X * 2;
@@ -435,8 +440,8 @@ fn push_draft_rail(
         (width, height).into(),
     );
     let header_y = rail.loc.y + RAIL_PAD_Y;
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (
             rail.loc.x + RAIL_PAD_X,
             header_y + (header_height - title_size.h) / 2,
@@ -456,8 +461,8 @@ fn push_draft_rail(
             .into(),
         (status_width, status_height).into(),
     );
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (
             status_badge.loc.x + STATUS_PAD_X,
             status_badge.loc.y + STATUS_PAD_Y,
@@ -469,25 +474,21 @@ fn push_draft_rail(
     )? {
         elements.push(SceneElement::UiText(text.element));
     }
-    elements.push(SceneElement::NodeLabel(
-        crate::render::overlays::shell::label_card_element(
-            renderer,
-            node_renderer,
-            status_badge,
-            crate::render::overlays::shell::OverlayVisuals {
-                radius: status_badge.size.h as f32 * 0.5,
-                ..visuals
-            },
-            if count == 0 {
-                visuals.key_fill
-            } else {
-                visuals.text
-            },
-            0.92 * alpha,
-        )?,
-    ));
-    if let Some(text) = ui_text.element(
-        renderer,
+    elements.push(SceneElement::NodeLabel(ctx.label_card(
+        status_badge,
+        crate::render::overlays::shell::OverlayVisuals {
+            radius: status_badge.size.h as f32 * 0.5,
+            ..visuals
+        },
+        if count == 0 {
+            visuals.key_fill
+        } else {
+            visuals.text
+        },
+        0.92 * alpha,
+    )?));
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (rail.loc.x + RAIL_PAD_X, header_y + header_height + RAIL_GAP).into(),
         hints,
         visuals.subtext.bytes(),
@@ -495,19 +496,15 @@ fn push_draft_rail(
     )? {
         elements.push(SceneElement::UiText(text.element));
     }
-    elements.push(SceneElement::NodeLabel(
-        crate::render::overlays::shell::card_element(
-            renderer,
-            node_renderer,
-            rail,
-            crate::render::overlays::shell::OverlayVisuals {
-                radius: 18.0,
-                ..visuals
-            },
-            visuals.fill,
-            0.97 * alpha,
-        )?,
-    ));
+    elements.push(SceneElement::NodeLabel(ctx.card(
+        rail,
+        crate::render::overlays::shell::OverlayVisuals {
+            radius: 18.0,
+            ..visuals
+        },
+        visuals.fill,
+        0.97 * alpha,
+    )?));
     Ok(())
 }
 

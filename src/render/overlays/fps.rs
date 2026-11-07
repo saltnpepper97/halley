@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Buffer, Physical, Rectangle, Size};
 
-use super::shell::{card_element, resolve_visuals};
-use crate::render::node::NodeRenderer;
+use super::shell::resolve_visuals;
+use crate::render::draw::DrawContext;
 use crate::render::scene::SceneElement;
-use crate::render::text::UiTextRenderer;
 
 const FPS_EDGE_PAD: i32 = 20;
 const FPS_PAD_X: i32 = 18;
@@ -49,27 +47,27 @@ impl DebugFpsOverlay {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     output: &str,
     now: Duration,
     state: &mut DebugFpsOverlay,
     overlay_config: &halley_config::Overlays,
     _decorations: &halley_config::Decorations,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let label = fps_label(state.sample(output, now));
     let mut visuals = resolve_visuals(overlay_config);
     visuals.radius = FPS_CORNER_RADIUS;
-    let Some(text_size) = ui_text.measure(renderer, &label, visuals.text.bytes())? else {
+    let Some(text_size) = ctx
+        .text
+        .measure(ctx.renderer, &label, visuals.text.bytes())?
+    else {
         return Ok(Vec::new());
     };
     let card = fps_card_rect(text_size);
     let mut elements = Vec::with_capacity(2);
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (card.loc.x + FPS_PAD_X, card.loc.y + FPS_PAD_Y).into(),
         &label,
         visuals.text.bytes(),
@@ -79,14 +77,7 @@ pub fn elements(
     }
     let mut fill = visuals.fill;
     fill.a *= 0.88;
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
-        card,
-        visuals,
-        fill,
-        1.0,
-    )?));
+    elements.push(SceneElement::NodeLabel(ctx.card(card, visuals, fill, 1.0)?));
     Ok(elements)
 }
 

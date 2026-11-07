@@ -2,25 +2,20 @@ use std::error::Error;
 
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Physical, Rectangle};
 
-use super::shell::{OverlayVisuals, card_element, fit_middle};
-use crate::render::node::NodeRenderer;
+use super::shell::{OverlayVisuals, fit_middle};
+use crate::render::draw::DrawContext;
 use crate::render::scene::SceneElement;
-use crate::render::text::UiTextRenderer;
 use crate::shell::overlay::NotificationSnapshot;
 use crate::shell::screenshot::{ScreenshotAction, layout};
 
-#[allow(clippy::too_many_arguments)]
 pub fn elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     snapshot: NotificationSnapshot,
     config: halley_config::Notifications,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let preview = snapshot
@@ -31,7 +26,7 @@ pub fn elements(
         Rectangle::<i32, Logical>::from_size(screen.size.to_logical(1)),
         config,
         snapshot.mix,
-        ui_text.font_size(),
+        ctx.text.font_size(),
     );
     let physical = |r: Rectangle<i32, Logical>| r.to_physical(1);
     let area = physical(layout.preview);
@@ -47,7 +42,7 @@ pub fn elements(
     );
     elements.push(SceneElement::ScreenshotPreview(
         MemoryRenderBufferRenderElement::from_buffer(
-            renderer,
+            ctx.renderer,
             location,
             &preview.buffer,
             Some(snapshot.mix),
@@ -56,9 +51,7 @@ pub fn elements(
             Kind::Unspecified,
         )?,
     ));
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         area,
         visuals.label_chrome(),
         visuals.key_fill,
@@ -77,8 +70,7 @@ pub fn elements(
             visuals.key_fill
         };
         text(
-            renderer,
-            ui_text,
+            ctx,
             rect,
             label,
             visuals.text.bytes(),
@@ -86,9 +78,7 @@ pub fn elements(
             true,
             elements,
         )?;
-        elements.push(SceneElement::NodeLabel(card_element(
-            renderer,
-            node_renderer,
+        elements.push(SceneElement::NodeLabel(ctx.card(
             rect,
             visuals.label_chrome(),
             fill,
@@ -96,8 +86,7 @@ pub fn elements(
         )?));
     }
     text(
-        renderer,
-        ui_text,
+        ctx,
         physical(layout.title),
         &snapshot.message,
         visuals.text.bytes(),
@@ -112,8 +101,7 @@ pub fn elements(
         .display()
         .to_string();
     text(
-        renderer,
-        ui_text,
+        ctx,
         physical(layout.subtitle),
         &directory,
         visuals.subtext.bytes(),
@@ -121,9 +109,7 @@ pub fn elements(
         false,
         elements,
     )?;
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         physical(layout.card),
         visuals,
         visuals.fill,
@@ -132,10 +118,8 @@ pub fn elements(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn text(
-    renderer: &mut GlesRenderer,
-    ui_text: &mut UiTextRenderer,
+    ctx: &mut DrawContext<'_>,
     rect: Rectangle<i32, Physical>,
     label: &str,
     rgb: [u8; 3],
@@ -143,21 +127,15 @@ fn text(
     centered: bool,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
-    let (label, size) = fit_middle(
-        renderer,
-        ui_text,
-        label,
-        rgb,
-        rect.size.w - if centered { 12 } else { 0 },
-    )?;
+    let (label, size) = fit_middle(ctx, label, rgb, rect.size.w - if centered { 12 } else { 0 })?;
     let x = rect.loc.x
         + if centered {
             (rect.size.w - size.w) / 2
         } else {
             0
         };
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (x, rect.loc.y + (rect.size.h - size.h) / 2).into(),
         &label,
         rgb,

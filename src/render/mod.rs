@@ -4,6 +4,7 @@ pub mod background;
 pub mod close;
 pub(crate) mod conservative;
 pub mod display_scale;
+pub(crate) mod draw;
 pub mod effects;
 pub mod fullscreen_texture;
 pub mod ids;
