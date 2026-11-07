@@ -8,14 +8,12 @@
 
 use std::error::Error;
 
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Buffer, Physical, Rectangle, Size};
 
-use super::shell::{OverlayVisuals, card_element};
+use super::shell::OverlayVisuals;
 use crate::input::keybinds::{ResolvedBind, drag_shortcut_label, shortcut_label};
-use crate::render::node::NodeRenderer;
+use crate::render::draw::DrawContext;
 use crate::render::scene::SceneElement;
-use crate::render::text::UiTextRenderer;
 
 const PADDING: i32 = 24;
 const TITLE_BOTTOM: i32 = 8;
@@ -93,26 +91,23 @@ struct Row {
     description_size: Size<i32, Buffer>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn elements(
-    renderer: &mut GlesRenderer,
+    ctx: &mut DrawContext<'_>,
     screen: Rectangle<i32, Physical>,
     snapshot: crate::shell::overlay::BasicsCardSnapshot,
     visuals: OverlayVisuals,
-    node_renderer: &mut NodeRenderer,
-    ui_text: &mut UiTextRenderer,
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let mix = snapshot.mix;
-    let title_size = text_size(renderer, ui_text, TITLE, visuals.text.bytes())?;
-    let model_size = text_size(renderer, ui_text, MODEL, visuals.text.bytes())?;
-    let subtext_size = text_size(renderer, ui_text, MODEL_SUBTEXT, visuals.subtext.bytes())?;
-    let footer_size = text_size(renderer, ui_text, FOOTER, visuals.subtext.bytes())?;
+    let title_size = ctx.text_size(TITLE, visuals.text.bytes())?;
+    let model_size = ctx.text_size(MODEL, visuals.text.bytes())?;
+    let subtext_size = ctx.text_size(MODEL_SUBTEXT, visuals.subtext.bytes())?;
+    let footer_size = ctx.text_size(FOOTER, visuals.subtext.bytes())?;
 
     let mut rows = Vec::with_capacity(snapshot.rows.len());
     for (chord, description) in snapshot.rows {
-        let chord_size = text_size(renderer, ui_text, &chord, visuals.text.bytes())?;
-        let description_size = text_size(renderer, ui_text, description, visuals.subtext.bytes())?;
+        let chord_size = ctx.text_size(&chord, visuals.text.bytes())?;
+        let description_size = ctx.text_size(description, visuals.subtext.bytes())?;
         rows.push(Row {
             chord,
             description,
@@ -162,31 +157,13 @@ pub fn elements(
 
     let left = card.loc.x + PADDING;
     let mut y = card.loc.y + PADDING;
-    push_text(
-        renderer,
-        ui_text,
-        elements,
-        (left, y),
-        TITLE,
-        visuals.text.bytes(),
-        mix,
-    )?;
+    ctx.push_text(elements, (left, y).into(), TITLE, visuals.text.bytes(), mix)?;
     y += title_size.h + TITLE_BOTTOM;
-    push_text(
-        renderer,
-        ui_text,
-        elements,
-        (left, y),
-        MODEL,
-        visuals.text.bytes(),
-        mix,
-    )?;
+    ctx.push_text(elements, (left, y).into(), MODEL, visuals.text.bytes(), mix)?;
     y += model_size.h + MODEL_BOTTOM;
-    push_text(
-        renderer,
-        ui_text,
+    ctx.push_text(
         elements,
-        (left, y),
+        (left, y).into(),
         MODEL_SUBTEXT,
         visuals.subtext.bytes(),
         mix,
@@ -199,18 +176,14 @@ pub fn elements(
             (left, y + (row_height - chip_height) / 2).into(),
             (row_width(row), chip_height).into(),
         );
-        push_text(
-            renderer,
-            ui_text,
+        ctx.push_text(
             elements,
-            (chip.loc.x + CHIP_PADDING_X, chip.loc.y + 4),
+            (chip.loc.x + CHIP_PADDING_X, chip.loc.y + 4).into(),
             &row.chord,
             visuals.text.bytes(),
             mix,
         )?;
-        elements.push(SceneElement::NodeLabel(card_element(
-            renderer,
-            node_renderer,
+        elements.push(SceneElement::NodeLabel(ctx.card(
             chip,
             OverlayVisuals {
                 border_px: 0.0,
@@ -219,14 +192,13 @@ pub fn elements(
             visuals.key_fill,
             0.96 * mix,
         )?));
-        push_text(
-            renderer,
-            ui_text,
+        ctx.push_text(
             elements,
             (
                 chip.loc.x + chip.size.w + CHIP_TEXT_GAP,
                 y + (row_height - row.description_size.h) / 2,
-            ),
+            )
+                .into(),
             row.description,
             visuals.subtext.bytes(),
             mix,
@@ -235,19 +207,15 @@ pub fn elements(
     }
 
     y += ROWS_TO_FOOTER - ROW_GAP;
-    push_text(
-        renderer,
-        ui_text,
+    ctx.push_text(
         elements,
-        (left, y),
+        (left, y).into(),
         FOOTER,
         visuals.subtext.bytes(),
         mix,
     )?;
 
-    elements.push(SceneElement::NodeLabel(card_element(
-        renderer,
-        node_renderer,
+    elements.push(SceneElement::NodeLabel(ctx.card(
         card,
         visuals,
         visuals.fill,
@@ -260,33 +228,6 @@ pub fn elements(
 /// sides.
 fn row_width(row: &Row) -> i32 {
     row.chord_size.w + 2 * CHIP_PADDING_X
-}
-
-fn text_size(
-    renderer: &mut GlesRenderer,
-    ui_text: &mut UiTextRenderer,
-    text: &str,
-    color: [u8; 3],
-) -> Result<Size<i32, Buffer>, Box<dyn Error>> {
-    Ok(ui_text
-        .measure(renderer, text, color)?
-        .unwrap_or((0, 0).into()))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_text(
-    renderer: &mut GlesRenderer,
-    ui_text: &mut UiTextRenderer,
-    elements: &mut Vec<SceneElement>,
-    origin: (i32, i32),
-    text: &str,
-    color: [u8; 3],
-    alpha: f32,
-) -> Result<(), Box<dyn Error>> {
-    if let Some(text) = ui_text.element(renderer, origin.into(), text, color, alpha)? {
-        elements.push(SceneElement::UiText(text.element));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

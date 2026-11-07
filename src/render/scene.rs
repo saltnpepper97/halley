@@ -310,7 +310,11 @@ fn build_logical(
     )?;
     elements.extend(bearings);
     let mut cluster_creation = super::overlays::cluster_creation::elements(
-        renderer,
+        &mut crate::render::draw::DrawContext {
+            renderer,
+            node: request.resources.node_renderer,
+            text: request.resources.ui_text,
+        },
         request.resources.cluster_creation_overlay,
         output,
         output_geometry,
@@ -319,8 +323,6 @@ fn build_logical(
         1.0,
         request.overlays.overlay_config,
         request.visuals.decorations,
-        request.resources.node_renderer,
-        request.resources.ui_text,
     )?;
     append_compositor_overlay_blur(
         renderer,

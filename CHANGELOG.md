@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: pass the renderers that draw overlay cards, dialogs and badges as
+  one draw context instead of three separate arguments, and share the text and
+  card helpers that overlays each kept a copy of. No behavior change.
 - Internal: end compositor pointer grabs through one helper that also clears
   the grab cursor, look up the seat keyboard and pointer through shared
   helpers, and name pointer button codes instead of writing raw evdev numbers.

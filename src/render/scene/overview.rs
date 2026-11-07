@@ -2,6 +2,8 @@ use super::apogee_clusters::{ApogeeCoreTileContext, apogee_core_tile_elements};
 use super::nodes::{ease_in_out_cubic, fit_ui_text};
 use super::*;
 
+use crate::render::draw::DrawContext;
+
 pub(super) const CLUSTER_MEMBER_BORDER_PX: f32 = 7.0;
 
 pub(super) fn apogee_backdrop_color(
@@ -481,10 +483,12 @@ pub(super) fn push_overview_window(
     }
     if record.collapsed {
         push_node_badge(
+            &mut crate::render::draw::DrawContext {
+                renderer,
+                node: node_renderer,
+                text: ui_text,
+            },
             elements,
-            renderer,
-            node_renderer,
-            ui_text,
             body,
             overlay_visuals,
             chrome_alpha,
@@ -652,24 +656,25 @@ pub(super) struct FocusCycleRenderContext<'a> {
 /// corner. The top-right corner belongs to Alt+Tab's monitor name and, on the
 /// Field, to the pin badge.
 fn push_node_badge(
+    ctx: &mut DrawContext<'_>,
     elements: &mut Vec<SceneElement>,
-    renderer: &mut GlesRenderer,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
     body: Rectangle<i32, Physical>,
     overlay_visuals: crate::render::overlays::shell::OverlayVisuals,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
     const LABEL: &str = "NODE";
-    let Some(size) = ui_text.measure(renderer, LABEL, overlay_visuals.border.bytes())? else {
+    let Some(size) = ctx
+        .text
+        .measure(ctx.renderer, LABEL, overlay_visuals.border.bytes())?
+    else {
         return Ok(());
     };
     let badge = Rectangle::<i32, Physical>::new(
         (body.loc.x + 8, body.loc.y + 8).into(),
         (size.w + 14, size.h + 8).into(),
     );
-    if let Some(text) = ui_text.element(
-        renderer,
+    if let Some(text) = ctx.text.element(
+        ctx.renderer,
         (badge.loc.x + 7, badge.loc.y + 4).into(),
         LABEL,
         overlay_visuals.border.bytes(),
@@ -677,16 +682,12 @@ fn push_node_badge(
     )? {
         elements.push(SceneElement::UiText(text.element));
     }
-    elements.push(SceneElement::NodeLabel(
-        crate::render::overlays::shell::label_card_element(
-            renderer,
-            node_renderer,
-            badge,
-            overlay_visuals,
-            overlay_visuals.fill,
-            0.94 * alpha,
-        )?,
-    ));
+    elements.push(SceneElement::NodeLabel(ctx.label_card(
+        badge,
+        overlay_visuals,
+        overlay_visuals.fill,
+        0.94 * alpha,
+    )?));
     Ok(())
 }
 
@@ -821,10 +822,12 @@ pub(super) fn focus_cycle_elements(
 
         if record.collapsed {
             push_node_badge(
+                &mut crate::render::draw::DrawContext {
+                    renderer,
+                    node: node_renderer,
+                    text: ui_text,
+                },
                 &mut elements,
-                renderer,
-                node_renderer,
-                ui_text,
                 body,
                 overlay_visuals,
                 alpha,

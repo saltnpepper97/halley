@@ -281,12 +281,14 @@ impl SceneResources {
         self.text.begin_scene();
         self.blur.begin_scene(&output.name());
         let mut elements = crate::render::overlays::shell::elements(
-            renderer,
+            &mut crate::render::draw::DrawContext {
+                renderer,
+                node: &mut self.nodes,
+                text: &mut self.text,
+            },
             Rectangle::from_size(SIZE.into()),
             snapshot,
             config,
-            &mut self.nodes,
-            &mut self.text,
         )
         .unwrap();
         if let Some(hover_mix) = label_mix {
