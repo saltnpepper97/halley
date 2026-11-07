@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- With fullscreen animations off, stop an X11 window or game from flashing its
+  old buffer at the new position for a frame when entering or leaving
+  fullscreen. It now switches in one step once it has repainted at the new size,
+  or after 150 ms if it never does. Animated fullscreen is unchanged.
 - Internal: fix an intermittent nested XWayland test that read a game window's
   frame in the instant after it left fullscreen, before the client's new size
   arrived, and then indexed outside the screen capture.
