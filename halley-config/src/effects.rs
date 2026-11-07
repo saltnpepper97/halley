@@ -220,13 +220,7 @@ fn parse_shadow_layer(
     root: &'static str,
     default: ShadowLayer,
 ) -> Result<ShadowLayer, EffectsParseError> {
-    let color_path = format!("{root}.colour");
-    let color_alias = format!("{root}.color");
-    let raw_color = match config.get_optional::<String>(&color_path)? {
-        Some(value) => Some(value),
-        None => config.get_optional::<String>(&color_alias)?,
-    };
-    let color = match raw_color {
+    let color = match crate::aliases::lookup::<String>(config, &format!("{root}.colour"))? {
         Some(value) => crate::color::parse_hex(&value)
             .map(|crate::color::Rgba { r, g, b, a }| ShadowColor { r, g, b, a })
             .ok_or(EffectsParseError::InvalidValue {

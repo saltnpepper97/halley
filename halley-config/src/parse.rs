@@ -68,213 +68,247 @@ fn parse_direction(value: &str) -> Option<crate::Direction> {
     }
 }
 
+/// How an older action spelling is recognised.
+#[derive(Clone, Copy)]
+pub(crate) enum OldSpelling {
+    /// The whole action string, exactly as written.
+    Name(&'static str),
+    /// Leading words followed by more, ignoring repeated spaces: `cluster
+    /// focus` matches `cluster  focus left`.
+    Words(&'static str),
+    /// A leading word that must be followed by a direction: `move` matches
+    /// `move left 10` but `move foo` stays a shell command.
+    WordsThenDirection(&'static str),
+    /// A prefix of the first word that must be followed by a direction:
+    /// `move-` matches `move-left 10`.
+    WordPrefixThenDirection(&'static str),
+    /// A prefix of the action string, exactly as written.
+    Prefix(&'static str),
+    /// A prefix of the action string, exactly as written, that must be
+    /// followed by a direction.
+    PrefixThenDirection(&'static str),
+}
+
+/// Every older action spelling Halley still accepts, with the current
+/// spelling it stands for. A current spelling ending in `-` is joined to the
+/// rest of the action directly (`cluster slot 3` becomes `cluster-slot-3`);
+/// otherwise with a space.
+///
+/// `snake_case` needs no entry: an action whose first word is written with
+/// `_` reads as the same action written with `-`.
+pub(crate) const ACTION_ALIASES: &[(OldSpelling, &str)] = {
+    use OldSpelling::*;
+    &[
+        (Name("close-window"), "close-focused"),
+        (Name("fullscreen"), "toggle-fullscreen"),
+        (Name("toggle-maximize"), "maximize-focused"),
+        (Name("toggle-pin"), "toggle-focused-pin"),
+        (Name("pin-toggle"), "toggle-focused-pin"),
+        (Name("overview"), "apogee"),
+        (Name("trail-previous"), "trail-prev"),
+        (Name("cluster-layout cycle"), "cluster-layout-cycle"),
+        (Name("field-jump"), "drag-pan"),
+        (Name("reload-config"), "reload"),
+        (Name("open-terminal"), "default-terminal"),
+        (Words("cluster slot"), "cluster-slot-"),
+        (Words("cluster focus"), "cluster-focus-"),
+        (Words("cluster-focus"), "cluster-focus-"),
+        (Words("tile focus"), "cluster-focus-"),
+        (Words("tile-focus"), "cluster-focus-"),
+        (Prefix("cluster-tile-focus-"), "cluster-focus-"),
+        (Words("focus"), "focus-"),
+        (Name("node move"), "node-move"),
+        (Words("node move"), "node-move"),
+        (WordsThenDirection("move"), "node-move"),
+        (WordPrefixThenDirection("move-"), "node-move"),
+        (WordPrefixThenDirection("node-move-"), "node-move"),
+        (Words("resize"), "resize-window-"),
+        (Words("resize-window"), "resize-window-"),
+        (Words("tile swap"), "cluster-tile-swap-"),
+        (Words("tile-swap"), "cluster-tile-swap-"),
+        (Words("monitor focus"), "monitor-focus"),
+        (PrefixThenDirection("monitor-focus-"), "monitor-focus"),
+    ]
+};
+
+/// `action` rewritten from an older spelling into the current one, if it is
+/// written in one.
+fn current_spelling(action: &str) -> Option<String> {
+    let words = action.split_whitespace().collect::<Vec<_>>().join(" ");
+    let join = |current: &str, rest: &str| {
+        let rest = rest.trim_start();
+        if current.ends_with('-') || rest.is_empty() {
+            format!("{current}{rest}")
+        } else {
+            format!("{current} {rest}")
+        }
+    };
+    let starts_with_direction = |rest: &str| {
+        rest.split_whitespace()
+            .next()
+            .is_some_and(|word| parse_direction(word).is_some())
+    };
+    let leading_words = |old: &str| words.strip_prefix(old).filter(|rest| rest.starts_with(' '));
+    ACTION_ALIASES.iter().find_map(|(old, current)| match *old {
+        OldSpelling::Name(old) => (action == old).then(|| current.to_string()),
+        OldSpelling::Words(old) => leading_words(old).map(|rest| join(current, rest)),
+        OldSpelling::WordsThenDirection(old) => leading_words(old)
+            .filter(|rest| starts_with_direction(rest))
+            .map(|rest| join(current, rest)),
+        OldSpelling::WordPrefixThenDirection(old) => words
+            .strip_prefix(old)
+            .filter(|rest| starts_with_direction(rest))
+            .map(|rest| join(current, rest)),
+        OldSpelling::Prefix(old) => action.strip_prefix(old).map(|rest| join(current, rest)),
+        OldSpelling::PrefixThenDirection(old) => action
+            .strip_prefix(old)
+            .filter(|rest| starts_with_direction(rest))
+            .map(|rest| join(current, rest)),
+    })
+}
+
+/// `node-move DIRECTION [UNITS]`, or `None` for any other action.
 fn movement_action(s: &str) -> Option<Result<Action, String>> {
-    let words = s.split_whitespace().collect::<Vec<_>>();
-    let (direction, arguments) = match words.as_slice() {
-        ["node-move"] | ["node", "move"] => {
+    let (direction, arguments) = match s.split_whitespace().collect::<Vec<_>>().as_slice() {
+        ["node-move"] => {
             return Some(Err("node movement requires left, right, up, or down".into()));
         }
-        ["node", "move", direction, arguments @ ..] | ["node-move", direction, arguments @ ..] => {
-            (*direction, arguments)
-        }
-        ["move", direction, arguments @ ..] if parse_direction(direction).is_some() => {
-            (*direction, arguments)
-        }
-        [command, arguments @ ..] => {
-            let direction = command
-                .strip_prefix("node-move-")
-                .or_else(|| command.strip_prefix("node_move_"))
-                .or_else(|| command.strip_prefix("move-"))
-                .or_else(|| command.strip_prefix("move_"))?;
-            // Unknown compact actions retain their existing shell fallback.
-            parse_direction(direction)?;
-            (direction, arguments)
-        }
+        ["node-move", direction, arguments @ ..] => (*direction, arguments.to_vec()),
         _ => return None,
     };
-    Some((|| {
-        let direction = parse_direction(direction)
-            .ok_or_else(|| "node movement requires left, right, up, or down".to_string())?;
-        match arguments {
-            [] => Ok(Action::MoveNode(direction)),
-            [distance] => {
-                let distance =
-                    distance
-                        .parse::<i32>()
-                        .ok()
-                        .filter(|n| *n > 0)
-                        .ok_or_else(|| {
-                            "movement distance must be a whole number in 1..=2147483647 Field units"
-                                .to_string()
-                        })?;
-                Ok(Action::MoveNodeBy {
-                    direction,
-                    distance: distance as u32,
-                })
-            }
-            _ => Err("node movement accepts one optional distance in Field units".into()),
-        }
-    })())
+    let direction = match parse_direction(direction) {
+        Some(direction) => direction,
+        None => return Some(Err("node movement requires left, right, up, or down".into())),
+    };
+    Some(match arguments.as_slice() {
+        [] => Ok(Action::MoveNode(direction)),
+        [distance] => distance
+            .parse::<i32>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(|distance| Action::MoveNodeBy {
+                direction,
+                distance: distance as u32,
+            })
+            .ok_or_else(|| {
+                "movement distance must be a whole number in 1..=2147483647 Field units".into()
+            }),
+        _ => Err("node movement accepts one optional distance in Field units".into()),
+    })
 }
 
+/// Parse a keybind action. Anything that is not a built-in action, in its
+/// current or an older spelling, is a shell command.
 pub(crate) fn parse_action_checked(s: &str) -> Result<Action, String> {
-    movement_action(s).unwrap_or_else(|| Ok(parse_action(s)))
+    let parsed = parse_spelling(s);
+    if matches!(parsed, Ok(Action::Spawn(_))) {
+        // `toggle_state` reads as `toggle-state`, but a command that merely
+        // contains `_`, like `my_script`, stays a command.
+        let dashed = dash_first_word(s);
+        if dashed != s
+            && let Ok(action) = parse_spelling(&dashed)
+            && !matches!(action, Action::Spawn(_))
+        {
+            return Ok(action);
+        }
+        return Ok(Action::Spawn(s.to_string()));
+    }
+    parsed
 }
 
+#[cfg(test)]
 pub(crate) fn parse_action(s: &str) -> Action {
-    if let Some(Ok(action)) = movement_action(s) {
-        return action;
-    }
+    parse_action_checked(s).unwrap_or_else(|_| Action::Spawn(s.to_string()))
+}
+
+fn parse_spelling(s: &str) -> Result<Action, String> {
+    let current = current_spelling(s);
+    let s = current.as_deref().unwrap_or(s);
+    movement_action(s).unwrap_or_else(|| Ok(parse_current(s)))
+}
+
+fn dash_first_word(s: &str) -> String {
+    let start = s.len() - s.trim_start().len();
+    let end = s[start..]
+        .find(char::is_whitespace)
+        .map_or(s.len(), |end| start + end);
+    format!(
+        "{}{}{}",
+        &s[..start],
+        s[start..end].replace('_', "-"),
+        &s[end..]
+    )
+}
+
+/// A built-in action in its current spelling, or a shell command.
+fn parse_current(s: &str) -> Action {
     let words = s.split_whitespace().collect::<Vec<_>>();
-    if let ["cluster", "slot", slot] = words.as_slice()
-        && let Ok(slot) = slot.parse::<u8>()
-        && (1..=10).contains(&slot)
-    {
-        return Action::ClusterSlot(slot);
-    }
     if let Some(slot) = s
         .strip_prefix("cluster-slot-")
-        .or_else(|| s.strip_prefix("cluster_slot_"))
         .and_then(|slot| slot.parse::<u8>().ok())
         .filter(|slot| (1..=10).contains(slot))
     {
         return Action::ClusterSlot(slot);
     }
-    if let ["cluster", "focus", direction]
-    | ["cluster-focus", direction]
-    | ["tile", "focus", direction]
-    | ["tile-focus", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
+    let direction_after = |prefix: &str| s.strip_prefix(prefix).and_then(parse_direction);
+    if let Some(direction) = direction_after("cluster-focus-") {
         return Action::ClusterTileFocus(direction);
     }
-    if let Some(direction) = s
-        .strip_prefix("cluster-focus-")
-        .or_else(|| s.strip_prefix("cluster_focus_"))
-        .or_else(|| s.strip_prefix("cluster-tile-focus-"))
-        .or_else(|| s.strip_prefix("cluster_tile_focus_"))
-        .and_then(parse_direction)
-    {
-        return Action::ClusterTileFocus(direction);
-    }
-    if let ["focus", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
+    if let Some(direction) = direction_after("focus-") {
         return Action::FocusDirection(direction);
     }
-    if let Some(direction) = s
-        .strip_prefix("focus-")
-        .or_else(|| s.strip_prefix("focus_"))
-        .and_then(parse_direction)
-    {
-        return Action::FocusDirection(direction);
-    }
-    if let ["window-transfer", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
-        return Action::TransferWindow(direction);
-    }
-    if let ["pan-field", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
-        return Action::PanField(direction);
-    }
-    if let ["node", "move", direction] | ["node-move", direction] | ["move", direction] =
-        words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
-        return Action::MoveNode(direction);
-    }
-    if let ["resize", direction] | ["resize-window", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
+    if let Some(direction) = direction_after("resize-window-") {
         return Action::ResizeWindow(direction);
     }
-    if let Some(direction) = s
-        .strip_prefix("resize-window-")
-        .or_else(|| s.strip_prefix("resize_window_"))
-        .and_then(parse_direction)
-    {
-        return Action::ResizeWindow(direction);
-    }
-    if let Some(direction) = s
-        .strip_prefix("node-move-")
-        .or_else(|| s.strip_prefix("node_move_"))
-        .or_else(|| s.strip_prefix("move-"))
-        .or_else(|| s.strip_prefix("move_"))
-        .and_then(parse_direction)
-    {
-        return Action::MoveNode(direction);
-    }
-    if let ["tile", "swap", direction] | ["tile-swap", direction] = words.as_slice()
-        && let Some(direction) = parse_direction(direction)
-    {
+    if let Some(direction) = direction_after("cluster-tile-swap-") {
         return Action::ClusterTileSwap(direction);
     }
-    if let ["monitor", "focus", target] | ["monitor-focus", target] = words.as_slice() {
-        return Action::MonitorFocus(
-            parse_direction(target)
-                .map(MonitorTarget::Direction)
-                .unwrap_or_else(|| MonitorTarget::Output((*target).to_string())),
-        );
-    }
-    if let Some(direction) = s
-        .strip_prefix("monitor-focus-")
-        .or_else(|| s.strip_prefix("monitor_focus_"))
-        .and_then(parse_direction)
-    {
-        return Action::MonitorFocus(MonitorTarget::Direction(direction));
-    }
-    if let Some(direction) = s
-        .strip_prefix("cluster-tile-swap-")
-        .or_else(|| s.strip_prefix("cluster_tile_swap_"))
-        .and_then(parse_direction)
-    {
-        return Action::ClusterTileSwap(direction);
+    match words.as_slice() {
+        ["window-transfer", direction] if let Some(direction) = parse_direction(direction) => {
+            return Action::TransferWindow(direction);
+        }
+        ["pan-field", direction] if let Some(direction) = parse_direction(direction) => {
+            return Action::PanField(direction);
+        }
+        ["monitor-focus", target] => {
+            return Action::MonitorFocus(
+                parse_direction(target)
+                    .map(MonitorTarget::Direction)
+                    .unwrap_or_else(|| MonitorTarget::Output((*target).to_string())),
+            );
+        }
+        _ => {}
     }
     match s {
         "quit" => Action::Quit,
-        "close-focused" | "close_focused" | "close-window" | "close_window" => {
-            Action::CloseFocusedWindow
-        }
-        "toggle-fullscreen" | "toggle_fullscreen" | "fullscreen" => Action::ToggleFullscreen,
-        "maximize-focused" | "maximize_focused" | "toggle-maximize" | "toggle_maximize" => {
-            Action::ToggleFieldMaximize
-        }
-        "toggle-state" | "toggle_state" => Action::ToggleState,
-        "toggle-pin" | "toggle_pin" | "pin-toggle" | "pin_toggle" | "toggle-focused-pin"
-        | "toggle_focused_pin" => Action::ToggleFocusedPin,
-        "apogee" | "overview" => Action::Apogee,
-        "bearings-show" | "bearings_show" => Action::BearingsShow,
-        "bearings-toggle" | "bearings_toggle" => Action::BearingsToggle,
-        "cycle-focus" | "cycle_focus" => Action::FocusCycle(crate::FocusCycleDirection::Forward),
-        "cycle-focus-backward" | "cycle_focus_backward" => {
-            Action::FocusCycle(crate::FocusCycleDirection::Backward)
-        }
-        "trail-prev" | "trail_prev" | "trail-previous" | "trail_previous" => {
-            Action::Trail(crate::TrailDirection::Previous)
-        }
-        "trail-next" | "trail_next" => Action::Trail(crate::TrailDirection::Next),
-        "center-last-focused" | "center_last_focused" => Action::CenterLastFocused,
-        "cluster-mode" | "cluster_mode" => Action::ClusterMode,
-        "cluster-layout cycle" | "cluster-layout-cycle" | "cluster_layout_cycle" => {
-            Action::ClusterLayoutCycle
-        }
-        "cluster-toggle-float" | "cluster_toggle_float" => Action::ClusterToggleFloat,
-        "arrange-visible" | "arrange_visible" => Action::ArrangeVisible,
-        "undo-arrange" | "undo_arrange" => Action::UndoArrange,
-        "move-window" | "move_window" => Action::PointerMoveWindow,
-        "resize-window" | "resize_window" => Action::PointerResizeWindow,
-        "pan-field" | "pan_field" => Action::PointerPanField,
-        "pan-field-always" | "pan_field_always" => Action::PointerPanFieldAlways,
-        "drag-pan" | "drag_pan" | "field-jump" | "field_jump" => Action::PointerDragPan,
-        "reload" | "reload-config" | "reload_config" => Action::Reload,
-        "open-terminal" | "open_terminal" | "default-terminal" | "default_terminal" => {
-            Action::OpenTerminal
-        }
-        "zoom-in" | "zoom_in" => Action::ZoomIn,
-        "zoom-out" | "zoom_out" => Action::ZoomOut,
-        "zoom-reset" | "zoom_reset" => Action::ZoomReset,
+        "close-focused" => Action::CloseFocusedWindow,
+        "toggle-fullscreen" => Action::ToggleFullscreen,
+        "maximize-focused" => Action::ToggleFieldMaximize,
+        "toggle-state" => Action::ToggleState,
+        "toggle-focused-pin" => Action::ToggleFocusedPin,
+        "apogee" => Action::Apogee,
+        "bearings-show" => Action::BearingsShow,
+        "bearings-toggle" => Action::BearingsToggle,
+        "cycle-focus" => Action::FocusCycle(crate::FocusCycleDirection::Forward),
+        "cycle-focus-backward" => Action::FocusCycle(crate::FocusCycleDirection::Backward),
+        "trail-prev" => Action::Trail(crate::TrailDirection::Previous),
+        "trail-next" => Action::Trail(crate::TrailDirection::Next),
+        "center-last-focused" => Action::CenterLastFocused,
+        "cluster-mode" => Action::ClusterMode,
+        "cluster-layout-cycle" => Action::ClusterLayoutCycle,
+        "cluster-toggle-float" => Action::ClusterToggleFloat,
+        "arrange-visible" => Action::ArrangeVisible,
+        "undo-arrange" => Action::UndoArrange,
+        "move-window" => Action::PointerMoveWindow,
+        "resize-window" => Action::PointerResizeWindow,
+        "pan-field" => Action::PointerPanField,
+        "pan-field-always" => Action::PointerPanFieldAlways,
+        "drag-pan" => Action::PointerDragPan,
+        "reload" => Action::Reload,
+        "default-terminal" => Action::OpenTerminal,
+        "zoom-in" => Action::ZoomIn,
+        "zoom-out" => Action::ZoomOut,
+        "zoom-reset" => Action::ZoomReset,
         "screenshot" => Action::Screenshot,
         command => Action::Spawn(command.to_string()),
     }
@@ -680,5 +714,109 @@ end
             bind.key == "s"
                 && bind.action == Action::Spawn("grim -g \"$(slurp)\" ~/shot.png".to_string())
         }));
+    }
+}
+
+#[cfg(test)]
+mod spelling_tests {
+    use super::*;
+
+    /// What every built-in action spelling, current or older, parses to. The
+    /// fixture was recorded from the parser before the alias table existed,
+    /// so a change here is a change in what users' configs mean.
+    #[test]
+    fn every_known_spelling_keeps_its_meaning() {
+        let fixture = include_str!("../tests/fixtures/action_spellings.txt");
+        let mut checked = 0;
+        for line in fixture.lines() {
+            let (input, expected) = line.split_once(" => ").expect("input => result");
+            let input = unquote(input);
+            assert_eq!(
+                format!("{:?}", parse_action_checked(&input)),
+                expected,
+                "{input:?}"
+            );
+            checked += 1;
+        }
+        assert!(checked > 300, "only {checked} spellings checked");
+    }
+
+    /// The fixture stores inputs in Rust `Debug` form; only `"` is escaped.
+    fn unquote(quoted: &str) -> String {
+        quoted
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .expect("quoted input")
+            .replace(r#"\""#, r#"""#)
+    }
+
+    /// Every current spelling the table points at is a built-in action, never
+    /// a shell command.
+    #[test]
+    fn every_alias_names_a_built_in_action() {
+        for (old, current) in ACTION_ALIASES {
+            let example = if current.ends_with('-') {
+                let rest = if current.contains("slot") {
+                    "3"
+                } else {
+                    "left"
+                };
+                format!("{current}{rest}")
+            } else if matches!(old, OldSpelling::Name(_)) {
+                current.to_string()
+            } else {
+                format!("{current} left")
+            };
+            assert!(
+                !matches!(parse_spelling(&example), Ok(Action::Spawn(_))),
+                "{current:?} is not a built-in action spelling"
+            );
+        }
+    }
+
+    /// The config Halley generates teaches the current spellings only.
+    #[test]
+    fn the_generated_config_uses_current_spellings() {
+        let keybinds = crate::DEFAULT_CONFIG
+            .split("\nkeybinds:\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\nend\n").next())
+            .expect("generated config has a keybinds section");
+        let mut checked = 0;
+        for line in keybinds.lines().map(str::trim) {
+            let line = line.trim_start_matches('#').trim();
+            let Some(action) = line
+                .strip_suffix('"')
+                .and_then(|line| line.rsplit_once(" \""))
+                .map(|(_, action)| action)
+            else {
+                continue;
+            };
+            if !line.starts_with('"') {
+                continue;
+            }
+            assert_eq!(
+                current_spelling(action),
+                None,
+                "{action:?} is an old spelling"
+            );
+            assert!(
+                !action.contains('_') || matches!(parse_spelling(action), Ok(Action::Spawn(_)))
+            );
+            checked += 1;
+        }
+        assert!(checked > 50, "only {checked} bindings checked");
+    }
+
+    #[test]
+    fn snake_case_commands_stay_commands() {
+        assert_eq!(
+            parse_action_checked("my_script --flag"),
+            Ok(Action::Spawn("my_script --flag".into()))
+        );
+        assert_eq!(
+            parse_action_checked("toggle_state"),
+            Ok(Action::ToggleState)
+        );
     }
 }

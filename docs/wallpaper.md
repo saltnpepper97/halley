@@ -77,5 +77,5 @@ uses the bundled space shader. If an image or the bundled shader cannot be
 created by the active renderer, plain black remains visible instead of failing
 the output frame.
 
-The old `background:` and `gesso:` section names remain accepted as
-configuration aliases, but `wallpaper:` is the canonical section.
+The old `background:` and `gesso:` section names remain accepted, but
+`wallpaper:` is the current section; see [older spellings](older-spellings.md).

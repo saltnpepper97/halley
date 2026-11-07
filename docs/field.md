@@ -91,9 +91,8 @@ preserving sharp pixels at rest. Existing configurations need no new settings.
 
 ## Field maximize
 
-The default `$var.mod+m` binding runs `maximize-focused`. The aliases
-`maximize_focused`, `toggle-maximize`, and `toggle_maximize` select the same
-action. Pressing the action again reverses it.
+The default `$var.mod+m` binding runs `maximize-focused`. The older name
+`toggle-maximize` selects the same action. Pressing the action again reverses it.
 
 Field maximize is separate from fullscreen:
 

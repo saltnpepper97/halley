@@ -1,3 +1,4 @@
+mod aliases;
 pub mod animations;
 pub mod apogee;
 pub mod background;

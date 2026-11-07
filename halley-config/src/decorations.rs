@@ -162,18 +162,12 @@ pub fn parse_decorations(config: &RuneConfig) -> Decorations {
         .clamp(0, 256);
     let border_color_focused = parse_color(
         config,
-        &[
-            "decorations.border.colour-focused",
-            "decorations.border.color-focused",
-        ],
+        "decorations.border.colour-focused",
         defaults.border_color_focused,
     );
     let border_color_unfocused = parse_color(
         config,
-        &[
-            "decorations.border.colour-unfocused",
-            "decorations.border.color-unfocused",
-        ],
+        "decorations.border.colour-unfocused",
         defaults.border_color_unfocused,
     );
     let titlebar_defaults = defaults.titlebars;
@@ -225,50 +219,32 @@ pub fn parse_decorations(config: &RuneConfig) -> Decorations {
             .clamp(1, 96),
         color_focused: parse_color(
             config,
-            &[
-                "decorations.titlebars.colour-focused",
-                "decorations.titlebars.color-focused",
-            ],
+            "decorations.titlebars.colour-focused",
             titlebar_defaults.color_focused,
         ),
         color_unfocused: parse_color(
             config,
-            &[
-                "decorations.titlebars.colour-unfocused",
-                "decorations.titlebars.color-unfocused",
-            ],
+            "decorations.titlebars.colour-unfocused",
             titlebar_defaults.color_unfocused,
         ),
         foreground_color_focused: parse_color(
             config,
-            &[
-                "decorations.titlebars.foreground-colour-focused",
-                "decorations.titlebars.foreground-color-focused",
-            ],
+            "decorations.titlebars.foreground-colour-focused",
             titlebar_defaults.foreground_color_focused,
         ),
         foreground_color_unfocused: parse_color(
             config,
-            &[
-                "decorations.titlebars.foreground-colour-unfocused",
-                "decorations.titlebars.foreground-color-unfocused",
-            ],
+            "decorations.titlebars.foreground-colour-unfocused",
             titlebar_defaults.foreground_color_unfocused,
         ),
         button_hover_color: parse_color(
             config,
-            &[
-                "decorations.titlebars.button-hover-colour",
-                "decorations.titlebars.button-hover-color",
-            ],
+            "decorations.titlebars.button-hover-colour",
             titlebar_defaults.button_hover_color,
         ),
         button_pressed_color: parse_color(
             config,
-            &[
-                "decorations.titlebars.button-pressed-colour",
-                "decorations.titlebars.button-pressed-color",
-            ],
+            "decorations.titlebars.button-pressed-colour",
             titlebar_defaults.button_pressed_color,
         ),
     };
@@ -290,10 +266,7 @@ pub fn parse_decorations(config: &RuneConfig) -> Decorations {
             .clamp(1, 32),
         screencast_indicator_color: parse_color(
             config,
-            &[
-                "decorations.screencast-indicator.colour",
-                "decorations.screencast-indicator.color",
-            ],
+            "decorations.screencast-indicator.colour",
             defaults.screencast_indicator_color,
         ),
         titlebars,
@@ -324,8 +297,8 @@ pub fn load_decorations() -> Decorations {
     }
 }
 
-fn parse_color(config: &RuneConfig, paths: &[&str], default: BorderColor) -> BorderColor {
-    let Some(raw) = paths
+fn parse_color(config: &RuneConfig, key: &str, default: BorderColor) -> BorderColor {
+    let Some(raw) = crate::aliases::spellings(key)
         .iter()
         .find_map(|path| config.get_optional::<String>(path).ok().flatten())
     else {

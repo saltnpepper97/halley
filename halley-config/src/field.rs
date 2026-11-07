@@ -125,10 +125,10 @@ fn canonical_or_legacy_bool(
         .unwrap_or(fallback)
 }
 
-fn optional_string(config: &RuneConfig, paths: &[&str]) -> Result<Option<String>, FieldParseError> {
-    for path in paths {
+fn optional_string(config: &RuneConfig, key: &str) -> Result<Option<String>, FieldParseError> {
+    for path in crate::aliases::spellings(key) {
         if let Some(value) = config
-            .get_optional::<String>(path)
+            .get_optional::<String>(&path)
             .map_err(|error| FieldParseError(format!("{path}: {error}")))?
         {
             return Ok(Some(value));
@@ -141,15 +141,7 @@ fn parse_pin_corner(
     config: &RuneConfig,
     default: PinBadgeCorner,
 ) -> Result<PinBadgeCorner, FieldParseError> {
-    let Some(raw) = optional_string(
-        config,
-        &[
-            "field.pins.corner",
-            "field.pins.badge-corner",
-            "field.pins.badge_corner",
-        ],
-    )?
-    else {
+    let Some(raw) = optional_string(config, "field.pins.corner")? else {
         return Ok(default);
     };
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -163,11 +155,10 @@ fn parse_pin_corner(
 
 fn parse_pin_color(
     config: &RuneConfig,
-    paths: &[&str],
-    canonical: &str,
+    key: &str,
     default: OverlayColorMode,
 ) -> Result<OverlayColorMode, FieldParseError> {
-    let Some(raw) = optional_string(config, paths)? else {
+    let Some(raw) = optional_string(config, key)? else {
         return Ok(default);
     };
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -178,7 +169,7 @@ fn parse_pin_color(
             .map(|crate::color::Rgba { r, g, b, a }| OverlayColorMode::Fixed { r, g, b, a })
             .ok_or_else(|| {
                 FieldParseError(format!(
-                    "{canonical} must be \"auto\", \"light\", \"dark\", or a hex color, got {raw:?}"
+                    "{key} must be \"auto\", \"light\", \"dark\", or a hex color, got {raw:?}"
                 ))
             }),
     }
@@ -217,30 +208,9 @@ pub fn parse_field_checked(config: &RuneConfig) -> Result<Field, FieldParseError
         ),
         pins: Pins {
             corner: parse_pin_corner(config, defaults.pins.corner)?,
-            color: parse_pin_color(
-                config,
-                &[
-                    "field.pins.colour",
-                    "field.pins.color",
-                    "field.pins.pin-colour",
-                    "field.pins.pin_color",
-                    "field.pins.pin-color",
-                ],
-                "field.pins.colour",
-                defaults.pins.color,
-            )?,
+            color: parse_pin_color(config, "field.pins.colour", defaults.pins.color)?,
             background_color: parse_pin_color(
                 config,
-                &[
-                    "field.pins.background-colour",
-                    "field.pins.background_colour",
-                    "field.pins.background-color",
-                    "field.pins.background_color",
-                    "field.pins.bg-colour",
-                    "field.pins.bg_colour",
-                    "field.pins.bg-color",
-                    "field.pins.bg_color",
-                ],
                 "field.pins.background-colour",
                 defaults.pins.background_color,
             )?,
