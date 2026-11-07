@@ -188,6 +188,7 @@ struct Client {
     lock_configures: usize,
     lock_finished: usize,
     ime_keys: usize,
+    ime_keymap: Option<String>,
     client_keys: usize,
     client_keymap: Option<String>,
     client_modifiers: (u32, u32, u32, u32),
@@ -272,8 +273,22 @@ impl Dispatch<ime_keyboard::ZwpInputMethodKeyboardGrabV2, ()> for Client {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if matches!(event, ime_keyboard::Event::Key { .. }) {
-            state.ime_keys += 1;
+        match event {
+            ime_keyboard::Event::Key { .. } => state.ime_keys += 1,
+            ime_keyboard::Event::Keymap { fd, size, .. } => {
+                use std::os::unix::fs::FileExt;
+                let mut bytes = vec![0; size as usize];
+                std::fs::File::from(fd)
+                    .read_exact_at(&mut bytes, 0)
+                    .unwrap();
+                state.ime_keymap = Some(
+                    String::from_utf8(bytes)
+                        .unwrap()
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                );
+            }
+            _ => {}
         }
     }
 }
@@ -603,6 +618,10 @@ impl smithay::wayland::text_input::TextInputActivation for Server {}
 impl ime_policy::ImeHost for Server {
     fn ime_seat(&self) -> Seat<Self> {
         self.seat.clone()
+    }
+    fn ime_keymap(&mut self) -> smithay::input::keyboard::KeymapFile {
+        assert!(virtual_keyboard_policy::restore(self));
+        self.seat.get_keyboard().unwrap().keymap_file()
     }
     fn ime_repeat(&self) -> (i32, i32) {
         (25, 200)
@@ -1030,5 +1049,24 @@ fn virtual_requests_and_destruction_cannot_inject_into_lock_focus() {
     assert_eq!(
         lock_client.client_keys, 2,
         "physical input must reach lock focus"
+    );
+}
+
+#[test]
+fn ime_grab_uses_hardware_keymap_after_virtual_input() {
+    let mut f = Fixture::new();
+    let _keyboard = f.seat.get_keyboard(&f.queue.handle(), ());
+    f.sync();
+    let native_keymap = f.state.client_keymap.clone().unwrap();
+    let virtual_keyboard = f.virtual_keyboard("de");
+    virtual_keyboard.key(1, 30, 1);
+    virtual_keyboard.key(2, 30, 0);
+    f.sync();
+    assert!(f.state.client_keymap.as_ref() != Some(&native_keymap));
+    let _grab = f.ime.grab_keyboard(&f.queue.handle(), ());
+    f.sync();
+    assert!(
+        f.state.ime_keymap.as_ref() == Some(&native_keymap),
+        "a new IME grab must receive the hardware keymap"
     );
 }

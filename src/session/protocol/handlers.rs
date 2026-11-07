@@ -1651,6 +1651,13 @@ impl<D: SessionDriver> crate::ime_policy::ImeHost for Session<D> {
     fn ime_seat(&self) -> Seat<Self> {
         self.seat.clone()
     }
+    fn ime_keymap(&mut self) -> smithay::input::keyboard::KeymapFile {
+        crate::input::virtual_keyboard::restore(self);
+        self.seat
+            .get_keyboard()
+            .expect("keyboard capability added at seat setup")
+            .keymap_file()
+    }
     fn ime_repeat(&self) -> (i32, i32) {
         (
             self.settings.input.repeat_rate,
