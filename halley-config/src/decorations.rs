@@ -331,33 +331,9 @@ fn parse_color(config: &RuneConfig, paths: &[&str], default: BorderColor) -> Bor
     else {
         return default;
     };
-    parse_hex_rgb(raw.trim())
-        .map(|(r, g, b)| BorderColor { r, g, b })
+    crate::color::parse_hex_rgb(&raw)
+        .map(|[r, g, b]| BorderColor { r, g, b })
         .unwrap_or(default)
-}
-
-/// Parses `"#rrggbb"` or `"#rgb"` into 0.0-1.0 float components - ported
-/// directly from old halley's own `parse/primitives.rs::parse_hex_rgb`
-/// (halley's own prior code, not a third party's).
-fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
-    let hex = value.strip_prefix('#').unwrap_or(value);
-    let expanded = match hex.len() {
-        3 => {
-            let mut out = String::with_capacity(6);
-            for ch in hex.chars() {
-                out.push(ch);
-                out.push(ch);
-            }
-            out
-        }
-        6 => hex.to_string(),
-        _ => return None,
-    };
-
-    let r = u8::from_str_radix(&expanded[0..2], 16).ok()? as f32 / 255.0;
-    let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
-    let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
-    Some((r, g, b))
 }
 
 #[cfg(test)]

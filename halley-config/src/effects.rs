@@ -227,10 +227,12 @@ fn parse_shadow_layer(
         None => config.get_optional::<String>(&color_alias)?,
     };
     let color = match raw_color {
-        Some(value) => parse_hex_rgba(&value).ok_or(EffectsParseError::InvalidValue {
-            path: "effects.shadows.*.colour",
-            value,
-        })?,
+        Some(value) => crate::color::parse_hex(&value)
+            .map(|crate::color::Rgba { r, g, b, a }| ShadowColor { r, g, b, a })
+            .ok_or(EffectsParseError::InvalidValue {
+                path: "effects.shadows.*.colour",
+                value,
+            })?,
         None => default.color,
     };
     Ok(ShadowLayer {
@@ -260,32 +262,6 @@ fn parse_shadow_layer(
             default.offset_y,
         ),
         color,
-    })
-}
-
-fn parse_hex_rgba(value: &str) -> Option<ShadowColor> {
-    let value = value.trim();
-    let hex = value.strip_prefix('#').unwrap_or(value);
-    let expanded = match hex.len() {
-        3 => format!(
-            "{}{}{}{}{}{}ff",
-            &hex[0..1],
-            &hex[0..1],
-            &hex[1..2],
-            &hex[1..2],
-            &hex[2..3],
-            &hex[2..3]
-        ),
-        4 => hex.chars().flat_map(|ch| [ch, ch]).collect(),
-        6 => format!("{hex}ff"),
-        8 => hex.to_string(),
-        _ => return None,
-    };
-    Some(ShadowColor {
-        r: u8::from_str_radix(&expanded[0..2], 16).ok()? as f32 / 255.0,
-        g: u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0,
-        b: u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0,
-        a: u8::from_str_radix(&expanded[6..8], 16).ok()? as f32 / 255.0,
     })
 }
 

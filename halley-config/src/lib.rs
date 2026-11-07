@@ -5,6 +5,7 @@ pub mod bearings;
 pub mod bootstrap;
 pub mod chord;
 pub mod clusters;
+mod color;
 pub mod cursor;
 pub mod decorations;
 pub mod diagnostic;

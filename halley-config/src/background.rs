@@ -227,25 +227,12 @@ fn optional_color(
     let Some(value) = optional_string(config, paths)? else {
         return Ok(default);
     };
-    parse_hex_rgb(&value).ok_or(BackgroundParseError::InvalidValue {
-        path: canonical_path,
-        value,
-    })
-}
-
-fn parse_hex_rgb(value: &str) -> Option<BackgroundColor> {
-    let hex = value.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(BackgroundColor {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
-    })
+    crate::color::parse_hex_rgb(&value)
+        .map(|[r, g, b]| BackgroundColor { r, g, b })
+        .ok_or(BackgroundParseError::InvalidValue {
+            path: canonical_path,
+            value,
+        })
 }
 
 #[cfg(test)]
