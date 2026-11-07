@@ -73,9 +73,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     if let Some(transaction) = session.interactions.field_arrange.take(output_name) {
         return restore_transaction(session, output_name, transaction);
     }
-    if session.clusters.active_on(output_name).is_some()
-        || !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
-    {
+    if session.clusters.active_on(output_name).is_some() || session.interactions.has_grab() {
         return false;
     }
     let Some(output) = session

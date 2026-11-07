@@ -19,24 +19,29 @@ pub struct InteractionState {
     /// Presses owned by the basics-card dismissal path. Keeping this separate
     /// from card visibility lets the matching release remain suppressed after
     /// the fade finishes without swallowing a new press during the fade.
-    pub(crate) basics_buttons: SuppressedButtons,
-    pub(crate) screenshot_buttons: SuppressedButtons,
-    pub(crate) screenshot_touches: SuppressedReleases<smithay::backend::input::TouchSlot>,
-    pub(crate) basics_touches: SuppressedReleases<smithay::backend::input::TouchSlot>,
+    pub(super) basics_buttons: SuppressedButtons,
+    pub(super) screenshot_buttons: SuppressedButtons,
+    pub(super) screenshot_touches: SuppressedReleases<smithay::backend::input::TouchSlot>,
+    pub(super) basics_touches: SuppressedReleases<smithay::backend::input::TouchSlot>,
     pub(crate) wheel_accumulator: WheelAccumulator,
     pub(crate) field_arrange: super::arrange::ArrangeTransactions,
-    pub(crate) pointer_constraints: super::pointer::PointerConstraintLifecycle,
-    pub(crate) client_pointer_route: Option<super::pointer::ClientPointerRoute>,
+    pub(super) pointer_constraints: super::pointer::PointerConstraintLifecycle,
+    pub(super) client_pointer_route: Option<super::pointer::ClientPointerRoute>,
     pub(crate) titlebar_hovered: Option<crate::titlebar::ButtonTarget>,
     pub(crate) steam_close_pressed: Option<smithay::desktop::Window>,
     pub(crate) titlebar_pressed: Option<crate::titlebar::ButtonTarget>,
-    pub(crate) titlebar_last_click: Option<crate::titlebar::LastClick>,
+    pub(super) titlebar_last_click: Option<crate::titlebar::LastClick>,
 }
 
 impl InteractionState {
     /// The compositor pointer grab in progress, or [`Grab::None`].
     pub(crate) fn grab(&self) -> &Grab {
         &self.grab
+    }
+
+    /// Whether a compositor pointer grab is in progress.
+    pub(crate) fn has_grab(&self) -> bool {
+        !matches!(self.grab, Grab::None)
     }
 
     /// Update the grab in progress, such as a drag's latest position. End a

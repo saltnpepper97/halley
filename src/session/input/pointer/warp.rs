@@ -75,7 +75,7 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
             || !local.x.is_finite()
             || !local.y.is_finite()
             || self.session_lock.active()
-            || !matches!(*self.interactions.grab(), crate::input::grab::Grab::None)
+            || self.interactions.has_grab()
             || (pointer.is_grabbed() && !super::client_click_grab_active(self))
             || self.capture.is_active()
             || self.shell.apogee.is_active()

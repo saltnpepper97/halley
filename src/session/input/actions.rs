@@ -390,7 +390,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
                     || session.shell.apogee.is_active()
                     || session.shell.focus_cycle.is_open()
                     || session.shell.cluster_composer.is_active()
-                    || !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
+                    || session.interactions.has_grab()
                     || session.clusters.active_on(&output).is_some();
                 if !conflicts {
                     session.nodes.sync_from_space(&session.wayland.space);

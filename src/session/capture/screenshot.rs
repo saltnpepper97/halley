@@ -22,7 +22,7 @@ pub fn hit<D: SessionDriver>(session: &Session<D>, position: Point<f64, Logical>
         || session.shell.overlays.confirmation_modal_active()
         || session.shell.cluster_composer.is_active()
         || session.shell.apogee.accepts_input()
-        || !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
+        || session.interactions.has_grab()
         || session.seat.get_pointer().is_some_and(|p| p.is_grabbed())
         || super::pointer::has_active_constraint(session)
     {

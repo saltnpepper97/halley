@@ -165,7 +165,7 @@ fn begin_pending_pointer_move<D: SessionDriver>(
     button: u32,
     client_owned: bool,
 ) -> bool {
-    if !matches!(*session.interactions.grab(), crate::input::grab::Grab::None)
+    if session.interactions.has_grab()
         || !crate::window::accepts_compositor_grab(window)
         || window
             .wl_surface()
