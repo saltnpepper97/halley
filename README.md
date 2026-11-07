@@ -265,6 +265,7 @@ halleyctl portal status
 
 - [Configuration template](examples/halley.rune)
 - [Keybind triggers and actions](docs/keybinds.md)
+- [Older configuration and action spellings](docs/older-spellings.md)
 - [Compositor API](docs/api.md)
 - [Field behavior, maximize, zoom, and close succession](docs/field.md)
 - [Nodes, decay, focus rings, landmarks, and physics](docs/nodes.md)

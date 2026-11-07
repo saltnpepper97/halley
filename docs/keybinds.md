@@ -265,8 +265,8 @@ pan the desktop.
 window assigned to its current output, clamps it at that output's edge, and
 after a short dwell pans that output's camera while carrying the window. Pulling
 the pointer back from the edge stops the pan. Fullscreen, maximized, oversized,
-and active-cluster windows do not enter this mode. The legacy action names
-`field-jump` and `field_jump` are accepted as aliases for `drag-pan`.
+and active-cluster windows do not enter this mode. The older name `field-jump`
+still works; see [Older action spellings](#older-action-spellings).
 
 `pan-field-always` is the pan-anywhere form of the pointer drag. Plain
 `pan-field` begins only on empty Field, so its chord does nothing over an
@@ -344,13 +344,19 @@ resolving `keycode-N`.
 ## Actions
 
 The built-in action strings are `quit`, `close-focused`, `toggle-fullscreen`,
-`maximize-focused`, `toggle-state`, `apogee`, `bearings-show`,
-`bearings-toggle`, `cycle-focus`, `cycle-focus-backward`, `open-terminal`,
-`center-last-focused`, `arrange-visible`, `undo-arrange`, `reload`, `zoom-in`,
-`zoom-out`, `zoom-reset`, `screenshot`, and `cluster-toggle-float`. Parameterized actions also include
+`maximize-focused`, `toggle-state`, `toggle-focused-pin`, `apogee`,
+`bearings-show`, `bearings-toggle`, `cycle-focus`, `cycle-focus-backward`,
+`trail-prev`, `trail-next`, `center-last-focused`, `cluster-mode`,
+`cluster-layout-cycle`, `cluster-toggle-float`, `arrange-visible`,
+`undo-arrange`, `default-terminal`, `reload`, `zoom-in`, `zoom-out`,
+`zoom-reset`, and `screenshot`. The pointer-drag actions are `move-window`,
+`resize-window`, `pan-field`, `pan-field-always`, and `drag-pan`.
+Parameterized actions also include `cluster-slot-N` (1 to 10),
 `focus-DIRECTION`, `cluster-focus-DIRECTION`, `cluster-tile-swap-DIRECTION`,
-`node-move DIRECTION [UNITS]`, `resize-window-DIRECTION`, and `monitor-focus DIRECTION`, where `DIRECTION` is
-`left`, `right`, `up`, or `down`. The default `Mod+Arrow` `focus-DIRECTION`
+`node-move DIRECTION [UNITS]`, `resize-window-DIRECTION`,
+`window-transfer DIRECTION`, `pan-field DIRECTION`, and
+`monitor-focus DIRECTION` (or an output name), where `DIRECTION` is
+`left`, `right`, `up`, or `down`. Any other string runs as a shell command. The default `Mod+Arrow` `focus-DIRECTION`
 walks spatially among expanded windows, collapsed nodes, and collapsed cluster
 cores on the active output. It pans each target minimally into view without
 opening node or core handles; a collapsed node reserves its full restored
@@ -426,7 +432,7 @@ Changes to non-participating windows or other outputs do not discard it.
 `undo-arrange` remains available as an unbound compatibility action for custom
 configurations and follows the same lifetime.
 
-`default-terminal` (also accepted as `open-terminal`) launches the first
+`default-terminal` launches the first
 available built-in terminal in this order:
 `alacritty`, `kitty`, `ghostty`, `wezterm`, `foot`, `footclient`, `rio`,
 `contour`, `kgx`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `tilix`,
@@ -502,9 +508,8 @@ launched as a command line.
 
 The default `$var.mod+m` binding runs `maximize-focused`. It is the reversible
 field maximize state documented in [Field behavior and maximize](field.md);
-it keeps panels and the existing stack visible. The compatibility action
-names `maximize_focused`, `toggle-maximize`, and `toggle_maximize` are
-equivalent.
+it keeps panels and the existing stack visible. The older name
+`toggle-maximize` still works.
 
 Like a conventional desktop, a client decoration's maximize button and a
 double-click on its titlebar both toggle Halley's field maximize. The client is
@@ -531,6 +536,34 @@ Inside an active cluster workspace, field maximize and fullscreen temporarily
 promote only the selected member above the desktop and cover every sibling,
 floating window, node, and cluster overlay behind it. On exit, the window eases
 back to its current tile and rejoins the cluster at its original stack slot.
+
+## Older action spellings
+
+Configs written for earlier Halley releases keep working: these older
+spellings still run the action on the right. New configs, the generated
+config, and these docs use the current spellings only. Any action can also be
+written with `_` in place of `-` in its first word, so `toggle_state` is
+`toggle-state`.
+
+| Older spelling | Current spelling |
+|---|---|
+| `close-window` | `close-focused` |
+| `fullscreen` | `toggle-fullscreen` |
+| `toggle-maximize` | `maximize-focused` |
+| `toggle-pin`, `pin-toggle` | `toggle-focused-pin` |
+| `overview` | `apogee` |
+| `trail-previous` | `trail-prev` |
+| `cluster-layout cycle` | `cluster-layout-cycle` |
+| `field-jump` | `drag-pan` |
+| `reload-config` | `reload` |
+| `open-terminal` | `default-terminal` |
+| `cluster slot N` | `cluster-slot-N` |
+| `cluster focus DIRECTION`, `cluster-focus DIRECTION`, `tile focus DIRECTION`, `tile-focus DIRECTION`, `cluster-tile-focus-DIRECTION` | `cluster-focus-DIRECTION` |
+| `focus DIRECTION` | `focus-DIRECTION` |
+| `node move DIRECTION`, `move DIRECTION`, `move-DIRECTION`, `node-move-DIRECTION` (each with optional `UNITS`) | `node-move DIRECTION [UNITS]` |
+| `resize DIRECTION`, `resize-window DIRECTION` | `resize-window-DIRECTION` |
+| `tile swap DIRECTION`, `tile-swap DIRECTION` | `cluster-tile-swap-DIRECTION` |
+| `monitor focus TARGET`, `monitor-focus-DIRECTION` | `monitor-focus TARGET` |
 
 ## Keyboard Field panning and monitor transfer
 
