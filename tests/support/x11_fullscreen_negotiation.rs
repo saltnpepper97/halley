@@ -861,11 +861,21 @@ end
     };
     input.key(68, true);
     input.key(68, false);
-    // Leaving fullscreen moves the window before the game's 240x160 buffer
-    // arrives, so for about a frame it is presented at its windowed position
-    // with its fullscreen size. Wait for the size to settle as well.
+    // With animations off, Halley keeps the fullscreen presentation until the
+    // game commits its 240x160 buffer, so the window must never be presented
+    // at its windowed position with its old 1280x800 buffer.
     wait_for("game exits into a normal 240x160 window", || {
-        (presented()["fullscreen"] == false && (rect().2, rect().3) == (240, 160)).then_some(())
+        let state = presented();
+        if state["fullscreen"] != false {
+            return None;
+        }
+        let size = (state["rect"][2].as_i64(), state["rect"][3].as_i64());
+        assert_eq!(
+            size,
+            (Some(240), Some(160)),
+            "the game left fullscreen showing its old buffer at the windowed position"
+        );
+        Some(())
     });
     wait_for("server titlebar and rounded live client", || {
         // Re-read the frame each attempt: it can still shift while settling.
