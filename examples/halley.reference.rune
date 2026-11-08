@@ -60,7 +60,7 @@ end
 
 # `view` groups settings by physical output. Repeat `output:` inside this one
 # section for each connector (find connector names and modes with
-# `halleyctl outputs`). A ring-only entry is safe on any machine: it changes
+# `halleyctl outputs`). A decay-zone-only entry is safe on any machine: it changes
 # Halley's view policy without selecting a hardware mode.
 view:
   output:
