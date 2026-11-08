@@ -397,9 +397,10 @@ and `info`.
 The same movement is available directly from the compositor with
 `node-move left|right|up|down [UNITS]`. An explicit distance uses the same
 directional obstacle handling as the CLI; omitting it preserves legacy movement.
-The default `Mod+Alt+Arrow` bindings target the
-focused or most-recent node on the selected output and operate only in the
-Field; cluster workspaces retain their own focus and swap controls.
+Bound keys (the reference config uses `Mod+Alt+Arrow`; the starter leaves
+them unbound) target the focused or most-recent node on the selected output and
+operate only in the Field; cluster workspaces retain their own focus and swap
+controls.
 
 `halleyctl` implements these controls through the versioned [`halley-api`
 contract](api.md). External tools can use the same typed node operations and

@@ -201,11 +201,11 @@ list of defaults, actions, and trigger types.
 
 ## Configuration
 
-On first launch Halley writes a config file to
+On first launch Halley writes a short [starter config](examples/halley.rune) to
 `$XDG_CONFIG_HOME/halley/halley.rune` (or `~/.config/halley/halley.rune`), and
-edits to it reload live. Every option is documented on the
-[website](https://saltnpepper97.github.io/halley-site/) and in the
-[configuration template](examples/halley.rune).
+edits to it reload live. Every other option is documented on the
+[website](https://saltnpepper97.github.io/halley-site/wiki/config) and in the
+[complete reference](examples/halley.reference.rune).
 
 ```sh
 halleyctl config edit
@@ -263,7 +263,8 @@ halleyctl portal status
 
 ## References
 
-- [Configuration template](examples/halley.rune)
+- [Starter configuration](examples/halley.rune)
+- [Complete configuration reference](examples/halley.reference.rune)
 - [Keybind triggers and actions](docs/keybinds.md)
 - [Older configuration and action spellings](docs/older-spellings.md)
 - [Compositor API](docs/api.md)

@@ -29,3 +29,9 @@ Preserve these behaviors when changing or refactoring Halley unless the user ins
 Smithay and smithay-drm-extras must use the same explicitly pinned revision of the unmodified official `https://github.com/Smithay/smithay.git` repository. Keep the revision in Cargo.toml and Cargo.lock consistent; update the pin deliberately when needed. Never vendor or bundle Smithay in the repository or release archives, copy its implementation into Halley, use a modified fork, or apply dependency patches or repository source replacements. Implement Halley policy in Halley through public upstream APIs. Do not weaken IME lock isolation or recovery to accommodate a dependency change. The upstream-source CI guard must pass before merging.
 
 Do not place a cloned or modified Smithay source tree anywhere in the project. Keep the current upstream pin unless there is a deliberate reason to update it; Halley currently needs a revision newer than Smithay 0.7 for blur support.
+
+# Testing
+
+Run the local CI checks before merging: the Smithay source guard, `cargo fmt --check`, clippy with `-D warnings` for all three feature sets, workspace tests, and the docs build. Build and install with `cargo build --release --workspace`; without `--workspace` only `halley` is rebuilt, not `halleyctl` or the portal.
+
+Do not run the nested compositor suite (`HALLEY_TEST_WINIT_SERVER=… cargo test --test xwayland_disconnect -- --ignored`, about four minutes) for every change. Run it only when a change affects behaviour that needs a live compositor to observe: window, fullscreen, maximize, focus, pointer or keyboard handling, XWayland, rendering, or capture. Config, docs, CLI and pure-refactor changes rely on CI's headless XWayland job instead. The nested windows open on the user's real desktop, so pointer-sensitive tests can fail while the user is moving the mouse; rerun those rather than treating one failure as a regression.
