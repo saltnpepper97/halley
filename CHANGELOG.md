@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: nested test sessions ignore the host's keyboard and pointer, so
+  moving the mouse over their windows can no longer change a test's result.
 - Write a short starter config on first run instead of the full 1,000-line
   file. It covers autostart, input, cursor, decorations, font, decay,
   screenshots, animations and keybinds, and links each section to its page on

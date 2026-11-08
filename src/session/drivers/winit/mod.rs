@@ -929,10 +929,11 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 app.request_redraw();
             }
             WinitEvent::Input(event) => {
-                // Isolated test sessions receive input only from their private
-                // control socket; host pointer motion must not steer the test.
-                #[cfg(test)]
-                if !app.driver.extra_outputs.is_empty() {
+                // Test sessions open real windows on the developer's desktop.
+                // They receive input only from their private control socket
+                // or their own clients; host pointer motion and keys must
+                // never steer a test, with or without a control socket.
+                if cfg!(test) {
                     return;
                 }
                 super::input::handle(app, &event, &socket_name);
