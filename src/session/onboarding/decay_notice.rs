@@ -68,7 +68,7 @@ pub(super) fn collapsed_into_node_message(
         None => String::from("Apogee"),
     };
     format!(
-        "{name} was collapsed into a node. It's still running. Click its node, or find it in {apogee}."
+        "{name} was collapsed into a node. It's still running. Click here to bring it back, or find it in {apogee}."
     )
 }
 
@@ -88,6 +88,90 @@ fn application_name<'a>(title: &'a str, app_id: Option<&'a str>) -> Option<&'a s
         return Some(title);
     }
     app_id.map(str::trim).filter(|app_id| !app_id.is_empty())
+}
+
+/// The collapsed node a click at `position` would restore, if the decay
+/// notice is under it. Modal owners, grabs and pointer constraints keep the
+/// click, as they do for the screenshot card.
+pub(super) fn click_target<D: super::SessionDriver>(
+    session: &super::Session<D>,
+    position: smithay::utils::Point<f64, smithay::utils::Logical>,
+) -> Option<halley_core::field::NodeId> {
+    if session.session_lock.active()
+        || session.capture.is_active()
+        || session.shell.overlays.confirmation_modal_active()
+        || session.shell.cluster_composer.is_active()
+        || session.shell.apogee.accepts_input()
+        || session.interactions.has_grab()
+        || session.seat.get_pointer().is_some_and(|p| p.is_grabbed())
+        || super::pointer::has_active_constraint(session)
+    {
+        return None;
+    }
+    let now = crate::frame_clock::monotonic_now();
+    session.wayland.space.outputs().find_map(|output| {
+        let geometry = session.wayland.space.output_geometry(output)?;
+        if !geometry.to_f64().contains(position) {
+            return None;
+        }
+        let local = position - geometry.loc.to_f64();
+        session
+            .shell
+            .overlays
+            .notice_target_at(&output.name(), local, now)
+    })
+}
+
+/// Restores the window a clicked decay notice describes: it is revealed on
+/// screen and focused, and the notice fades out. Nothing else changes focus,
+/// so the window the user was working in is only left by this deliberate
+/// click.
+pub(super) fn restore_target<D: super::SessionDriver>(
+    session: &mut super::Session<D>,
+    id: halley_core::field::NodeId,
+) {
+    session
+        .shell
+        .overlays
+        .dismiss_notice(crate::frame_clock::monotonic_now());
+    let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+    if !crate::nodes::focus_or_reveal_node(session, id, serial, true) {
+        eventline::info!(
+            "decay notice: node {} is gone; nothing to restore",
+            id.as_u64()
+        );
+    }
+    session.request_redraw();
+}
+
+/// Claims a left click on the decay notice. Its release is suppressed with
+/// the screenshot card's, so the client beneath sees neither half.
+pub(super) fn handle_pointer<D, B>(
+    session: &mut super::Session<D>,
+    event: &smithay::backend::input::InputEvent<B>,
+) -> bool
+where
+    D: super::SessionDriver,
+    B: smithay::backend::input::InputBackend,
+{
+    use smithay::backend::input::{ButtonState, InputEvent, PointerButtonEvent};
+    let InputEvent::PointerButton { event } = event else {
+        return false;
+    };
+    if event.state() != ButtonState::Pressed
+        || event.button_code() != crate::input::buttons::BTN_LEFT
+    {
+        return false;
+    }
+    let Some(id) = click_target(session, session.pointer.position().into()) else {
+        return false;
+    };
+    session
+        .interactions
+        .screenshot_buttons
+        .suppress(event.button_code());
+    restore_target(session, id);
+    true
 }
 
 #[cfg(test)]
@@ -112,7 +196,7 @@ mod tests {
         let message = collapsed_into_node_message("Firefox", None, Some("Super+O"));
         assert_eq!(
             message,
-            "Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
         );
         assert!(!message.contains("Mod+N"));
     }
@@ -121,7 +205,7 @@ mod tests {
     fn the_message_names_only_a_bound_apogee_key() {
         assert_eq!(
             collapsed_into_node_message("Untitled", None, None),
-            "A window was collapsed into a node. It's still running. Click its node, or find it in Apogee."
+            "A window was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee."
         );
         assert!(
             collapsed_into_node_message("", Some("org.gnome.Nautilus"), Some("Alt+O"))

@@ -1,6 +1,11 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
 use std::time::Duration;
+
+use halley_core::field::NodeId;
+use smithay::utils::{Logical, Point, Rectangle};
 
 const TRANSITION_DURATION: Duration = Duration::from_millis(180);
 
@@ -8,6 +13,24 @@ const TRANSITION_DURATION: Duration = Duration::from_millis(180);
 pub enum NotificationKind {
     Success,
     Error,
+}
+
+/// Where the renderer last drew a text notification, in output-local logical
+/// coordinates. Measuring the card needs the text renderer, so input reads the
+/// rectangle the renderer recorded instead of recomputing it.
+#[derive(Clone, Debug, Default)]
+pub struct NotificationCard(Rc<Cell<Option<Rectangle<i32, Logical>>>>);
+
+impl NotificationCard {
+    pub fn record(&self, rect: Rectangle<i32, Logical>) {
+        self.0.set(Some(rect));
+    }
+
+    fn contains(&self, point: Point<f64, Logical>) -> bool {
+        self.0
+            .get()
+            .is_some_and(|rect| rect.to_f64().contains(point))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -24,6 +47,10 @@ struct Notification {
     hovered: bool,
     hovered_action: Option<super::screenshot::ScreenshotAction>,
     hold_duration: Duration,
+    /// The node a click on this notice restores, such as the window the
+    /// first-decay notice describes.
+    target: Option<NodeId>,
+    card: NotificationCard,
 }
 
 impl Notification {
@@ -157,6 +184,7 @@ pub struct NotificationSnapshot {
     pub hovered_action: Option<super::screenshot::ScreenshotAction>,
     pub kind: NotificationKind,
     pub mix: f32,
+    pub card: NotificationCard,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -431,14 +459,60 @@ impl OverlayManager {
     /// It uses the ordinary non-modal notification surface: it appears on the
     /// output it names, fades out on its own, never captures keyboard or
     /// pointer input, and never changes the focused window or output.
+    /// The first-decay notice. Clicking it restores `target`; see
+    /// [`Self::notice_target_at`].
     pub fn show_decay_notice(
         &mut self,
         output: String,
         message: String,
+        target: NodeId,
         duration_ms: u64,
         now: Duration,
     ) {
         self.show_notice(output, message, duration_ms, now);
+        if let Some(notification) = self.notification.as_mut() {
+            notification.target = Some(target);
+        }
+    }
+
+    /// The node restored by clicking the notice at `point`, in coordinates
+    /// local to `output`. Only a visible, undismissed notice with a target
+    /// answers, and only inside the card the renderer last drew.
+    pub fn notice_target_at(
+        &self,
+        output: &str,
+        point: Point<f64, Logical>,
+        now: Duration,
+    ) -> Option<NodeId> {
+        let notification = self.notification.as_ref()?;
+        (notification.output == output
+            && notification.dismissed.is_none()
+            && now < notification.expires_at
+            && notification.card.contains(point))
+        .then_some(notification.target)
+        .flatten()
+    }
+
+    /// The clickable notice on `output` and where it was last drawn, for the
+    /// nested test control socket.
+    #[cfg(test)]
+    pub fn notice_card(&self, output: &str) -> Option<(NodeId, Rectangle<i32, Logical>)> {
+        let notification = self.notification.as_ref()?;
+        (notification.output == output && notification.dismissed.is_none())
+            .then(|| Some((notification.target?, notification.card.0.get()?)))
+            .flatten()
+    }
+
+    /// Fades out the current notice after its click was handled.
+    pub fn dismiss_notice(&mut self, now: Duration) -> bool {
+        let Some(notification) = self.notification.as_mut() else {
+            return false;
+        };
+        if notification.dismissed.is_some() {
+            return false;
+        }
+        notification.dismissed = Some((now, notification.mix(now)));
+        true
     }
 
     /// A short informational notice on the ordinary non-modal notification
@@ -507,6 +581,8 @@ impl OverlayManager {
             hovered: false,
             hovered_action: None,
             hold_duration: Duration::from_millis(duration_ms.max(1)),
+            target: None,
+            card: NotificationCard::default(),
         });
     }
 
@@ -615,6 +691,7 @@ impl OverlayManager {
                         hovered_action: notification.hovered_action,
                         kind: notification.kind,
                         mix: notification.mix(now),
+                        card: notification.card.clone(),
                     }
                 })
             }),
@@ -901,15 +978,17 @@ mod tests {
     }
 
     /// Milestone 4: the one-time decay explanation is an ordinary success
-    /// notification, so it can never capture input or hold a modal state.
+    /// notification, so it can never capture keyboard input or hold a modal
+    /// state.
     #[test]
     fn the_decay_notice_is_non_modal_and_never_captures_input() {
         let mut overlays = OverlayManager::default();
         overlays.show_decay_notice(
             "DP-1".into(),
-            "Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
                 .to_string(),
-            4_000,
+            NodeId::new(7),
+            9_000,
             Duration::ZERO,
         );
 
@@ -917,7 +996,7 @@ mod tests {
         let notification = snapshot.notification.expect("the explanation is visible");
         assert_eq!(
             notification.message,
-            "Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
         );
         assert_eq!(notification.kind, NotificationKind::Success);
         assert!(
@@ -927,14 +1006,81 @@ mod tests {
         assert!(!overlays.confirmation_modal_active());
         assert!(
             !overlays.basics_card_accepts_input(),
-            "the explanation must not swallow any key or pointer press"
+            "the explanation must not swallow any key press"
         );
         assert!(
             overlays
-                .snapshot("DP-1", Duration::from_millis(4_400))
+                .snapshot("DP-1", Duration::from_millis(9_400))
                 .notification
                 .is_none(),
             "the explanation fades out on its own without any acknowledgement"
+        );
+    }
+
+    /// 3.2: clicking inside the drawn card names the collapsed node, and only
+    /// while the notice is up on that output.
+    #[test]
+    fn clicking_the_decay_notice_names_its_node_until_it_expires() {
+        let mut overlays = OverlayManager::default();
+        let target = NodeId::new(7);
+        overlays.show_decay_notice(
+            "DP-1".into(),
+            "B collapsed".into(),
+            target,
+            9_000,
+            Duration::ZERO,
+        );
+        let inside = Point::from((150.0, 40.0));
+        let now = Duration::from_millis(500);
+
+        assert_eq!(
+            overlays.notice_target_at("DP-1", inside, now),
+            None,
+            "nothing is clickable before the renderer has drawn the card"
+        );
+        overlays
+            .snapshot("DP-1", now)
+            .notification
+            .expect("visible")
+            .card
+            .record(Rectangle::new((100, 24).into(), (300, 40).into()));
+
+        assert_eq!(overlays.notice_target_at("DP-1", inside, now), Some(target));
+        assert_eq!(overlays.notice_target_at("DP-2", inside, now), None);
+        assert_eq!(
+            overlays.notice_target_at("DP-1", Point::from((50.0, 40.0)), now),
+            None,
+            "a click beside the card falls through"
+        );
+        assert_eq!(
+            overlays.notice_target_at("DP-1", inside, Duration::from_millis(9_000)),
+            None,
+            "an expired notice no longer answers clicks"
+        );
+
+        assert!(overlays.dismiss_notice(now));
+        assert_eq!(overlays.notice_target_at("DP-1", inside, now), None);
+    }
+
+    #[test]
+    fn ordinary_notices_have_no_click_target() {
+        let mut overlays = OverlayManager::default();
+        overlays.show_notice(
+            "DP-1".into(),
+            "Slot 3 is empty".into(),
+            4_000,
+            Duration::ZERO,
+        );
+        let now = Duration::from_millis(500);
+        overlays
+            .snapshot("DP-1", now)
+            .notification
+            .expect("visible")
+            .card
+            .record(Rectangle::new((0, 0).into(), (300, 40).into()));
+        assert_eq!(
+            overlays.notice_target_at("DP-1", Point::from((10.0, 10.0)), now),
+            None
         );
     }
 

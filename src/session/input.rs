@@ -1080,6 +1080,9 @@ where
     if super::screenshot::handle_pointer(session, event) {
         return;
     }
+    if super::decay_notice::handle_pointer(session, event) {
+        return;
+    }
     let Some(position_after) = motion::handle(session, event, position_before, proposed_position)
     else {
         return;

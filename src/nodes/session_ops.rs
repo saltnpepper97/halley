@@ -285,7 +285,7 @@ fn collapse_inner<D: crate::session::SessionDriver>(
     crate::session::reconcile_pointer_constraints(session);
     // Automatic decay and manual `Mod+N` share this seam; the collapse trigger
     // decides whether this one explains itself. See `session::decay_notice`.
-    session.note_collapse(decay, &record.title, record.app_id.as_deref());
+    session.note_collapse(decay, id, &record.title, record.app_id.as_deref());
     session.request_redraw();
     true
 }

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Click the first-decay notice to bring the collapsed window back. It is
+  restored on screen and focused, and the notice fades out. The notice now
+  stays up for 9 seconds instead of 4, and still never takes keyboard focus or
+  blocks anything else.
 - Add `debug.disable-explicit-sync` as a session-wide graphics compatibility
   workaround. It defaults to `false` and requires restarting Halley; existing
   user configurations are not rewritten.

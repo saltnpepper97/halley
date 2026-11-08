@@ -172,7 +172,7 @@ The first time automatic decay collapses a window into a node, Halley shows one
 ordinary success notification:
 
 ```text
-Firefox was collapsed into a node. It's still running. Click its node, or find it in Apogee (Super+O).
+Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O).
 ```
 
 The notice names the collapsed window's title — the same text its node is
@@ -184,8 +184,11 @@ focused window, and decay only collapses unfocused ones. The `Untitled` placehol
 unnamed window is not shown as if it were an application name.
 
 It reuses the non-modal notification surface above: it never captures keyboard
-or pointer input, opens no confirmation or card, changes no focused window or
-output, and fades out by itself after `success-duration-ms`. The explanation is
+input and opens no confirmation or card. A left click or tap on the notice
+restores the collapsed window it names, reveals it on screen and focuses it,
+then fades the notice out; a click anywhere else, or none at all, changes
+nothing. It fades out by itself after `error-duration-ms` rather than the
+shorter success duration, so there is time to read and click it. The explanation is
 one-shot per user state rather than per application or session, recorded as
 `decay-notice-shown` in the same user state file as the basics card; that file
 is never migrated and safe to delete. Manual `Mod+N` collapse, a titlebar

@@ -386,8 +386,16 @@ impl<D: SessionDriver> Session<D> {
     /// collapse is silent, because the user performed it deliberately and saw
     /// it happen. An automatic collapse explains itself once per user state,
     /// not once per application or session, and only as an ordinary non-modal
-    /// notification that takes no input.
-    pub fn note_collapse(&mut self, decay: bool, title: &str, app_id: Option<&str>) -> bool {
+    /// notification. It never takes keyboard focus; clicking it restores and
+    /// focuses the collapsed window `id`. It uses the longer error duration so
+    /// there is time to read and click it.
+    pub fn note_collapse(
+        &mut self,
+        decay: bool,
+        id: halley_core::field::NodeId,
+        title: &str,
+        app_id: Option<&str>,
+    ) -> bool {
         let trigger = super::decay_notice::CollapseTrigger::for_decay(decay);
         if !super::decay_notice::explanation_due(trigger, self.user_state.decay_notice_shown()) {
             return false;
@@ -399,7 +407,8 @@ impl<D: SessionDriver> Session<D> {
         self.shell.overlays.show_decay_notice(
             output.clone(),
             message,
-            self.settings.overlays.notifications.success_duration_ms,
+            id,
+            self.settings.overlays.notifications.error_duration_ms,
             crate::frame_clock::monotonic_now(),
         );
         self.user_state.record_decay_notice_shown();

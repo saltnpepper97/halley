@@ -88,11 +88,13 @@ apply both to a newly generated configuration and to one that omits the
 `decay:` section; an existing configuration keeps the values it states.
 
 The first automatic collapse explains itself once, in a non-modal notice:
-`<Application> was collapsed into a node. It's still running. Click its node,
-or find it in Apogee (<key>).`, where the key is the one bound to `apogee`. The
-application name is the window title, falling back to the
-application id and then to a generic "A window" sentence. The notice never takes
-keyboard or pointer input and never changes focus, and it is recorded in user
+`<Application> was collapsed into a node. It's still running. Click here to
+bring it back, or find it in Apogee (<key>).`, where the key is the one bound to
+`apogee`. The application name is the window title, falling back to the
+application id and then to a generic "A window" sentence. Clicking the notice
+restores that window on screen and focuses it; nothing else about the notice
+takes input or changes focus. It stays up for `error-duration-ms` (9 seconds by
+default) so there is time to read and click it, and it is recorded in user
 state (`$XDG_STATE_HOME/halley/state.rune`), so no later collapse — for another
 application or in another session — explains anything again. Manual `Mod+N`
 collapse is your own deliberate action, is visible as it animates, and never
