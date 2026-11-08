@@ -28,8 +28,9 @@ All notable changes to this project will be documented in this file.
   on it fits. Click a window or node to zoom back in on it, or press `Mod+O`
   again or Escape to return. Nothing moves, `Mod`-drag still moves windows
   while zoomed out, and panning or zooming by hand keeps the new view. Zoom to
-  fit can look further out than `zoom.min`, down to 10%. Bindings to `apogee`
-  and the `apogee-open`, `apogee-close` and `apogee-swipe-*` gestures keep
+  fit can look further out than `zoom.min`, down to 10%, and leaves room at
+  the edges so nodes pushed aside by nearby windows stay in view. Bindings to
+  `apogee` and the `apogee-open`, `apogee-close` and `apogee-swipe-*` gestures keep
   working as older spellings of `zoom-fit`, `zoom-fit-open`, `zoom-fit-close`
   and `zoom-fit-swipe-*`. The `apogee:` config section is no longer read and
   can be deleted. The first-decay notice now says to press the zoom-fit key,
@@ -41,7 +42,7 @@ All notable changes to this project will be documented in this file.
   gets a slot at least that big and the others shrink instead, so it no longer
   overlaps its neighbours. No window is dropped. Moving or closing one arranged
   window now keeps the others' way back, so the next `Mod+A` still returns
-  them.
+  them. The window you are working in gets a larger slot than the others.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can

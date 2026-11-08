@@ -16,6 +16,12 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::{Session, SessionDriver};
 
+/// How much more room the window you are working in asks for. The packer
+/// turns weight into slot size through a square root, limited to 0.68 to
+/// 1.45 times the average, so doubling it gives the focused window a clearly
+/// larger slot without dwarfing everything else.
+const FOCUSED_WEIGHT: f32 = 2.0;
+
 /// Rows the packer may use. Matches Cluster Composer so both read alike.
 const MAX_ROWS: usize = 3;
 
@@ -171,7 +177,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     if candidates.len() < 2 {
         return false;
     }
-    let slots = arrange_slots(&candidates, visible_area, gap);
+    let slots = arrange_slots(&candidates, session.nodes.focused(), visible_area, gap);
     let assignment = candidates
         .iter()
         .zip(slots)
@@ -459,6 +465,7 @@ fn visible_work_area_outer(
 /// One outer rectangle per candidate, in Field coordinates inside `area`.
 fn arrange_slots(
     candidates: &[Candidate],
+    focused: Option<halley_core::field::NodeId>,
     area: Rectangle<i32, Logical>,
     gap: i32,
 ) -> Vec<Rectangle<i32, Logical>> {
@@ -470,7 +477,13 @@ fn arrange_slots(
             aspect: (candidate.outer.size.w.max(1) as f32 / candidate.outer.size.h.max(1) as f32)
                 .clamp(0.25, 4.5),
             stable_key: candidate.id.as_u64(),
-            weight: candidate.outer.size.w.max(1) as f32 * candidate.outer.size.h.max(1) as f32,
+            weight: candidate.outer.size.w.max(1) as f32
+                * candidate.outer.size.h.max(1) as f32
+                * if focused == Some(candidate.id) {
+                    FOCUSED_WEIGHT
+                } else {
+                    1.0
+                },
             min_w: candidate.min_outer.w as f32,
             min_h: candidate.min_outer.h as f32,
         })
@@ -768,6 +781,22 @@ mod tests {
             for other in &slots[index + 1..] {
                 assert!(!overlaps(*slot, *other), "{slot:?} overlaps {other:?}");
             }
+        }
+    }
+
+    #[test]
+    fn the_focused_window_gets_a_larger_slot() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        let mut items = (0..4)
+            .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
+            .collect::<Vec<_>>();
+        let even = slots_in(&items, area, 20);
+        items[2].weight *= super::FOCUSED_WEIGHT;
+        let focused = slots_in(&items, area, 20);
+        let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
+        assert!(area_of(&focused[2]) > area_of(&even[2]));
+        for other in [0, 1, 3] {
+            assert!(area_of(&focused[2]) > area_of(&focused[other]));
         }
     }
 

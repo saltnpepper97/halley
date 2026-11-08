@@ -414,8 +414,9 @@ windows, and fullscreen and maximized windows. Every other visible window takes
 part; none is dropped.
 
 Arrange is predictable: each window keeps its shape (a wide window stays wide, a
-tall one stays tall), bigger windows get bigger slots, and the same windows
-always produce the same layout. A window that cannot shrink below a minimum
+tall one stays tall), bigger windows get bigger slots, the window you are
+working in gets a larger slot than the rest, and the same windows always
+produce the same layout. A window that cannot shrink below a minimum
 size (common for X11 apps such as Steam) gets a slot at least that big, and the
 other windows shrink to make room, so nothing overlaps. A window with a maximum
 size smaller than its slot is centred in it.
