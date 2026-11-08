@@ -50,5 +50,4 @@ spellings and keep working.
 
 Zoom to fit replaces Apogee, the separate overview screen. `Mod+O` and any
 binding to `apogee` keep working and now zoom to fit. The `apogee:` config
-section is no longer read and can be deleted; Cluster Composer keeps the same
-timing, spacing and dimming it used to take from that section.
+section is no longer read and can be deleted.

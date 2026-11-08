@@ -5,7 +5,7 @@ Overlay sizes and offsets use logical pixels and follow the monitor's
 zero; bootstrap configs explicitly include `offset-x 0` and `offset-y 0`.
 
 The `overlays:` section is the shared style contract for compositor-owned UI:
-the Alt+Tab rail, Cluster Composer title bands, Bearings chips, the screenshot picker,
+the Alt+Tab rail, the cluster creation bar and badges, Bearings chips, the screenshot picker,
 configuration notices, the zoom indicator, the exit confirmation, the one-time
 automatic-decay explanation, and the one-time basics card. It
 deliberately does not restyle client window decorations or node labels; those
@@ -64,7 +64,7 @@ back to `auto` when the portal reports no preference or is unavailable.
 pixels and is clamped from `0` to `64`; it is independent of
 `decorations.border.size`. `border-colour` is also independent of window
 styling and defaults to Halley's orange `#d65d26`.
-Alt+Tab and Cluster Composer title bands, monitor badges, `NODE` badges, and tiled-cluster
+Alt+Tab title bands, monitor badges, `NODE` badges, and tiled-cluster
 overflow strips remain borderless regardless of this setting, matching old
 Halley's label chrome.
 Window preview textures use `decorations.border.radius`; the one surrounding

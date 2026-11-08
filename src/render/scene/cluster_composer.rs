@@ -1,4 +1,4 @@
-use super::overview::{OverviewDesktop, OverviewRenderers, OverviewScene, OverviewTile};
+use super::overview::{OverviewDesktop, OverviewRenderers, OverviewScene};
 use super::*;
 
 use crate::render::draw::DrawContext;
@@ -15,10 +15,16 @@ const SELECTED_BADGE_SIZE: i32 = 30;
 const SELECTED_CHECK_SIZE: i32 = 18;
 const SELECTED_BADGE_CORNER_OVERLAP: i32 = 5;
 
+/// Thickness of the outline around the highlighted window or node.
+const FOCUS_OUTLINE_PX: f32 = 3.0;
+
+/// Cluster creation drawn over the ordinary Field: an outline around the
+/// highlighted window or node, a check badge on each selected one, the
+/// instruction bar, and the new cluster node fading in as the selected windows
+/// fly into it. The windows themselves are the real Field windows.
 pub(super) fn cluster_composer_elements(
     scene: OverviewScene<'_>,
     state: &crate::shell::cluster_composer::ClusterComposerState,
-    config: crate::shell::cluster_composer::ComposerStyle,
     overlay_config: &halley_config::Overlays,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let OverviewScene {
@@ -38,142 +44,90 @@ pub(super) fn cluster_composer_elements(
     let OverviewRenderers {
         node: node_renderer,
         cluster: cluster_renderer,
-        titlebar: titlebar_renderer,
-        decoration: window_decoration_renderer,
         text: ui_text,
-        previews: overlay_previews,
+        ..
     } = draw;
     let Some(session) = state
         .session()
-        .filter(|session| session.output == output.name() && session.replaces_scene())
+        .filter(|session| session.output == output.name())
     else {
         return Ok(Vec::new());
     };
     let creation = clusters.creation();
-    let progress = session.progress(now).clamp(0.0, 1.0);
-    let ordinary_transition = super::overview::overview_transition_visuals(progress);
-    let commit_progress = session.commit_progress(now);
     let committing = matches!(
         session.phase(),
         crate::shell::cluster_composer::Phase::Committing
             | crate::shell::cluster_composer::Phase::CommitEndpointHeld
     );
+    let commit_progress = session.commit_progress(now);
+    let chrome_alpha = if committing {
+        (1.0 - commit_progress / 0.62).clamp(0.0, 1.0)
+    } else {
+        super::overview::chrome_alpha(session.progress(now))
+    };
     let overlay_visuals = crate::render::overlays::shell::resolve_visuals(overlay_config);
     let output_local = Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1));
-    let prepared_core = session
-        .prepared()
-        .and_then(|prepared| prepared_core_rect(prepared, output, output_geometry, cameras));
-    let selected_count = session
-        .prepared()
-        .map_or(0, |prepared| prepared.members.len());
-    let mut tiles = session.tiles.iter().collect::<Vec<_>>();
-    tiles.sort_by_key(|tile| {
-        (
-            usize::from(session.focused == Some(tile.id)),
-            tile.source_stack_index,
-            tile.source_stack_order,
-        )
-    });
-    tiles.reverse();
 
-    overlay_previews.retain(session.tiles.iter().map(|tile| tile.id));
     let mut elements = Vec::new();
-    for tile in tiles {
-        let focused = session.focused == Some(tile.id);
-        let selected = creation.is_some_and(|creation| creation.selected.contains(&tile.id));
-        let source = super::overview::overview_window_source_rect(
-            output,
-            output_geometry,
-            tile.id,
-            desktop,
-            now,
-        );
-        let mosaic = Rectangle::<i32, Physical>::new(
-            (tile.target.loc - output_geometry.loc).to_physical(1),
-            tile.target.size.to_physical(1),
-        );
-        let body = if committing {
-            let start = source.map(|source| {
-                super::overview::lerp_rect(source, mosaic, session.commit_opening_progress())
-            });
-            let end = if selected { prepared_core } else { source };
-            start.zip(end).map(|(start, end)| {
-                let index = session
-                    .prepared()
-                    .and_then(|prepared| {
-                        prepared
-                            .members
-                            .iter()
-                            .position(|member| *member == tile.id)
-                    })
-                    .unwrap_or(0);
-                commit_body(start, end, commit_progress, index, selected_count, selected)
-            })
-        } else {
-            None
-        };
-        let mut tile_transition = if committing {
-            let chrome = (1.0 - commit_progress / 0.62).clamp(0.0, 1.0);
-            let mut transition = super::overview::overview_transition_visuals(1.0);
-            transition.chrome_alpha = chrome;
-            transition.overlay_alpha = chrome;
-            if selected {
-                transition.preview_alpha = (1.0 - (commit_progress - 0.70) / 0.30).clamp(0.0, 1.0);
-            }
-            transition
-        } else {
-            ordinary_transition
-        };
-        if body.is_none() && committing {
-            // A disappearing selected member invalidates the prepared commit;
-            // the lifecycle abort path will return to the composer.
-            tile_transition.preview_alpha = 0.0;
-        }
-        if selected && tile_transition.chrome_alpha > 0.0 {
-            let badge_body = body
-                .or_else(|| {
-                    source.map(|source| super::overview::lerp_rect(source, mosaic, progress))
-                })
-                .unwrap_or(mosaic);
-            push_selection_badge(
+    if !committing {
+        push_draft_rail(
+            &mut crate::render::draw::DrawContext {
                 renderer,
-                node_renderer,
-                &mut elements,
-                badge_body,
-                overlay_visuals,
-                tile_transition.chrome_alpha,
-            )?;
-        }
-        super::overview::push_overview_window(
+                node: node_renderer,
+                text: ui_text,
+            },
             &mut elements,
-            OverviewScene {
-                renderer: &mut *renderer,
+            output_local,
+            creation,
+            overlay_visuals,
+            chrome_alpha,
+        )?;
+    }
+    if chrome_alpha > 0.0 {
+        for tile in &session.tiles {
+            let selected = creation.is_some_and(|creation| creation.selected.contains(&tile.id));
+            let focused = session.focused == Some(tile.id);
+            if !selected && !focused {
+                continue;
+            }
+            let Some(body) = super::overview::overview_window_source_rect(
                 output,
                 output_geometry,
+                tile.id,
                 desktop,
-                draw: OverviewRenderers {
-                    node: &mut *node_renderer,
-                    cluster: &mut *cluster_renderer,
-                    titlebar: &mut *titlebar_renderer,
-                    decoration: &mut *window_decoration_renderer,
-                    text: &mut *ui_text,
-                    previews: &mut *overlay_previews,
-                },
                 now,
-            },
-            OverviewTile {
-                id: tile.id,
-                target_global: tile.target,
-                body_override: body,
-                progress,
-                focused: focused && !committing,
-                member_selected: selected && !committing,
-                hovered: session.hovered == Some(tile.id) && !committing,
-            },
-            config,
-            overlay_visuals,
-            tile_transition,
-        )?;
+            ) else {
+                continue;
+            };
+            if selected {
+                push_selection_badge(
+                    renderer,
+                    node_renderer,
+                    &mut elements,
+                    body,
+                    overlay_visuals,
+                    chrome_alpha,
+                )?;
+            }
+            if focused {
+                let border = overlay_visuals.border;
+                let pad = FOCUS_OUTLINE_PX.ceil() as i32 + 2;
+                elements.push(SceneElement::DashedOutline(
+                    node_renderer.dashed_outline_element(
+                        renderer,
+                        &output.name(),
+                        crate::render::node::NodeSlot::CreationFocusOutline,
+                        Rectangle::new(
+                            (body.loc.x - pad, body.loc.y - pad).into(),
+                            (body.size.w + pad * 2, body.size.h + pad * 2).into(),
+                        ),
+                        (border.r, border.g, border.b, border.a * chrome_alpha),
+                        FOCUS_OUTLINE_PX,
+                        (1.0, 1.0),
+                    )?,
+                ));
+            }
+        }
     }
 
     if committing && let Some(prepared) = session.prepared() {
@@ -189,34 +143,8 @@ pub(super) fn cluster_composer_elements(
             nodes.config(),
             alpha,
         )?;
-        elements.splice(0..0, core_elements);
+        elements.extend(core_elements);
     }
-
-    if !committing {
-        push_draft_rail(
-            &mut crate::render::draw::DrawContext {
-                renderer,
-                node: node_renderer,
-                text: ui_text,
-            },
-            &mut elements,
-            output_local,
-            creation,
-            overlay_visuals,
-            ordinary_transition.chrome_alpha,
-        )?;
-    }
-
-    let backdrop_progress = if committing {
-        1.0
-    } else {
-        ordinary_transition.overlay_alpha
-    };
-    elements.push(SceneElement::Border(crate::render::solid_color_element(
-        node_renderer.active_slot_id(crate::render::node::NodeSlot::ClusterComposerBackdrop),
-        output_local,
-        super::overview::overview_backdrop_color(config.background_dim, backdrop_progress),
-    )));
     if session.phase() == crate::shell::cluster_composer::Phase::CommitEndpointHeld {
         session.mark_endpoint_rendered();
     }
@@ -295,30 +223,6 @@ fn core_rect_for_output(
         (center.x - side / 2, center.y - side / 2).into(),
         (side, side).into(),
     )
-}
-
-fn commit_body(
-    start: Rectangle<i32, Physical>,
-    end: Rectangle<i32, Physical>,
-    global: f32,
-    index: usize,
-    selected_count: usize,
-    selected: bool,
-) -> Rectangle<i32, Physical> {
-    let progress = if selected {
-        commit_tile_progress(global, index, selected_count)
-    } else {
-        global.clamp(0.0, 1.0)
-    };
-    super::overview::lerp_rect(start, end, progress)
-}
-
-pub(super) fn commit_tile_progress(global: f32, index: usize, count: usize) -> f32 {
-    if count <= 1 {
-        return global.clamp(0.0, 1.0);
-    }
-    let delay = 0.16 * index.min(count - 1) as f32 / (count - 1) as f32;
-    ((global - delay) / (1.0 - delay)).clamp(0.0, 1.0)
 }
 
 fn selection_badge_rect(card: Rectangle<i32, Physical>) -> Rectangle<i32, Physical> {
@@ -511,28 +415,6 @@ mod tests {
 
     fn rect(x: i32, y: i32, w: i32, h: i32) -> Rectangle<i32, Physical> {
         Rectangle::new((x, y).into(), (w, h).into())
-    }
-
-    #[test]
-    fn selected_and_unselected_commit_bodies_reach_their_distinct_endpoints() {
-        let start = rect(100, 120, 500, 320);
-        let core = rect(900, 600, 68, 68);
-        let field = rect(40, 50, 700, 420);
-
-        assert_eq!(commit_body(start, core, 0.0, 0, 3, true), start);
-        assert_eq!(commit_body(start, core, 1.0, 2, 3, true), core);
-        assert_eq!(commit_body(start, field, 0.0, 0, 3, false), start);
-        assert_eq!(commit_body(start, field, 1.0, 0, 3, false), field);
-    }
-
-    #[test]
-    fn stable_stagger_always_finishes_at_the_global_endpoint() {
-        for count in 1..=32 {
-            for index in 0..count {
-                assert_eq!(commit_tile_progress(1.0, index, count), 1.0);
-            }
-        }
-        assert!(commit_tile_progress(0.2, 0, 4) > commit_tile_progress(0.2, 3, 4));
     }
 
     #[test]

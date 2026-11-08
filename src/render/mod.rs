@@ -32,13 +32,12 @@ use smithay::backend::renderer::element::surface::{
 };
 use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
+use smithay::desktop::{PopupManager, Space, Window};
 use smithay::input::pointer::CursorIcon;
 use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use smithay::wayland::seat::WaylandFocus;
-use smithay::wayland::shell::wlr_layer::Layer;
 
 use crate::cursor::CursorManager;
 
@@ -114,56 +113,6 @@ pub fn window_surface_elements(
     );
 
     (popup_elements, surface_elements)
-}
-
-/// Builds one output's layer-shell surfaces in front-to-back order.
-///
-/// `LayerMap` supplies the protocol-defined placement and popup tree. Unlike
-/// normal windows, the returned locations are output-local and intentionally
-/// never pass through Halley's workspace camera.
-pub fn layer_surface_elements(
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    layer: Layer,
-) -> Vec<WaylandSurfaceRenderElement<GlesRenderer>> {
-    let map = layer_map_for_output(output);
-    // The complete logical scene is converted to output pixels at its boundary.
-    let scale = Scale::from(1.0);
-    map.layers_on(layer)
-        .rev()
-        .flat_map(|surface| {
-            let Some(geometry) = map.layer_geometry(surface) else {
-                return Vec::new();
-            };
-            let location = geometry.loc.to_f64().to_physical(scale).to_i32_round();
-            let popup_elements = PopupManager::popups_for_surface(surface.wl_surface()).flat_map(
-                |(popup, popup_offset)| {
-                    let offset = (popup_offset - popup.geometry().loc)
-                        .to_f64()
-                        .to_physical(scale)
-                        .to_i32_round();
-                    render_elements_from_surface_tree(
-                        renderer,
-                        popup.wl_surface(),
-                        location + offset,
-                        scale,
-                        1.0,
-                        Kind::ScanoutCandidate,
-                    )
-                },
-            );
-            let mut elements: Vec<_> = popup_elements.collect();
-            elements.extend(render_elements_from_surface_tree(
-                renderer,
-                surface.wl_surface(),
-                location,
-                scale,
-                1.0,
-                Kind::ScanoutCandidate,
-            ));
-            elements
-        })
-        .collect()
 }
 
 /// Whether rendering an output submitted a frame that will produce a

@@ -160,14 +160,11 @@ fn surface_rects_map_into_animated_client_bounds() {
 }
 
 #[test]
-fn overview_transition_never_fades_the_handoff_preview() {
-    for progress in [0.0, 0.0005, 0.5, 1.0] {
-        let visuals = overview_transition_visuals(progress);
-        assert_eq!(visuals.preview_alpha, 1.0);
-        assert_eq!(visuals.overlay_alpha, progress);
-    }
-    assert_eq!(overview_transition_visuals(0.0).chrome_alpha, 0.0);
-    assert_eq!(overview_transition_visuals(1.0).chrome_alpha, 1.0);
+fn creation_chrome_waits_for_the_camera_then_fades_in() {
+    assert_eq!(overview::chrome_alpha(0.0), 0.0);
+    assert_eq!(overview::chrome_alpha(0.18), 0.0);
+    assert!(overview::chrome_alpha(0.5) > 0.0);
+    assert_eq!(overview::chrome_alpha(1.0), 1.0);
 }
 
 #[test]

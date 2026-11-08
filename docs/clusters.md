@@ -31,6 +31,22 @@ pre-zoom home and returns to it as the footprint shrinks again on zoom-in,
 unless a drag, a physical push, or a cluster operation rebases the core's
 position first.
 
+## Creating a cluster
+
+Press `Super+Shift+C` (the `cluster-mode` binding). Creation happens on the
+Field itself: the monitor zooms out just far enough to show every window and
+node that can join, and zooms back when you finish or cancel. Nothing moves
+while you choose.
+
+- The arrow keys move the highlight to the nearest window or node in that
+  direction, and pointing at one highlights it too.
+- Space or a click selects or unselects it; selected ones show a check badge.
+- Enter names the cluster. Escape backs out of naming, and a second Escape
+  cancels.
+
+Windows already in a cluster cannot be picked. When you confirm the name, the
+selected windows fly into the new cluster node, which appears on the Field.
+
 ## Deleting a workspace
 
 Rest a pointer on a collapsed core until its bloom opens. Two compact controls

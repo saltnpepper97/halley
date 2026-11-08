@@ -1,30 +1,26 @@
+//! Cluster creation on the Field (`cluster-mode`, Super+Shift+C by default).
+//!
+//! Creation happens on the ordinary Field rather than a separate screen: the
+//! monitor zooms out until its windows and nodes fit, the user picks members
+//! where they actually are, names the cluster, and the picked windows fly into
+//! the new cluster node. This module owns the selection focus and the commit
+//! timeline; the session zooms the camera and animates the windows.
+
 use std::cell::Cell;
 use std::time::Duration;
 
 use halley_core::field::NodeId;
-use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Point, Rectangle};
 
-/// Timing and spacing for Cluster Composer's mosaic. These used to come from
-/// the removed `apogee:` config section; Composer keeps the same defaults.
+/// Timing for cluster creation's fades and commit flight.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ComposerStyle {
     pub transition_ms: u64,
-    pub gap: f32,
-    pub max_rows: u32,
-    pub background_dim: f32,
-    pub live_previews: bool,
 }
 
 impl Default for ComposerStyle {
     fn default() -> Self {
-        Self {
-            transition_ms: 320,
-            gap: 24.0,
-            max_rows: 3,
-            background_dim: 0.85,
-            live_previews: true,
-        }
+        Self { transition_ms: 320 }
     }
 }
 
@@ -46,12 +42,12 @@ pub enum Phase {
     Revealing,
 }
 
+/// One window or node that can join the cluster, with its Field-space
+/// footprint used for directional keyboard focus.
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub id: NodeId,
     pub target: Rectangle<i32, Logical>,
-    pub source_stack_index: usize,
-    pub source_stack_order: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +76,6 @@ impl Settle {
 #[derive(Clone, Debug)]
 struct CommitTransition {
     prepared: crate::clusters::PreparedCreation,
-    opening_progress: f32,
     started_at: Duration,
     duration: Duration,
 }
@@ -140,12 +135,6 @@ impl Session {
         }
     }
 
-    pub fn commit_opening_progress(&self) -> f32 {
-        self.commit
-            .as_ref()
-            .map_or(1.0, |commit| commit.opening_progress)
-    }
-
     pub fn prepared(&self) -> Option<&crate::clusters::PreparedCreation> {
         self.commit.as_ref().map(|commit| &commit.prepared)
     }
@@ -158,18 +147,6 @@ impl Session {
         }
     }
 
-    pub fn reveal_alpha(&self, now: Duration) -> f32 {
-        if self.phase == Phase::Revealing {
-            self.settle.map_or(0.0, |settle| settle.progress(now))
-        } else {
-            0.0
-        }
-    }
-
-    pub fn replaces_scene(&self) -> bool {
-        self.phase != Phase::Revealing
-    }
-
     pub fn mark_endpoint_rendered(&self) {
         if self.phase == Phase::CommitEndpointHeld {
             self.endpoint_rendered.set(true);
@@ -178,13 +155,6 @@ impl Session {
 
     pub fn tile(&self, id: NodeId) -> Option<&Tile> {
         self.tiles.iter().find(|tile| tile.id == id)
-    }
-
-    pub fn hit_test(&self, position: Point<f64, Logical>) -> Option<NodeId> {
-        self.tiles
-            .iter()
-            .find(|tile| tile.target.to_f64().contains(position))
-            .map(|tile| tile.id)
     }
 }
 
@@ -212,22 +182,8 @@ impl ClusterComposerState {
         self.session.as_ref().map(|session| session.output.as_str())
     }
 
-    pub fn replacement_output(&self) -> Option<&str> {
-        self.session
-            .as_ref()
-            .filter(|session| session.replaces_scene())
-            .map(|session| session.output.as_str())
-    }
-
-    pub fn reveal_on(&self, output: &str) -> bool {
-        self.session
-            .as_ref()
-            .is_some_and(|session| session.output == output && session.phase == Phase::Revealing)
-    }
-
     pub fn open(
         &mut self,
-        space: &Space<Window>,
         nodes: &crate::nodes::NodesState,
         clusters: &crate::clusters::ClusterSystem,
         output: &str,
@@ -237,14 +193,7 @@ impl ClusterComposerState {
         if self.session.is_some() {
             return false;
         }
-        let Some(bounds) = space
-            .outputs()
-            .find(|candidate| candidate.name() == output)
-            .and_then(|output| space.output_geometry(output))
-        else {
-            return false;
-        };
-        let tiles = build_layout(space, nodes, clusters, output, bounds, config);
+        let tiles = field_tiles(nodes, clusters, output);
         if tiles.is_empty() {
             return false;
         }
@@ -275,7 +224,9 @@ impl ClusterComposerState {
         true
     }
 
-    pub fn hover(&mut self, position: Point<f64, Logical>) -> bool {
+    /// Records the window or node under the pointer, which also takes the
+    /// keyboard highlight so mouse and keys never disagree.
+    pub fn hover(&mut self, hovered: Option<NodeId>) -> bool {
         let Some(session) = self
             .session
             .as_mut()
@@ -283,7 +234,7 @@ impl ClusterComposerState {
         else {
             return false;
         };
-        let hovered = session.hit_test(position);
+        let hovered = hovered.filter(|id| session.tile(*id).is_some());
         let changed = session.hovered != hovered;
         session.hovered = hovered;
         if let Some(id) = hovered {
@@ -380,12 +331,10 @@ impl ClusterComposerState {
         }) else {
             return false;
         };
-        let opening_progress = session.progress(now);
         session.phase = Phase::Committing;
         session.settle = None;
         session.commit = Some(CommitTransition {
             prepared,
-            opening_progress,
             started_at: now,
             duration: Duration::from_millis(config.transition_ms),
         });
@@ -586,7 +535,26 @@ pub fn tick_session<D: crate::session::SessionDriver>(
             animating
         }
         Tick::CommitReady => {
+            let members = session
+                .shell
+                .cluster_composer
+                .session()
+                .and_then(Session::prepared)
+                .map(|prepared| prepared.members.clone())
+                .unwrap_or_default();
             if crate::session::input::finish_cluster_creation(session) {
+                // The members now live in the cluster. Drop their flight so it
+                // cannot place them when the cluster is opened later.
+                for id in members {
+                    if let Some(surface) = session
+                        .nodes
+                        .record(id)
+                        .map(|record| record.surface.clone())
+                    {
+                        session.window_animations.remove(&surface);
+                        session.render.arrange_textures.remove(&surface);
+                    }
+                }
                 session
                     .shell
                     .cluster_composer
@@ -600,6 +568,7 @@ pub fn tick_session<D: crate::session::SessionDriver>(
         }
         Tick::Cancelled => {
             session.clusters.cancel_creation();
+            crate::session::zoom_fit::leave_for_creation(session);
             session
                 .cursor
                 .set_override(crate::cursor::OverrideSource::Modal, None);
@@ -609,6 +578,7 @@ pub fn tick_session<D: crate::session::SessionDriver>(
             false
         }
         Tick::Finished => {
+            crate::session::zoom_fit::leave_for_creation(session);
             session
                 .cursor
                 .set_override(crate::cursor::OverrideSource::Modal, None);
@@ -620,15 +590,15 @@ pub fn tick_session<D: crate::session::SessionDriver>(
     }
 }
 
-fn build_layout(
-    space: &Space<Window>,
+/// Every window and node that can join a cluster on `output`, at its real
+/// Field position. Windows use their client rectangle; collapsed nodes use a
+/// point at the node's centre.
+fn field_tiles(
     nodes: &crate::nodes::NodesState,
     clusters: &crate::clusters::ClusterSystem,
     output: &str,
-    bounds: Rectangle<i32, Logical>,
-    config: ComposerStyle,
 ) -> Vec<Tile> {
-    let mut entries = nodes
+    let mut tiles = nodes
         .records()
         .filter(|record| {
             is_candidate(
@@ -639,69 +609,23 @@ fn build_layout(
             )
         })
         .filter_map(|record| {
-            let node = nodes.field().node(record.id)?;
-            let source_stack_index = record.collapsed_stack_index.or_else(|| {
-                space
-                    .elements()
-                    .position(|candidate| candidate == &record.window)
-            });
-            let width = record.geometry.size.w.max(1) as f32;
-            let height = record.geometry.size.h.max(1) as f32;
-            Some((
-                record.id,
-                source_stack_index.unwrap_or(usize::MAX),
-                if record.collapsed { 0 } else { u64::MAX },
-                super::mosaic::Item {
-                    x: node.pos.x,
-                    y: node.pos.y,
-                    aspect: (width / height).clamp(0.25, 4.5),
-                    stable_key: record.id.as_u64(),
-                    weight: width * height,
-                    min_w: 0.0,
-                    min_h: 0.0,
-                },
-            ))
+            let target = if record.collapsed {
+                let node = nodes.field().node(record.id)?;
+                Rectangle::new(
+                    (node.pos.x.round() as i32, node.pos.y.round() as i32).into(),
+                    (1, 1).into(),
+                )
+            } else {
+                record.geometry
+            };
+            Some(Tile {
+                id: record.id,
+                target,
+            })
         })
         .collect::<Vec<_>>();
-    entries.sort_by_key(|(id, _, _, _)| id.as_u64());
-
-    let upper_band = (bounds.size.h.max(1) as f32 * 0.215).clamp(140.0, 236.0);
-    let mosaic_height = (bounds.size.h as f32 - upper_band).round().max(64.0) as i32;
-    let slots = super::mosaic::mosaic(
-        &entries
-            .iter()
-            .map(|(_, _, _, item)| *item)
-            .collect::<Vec<_>>(),
-        bounds.size.w,
-        mosaic_height,
-        config.gap.max(0.0),
-        config.max_rows.clamp(1, 5) as usize,
-    );
-    entries
-        .into_iter()
-        .zip(slots)
-        .map(
-            |((id, source_stack_index, source_stack_order, _), slot)| Tile {
-                id,
-                target: Rectangle::new(
-                    (
-                        bounds.loc.x + (slot.cx - slot.w * 0.5).round() as i32,
-                        bounds.loc.y
-                            + upper_band.round() as i32
-                            + (slot.cy - slot.h * 0.5).round() as i32,
-                    )
-                        .into(),
-                    (
-                        slot.w.round().max(1.0) as i32,
-                        slot.h.round().max(1.0) as i32,
-                    )
-                        .into(),
-                ),
-                source_stack_index,
-                source_stack_order,
-            },
-        )
-        .collect()
+    tiles.sort_by_key(|tile| tile.id.as_u64());
+    tiles
 }
 
 fn is_candidate(attached: bool, record_output: &str, target_output: &str, is_member: bool) -> bool {
@@ -732,39 +656,6 @@ fn ease_in_out_cubic(value: f32) -> f32 {
     }
 }
 
-pub fn send_preview_frames(
-    state: &ClusterComposerState,
-    nodes: &crate::nodes::NodesState,
-    output: &smithay::output::Output,
-    elapsed: Duration,
-    sequence: u32,
-) {
-    let Some(session) = state
-        .session()
-        .filter(|session| session.output == output.name())
-    else {
-        return;
-    };
-    for tile in &session.tiles {
-        let Some(record) = nodes
-            .record(tile.id)
-            .filter(|record| record.attached && !record.collapsed)
-        else {
-            continue;
-        };
-        record.window.send_frame(
-            output,
-            elapsed,
-            crate::wayland::frame_callbacks::FALLBACK_THROTTLE,
-            |surface, states| {
-                crate::wayland::frame_callbacks::callback_output(
-                    surface, states, output, sequence, false,
-                )
-            },
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,8 +664,6 @@ mod tests {
         Tile {
             id: NodeId::new(id),
             target: Rectangle::new((x, y).into(), (100, 100).into()),
-            source_stack_index: id as usize,
-            source_stack_order: u64::MAX,
         }
     }
 
@@ -810,7 +699,7 @@ mod tests {
     }
 
     #[test]
-    fn directional_navigation_uses_the_stable_mosaic_geometry() {
+    fn directional_navigation_uses_field_positions() {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![
                 tile(1, 0, 0),
@@ -829,10 +718,7 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = ComposerStyle {
-            transition_ms: 300,
-            ..ComposerStyle::default()
-        };
+        let config = ComposerStyle { transition_ms: 300 };
         assert!(state.close(config, Duration::ZERO));
         assert!(!state.accepts_input());
         assert!(matches!(
@@ -846,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn early_confirmation_starts_from_the_current_opening_geometry() {
+    fn early_confirmation_commits_while_still_opening() {
         let id = NodeId::new(1);
         let mut opening = interactive_session(vec![tile(1, 0, 0)]);
         opening.phase = Phase::Opening;
@@ -859,12 +745,13 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(opening),
         };
-        let config = ComposerStyle {
-            transition_ms: 300,
-            ..ComposerStyle::default()
-        };
+        let config = ComposerStyle { transition_ms: 300 };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::from_millis(150)));
-        assert_eq!(state.session().unwrap().commit_opening_progress(), 0.5);
+        assert_eq!(
+            state.session().unwrap().phase(),
+            Phase::Committing,
+            "confirming while still zooming out commits straight away"
+        );
     }
 
     #[test]
@@ -873,10 +760,7 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = ComposerStyle {
-            transition_ms: 300,
-            ..ComposerStyle::default()
-        };
+        let config = ComposerStyle { transition_ms: 300 };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::ZERO));
         assert!(matches!(
             state.tick(Duration::from_millis(300)),
@@ -903,10 +787,7 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = ComposerStyle {
-            transition_ms: 0,
-            ..ComposerStyle::default()
-        };
+        let config = ComposerStyle { transition_ms: 0 };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::ZERO));
         assert!(matches!(
             state.tick(Duration::ZERO),
@@ -924,10 +805,7 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = ComposerStyle {
-            transition_ms: 300,
-            ..ComposerStyle::default()
-        };
+        let config = ComposerStyle { transition_ms: 300 };
         assert!(state.begin_commit(expected.clone(), config, Duration::ZERO));
         assert!(matches!(
             state.tick(Duration::from_millis(300)),

@@ -349,7 +349,7 @@ font:
   size 11
 end
 
-# Shared compositor-owned UI. This styles Alt+Tab, Cluster Composer, Bearings,
+# Shared compositor-owned UI. This styles Alt+Tab, cluster creation, Bearings,
 # configuration notices, the zoom indicator, and the exit confirmation.
 # Window decorations and node labels keep their own existing configuration.
 overlays:
@@ -396,7 +396,7 @@ end
 # than under `decorations:` (which is compositor chrome attached to surfaces).
 effects:
   blur:
-    # Allow compositor-owned overlays (Bearings, Alt-Tab, Cluster Composer,
+    # Allow compositor-owned overlays (Bearings, Alt-Tab, cluster creation,
     # notifications, popups, and labels) to use blur.
     overlays true
 
@@ -622,9 +622,9 @@ debug:
 end
 
 # Clusters group related windows behind one circular desktop icon. Press the
-# cluster-mode binding to open a non-overlapping composer. Use arrows or the
-# pointer to focus, Space or click to select, Enter to name, and Escape to back
-# out or cancel.
+# cluster-mode binding and the monitor zooms out so you can pick windows where
+# they are. Use arrows or the pointer to focus, Space or click to select, Enter
+# to name, and Escape to back out or cancel.
 clusters:
   # New clusters open in "stacking" (overlapping cards) or "tiling" (one
   # master window beside a vertical stack). Mod+L changes the active cluster.

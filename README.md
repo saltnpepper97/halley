@@ -168,8 +168,7 @@ Clusters are optional named contexts assembled from windows on the Field or
 declared at startup. Each cluster opens into a monitor-local workspace with a
 tiling or stacking layout, leaving the Field behind it intact.
 
-Use `Super+Shift+C` to open the Cluster Composer and select windows for a new
-cluster, then `Super+1` through `Super+0` to open a monitor's cluster slots.
+Use `Super+Shift+C` to pick windows for a new cluster right on the Field, then `Super+1` through `Super+0` to open a monitor's cluster slots.
 See [clusters](docs/clusters.md) for creation, layouts, and startup
 configuration.
 

@@ -21,8 +21,8 @@ state do not share implementation files.
 - `window` owns backend-neutral managed-window rules and initial routing.
   Wayland and XWayland supply identities and apply the resolved policy without
   maintaining separate rule engines.
-- `shell` owns renderer-independent overlay, bearings, focus-cycle, and Cluster
-  Composer state. Their GLES presentation lives below `render`.
+- `shell` owns renderer-independent overlay, bearings, focus-cycle, and cluster
+  creation state. Their GLES presentation lives below `render`.
 - `capture` owns screenshot selection, a separate portal source-chooser state
   machine, pixel capture, and screencast buffers. Screenshot and portal chrome
   have independent render modules and share only capture icon assets.

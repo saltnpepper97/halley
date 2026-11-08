@@ -31,7 +31,9 @@ pub enum NodeSlot {
     SelectionCheck(u32),
     SessionLockBackdrop,
     ClusterExclusiveBackdrop,
-    ClusterComposerBackdrop,
+    /// The outline around the highlighted window or node during cluster
+    /// creation.
+    CreationFocusOutline,
     FocusCycleBackdrop,
     HoverPreviewFallback,
     ShellBackdrop,

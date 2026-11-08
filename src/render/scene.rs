@@ -34,7 +34,6 @@ mod live_collection;
 pub(crate) mod nodes;
 mod overview;
 mod privacy;
-mod replacement;
 mod window_stack;
 mod windows;
 
@@ -59,7 +58,7 @@ pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
 #[cfg(test)]
 use capture_ui::picker_layout;
 #[cfg(test)]
-use overview::{aspect_fit_rect, overview_transition_visuals};
+use overview::aspect_fit_rect;
 
 #[cfg(test)]
 use smithay::utils::Point;
@@ -224,14 +223,7 @@ fn build_logical(
     }
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
-    if privacy.redact_cached_scene()
-        && (request.overlays.focus_cycle.is_active()
-            || request
-                .overlays
-                .cluster_composer
-                .replacement_output()
-                .is_some_and(|name| name == output.name()))
-    {
+    if privacy.redact_cached_scene() && request.overlays.focus_cycle.is_active() {
         return Ok(vec![SceneElement::Border(super::solid_color_element(
             Id::new(),
             Rectangle::from_size(output_geometry.size.to_physical(1)),
@@ -242,24 +234,6 @@ fn build_logical(
         .overlays
         .overlays
         .snapshot(&output.name(), request.frame.target_presentation_time);
-
-    // Cluster Composer owns only its initiating output. It replaces that
-    // output's desktop with a stable mosaic while other outputs keep their
-    // ordinary Field scene and frame-callback policy.
-    if request
-        .overlays
-        .cluster_composer
-        .replacement_output()
-        .is_some_and(|name| name == output.name())
-    {
-        return replacement::cluster_composer(
-            renderer,
-            output,
-            output_geometry,
-            request,
-            overlay_snapshot,
-        );
-    }
 
     let mut elements = capture_overlay_elements(
         renderer,
@@ -309,7 +283,13 @@ fn build_logical(
         output_geometry,
         request.desktop.clusters.creation(),
         request.cursor.cursor_position,
-        1.0,
+        request
+            .overlays
+            .cluster_composer
+            .session()
+            .map_or(1.0, |session| {
+                session.naming_alpha(request.frame.target_presentation_time)
+            }),
         request.overlays.overlay_config,
         request.visuals.decorations,
     )?;
@@ -327,6 +307,34 @@ fn build_logical(
         &mut cluster_creation,
     )?;
     elements.extend(cluster_creation);
+    let mut creation_overlay = cluster_composer_elements(
+        overview::OverviewScene {
+            renderer,
+            output,
+            output_geometry,
+            desktop: overview::OverviewDesktop::from_request(request),
+            draw: overview::OverviewRenderers {
+                node: request.resources.node_renderer,
+                cluster: request.resources.cluster_renderer,
+                titlebar: request.resources.titlebar_renderer,
+                decoration: request.resources.window_decoration_renderer,
+                text: request.resources.ui_text,
+                previews: request.resources.overlay_previews,
+            },
+            now: request.frame.target_presentation_time,
+        },
+        request.overlays.cluster_composer,
+        request.overlays.overlay_config,
+    )?;
+    append_overlay_shadows(
+        renderer,
+        output,
+        "cluster-creation-chrome",
+        request.visuals.shadows.overlay,
+        request.resources.shadow_renderer,
+        &mut creation_overlay,
+    )?;
+    elements.extend(creation_overlay);
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,
@@ -483,41 +491,6 @@ fn build_logical(
         overlay_snapshot,
         &mut elements,
     )?;
-
-    if request.overlays.cluster_composer.reveal_on(&output.name())
-        && let Some(session) = request.overlays.cluster_composer.session()
-    {
-        let alpha = session.reveal_alpha(request.frame.target_presentation_time);
-        let veil = SceneElement::Border(crate::render::solid_color_element(
-            request
-                .resources
-                .node_renderer
-                .active_slot_id(crate::render::node::NodeSlot::ClusterComposerBackdrop),
-            Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1)),
-            overview::overview_backdrop_color(
-                crate::shell::cluster_composer::ComposerStyle::default().background_dim,
-                alpha,
-            ),
-        ));
-        elements.insert(0, veil);
-        if let Some(prepared) = session.prepared() {
-            let core = cluster_composer::prepared_core_elements(
-                renderer,
-                request.resources.cluster_renderer,
-                prepared,
-                output,
-                output_geometry,
-                request.desktop.cameras,
-                request.desktop.clusters.config(),
-                request.desktop.nodes.config(),
-                1.0,
-            )?;
-            // The veil reveals the restored Field, but the endpoint core is
-            // continuous UI and must remain fully legible above it. The real
-            // committed core already occupies the same geometry underneath.
-            elements.splice(0..0, core);
-        }
-    }
 
     prepend_pointer_elements(
         renderer,
