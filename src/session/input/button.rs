@@ -192,44 +192,14 @@ fn finish_left_release_drag<D: SessionDriver>(session: &mut Session<D>, click: C
                 let work_area = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
                 let moved = (local.x - drag.press_local.x).hypot(local.y - drag.press_local.y)
                     >= NODE_DRAG_THRESHOLD_PX;
-                let strip_slot = moved
-                    .then(|| {
-                        session
-                            .clusters
-                            .overflow_strip_slot(&drag_output, work_area, local, now)
-                    })
-                    .flatten();
-                let target = (moved && strip_slot.is_none())
-                    .then(|| {
-                        session
-                            .clusters
-                            .visible_tile_hit_test(&drag_output, work_area, local)
-                    })
-                    .flatten();
-                changed = if let Some(target_slot) = strip_slot {
-                    session.clusters.reorder_overflow_member(
-                        &drag_output,
-                        drag.member_id,
-                        target_slot,
-                        now,
-                    )
-                } else if let Some(target) = target {
-                    session.clusters.swap_overflow_member(
-                        &drag_output,
-                        drag.member_id,
-                        target,
-                        work_area,
-                        now,
-                    )
-                } else {
-                    session.clusters.promote_overflow_member(
-                        &drag_output,
-                        drag.member_id,
-                        work_area,
-                        now,
-                    )
-                };
-                session.clusters.reveal_overflow(&drag_output, now);
+                changed = session.clusters.drop_overflow_member(
+                    &drag_output,
+                    drag.member_id,
+                    local,
+                    moved,
+                    work_area,
+                    now,
+                );
             }
             if changed
                 && let Some(window) = session
@@ -1164,188 +1134,147 @@ fn field_left_button<D: SessionDriver>(
                     if session.nodes.physics_enabled() {
                         let _ = crate::nodes::tick_physics(session, now);
                     }
-                    let cluster_release = cluster_drag.as_ref().and_then(|drag| {
-                        let output = session
-                            .wayland
-                            .space
-                            .outputs()
-                            .find(|output| output.name() == drag.output)?
-                            .clone();
-                        let output_geometry = session.wayland.space.output_geometry(&output)?;
-                        let work_area =
-                            smithay::desktop::layer_map_for_output(&output).non_exclusive_zone();
-                        let origin =
-                            super::super::presented_window_rect(session, &window, &output, now)
-                                .map(|geometry| geometry.to_logical(1))
-                                .or_else(|| {
-                                    let geometry =
-                                        session.wayland.space.element_geometry(&window)?;
-                                    Some(Rectangle::new(
-                                        geometry.loc - output_geometry.loc,
-                                        geometry.size,
-                                    ))
-                                })?;
-                        let global_work_area =
-                            Rectangle::new(output_geometry.loc + work_area.loc, work_area.size);
-                        let pointer_inside =
-                            global_work_area
-                                .to_f64()
-                                .contains(Point::<f64, Logical>::from(session.pointer.position()));
-                        Some((
-                            drag.clone(),
-                            output.name(),
-                            work_area,
-                            origin,
-                            pointer_inside,
-                        ))
-                    });
-                    let active_workspace_release = (cluster_drag.is_none())
-                        .then(|| {
-                            let (output, output_geometry) = output_at_pointer(
-                                &session.wayland.space,
-                                session.pointer.position(),
-                            )?;
-                            session.clusters.active_on(&output.name())?;
-                            let work_area = smithay::desktop::layer_map_for_output(&output)
-                                .non_exclusive_zone();
-                            let global_work_area =
-                                Rectangle::new(output_geometry.loc + work_area.loc, work_area.size);
-                            if !global_work_area
-                                .to_f64()
-                                .contains(Point::<f64, Logical>::from(session.pointer.position()))
-                            {
-                                return None;
-                            }
-                            let origin =
-                                super::super::presented_window_rect(session, &window, &output, now)
-                                    .map(|geometry| geometry.to_logical(1))
-                                    .or_else(|| {
-                                        let geometry =
-                                            session.wayland.space.element_geometry(&window)?;
-                                        Some(Rectangle::new(
-                                            geometry.loc - output_geometry.loc,
-                                            geometry.size,
-                                        ))
-                                    })?;
-                            Some((output.name(), work_area, origin))
-                        })
-                        .flatten();
-                    let joined = if cluster_drag.is_none() && active_workspace_release.is_none() {
-                        id.and_then(|member| {
-                            session
-                                .clusters
-                                .commit_join_candidate(session.nodes.field_mut(), member)
-                        })
-                    } else {
-                        None
-                    };
+                    let site = window_drop_site(session, &window, cluster_drag.as_ref(), now);
                     session.end_grab();
-                    let mut cluster_drop_handled = false;
-                    if let (
-                        Some(id),
-                        Some((drag, member_output, work_area, origin, pointer_inside)),
-                    ) = (id, cluster_release)
-                    {
-                        match drag.kind {
-                            crate::input::grab::ClusterWindowDragKind::Floating
-                                if pointer_inside =>
-                            {
-                                cluster_drop_handled =
-                                    session.clusters.finish_floating_member_drag(
-                                        &drag.output,
-                                        &member_output,
-                                        id,
-                                        work_area,
-                                        origin,
-                                    );
-                            }
-                            crate::input::grab::ClusterWindowDragKind::Layout(_)
-                                if pointer_inside =>
-                            {
-                                cluster_drop_handled = session.clusters.finish_workspace_drag(
-                                    &drag.output,
-                                    id,
-                                    work_area,
-                                    origin,
-                                    now,
-                                );
-                            }
-                            crate::input::grab::ClusterWindowDragKind::Floating
-                            | crate::input::grab::ClusterWindowDragKind::Layout(_) => {
-                                cluster_drop_handled =
-                                    session.clusters.detach_active_member_for_drag(
-                                        session.nodes.field_mut(),
-                                        &drag.output,
-                                        crate::clusters::ClusterDragMember {
-                                            cluster_id: drag.cluster_id,
-                                            node_id: id,
-                                        },
-                                        work_area,
-                                        last_world,
-                                        now,
-                                    );
-                            }
-                        }
-                        if cluster_drop_handled {
-                            session.nodes.clear_direct_motion(id);
-                            super::super::reconcile_cluster_surfaces(session, &drag.output);
-                            if member_output != drag.output {
-                                super::super::reconcile_cluster_surfaces(session, &member_output);
-                            }
-                            session.request_redraw();
-                        }
-                    }
-                    if let (Some(id), Some((output, work_area, origin))) =
-                        (id, active_workspace_release)
-                        && session.clusters.join_active_member_front(
-                            session.nodes.field_mut(),
-                            &output,
-                            id,
-                            work_area,
-                            origin,
-                            now,
-                        )
-                    {
-                        cluster_drop_handled = true;
-                        session.nodes.clear_direct_motion(id);
-                        super::super::reconcile_cluster_surfaces(session, &output);
-                        session.request_redraw();
-                    }
-                    let drag_presentation_released = session.clusters.cancel_window_drag();
-                    if cluster_drag.is_some() && !cluster_drop_handled {
-                        if let (Some(id), Some(drag)) = (id, cluster_drag.as_ref()) {
-                            let output = session
-                                .wayland
-                                .space
-                                .outputs()
-                                .find(|output| output.name() == drag.output)
-                                .cloned();
-                            if let Some(output) = output {
-                                crate::nodes::set_collapsed_output(session, id, &output);
-                                super::super::reconcile_cluster_surfaces(session, &drag.output);
-                            }
-                        }
-                        session.request_redraw();
-                    } else if joined.is_some() {
-                        if let Some(id) = id {
-                            session.nodes.clear_direct_motion(id);
-                        }
-                        session.request_redraw();
-                    } else if !cluster_drop_handled
-                        && session.nodes.physics_enabled()
-                        && let Some(id) = id
-                    {
-                        session.nodes.lock_released_window(id, now);
-                        session.request_redraw();
-                    } else if drag_presentation_released {
-                        session.request_redraw();
-                    }
+                    let drop = session.clusters.drop_dragged_window(
+                        session.nodes.field_mut(),
+                        id,
+                        site,
+                        last_world,
+                        now,
+                    );
+                    apply_window_drop(session, id, drop, now);
                     intercepted = true;
                 }
             }
         }
     }
     (intercepted, finishing_client_move)
+}
+
+/// Where a dragged window was released, measured against the outputs and
+/// work areas it could land in. Clusters decide what the drop means.
+fn window_drop_site<D: SessionDriver>(
+    session: &Session<D>,
+    window: &Window,
+    cluster_drag: Option<&crate::input::grab::ClusterWindowDrag>,
+    now: std::time::Duration,
+) -> crate::clusters::WindowDropSite {
+    use crate::clusters::WindowDropSite;
+    let pointer = Point::<f64, Logical>::from(session.pointer.position());
+    // The window's presented rectangle on `output`, local to that output.
+    let origin_on = |output: &smithay::output::Output, output_geometry: Rectangle<i32, Logical>| {
+        super::super::presented_window_rect(session, window, output, now)
+            .map(|geometry| geometry.to_logical(1))
+            .or_else(|| {
+                let geometry = session.wayland.space.element_geometry(window)?;
+                Some(Rectangle::new(
+                    geometry.loc - output_geometry.loc,
+                    geometry.size,
+                ))
+            })
+    };
+    if let Some(drag) = cluster_drag {
+        let measured = (|| {
+            let output = session
+                .wayland
+                .space
+                .outputs()
+                .find(|output| output.name() == drag.output)?
+                .clone();
+            let output_geometry = session.wayland.space.output_geometry(&output)?;
+            let work_area = smithay::desktop::layer_map_for_output(&output).non_exclusive_zone();
+            let origin = origin_on(&output, output_geometry)?;
+            let global_work_area =
+                Rectangle::new(output_geometry.loc + work_area.loc, work_area.size);
+            Some(WindowDropSite::Member {
+                cluster_id: drag.cluster_id,
+                source_output: drag.output.clone(),
+                member_output: output.name(),
+                floating: matches!(
+                    drag.kind,
+                    crate::input::grab::ClusterWindowDragKind::Floating
+                ),
+                work_area,
+                origin,
+                pointer_inside: global_work_area.to_f64().contains(pointer),
+            })
+        })();
+        return measured.unwrap_or_else(|| WindowDropSite::MemberWithoutWorkspace {
+            source_output: drag.output.clone(),
+        });
+    }
+    let over_active_workspace = (|| {
+        let (output, output_geometry) =
+            output_at_pointer(&session.wayland.space, session.pointer.position())?;
+        session.clusters.active_on(&output.name())?;
+        let work_area = smithay::desktop::layer_map_for_output(&output).non_exclusive_zone();
+        let global_work_area = Rectangle::new(output_geometry.loc + work_area.loc, work_area.size);
+        if !global_work_area.to_f64().contains(pointer) {
+            return None;
+        }
+        let origin = origin_on(&output, output_geometry)?;
+        Some(WindowDropSite::ActiveWorkspace {
+            output: output.name(),
+            work_area,
+            origin,
+        })
+    })();
+    over_active_workspace.unwrap_or(WindowDropSite::Field)
+}
+
+/// Follow up on a window drop: settle the window's direct motion, refresh the
+/// cluster surfaces it affected, return a rejected member to the Field, and
+/// let physics settle a window nothing claimed.
+fn apply_window_drop<D: SessionDriver>(
+    session: &mut Session<D>,
+    id: Option<halley_core::field::NodeId>,
+    drop: crate::clusters::WindowDrop,
+    now: std::time::Duration,
+) {
+    use crate::clusters::WindowDropOutcome;
+    match drop.outcome {
+        WindowDropOutcome::Placed { reconcile } => {
+            if let Some(id) = id {
+                session.nodes.clear_direct_motion(id);
+            }
+            for output in reconcile {
+                super::super::reconcile_cluster_surfaces(session, &output);
+            }
+            session.request_redraw();
+        }
+        WindowDropOutcome::Returned { source_output } => {
+            let output = session
+                .wayland
+                .space
+                .outputs()
+                .find(|output| output.name() == source_output)
+                .cloned();
+            if let Some(id) = id
+                && let Some(output) = output
+            {
+                crate::nodes::set_collapsed_output(session, id, &output);
+                super::super::reconcile_cluster_surfaces(session, &source_output);
+            }
+            session.request_redraw();
+        }
+        WindowDropOutcome::Joined(_) => {
+            if let Some(id) = id {
+                session.nodes.clear_direct_motion(id);
+            }
+            session.request_redraw();
+        }
+        WindowDropOutcome::Unchanged => {
+            if session.nodes.physics_enabled()
+                && let Some(id) = id
+            {
+                session.nodes.lock_released_window(id, now);
+                session.request_redraw();
+            } else if drop.presentation_released {
+                session.request_redraw();
+            }
+        }
+    }
 }
 
 /// The release of the button that began a camera pan or a window resize

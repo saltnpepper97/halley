@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Internal: clusters decide what a dropped window or overflow member means,
+  and the pointer code only measures the drop and applies the result. The drop
+  rules now have unit tests. No behavior change.
 - Internal: keep node state private to the nodes module, with read accessors
   and one named entry point for code that rearranges nodes on the Field. No
   behavior change.
