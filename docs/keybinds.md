@@ -413,10 +413,14 @@ none of them overlap. It leaves out collapsed or detached windows, cluster membe
 windows, and fullscreen and maximized windows. Every other visible window takes
 part; none is dropped.
 
-Arrange is predictable: each window keeps its shape (a wide window stays wide, a
-tall one stays tall), bigger windows get bigger slots, the window you are
-working in gets a larger slot than the rest, and the same windows always
-produce the same layout. A window that cannot shrink below a minimum
+Arrange is predictable: each window keeps roughly its shape (a wide window
+stays wide, a tall one stays tall), bigger windows get bigger slots, the window
+you are working in gets a larger slot than the rest, and the same windows always
+produce the same layout. The layout fills the work area, keeping one Field gap
+from panels, bars and the screen edges: windows grow into free space beside
+them, stretching up to a quarter beyond their own shape and growing by at most
+a quarter in area so the larger slots stay larger. Space no window can use is
+shared evenly rather than left on one side. A window that cannot shrink below a minimum
 size (common for X11 apps such as Steam) gets a slot at least that big, and the
 other windows shrink to make room, so nothing overlaps. A window with a maximum
 size smaller than its slot is centred in it.

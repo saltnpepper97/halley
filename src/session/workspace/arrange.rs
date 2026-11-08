@@ -118,13 +118,16 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     else {
         return false;
     };
-    let gap = visible_work_area_outer(
+    // Which windows take part is decided on the whole visible work area; the
+    // layout itself keeps one gap clear of bars and screen edges, since the
+    // filled mosaic otherwise reaches them.
+    let (layout_area, gap) = visible_work_area_outer(
         camera,
         output_geometry,
         work_area,
         session.settings.field.gap.ceil() as i32,
     )
-    .map_or(0, |(_, gap)| gap);
+    .unwrap_or((visible_area, 0));
     session.nodes.sync_from_space(&session.wayland.space);
     let candidates = session
         .nodes
@@ -177,7 +180,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     if candidates.len() < 2 {
         return false;
     }
-    let slots = arrange_slots(&candidates, session.nodes.focused(), visible_area, gap);
+    let slots = arrange_slots(&candidates, session.nodes.focused(), layout_area, gap);
     let assignment = candidates
         .iter()
         .zip(slots)
@@ -496,18 +499,21 @@ fn slots_in(
     area: Rectangle<i32, Logical>,
     gap: i32,
 ) -> Vec<Rectangle<i32, Logical>> {
-    crate::shell::mosaic::mosaic(items, area.size.w, area.size.h, gap.max(0) as f32, MAX_ROWS)
+    let gap = gap.max(0) as f32;
+    let mut slots = crate::shell::mosaic::mosaic(items, area.size.w, area.size.h, gap, MAX_ROWS);
+    crate::shell::mosaic::fill(&mut slots, items, area.size.w, area.size.h, gap);
+    slots
         .into_iter()
         .map(|slot| {
-            let width = slot.w.round().max(1.0) as i32;
-            let height = slot.h.round().max(1.0) as i32;
+            // Round edges, not centre and size, so filled tiles that reach the
+            // area edge cannot spill past it by a rounding pixel.
+            let left = ((slot.cx - slot.w * 0.5).round() as i32).clamp(0, area.size.w - 1);
+            let top = ((slot.cy - slot.h * 0.5).round() as i32).clamp(0, area.size.h - 1);
+            let right = ((slot.cx + slot.w * 0.5).round() as i32).clamp(left + 1, area.size.w);
+            let bottom = ((slot.cy + slot.h * 0.5).round() as i32).clamp(top + 1, area.size.h);
             Rectangle::new(
-                (
-                    area.loc.x + (slot.cx - slot.w * 0.5).round() as i32,
-                    area.loc.y + (slot.cy - slot.h * 0.5).round() as i32,
-                )
-                    .into(),
-                (width, height).into(),
+                (area.loc.x + left, area.loc.y + top).into(),
+                (right - left, bottom - top).into(),
             )
         })
         .collect()
@@ -736,15 +742,50 @@ mod tests {
         ];
         let slots = slots_in(&items, area, 20);
         for (item, slot) in items.iter().zip(&slots) {
-            let aspect = slot.size.w as f32 / slot.size.h as f32;
+            // Filling may stretch a tile up to a quarter beyond its shape,
+            // plus a rounding pixel, but never flips wide into tall.
+            let stretch = (slot.size.w as f32 / slot.size.h as f32) / item.aspect;
             assert!(
-                (aspect - item.aspect).abs() < 0.05,
-                "wide stays wide and tall stays tall: {aspect} vs {}",
+                (0.79..=1.26).contains(&stretch),
+                "shape drifted too far: {stretch} for aspect {}",
                 item.aspect
             );
         }
         let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
         assert!(area_of(&slots[0]) > area_of(&slots[2]));
+    }
+
+    #[test]
+    fn arrange_uses_the_screen_instead_of_leaving_a_border() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        for count in 2..=6_u64 {
+            let items = (0..count)
+                .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
+                .collect::<Vec<_>>();
+            let slots = slots_in(&items, area, 20);
+            let left = slots.iter().map(|slot| slot.loc.x).min().unwrap();
+            let top = slots.iter().map(|slot| slot.loc.y).min().unwrap();
+            let right = slots
+                .iter()
+                .map(|slot| slot.loc.x + slot.size.w)
+                .max()
+                .unwrap();
+            let bottom = slots
+                .iter()
+                .map(|slot| slot.loc.y + slot.size.h)
+                .max()
+                .unwrap();
+            // The block reaches both edges of at least one axis.
+            assert!(
+                (left <= 1 && right >= area.size.w - 1) || (top <= 1 && bottom >= area.size.h - 1),
+                "{count} windows leave a border: {left},{top} to {right},{bottom}"
+            );
+            let covered: i32 = slots.iter().map(|slot| slot.size.w * slot.size.h).sum();
+            let fraction = covered as f32 / (area.size.w * area.size.h) as f32;
+            // Three equal windows leave the lone bottom tile at its shape
+            // limit, so it covers least; every other count is far above.
+            assert!(fraction > 0.65, "{count} windows cover only {fraction:.2}");
+        }
     }
 
     #[test]

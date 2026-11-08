@@ -43,6 +43,9 @@ All notable changes to this project will be documented in this file.
   overlaps its neighbours. No window is dropped. Moving or closing one arranged
   window now keeps the others' way back, so the next `Mod+A` still returns
   them. The window you are working in gets a larger slot than the others.
+  Arrange now fills the screen instead of leaving a wide border: windows grow
+  into free space up to the gap from bars and screen edges, stretching up to a
+  quarter beyond their shape, and leftover space is shared evenly.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can
