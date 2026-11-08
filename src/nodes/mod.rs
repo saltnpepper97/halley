@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use halley_core::decay::{DecayClass, DecayTracker, TimedDecayPolicy};
 use halley_core::field::{Field, NodeId, NodeState, Vec2};
-use halley_core::viewport::FocusRing as CoreFocusRing;
 use smithay::desktop::{PopupManager, Space, Window};
 use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -21,6 +20,7 @@ mod keyboard_navigation;
 mod movement;
 mod session_ops;
 mod session_physics;
+mod visibility;
 pub(crate) use keyboard_navigation::{pan_field, transfer_window};
 
 pub use ipc::handle_request;
@@ -34,6 +34,7 @@ pub use session_ops::{
     reveal_collapsed_node, tick_decay, toggle_focused_on_output,
 };
 pub(crate) use session_ops::{restore_for_cluster_join, set_collapsed_output};
+pub use visibility::DecayView;
 
 #[cfg(test)]
 use session_physics::physics_frame_delta;
@@ -44,7 +45,6 @@ pub(crate) use session_physics::{
     tick_physics,
 };
 
-const OUTSIDE_THRESHOLD: f32 = 0.90;
 pub const NODE_DIAMETER_PX: f32 = 51.0;
 
 #[derive(Clone, Copy)]
@@ -160,7 +160,7 @@ pub struct NodesState {
     configured_nodes: halley_config::Nodes,
     system_color_scheme: halley_config::SystemColorScheme,
     decay_config: halley_config::Decay,
-    focus_rings: halley_config::FocusRings,
+    decay_zones: halley_config::DecayZones,
     landmarks: halley_config::LandmarkPlacement,
     physics: halley_config::Physics,
     animation: halley_config::NodeAnimation,
@@ -175,7 +175,7 @@ pub struct NodesState {
     physics_velocity: HashMap<NodeId, Vec2>,
     physics_last_tick: Duration,
     release_locks: HashMap<NodeId, Duration>,
-    ring_preview_until: HashMap<String, Duration>,
+    zone_preview_until: HashMap<String, Duration>,
     /// Positions a landmark held before camera zoom displaced it. Zooming back
     /// in may return the landmark home; any physical or explicit move rebases
     /// the position permanently. Runtime-only: never configured, sent over IPC,
@@ -201,7 +201,7 @@ impl NodesState {
             configured_nodes: config.nodes,
             system_color_scheme,
             decay_config: config.decay,
-            focus_rings: config.focus_rings.clone(),
+            decay_zones: config.decay_zones.clone(),
             landmarks: halley_config::LandmarkPlacement {
                 gap_px: config.field.gap,
             },
@@ -218,36 +218,36 @@ impl NodesState {
             physics_velocity: HashMap::new(),
             physics_last_tick: crate::frame_clock::monotonic_now(),
             release_locks: HashMap::new(),
-            ring_preview_until: HashMap::new(),
+            zone_preview_until: HashMap::new(),
             zoom_homes: HashMap::new(),
         }
     }
 
     pub fn reload(&mut self, config: &halley_config::RuntimeConfig, now: Duration) -> bool {
-        let ring_changed = self.focus_rings != config.focus_rings;
+        let zone_changed = self.decay_zones != config.decay_zones;
         let configured_outputs = self
             .records
             .values()
             .map(|record| record.output.clone())
-            .chain(self.focus_rings.by_output.keys().cloned())
-            .chain(config.focus_rings.by_output.keys().cloned())
+            .chain(self.decay_zones.by_output.keys().cloned())
+            .chain(config.decay_zones.by_output.keys().cloned())
             .collect::<HashSet<_>>();
-        let changed_ring_outputs = configured_outputs
+        let changed_zone_outputs = configured_outputs
             .into_iter()
             .filter(|output| {
-                self.focus_rings.for_output(output) != config.focus_rings.for_output(output)
+                self.decay_zones.for_output(output) != config.decay_zones.for_output(output)
             })
             .collect::<HashSet<_>>();
         let resolved_nodes = config.nodes.resolved_for_system(self.system_color_scheme);
-        let redraw = ring_changed
+        let redraw = zone_changed
             || self.config != resolved_nodes
             || self.configured_nodes != config.nodes
             || self.animation != config.animations.node
             || self.animations_enabled != config.animations.enabled;
-        if ring_changed {
+        if zone_changed {
             let until = now.saturating_add(Duration::from_millis(1_500));
-            for output in &changed_ring_outputs {
-                self.ring_preview_until.insert(output.clone(), until);
+            for output in &changed_zone_outputs {
+                self.zone_preview_until.insert(output.clone(), until);
             }
         }
         let next_landmarks = halley_config::LandmarkPlacement {
@@ -262,11 +262,11 @@ impl NodesState {
         }
         if self.decay_config != config.decay {
             self.decay.reset();
-        } else if ring_changed {
+        } else if zone_changed {
             let changed_ids = self
                 .records
                 .values()
-                .filter(|record| changed_ring_outputs.contains(&record.output))
+                .filter(|record| changed_zone_outputs.contains(&record.output))
                 .map(|record| record.id)
                 .collect::<Vec<_>>();
             for id in changed_ids {
@@ -276,7 +276,7 @@ impl NodesState {
         self.config = resolved_nodes;
         self.configured_nodes = config.nodes;
         self.decay_config = config.decay;
-        self.focus_rings = config.focus_rings.clone();
+        self.decay_zones = config.decay_zones.clone();
         self.landmarks = next_landmarks;
         self.physics = config.physics;
         self.animation = config.animations.node;
@@ -337,12 +337,12 @@ impl NodesState {
         self.hovered
     }
 
-    pub fn focus_ring_for_output(&self, output: &str) -> halley_config::FocusRing {
-        self.focus_rings.for_output(output)
+    pub fn decay_zone_for_output(&self, output: &str) -> Option<halley_config::DecayZone> {
+        self.decay_zones.for_output(output)
     }
 
-    pub fn ring_is_previewed(&self, output: &str, now: Duration) -> bool {
-        self.ring_preview_until
+    pub fn decay_zone_is_previewed(&self, output: &str, now: Duration) -> bool {
+        self.zone_preview_until
             .get(output)
             .is_some_and(|until| now < *until)
     }
@@ -846,7 +846,7 @@ impl NodesState {
 
     pub fn decay_candidates(
         &mut self,
-        camera_centers: &HashMap<String, Vec2>,
+        views: &HashMap<String, DecayView>,
         focused: Option<&WlSurface>,
         excluded: impl Fn(NodeId) -> bool,
         protected: impl Fn(&WlSurface) -> bool,
@@ -879,24 +879,13 @@ impl NodesState {
             let class = if focused == Some(&record.surface) || protected(&record.surface) {
                 DecayClass::Protected
             } else {
-                let configured_ring = self.focus_rings.for_output(&record.output);
-                let ring = CoreFocusRing::new(
-                    configured_ring.radius_x,
-                    configured_ring.radius_y,
-                    configured_ring.offset_x,
-                    configured_ring.offset_y,
-                );
-                let center = camera_centers
-                    .get(&record.output)
-                    .copied()
-                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
                 let node = self.field.node(record.id).expect("record has field node");
-                if ring.outside_fraction(center, node.pos, node.intrinsic_size) >= OUTSIDE_THRESHOLD
-                {
-                    DecayClass::OutsideRing
-                } else {
-                    DecayClass::InsideRing
-                }
+                visibility::classify(
+                    views.get(&record.output).copied(),
+                    self.decay_zones.for_output(&record.output),
+                    node.pos,
+                    node.intrinsic_size,
+                )
             };
             if self
                 .decay

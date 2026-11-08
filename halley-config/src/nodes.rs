@@ -4,8 +4,11 @@ use std::fmt;
 use rune_cfg::RuneConfig;
 use rune_cfg::ast::{ObjectItem, Value};
 
+/// An optional per-output decay zone, in logical screen pixels measured from
+/// the centre of the output. Without one, the screen edge decides which
+/// windows take the shorter decay delay.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FocusRing {
+pub struct DecayZone {
     pub radius_x: f32,
     pub radius_y: f32,
     pub offset_x: f32,
@@ -13,29 +16,28 @@ pub struct FocusRing {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FocusRings {
-    pub fallback: FocusRing,
-    pub by_output: BTreeMap<String, FocusRing>,
+pub struct DecayZones {
+    pub by_output: BTreeMap<String, DecayZone>,
 }
 
-impl FocusRings {
-    pub fn for_output(&self, output: &str) -> FocusRing {
-        self.by_output.get(output).copied().unwrap_or(self.fallback)
+impl DecayZones {
+    pub fn for_output(&self, output: &str) -> Option<DecayZone> {
+        self.by_output.get(output).copied()
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FocusRingParseError(String);
+pub struct DecayZoneParseError(String);
 
-impl fmt::Display for FocusRingParseError {
+impl fmt::Display for DecayZoneParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
     }
 }
 
-impl std::error::Error for FocusRingParseError {}
+impl std::error::Error for DecayZoneParseError {}
 
-impl Default for FocusRing {
+impl Default for DecayZone {
     fn default() -> Self {
         Self {
             radius_x: 820.0,
@@ -164,7 +166,7 @@ impl Default for LandmarkPlacement {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Debug {
-    pub show_focus_ring: bool,
+    pub show_decay_zone: bool,
     pub overlay_fps: bool,
     /// Suppress linux-drm-syncobj-v1 advertisement for the entire session.
     /// This startup-only workaround does not change on configuration reload.
@@ -292,7 +294,10 @@ pub fn parse_nodes_checked(config: &RuneConfig) -> Result<Nodes, NodeParseError>
 
 pub fn parse_debug(config: &RuneConfig) -> Debug {
     Debug {
-        show_focus_ring: config.get_or("debug.show-focus-ring", false),
+        show_decay_zone: crate::aliases::lookup::<bool>(config, "debug.show-decay-zone")
+            .ok()
+            .flatten()
+            .unwrap_or(false),
         overlay_fps: config.get_or("debug.overlay-fps", false),
         disable_explicit_sync: config.get_or("debug.disable-explicit-sync", false),
     }
@@ -349,10 +354,10 @@ fn parse_node_color(
         .unwrap_or(default)
 }
 
-pub(crate) fn parse_focus_ring_fields(
+pub(crate) fn parse_decay_zone_fields(
     fields: &[ObjectItem],
     output: &str,
-) -> Result<FocusRing, FocusRingParseError> {
+) -> Result<DecayZone, DecayZoneParseError> {
     for item in fields {
         let ObjectItem::Assign(key, _) = item else {
             continue;
@@ -368,8 +373,8 @@ pub(crate) fn parse_focus_ring_fields(
                 | "offset-y"
                 | "offset_y"
         ) {
-            return Err(FocusRingParseError(format!(
-                "focus-ring for output {output:?}: unknown setting {key:?}"
+            return Err(DecayZoneParseError(format!(
+                "decay-zone for output {output:?}: unknown setting {key:?}"
             )));
         }
     }
@@ -386,35 +391,35 @@ pub(crate) fn parse_focus_ring_fields(
             })
             .count();
         if count > 1 {
-            return Err(FocusRingParseError(format!(
-                "focus-ring for output {output:?}: {} may only be specified once",
+            return Err(DecayZoneParseError(format!(
+                "decay-zone for output {output:?}: {} may only be specified once",
                 aliases[0]
             )));
         }
     }
 
-    let defaults = FocusRing::default();
+    let defaults = DecayZone::default();
     let read = |names: &[&str], default: f32, positive: bool| {
         let Some(value) = object_field(fields, names) else {
             return Ok(default);
         };
         let Value::Number(value) = value else {
-            return Err(FocusRingParseError(format!(
-                "focus-ring for output {output:?}: {} must be numeric",
+            return Err(DecayZoneParseError(format!(
+                "decay-zone for output {output:?}: {} must be numeric",
                 names[0]
             )));
         };
         let value = *value as f32;
         if !value.is_finite() || (positive && value <= 0.0) {
-            return Err(FocusRingParseError(format!(
-                "focus-ring for output {output:?}: {} must be {}finite",
+            return Err(DecayZoneParseError(format!(
+                "decay-zone for output {output:?}: {} must be {}finite",
                 names[0],
                 if positive { "positive and " } else { "" }
             )));
         }
         Ok(value)
     };
-    Ok(FocusRing {
+    Ok(DecayZone {
         radius_x: read(&["radius-x", "radius_x"], defaults.radius_x, true)?,
         radius_y: read(&["radius-y", "radius_y"], defaults.radius_y, true)?,
         offset_x: read(&["offset-x", "offset_x"], defaults.offset_x, false)?,
@@ -458,6 +463,14 @@ fn finite_clamp(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_decay_zone_accepts_the_show_focus_ring_spelling() {
+        for key in ["show-decay-zone", "show-focus-ring"] {
+            let config = RuneConfig::from_str(&format!("debug:\n  {key} true\nend\n")).unwrap();
+            assert!(parse_debug(&config).show_decay_zone, "{key}");
+        }
+    }
 
     #[test]
     fn explicit_sync_opt_out_is_disabled_by_default_and_accepts_both_values() {

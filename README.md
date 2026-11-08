@@ -269,7 +269,7 @@ halleyctl portal status
 - [Older configuration and action spellings](docs/older-spellings.md)
 - [Compositor API](docs/api.md)
 - [Field behavior, maximize, zoom, and close succession](docs/field.md)
-- [Nodes, decay, focus rings, landmarks, and physics](docs/nodes.md)
+- [Nodes, decay, decay zones, landmarks, and physics](docs/nodes.md)
 - [Bearings](docs/bearings.md)
 - [Apogee and Alt+Tab](docs/apogee.md)
 - [Animations](docs/animations.md)

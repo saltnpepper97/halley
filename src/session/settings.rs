@@ -64,7 +64,7 @@ impl RuntimeSettings {
             || self.zoom != config.field.zoom
             || self.field.pins != config.field.pins
             || self.configured_overlays != config.overlays
-            || self.debug.show_focus_ring != config.debug.show_focus_ring
+            || self.debug.show_decay_zone != config.debug.show_decay_zone
             || self.debug.overlay_fps != config.debug.overlay_fps
             || self.layer_rules != config.layer_rules
     }
@@ -88,7 +88,7 @@ impl RuntimeSettings {
         self.screenshot = config.screenshot.clone();
         // Protocol advertisement is fixed at session startup. Preserve its
         // applied value while allowing the visual debug settings to reload.
-        self.debug.show_focus_ring = config.debug.show_focus_ring;
+        self.debug.show_decay_zone = config.debug.show_decay_zone;
         self.debug.overlay_fps = config.debug.overlay_fps;
         self.layer_rules.clone_from(&config.layer_rules);
     }
@@ -119,11 +119,11 @@ mod tests {
 
             assert!(!settings.visuals_changed(&config));
             config.debug.overlay_fps = true;
-            config.debug.show_focus_ring = true;
+            config.debug.show_decay_zone = true;
             settings.reload_non_input(&config);
             assert_eq!(settings.debug.disable_explicit_sync, initially_disabled);
             assert!(settings.debug.overlay_fps);
-            assert!(settings.debug.show_focus_ring);
+            assert!(settings.debug.show_decay_zone);
             assert!(!settings.visuals_changed(&config));
 
             let restarted = RuntimeSettings::new(&config, config.input.clone());

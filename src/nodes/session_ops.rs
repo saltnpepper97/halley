@@ -976,9 +976,9 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
 ) -> bool {
     session.nodes.sync_from_space(&session.wayland.space);
-    let mut centers = HashMap::new();
+    let mut views = HashMap::new();
     for record in session.nodes.records() {
-        if centers.contains_key(&record.output) {
+        if views.contains_key(&record.output) {
             continue;
         }
         let Some(output) = session
@@ -995,12 +995,20 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
         let Some(view) = session.cameras.view(&record.output) else {
             continue;
         };
-        let global = crate::presentation::camera::global_center(view.center, output_geometry);
-        centers.insert(
+        let center = crate::presentation::camera::global_center(view.center, output_geometry);
+        let scale = view.scale.max(f32::EPSILON);
+        views.insert(
             record.output.clone(),
-            Vec2 {
-                x: global.x,
-                y: global.y,
+            super::DecayView {
+                center: Vec2 {
+                    x: center.x,
+                    y: center.y,
+                },
+                size: Vec2 {
+                    x: output_geometry.size.w as f32 / scale,
+                    y: output_geometry.size.h as f32 / scale,
+                },
+                scale,
             },
         );
     }
@@ -1032,7 +1040,7 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
         .collect::<Vec<_>>();
     let now_ms = session.start_time.elapsed().as_millis() as u64;
     let ready = session.nodes.decay_candidates(
-        &centers,
+        &views,
         focused.as_ref(),
         |id| cluster_members.contains(&id),
         |surface| protected.iter().any(|candidate| candidate == surface),

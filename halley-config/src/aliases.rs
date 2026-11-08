@@ -33,6 +33,7 @@ pub(crate) const KEY_RENAMES: &[(&str, &str)] = &[
     ("field.pins.badge-corner", "field.pins.corner"),
     ("field.pins.pin-colour", "field.pins.colour"),
     ("field.pins.bg-colour", "field.pins.background-colour"),
+    ("debug.show-focus-ring", "debug.show-decay-zone"),
 ];
 
 /// Every key that sets the same value as `key`, starting with `key` itself.

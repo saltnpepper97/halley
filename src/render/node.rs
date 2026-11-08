@@ -17,7 +17,7 @@ const SQUARE: &str = include_str!("shaders/node_square.frag");
 const SQUIRCLE: &str = include_str!("shaders/node_squircle.frag");
 const LABEL_SQUARE: &str = include_str!("shaders/ui_rect_square.frag");
 const LABEL_ROUNDED: &str = include_str!("shaders/ui_rect_rounded.frag");
-const FOCUS_RING: &str = include_str!("shaders/focus_ring.frag");
+const DECAY_ZONE: &str = include_str!("shaders/decay_zone.frag");
 const DASHED_OUTLINE: &str = include_str!("shaders/dashed_outline.frag");
 
 /// Logical slots owned by [`NodeRenderer`] that need a stable render-element
@@ -40,7 +40,7 @@ pub enum NodeSlot {
     ClusterCreationBackdrop,
     ClusterNameSelection,
     ClusterNameCaret,
-    FocusRing,
+    DecayZone,
     /// One of the four dimmed regions around the capture selection.
     PickerDim(u8),
     PickerOutline,
@@ -51,8 +51,8 @@ pub enum NodeSlot {
 
 /// Dash count and dot size, preserved from the original quad-per-dot ring so
 /// the rendered rhythm stays recognisable.
-const FOCUS_RING_SEGMENTS: f32 = 160.0;
-const FOCUS_RING_THICKNESS: f32 = 3.0;
+const DECAY_ZONE_SEGMENTS: f32 = 160.0;
+const DECAY_ZONE_THICKNESS: f32 = 3.0;
 
 /// Ramanujan's approximation, well under a pixel of error for screen-sized
 /// ellipses. Used to space dashes evenly by arc length.
@@ -147,7 +147,7 @@ fn label_commit(
     finish_commit(hasher)
 }
 
-fn focus_ring_commit(
+fn decay_zone_commit(
     destination: Rectangle<i32, Physical>,
     color: (f32, f32, f32, f32),
     radii: (f32, f32),
@@ -202,7 +202,7 @@ struct Resources {
     squircle: GlesTexProgram,
     label_square: GlesTexProgram,
     label_rounded: GlesTexProgram,
-    focus_ring: GlesTexProgram,
+    decay_zone: GlesTexProgram,
     dashed_outline: GlesTexProgram,
 }
 
@@ -273,7 +273,7 @@ pub struct NodeTextureElement {
 }
 
 #[derive(Debug)]
-pub struct FocusRingElement {
+pub struct DecayZoneElement {
     base: TextureRenderElement<GlesTexture>,
     texture: GlesTexture,
     program: GlesTexProgram,
@@ -284,7 +284,7 @@ pub struct FocusRingElement {
     commit: CommitCounter,
 }
 
-impl Element for FocusRingElement {
+impl Element for DecayZoneElement {
     fn id(&self) -> &Id {
         self.base.id()
     }
@@ -385,7 +385,7 @@ impl RenderElement<GlesRenderer> for DashedOutlineElement {
     }
 }
 
-impl RenderElement<GlesRenderer> for FocusRingElement {
+impl RenderElement<GlesRenderer> for DecayZoneElement {
     fn draw(
         &self,
         frame: &mut GlesFrame<'_, '_>,
@@ -408,9 +408,9 @@ impl RenderElement<GlesRenderer> for FocusRingElement {
                 Uniform::new("ring_color", self.color),
                 Uniform::new("rect_size", self.size),
                 Uniform::new("radii", self.radii),
-                Uniform::new("thickness", FOCUS_RING_THICKNESS),
+                Uniform::new("thickness", DECAY_ZONE_THICKNESS),
                 Uniform::new("dash_period", self.dash_period),
-                Uniform::new("dash_length", FOCUS_RING_THICKNESS),
+                Uniform::new("dash_length", DECAY_ZONE_THICKNESS),
             ],
         )
     }
@@ -625,14 +625,14 @@ impl NodeRenderer {
         })
     }
 
-    /// One dashed focus ring, drawn by a single shader element.
+    /// One dashed decay zone outline, drawn by a single shader element.
     ///
-    /// This used to be [`FOCUS_RING_SEGMENTS`] individual 3x3 solid quads with
+    /// This used to be [`DECAY_ZONE_SEGMENTS`] individual 3x3 solid quads with
     /// a fresh `Id` each. That cost 160 draw calls and, worse, told the damage
     /// tracker that 160 elements appeared and vanished every frame — which
     /// damaged the whole output and forced a full-screen backdrop-blur
     /// re-capture on every frame the ring was visible.
-    pub fn focus_ring_element(
+    pub fn decay_zone_element(
         &mut self,
         renderer: &mut GlesRenderer,
         output: &str,
@@ -640,15 +640,15 @@ impl NodeRenderer {
         radii: (f32, f32),
         rgb: (f32, f32, f32),
         alpha: f32,
-    ) -> Result<FocusRingElement, Box<dyn Error>> {
+    ) -> Result<DecayZoneElement, Box<dyn Error>> {
         self.ensure_resources(renderer)?;
-        let id = self.ids.for_output(output).id(NodeSlot::FocusRing);
+        let id = self.ids.for_output(output).id(NodeSlot::DecayZone);
         let resources = self.resources.as_ref().expect("ensured above");
 
         let (rx, ry) = (radii.0.max(1.0), radii.1.max(1.0));
         // Pad by the dash thickness so antialiasing at the outer edge is not
         // clipped by the element's own bounds.
-        let pad = FOCUS_RING_THICKNESS + 1.0;
+        let pad = DECAY_ZONE_THICKNESS + 1.0;
         let half_w = rx + pad;
         let half_h = ry + pad;
         let destination = Rectangle::<i32, Physical>::new(
@@ -680,19 +680,19 @@ impl NodeRenderer {
             None,
             Kind::Unspecified,
         );
-        Ok(FocusRingElement {
+        Ok(DecayZoneElement {
             base,
             texture: resources.texture.clone(),
-            program: resources.focus_ring.clone(),
+            program: resources.decay_zone.clone(),
             color: (rgb.0, rgb.1, rgb.2, 1.0),
             size: (destination.size.w as f32, destination.size.h as f32),
             radii: (rx, ry),
-            dash_period: ellipse_perimeter(rx, ry) / FOCUS_RING_SEGMENTS,
-            commit: focus_ring_commit(
+            dash_period: ellipse_perimeter(rx, ry) / DECAY_ZONE_SEGMENTS,
+            commit: decay_zone_commit(
                 destination,
                 (rgb.0, rgb.1, rgb.2, 1.0),
                 (rx, ry),
-                ellipse_perimeter(rx, ry) / FOCUS_RING_SEGMENTS,
+                ellipse_perimeter(rx, ry) / DECAY_ZONE_SEGMENTS,
             ),
         })
     }
@@ -844,8 +844,8 @@ impl NodeRenderer {
         let label_square = renderer.compile_custom_texture_shader(LABEL_SQUARE, &label_uniforms)?;
         let label_rounded =
             renderer.compile_custom_texture_shader(LABEL_ROUNDED, &label_uniforms)?;
-        let focus_ring = renderer.compile_custom_texture_shader(
-            FOCUS_RING,
+        let decay_zone = renderer.compile_custom_texture_shader(
+            DECAY_ZONE,
             &[
                 UniformName::new("ring_color", UniformType::_4f),
                 UniformName::new("rect_size", UniformType::_2f),
@@ -872,7 +872,7 @@ impl NodeRenderer {
             squircle,
             label_square,
             label_rounded,
-            focus_ring,
+            decay_zone,
             dashed_outline,
         });
         Ok(())

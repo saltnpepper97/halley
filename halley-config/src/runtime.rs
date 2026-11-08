@@ -6,7 +6,7 @@ use rune_cfg::RuneConfig;
 
 use crate::{
     Animations, Apogee, Autostart, Background, BackgroundParseError, Bearings, Clusters, Cursor,
-    Debug, Decay, Decorations, Effects, EffectsParseError, Field, FieldParseError, FocusRings,
+    Debug, Decay, DecayZones, Decorations, Effects, EffectsParseError, Field, FieldParseError,
     Font, Input, InputParseError, Keybinds, LaunchConfigError, LayerRule, NodeParseError, Nodes,
     OutputConfig, OverlayParseError, Overlays, Physics, Screenshot, Trail, WindowRule,
     WindowRuleParseError, parse_animations, parse_apogee, parse_autostart, parse_background,
@@ -38,7 +38,7 @@ pub struct RuntimeConfig {
     pub bearings: Bearings,
     pub trail: Trail,
     pub clusters: Clusters,
-    pub focus_rings: FocusRings,
+    pub decay_zones: DecayZones,
     pub font: Font,
     pub physics: Physics,
     pub decay: Decay,
@@ -153,7 +153,7 @@ impl From<WindowRuleParseError> for RuntimeConfigError {
 pub fn parse_runtime_config(config: &RuneConfig) -> Result<RuntimeConfig, RuntimeConfigError> {
     let ViewConfig {
         outputs,
-        focus_rings,
+        decay_zones,
     } = parse_view_checked(config)?;
     let rules = parse_rules(config)?;
     Ok(RuntimeConfig {
@@ -173,7 +173,7 @@ pub fn parse_runtime_config(config: &RuneConfig) -> Result<RuntimeConfig, Runtim
         bearings: parse_bearings(config),
         trail: parse_trail(config),
         clusters: parse_clusters(config),
-        focus_rings,
+        decay_zones,
         font: parse_font(config),
         physics: parse_physics(config),
         decay: parse_decay(config),
