@@ -220,6 +220,14 @@ where
         super::screenshot::activate(session, hit);
         return;
     }
+    if let Some(id) = super::decay_notice::click_target(session, screen) {
+        session
+            .interactions
+            .screenshot_touches
+            .suppress(event.slot());
+        super::decay_notice::restore_target(session, id);
+        return;
+    }
     let Some(route) = route(session, screen) else {
         return;
     };

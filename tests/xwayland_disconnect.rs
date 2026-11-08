@@ -44,6 +44,8 @@ mod alt_tab_visibility;
 mod bearings_restore;
 #[path = "support/collapsed_node_close.rs"]
 mod collapsed_node_close;
+#[path = "support/decay_notice_restore.rs"]
+mod decay_notice_restore;
 #[path = "support/empty_cluster.rs"]
 mod empty_cluster;
 #[path = "support/fifo_nested.rs"]

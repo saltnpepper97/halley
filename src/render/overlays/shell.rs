@@ -495,8 +495,11 @@ fn notification_elements(
         card_size,
         config,
         notification.mix,
-    )
-    .to_physical(1);
+    );
+    // Input hit-tests the card the user can see; overlay coordinates here are
+    // output-local logical pixels at scale 1.
+    notification.card.record(card);
+    let card = card.to_physical(1);
     if let Some(text) = ctx.text.element(
         ctx.renderer,
         (

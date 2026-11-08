@@ -135,6 +135,12 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     let snapshot = app.shell.overlays.snapshot(&output.name(), now).empty_cluster?;
                     Some(serde_json::json!({"output": output.name(), "shortcut": snapshot.shortcut, "armed": snapshot.armed}))
                 }).collect::<Vec<_>>(),
+                "notices": app.wayland.space.outputs().filter_map(|output| {
+                    let origin = output.current_location();
+                    let (target, rect) = app.shell.overlays.notice_card(&output.name())?;
+                    Some(serde_json::json!({"output": output.name(), "target": target.as_u64(),
+                        "rect": [origin.x + rect.loc.x, origin.y + rect.loc.y, rect.size.w, rect.size.h]}))
+                }).collect::<Vec<_>>(),
                 "bearings": app.wayland.space.outputs().map(|output| {
                     let origin = output.current_location();
                     let chips = app.shell.bearings.hitboxes(&output.name()).into_iter().filter_map(|hitbox| match hitbox.target {
