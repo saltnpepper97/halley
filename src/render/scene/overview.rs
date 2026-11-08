@@ -6,6 +6,70 @@ use crate::render::draw::DrawContext;
 
 pub(super) const CLUSTER_MEMBER_BORDER_PX: f32 = 7.0;
 
+/// The desktop an overview scene shows, read-only. Copying it is cheap.
+#[derive(Clone, Copy)]
+pub(super) struct OverviewDesktop<'a> {
+    pub space: &'a smithay::desktop::Space<smithay::desktop::Window>,
+    pub cameras: &'a crate::presentation::camera::OutputCameras,
+    pub nodes: &'a crate::nodes::NodesState,
+    pub clusters: &'a crate::clusters::ClusterSystem,
+    pub window_animations: &'a crate::animation::WindowAnimations,
+    pub fullscreen: &'a crate::wayland::fullscreen::FullscreenManager,
+    pub maximize: &'a crate::presentation::maximize::FieldMaximizeManager,
+    pub decorations: &'a halley_config::Decorations,
+    pub font: &'a halley_config::Font,
+}
+
+impl<'a> OverviewDesktop<'a> {
+    pub(super) fn from_request(request: &RenderRequest<'a>) -> Self {
+        Self {
+            space: request.desktop.space,
+            cameras: request.desktop.cameras,
+            nodes: request.desktop.nodes,
+            clusters: request.desktop.clusters,
+            window_animations: request.desktop.window_animations,
+            fullscreen: request.desktop.fullscreen,
+            maximize: request.desktop.maximize,
+            decorations: request.visuals.decorations,
+            font: request.visuals.font,
+        }
+    }
+}
+
+/// The renderers and caches an overview scene draws window cards with.
+pub(super) struct OverviewRenderers<'a> {
+    pub node: &'a mut crate::render::node::NodeRenderer,
+    pub cluster: &'a mut crate::clusters::render::ClusterRenderer,
+    pub titlebar: &'a mut crate::render::titlebar::TitlebarRenderer,
+    pub decoration: &'a mut crate::render::window_decoration::WindowDecorationRenderer,
+    pub text: &'a mut crate::render::text::UiTextRenderer,
+    pub previews: &'a mut crate::render::overlays::preview::OverlayPreviewCache,
+}
+
+/// One Apogee, Cluster Composer or hover-preview frame: where it draws, what
+/// it shows, and what it draws with.
+pub(super) struct OverviewScene<'a> {
+    pub renderer: &'a mut GlesRenderer,
+    pub output: &'a Output,
+    pub output_geometry: Rectangle<i32, Logical>,
+    pub desktop: OverviewDesktop<'a>,
+    pub draw: OverviewRenderers<'a>,
+    pub now: std::time::Duration,
+}
+
+/// One window card in an overview: which window, where it goes, and how it
+/// is highlighted.
+#[derive(Clone, Copy)]
+pub(super) struct OverviewTile {
+    pub id: halley_core::field::NodeId,
+    pub target_global: Rectangle<i32, Logical>,
+    pub body_override: Option<Rectangle<i32, Physical>>,
+    pub progress: f32,
+    pub focused: bool,
+    pub member_selected: bool,
+    pub hovered: bool,
+}
+
 pub(super) fn apogee_backdrop_color(
     dim: f32,
     progress: f32,
@@ -196,31 +260,34 @@ fn apogee_window_chrome(
     (visuals, caption_fill, card_fill)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn apogee_elements(
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
+    scene: OverviewScene<'_>,
     state: &crate::shell::apogee::ApogeeState,
     config: halley_config::Apogee,
     overlay_config: &halley_config::Overlays,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    space: &smithay::desktop::Space<smithay::desktop::Window>,
-    cameras: &crate::presentation::camera::OutputCameras,
-    nodes: &crate::nodes::NodesState,
-    clusters: &crate::clusters::ClusterSystem,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    cluster_renderer: &mut crate::clusters::render::ClusterRenderer,
-    titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
-    window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
-    overlay_previews: &mut crate::render::overlays::preview::OverlayPreviewCache,
-    now: std::time::Duration,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    let OverviewScene {
+        renderer,
+        output,
+        output_geometry,
+        now,
+        desktop,
+        draw,
+    } = scene;
+    let OverviewDesktop {
+        cameras,
+        nodes,
+        clusters,
+        ..
+    } = desktop;
+    let OverviewRenderers {
+        node: node_renderer,
+        cluster: cluster_renderer,
+        titlebar: titlebar_renderer,
+        decoration: window_decoration_renderer,
+        text: ui_text,
+        previews: overlay_previews,
+    } = draw;
     let Some(session) = state.session() else {
         return Ok(Vec::new());
     };
@@ -269,33 +336,33 @@ pub(super) fn apogee_elements(
         }
         push_overview_window(
             &mut elements,
-            renderer,
-            output,
-            output_geometry,
-            tile.id,
-            tile.target,
-            None,
-            progress,
-            session.selected == Some(tile.id),
-            false,
-            session.hovered == Some(tile.id),
+            OverviewScene {
+                renderer: &mut *renderer,
+                output,
+                output_geometry,
+                desktop,
+                draw: OverviewRenderers {
+                    node: &mut *node_renderer,
+                    cluster: &mut *cluster_renderer,
+                    titlebar: &mut *titlebar_renderer,
+                    decoration: &mut *window_decoration_renderer,
+                    text: &mut *ui_text,
+                    previews: &mut *overlay_previews,
+                },
+                now,
+            },
+            OverviewTile {
+                id: tile.id,
+                target_global: tile.target,
+                body_override: None,
+                progress,
+                focused: session.selected == Some(tile.id),
+                member_selected: false,
+                hovered: session.hovered == Some(tile.id),
+            },
             config,
             overlay_visuals,
             visuals,
-            decorations,
-            font,
-            space,
-            cameras,
-            nodes,
-            node_renderer,
-            titlebar_renderer,
-            window_decoration_renderer,
-            ui_text,
-            window_animations,
-            fullscreen,
-            maximize,
-            overlay_previews,
-            now,
         )?;
     }
     let backdrop_color = apogee_backdrop_color(config.background_dim, visuals.overlay_alpha);
@@ -307,21 +374,24 @@ pub(super) fn apogee_elements(
     Ok(elements)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn overview_window_source_rect(
     output: &Output,
     output_geometry: Rectangle<i32, Logical>,
     id: halley_core::field::NodeId,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    space: &smithay::desktop::Space<smithay::desktop::Window>,
-    cameras: &crate::presentation::camera::OutputCameras,
-    nodes: &crate::nodes::NodesState,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
+    desktop: OverviewDesktop<'_>,
     now: std::time::Duration,
 ) -> Option<Rectangle<i32, Physical>> {
+    let OverviewDesktop {
+        space,
+        cameras,
+        nodes,
+        window_animations,
+        fullscreen,
+        maximize,
+        decorations,
+        font,
+        ..
+    } = desktop;
     let record = nodes.record(id)?;
     if record.collapsed {
         let camera = cameras.get(&output.name())?;
@@ -368,37 +438,47 @@ pub(super) fn overview_window_source_rect(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn push_overview_window(
     elements: &mut Vec<SceneElement>,
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
-    id: halley_core::field::NodeId,
-    target_global: Rectangle<i32, Logical>,
-    body_override: Option<Rectangle<i32, Physical>>,
-    progress: f32,
-    focused: bool,
-    member_selected: bool,
-    hovered: bool,
+    scene: OverviewScene<'_>,
+    tile: OverviewTile,
     config: halley_config::Apogee,
     overlay_visuals: crate::render::overlays::shell::OverlayVisuals,
     visuals: ApogeeTransitionVisuals,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    space: &smithay::desktop::Space<smithay::desktop::Window>,
-    cameras: &crate::presentation::camera::OutputCameras,
-    nodes: &crate::nodes::NodesState,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
-    window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
-    overlay_previews: &mut crate::render::overlays::preview::OverlayPreviewCache,
-    now: std::time::Duration,
 ) -> Result<(), Box<dyn Error>> {
+    let OverviewScene {
+        renderer,
+        output,
+        output_geometry,
+        now,
+        desktop,
+        draw,
+    } = scene;
+    let OverviewDesktop {
+        nodes,
+        fullscreen,
+        maximize,
+        decorations,
+        font,
+        ..
+    } = desktop;
+    let OverviewRenderers {
+        node: node_renderer,
+        titlebar: titlebar_renderer,
+        decoration: window_decoration_renderer,
+        text: ui_text,
+        previews: overlay_previews,
+        ..
+    } = draw;
+    let OverviewTile {
+        id,
+        target_global,
+        body_override,
+        progress,
+        focused,
+        member_selected,
+        hovered,
+    } = tile;
     let Some(record) = nodes.record(id) else {
         return Ok(());
     };
@@ -406,20 +486,8 @@ pub(super) fn push_overview_window(
         (target_global.loc - output_geometry.loc).to_physical(1),
         target_global.size.to_physical(1),
     );
-    let Some(source) = overview_window_source_rect(
-        output,
-        output_geometry,
-        id,
-        decorations,
-        font,
-        space,
-        cameras,
-        nodes,
-        window_animations,
-        fullscreen,
-        maximize,
-        now,
-    ) else {
+    let Some(source) = overview_window_source_rect(output, output_geometry, id, desktop, now)
+    else {
         return Ok(());
     };
     let body = body_override.unwrap_or_else(|| lerp_rect(source, target, progress));
@@ -997,24 +1065,34 @@ pub(super) fn focus_cycle_elements(
     Ok(elements)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn hover_preview_elements(
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
-    nodes: &crate::nodes::NodesState,
-    cameras: &crate::presentation::camera::OutputCameras,
-    overlay_previews: &mut crate::render::overlays::preview::OverlayPreviewCache,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
-    window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
-    titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
+    scene: OverviewScene<'_>,
     overlay_config: &halley_config::Overlays,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    now: std::time::Duration,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    let OverviewScene {
+        renderer,
+        output,
+        output_geometry,
+        now,
+        desktop,
+        draw,
+    } = scene;
+    let OverviewDesktop {
+        cameras,
+        nodes,
+        fullscreen,
+        decorations,
+        font,
+        ..
+    } = desktop;
+    let OverviewRenderers {
+        node: node_renderer,
+        titlebar: titlebar_renderer,
+        decoration: window_decoration_renderer,
+        text: ui_text,
+        previews: overlay_previews,
+        ..
+    } = draw;
     let Some((id, raw_mix)) = nodes.preview_hover_mix(&output.name(), now) else {
         return Ok(Vec::new());
     };

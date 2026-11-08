@@ -1,3 +1,4 @@
+use super::overview::{OverviewDesktop, OverviewRenderers, OverviewScene, OverviewTile};
 use super::*;
 
 use crate::render::draw::DrawContext;
@@ -14,31 +15,34 @@ const SELECTED_BADGE_SIZE: i32 = 30;
 const SELECTED_CHECK_SIZE: i32 = 18;
 const SELECTED_BADGE_CORNER_OVERLAP: i32 = 5;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn cluster_composer_elements(
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
+    scene: OverviewScene<'_>,
     state: &crate::shell::cluster_composer::ClusterComposerState,
-    clusters: &crate::clusters::ClusterSystem,
     config: halley_config::Apogee,
     overlay_config: &halley_config::Overlays,
-    decorations: &halley_config::Decorations,
-    font: &halley_config::Font,
-    space: &smithay::desktop::Space<smithay::desktop::Window>,
-    cameras: &crate::presentation::camera::OutputCameras,
-    nodes: &crate::nodes::NodesState,
-    node_renderer: &mut crate::render::node::NodeRenderer,
-    cluster_renderer: &mut crate::clusters::render::ClusterRenderer,
-    titlebar_renderer: &mut crate::render::titlebar::TitlebarRenderer,
-    window_decoration_renderer: &mut crate::render::window_decoration::WindowDecorationRenderer,
-    ui_text: &mut crate::render::text::UiTextRenderer,
-    window_animations: &crate::animation::WindowAnimations,
-    fullscreen: &crate::wayland::fullscreen::FullscreenManager,
-    maximize: &crate::presentation::maximize::FieldMaximizeManager,
-    overlay_previews: &mut crate::render::overlays::preview::OverlayPreviewCache,
-    now: std::time::Duration,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
+    let OverviewScene {
+        renderer,
+        output,
+        output_geometry,
+        now,
+        desktop,
+        draw,
+    } = scene;
+    let OverviewDesktop {
+        cameras,
+        nodes,
+        clusters,
+        ..
+    } = desktop;
+    let OverviewRenderers {
+        node: node_renderer,
+        cluster: cluster_renderer,
+        titlebar: titlebar_renderer,
+        decoration: window_decoration_renderer,
+        text: ui_text,
+        previews: overlay_previews,
+    } = draw;
     let Some(session) = state
         .session()
         .filter(|session| session.output == output.name() && session.replaces_scene())
@@ -81,14 +85,7 @@ pub(super) fn cluster_composer_elements(
             output,
             output_geometry,
             tile.id,
-            decorations,
-            font,
-            space,
-            cameras,
-            nodes,
-            window_animations,
-            fullscreen,
-            maximize,
+            desktop,
             now,
         );
         let mosaic = Rectangle::<i32, Physical>::new(
@@ -149,33 +146,33 @@ pub(super) fn cluster_composer_elements(
         }
         super::overview::push_overview_window(
             &mut elements,
-            renderer,
-            output,
-            output_geometry,
-            tile.id,
-            tile.target,
-            body,
-            progress,
-            focused && !committing,
-            selected && !committing,
-            session.hovered == Some(tile.id) && !committing,
+            OverviewScene {
+                renderer: &mut *renderer,
+                output,
+                output_geometry,
+                desktop,
+                draw: OverviewRenderers {
+                    node: &mut *node_renderer,
+                    cluster: &mut *cluster_renderer,
+                    titlebar: &mut *titlebar_renderer,
+                    decoration: &mut *window_decoration_renderer,
+                    text: &mut *ui_text,
+                    previews: &mut *overlay_previews,
+                },
+                now,
+            },
+            OverviewTile {
+                id: tile.id,
+                target_global: tile.target,
+                body_override: body,
+                progress,
+                focused: focused && !committing,
+                member_selected: selected && !committing,
+                hovered: session.hovered == Some(tile.id) && !committing,
+            },
             config,
             overlay_visuals,
             tile_transition,
-            decorations,
-            font,
-            space,
-            cameras,
-            nodes,
-            node_renderer,
-            titlebar_renderer,
-            window_decoration_renderer,
-            ui_text,
-            window_animations,
-            fullscreen,
-            maximize,
-            overlay_previews,
-            now,
         )?;
     }
 
