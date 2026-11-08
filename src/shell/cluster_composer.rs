@@ -12,7 +12,6 @@ pub(crate) struct ComposerStyle {
     pub transition_ms: u64,
     pub gap: f32,
     pub max_rows: u32,
-    pub background_dim: f32,
     pub live_previews: bool,
 }
 
@@ -22,8 +21,6 @@ impl Default for ComposerStyle {
             transition_ms: 320,
             gap: 24.0,
             max_rows: 3,
-            // Light enough that the Field stays visible behind the tiles.
-            background_dim: 0.35,
             live_previews: true,
         }
     }

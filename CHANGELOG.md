@@ -18,8 +18,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Create clusters over the Field instead of on a separate screen.
   `Super+Shift+C` still lays every window and node that can join out so none
-  overlap, but over the live Field, lightly dimmed, rather than a dark
-  wallpaper-only screen, and the windows glide there from where they are. The
+  overlap, but over the live, undimmed Field rather than a dark wallpaper-only
+  screen, and the windows glide there from where they are. The
   keys are unchanged: arrows or the pointer to highlight, Space or a click to
   select, Enter to name, Escape to back out. Selected windows get a thick frame
   in the overlay's border colour instead of the inverted text colour.

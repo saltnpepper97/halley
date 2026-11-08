@@ -31,7 +31,6 @@ pub enum NodeSlot {
     SelectionCheck(u32),
     SessionLockBackdrop,
     ClusterExclusiveBackdrop,
-    ClusterComposerBackdrop,
     FocusCycleBackdrop,
     HoverPreviewFallback,
     ShellBackdrop,

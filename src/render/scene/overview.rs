@@ -69,15 +69,6 @@ pub(super) struct OverviewTile {
     pub hovered: bool,
 }
 
-pub(super) fn overview_backdrop_color(
-    dim: f32,
-    progress: f32,
-) -> smithay::backend::renderer::Color32F {
-    // Smithay expects premultiplied RGBA. Neutral black only attenuates the
-    // wallpaper, and contributes no color even at zero transition opacity.
-    smithay::backend::renderer::Color32F::BLACK * (dim * progress)
-}
-
 pub(super) fn preview_content_radius(overlay_radius: f32) -> f32 {
     overlay_radius.max(0.0)
 }

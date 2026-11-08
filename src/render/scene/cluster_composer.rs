@@ -207,16 +207,8 @@ pub(super) fn cluster_composer_elements(
         )?;
     }
 
-    let backdrop_progress = if committing {
-        1.0
-    } else {
-        ordinary_transition.overlay_alpha
-    };
-    elements.push(SceneElement::Border(crate::render::solid_color_element(
-        node_renderer.active_slot_id(crate::render::node::NodeSlot::ClusterComposerBackdrop),
-        output_local,
-        super::overview::overview_backdrop_color(config.background_dim, backdrop_progress),
-    )));
+    // No backdrop: the windows are brought together over the ordinary Field,
+    // which stays exactly as it looks the rest of the time.
     if session.phase() == crate::shell::cluster_composer::Phase::CommitEndpointHeld {
         session.mark_endpoint_rendered();
     }
