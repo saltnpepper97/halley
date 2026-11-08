@@ -23,8 +23,6 @@ use super::{Session, SessionDriver};
 const MIN_SCALE: f32 = 0.1;
 /// Screen pixels kept clear around the fitted windows.
 const MARGIN_PX: f32 = 48.0;
-/// Field units reserved around a collapsed node's centre so it fits whole.
-const NODE_RADIUS: f32 = 40.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Fitted {
@@ -107,11 +105,17 @@ impl Bounds {
 /// The camera view that shows `bounds` on an output of `screen` logical
 /// pixels: a centre in global Field coordinates and a render scale. The
 /// scale never magnifies past 1.0 and never drops below [`MIN_SCALE`].
-pub(crate) fn fit(bounds: Bounds, screen: Vec2) -> (Vec2, f32) {
+///
+/// `node_margin_px` is extra screen room around the edges for nodes. Nodes are
+/// drawn at a fixed screen size, and as the camera zooms out the zoom reflow
+/// pushes them up to about one node away from neighbouring windows, so the
+/// room they need is constant in screen pixels rather than in Field units.
+pub(crate) fn fit(bounds: Bounds, screen: Vec2, node_margin_px: f32) -> (Vec2, f32) {
     let width = (bounds.max.x - bounds.min.x).max(1.0);
     let height = (bounds.max.y - bounds.min.y).max(1.0);
-    let room_x = (screen.x - MARGIN_PX * 2.0).max(1.0);
-    let room_y = (screen.y - MARGIN_PX * 2.0).max(1.0);
+    let margin = MARGIN_PX + node_margin_px.max(0.0);
+    let room_x = (screen.x - margin * 2.0).max(1.0);
+    let room_y = (screen.y - margin * 2.0).max(1.0);
     let scale = (room_x / width).min(room_y / height).clamp(MIN_SCALE, 1.0);
     let center = Vec2 {
         x: (bounds.min.x + bounds.max.x) * 0.5,
@@ -173,12 +177,18 @@ pub(crate) fn enter<D: SessionDriver>(session: &mut Session<D>) -> bool {
         let Some(camera) = session.cameras.get_mut_for_pan(&name) else {
             continue;
         };
+        // Room for a node drawn at the edge plus one reflow push away from a
+        // neighbouring window: a node diameter and its gap on top of the
+        // half diameter it already needs.
+        let node_margin =
+            crate::nodes::NODE_DIAMETER_PX * 1.5 + session.settings.field.gap.max(0.0);
         let (center, scale) = fit(
             bounds,
             Vec2 {
                 x: geometry.size.w as f32,
                 y: geometry.size.h as f32,
             },
+            node_margin,
         );
         let fitted = Fitted {
             saved_center: camera.target_center,
@@ -231,16 +241,12 @@ fn content_bounds<D: SessionDriver>(session: &Session<D>, output: &str) -> Optio
         .filter(|record| record.output == output && !session.clusters.is_member(record.id))
         .filter_map(|record| {
             if record.collapsed {
+                // A node is drawn at a fixed screen size, so its room is
+                // reserved in screen pixels by `node_margin_px`, not here.
                 let node = session.nodes.field().node(record.id)?;
                 return Some(Bounds {
-                    min: Vec2 {
-                        x: node.pos.x - NODE_RADIUS,
-                        y: node.pos.y - NODE_RADIUS,
-                    },
-                    max: Vec2 {
-                        x: node.pos.x + NODE_RADIUS,
-                        y: node.pos.y + NODE_RADIUS,
-                    },
+                    min: node.pos,
+                    max: node.pos,
                 });
             }
             if !record.attached {
@@ -410,7 +416,7 @@ mod tests {
 
     #[test]
     fn fits_spread_out_windows_and_centres_on_them() {
-        let (center, scale) = fit(bounds((-2000.0, -500.0), (2000.0, 1500.0)), SCREEN);
+        let (center, scale) = fit(bounds((-2000.0, -500.0), (2000.0, 1500.0)), SCREEN, 0.0);
         assert_eq!(center, Vec2 { x: 0.0, y: 500.0 });
         let visible_w = SCREEN.x / scale;
         let visible_h = SCREEN.y / scale;
@@ -420,10 +426,25 @@ mod tests {
 
     #[test]
     fn never_magnifies_and_never_zooms_past_the_floor() {
-        let (_, small) = fit(bounds((0.0, 0.0), (300.0, 200.0)), SCREEN);
+        let (_, small) = fit(bounds((0.0, 0.0), (300.0, 200.0)), SCREEN, 0.0);
         assert_eq!(small, 1.0, "a few small windows are shown at full size");
-        let (_, huge) = fit(bounds((0.0, 0.0), (100_000.0, 100_000.0)), SCREEN);
+        let (_, huge) = fit(bounds((0.0, 0.0), (100_000.0, 100_000.0)), SCREEN, 0.0);
         assert_eq!(huge, MIN_SCALE);
+    }
+
+    #[test]
+    fn nodes_at_the_edge_keep_screen_room_at_any_zoom() {
+        // A node far to the left of a window: after fitting, the node must
+        // sit at least `node_margin` screen pixels inside the screen edge.
+        let node_margin = 100.0;
+        let content = bounds((-6000.0, 0.0), (2000.0, 900.0));
+        let (center, scale) = fit(content, SCREEN, node_margin);
+        let left_edge_world = center.x - SCREEN.x * 0.5 / scale;
+        let node_screen_x = (content.min.x - left_edge_world) * scale;
+        assert!(
+            node_screen_x >= node_margin,
+            "node is {node_screen_x}px from the edge"
+        );
     }
 
     #[test]

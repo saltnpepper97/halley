@@ -101,6 +101,13 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Stop nodes drifting away when you zoom out, pan and zoom back in. A
+  placement check that runs whenever a window repaints measured nodes at the
+  zoomed-out size and always searched from the top-left, so panning (which
+  makes windows repaint) pushed nearby nodes further away and made them forget
+  their way back. It now measures at normal size and moves a node the shortest
+  straight way when it really must, and zoomed-out nodes return home as you
+  zoom in.
 - Fix the split-config example, where a stray animation block inside
   `effects.shadows` broke the nesting of the node shadow settings.
 - With fullscreen animations off, stop an X11 window or game from flashing its

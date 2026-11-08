@@ -31,11 +31,14 @@ fn reconcile_landmarks_inner<D: crate::session::SessionDriver>(
         })
         .collect::<Vec<_>>();
     for (id, output, current) in candidates {
-        let scale = session
-            .cameras
-            .get(&output)
-            .map(crate::presentation::camera::scale)
-            .unwrap_or(1.0);
+        // Placement reflow answers real geometry changes, such as a window
+        // growing onto a node, so it measures at native size. Overlaps that
+        // exist only because the camera is zoomed out belong to the zoom
+        // reflow, which moves nodes temporarily and brings them home. Measuring
+        // here at the zoomed-out size disagreed with that solver, so every
+        // client repaint while zoomed out (panning moves the pointer over
+        // windows) pushed nodes further away and erased their way home.
+        let scale = 1.0;
         let occupied_cores = session
             .clusters
             .collapsed_core_landmarks()
