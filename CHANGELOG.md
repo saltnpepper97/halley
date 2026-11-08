@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Add `debug.disable-explicit-sync` as a session-wide graphics compatibility
+  workaround. It defaults to `false` and requires restarting Halley; existing
+  user configurations are not rewritten.
+- Show a short notice when a cluster-slot key is pressed for an empty slot,
+  naming the key bound to `cluster-mode`, instead of silently doing nothing.
+
+### Changed
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can
@@ -13,16 +21,6 @@ All notable changes to this project will be documented in this file.
   pixels, so it covers the same part of the screen at every zoom level.
   `focus-ring:` and `debug.show-focus-ring` keep working as older spellings of
   `decay-zone:` and `debug.show-decay-zone`.
-- Internal: Apogee, Cluster Composer and hover previews take one overview scene
-  value instead of 15 to 28 separate arguments. No behavior change.
-- Internal: clusters decide what a dropped window or overflow member means,
-  and the pointer code only measures the drop and applies the result. The drop
-  rules now have unit tests. No behavior change.
-- Internal: keep node state private to the nodes module, with read accessors
-  and one named entry point for code that rearranges nodes on the Field. No
-  behavior change.
-- Internal: nested test sessions ignore the host's keyboard and pointer, so
-  moving the mouse over their windows can no longer change a test's result.
 - Write a short starter config on first run instead of the full 1,000-line
   file. It covers autostart, input, cursor, decorations, font, decay,
   screenshots, animations and keybinds, and links each section to its page on
@@ -31,38 +29,23 @@ All notable changes to this project will be documented in this file.
   New configs no longer bind node movement (`Mod+Alt+Arrow`) or monitor
   transfer (`Mod+Alt+Shift+Arrow`); add them from the reference if you use
   them. Existing configs are not changed.
-- With fullscreen animations off, stop an X11 window or game from flashing its
-  old buffer at the new position for a frame when entering or leaving
-  fullscreen. It now switches in one step once it has repainted at the new size,
-  or after 150 ms if it never does. Animated fullscreen is unchanged.
-- Internal: fix an intermittent nested XWayland test that read a game window's
-  frame in the instant after it left fullscreen, before the client's new size
-  arrived, and then indexed outside the screen capture.
-- Internal: make the compositor pointer grab private, so a grab can only be
-  started, updated or ended through methods that keep the grab cursor in step,
-  and narrow session fields that only the session module uses. No behavior
-  change.
-- Internal: split the 1,130-line pointer button handler into named stages
-  that run in the original order. No behavior change.
+- Make configs that leave a section out behave like the file Halley writes on
+  first run. Without a `decay:` section, windows now wait 10 minutes (90 while on
+  screen) before collapsing, instead of 3 and 30. Physics is off by
+  default; set `physics.enabled true` to keep it, and its damping default is
+  now 0.45. Pins default to Halley orange (`#d65d26`). Settings your config
+  states are unchanged, and a test now fails if the generated config and the
+  built-in defaults drift apart.
 - List every older config key and keybind action spelling Halley still reads
   in one table each, and document them in `docs/older-spellings.md` and the
   keybinds reference, which now names every built-in action. Existing configs
   read exactly as before. Underscore word forms such as `pan_field left` now
   run their action instead of an unknown shell command, and an old section
   name such as `overlay:` now reaches every key in its section.
-- Internal: pass the renderers that draw overlay cards, dialogs and badges as
-  one draw context instead of three separate arguments, and share the text and
-  card helpers that overlays each kept a copy of. No behavior change.
-- Internal: end compositor pointer grabs through one helper that also clears
-  the grab cursor, look up the seat keyboard and pointer through shared
-  helpers, and name pointer button codes instead of writing raw evdev numbers.
-  No behavior change.
-- Stop a non-ASCII character in a colour value from crashing
-  `halleyctl config verify` and the compositor's live config reload. Every
-  colour setting now shares one hex parser, so they all accept the same forms:
-  `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, with the `#` optional. Settings
-  without transparency, such as borders and the wallpaper colour, still reject
-  the alpha forms.
+- Label the Halley basics card from the configured keybinds instead of fixed
+  letters, so a rebound action shows its real chord, an unbound one reads "No
+  shortcut", and the launcher row names the terminal binding when Lift is not
+  bound. Orca reads the same labels.
 - Rewrite the README around what Halley does: a new headline, Lift as an
   explicit install step (with `Super+T` working without it), clusters as an
   optional step, retrieval as four questions that now include Trail, ten core
@@ -72,39 +55,52 @@ All notable changes to this project will be documented in this file.
   x11rb to 0.14. Adapt virtual-keyboard and text-input integration while
   preserving direct virtual-key delivery, independent modifier masks,
   configured hardware keyboard state, and session-lock input isolation.
+- Internal: Apogee, Cluster Composer and hover previews take one overview scene
+  value instead of 15 to 28 separate arguments. No behavior change.
+- Internal: clusters decide what a dropped window or overflow member means,
+  and the pointer code only measures the drop and applies the result. The drop
+  rules now have unit tests. No behavior change.
+- Internal: keep node state private to the nodes module, with read accessors
+  and one named entry point for code that rearranges nodes on the Field. No
+  behavior change.
+- Internal: make the compositor pointer grab private, so a grab can only be
+  started, updated or ended through methods that keep the grab cursor in step,
+  and narrow session fields that only the session module uses. No behavior
+  change.
+- Internal: split the 1,130-line pointer button handler into named stages
+  that run in the original order. No behavior change.
+- Internal: pass the renderers that draw overlay cards, dialogs and badges as
+  one draw context instead of three separate arguments, and share the text and
+  card helpers that overlays each kept a copy of. No behavior change.
+- Internal: end compositor pointer grabs through one helper that also clears
+  the grab cursor, look up the seat keyboard and pointer through shared
+  helpers, and name pointer button codes instead of writing raw evdev numbers.
+  No behavior change.
 
+### Fixed
+- With fullscreen animations off, stop an X11 window or game from flashing its
+  old buffer at the new position for a frame when entering or leaving
+  fullscreen. It now switches in one step once it has repainted at the new size,
+  or after 150 ms if it never does. Animated fullscreen is unchanged.
+- Stop a non-ASCII character in a colour value from crashing
+  `halleyctl config verify` and the compositor's live config reload. Every
+  colour setting now shares one hex parser, so they all accept the same forms:
+  `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, with the `#` optional. Settings
+  without transparency, such as borders and the wallpaper colour, still reject
+  the alpha forms.
 - Honor explicit-sync acquire points after an application destroys and recreates
   its synchronization object on the same surface. Previously, Halley could
   fall back to implicit synchronization and read a buffer before the client's
   rendering completed. Keep explicit and implicit waits separate and reject
   commits whose acquire wait cannot be registered. (#264)
-
-- Make configs that leave a section out behave like the file Halley writes on
-  first run. Without a `decay:` section, windows now wait 10 minutes (90 inside
-  the focus ring) before collapsing, instead of 3 and 30. Physics is off by
-  default; set `physics.enabled true` to keep it, and its damping default is
-  now 0.45. Pins default to Halley orange (`#d65d26`). Settings your config
-  states are unchanged, and a test now fails if the generated config and the
-  built-in defaults drift apart.
-- Show a short notice when a cluster-slot key is pressed for an empty slot,
-  naming the key bound to `cluster-mode`, instead of silently doing nothing.
+- Retain replaced and destroyed explicit-sync client buffers until earlier GPU
+  reads complete, so client reuse cannot race compositor rendering.
 - Stop clusters from slowing down rendering. A collapsed cluster's core and
   icon shared one color-keyed cache, so drawing them in the same frame rebuilt
   the core shader, re-rasterized the icon and re-uploaded its textures every
   frame. Field panning, zooming and window animations stuttered and idle CPU
   spiked while a cluster existed. The shader and base texture are now built once
   per renderer, and icons are cached per color. (#277)
-- Give Apogee's `NODE` badge the same themed pill as Alt+Tab, in the top-left
-  corner of the tile. It previously drew bare, hardcoded light-blue text that
-  ignored the overlay theme.
-- Stop the first-decay notice from suggesting `Mod+N`, which acts on the
-  focused window rather than the one that just collapsed. It now says the
-  window is still running and points to its node or to Apogee, naming the key
-  actually bound to Apogee.
-- Label the Halley basics card from the configured keybinds instead of fixed
-  letters, so a rebound action shows its real chord, an unbound one reads "No
-  shortcut", and the launcher row names the terminal binding when Lift is not
-  bound. Orca reads the same labels.
 - Restore a collapsed node into view when Bearings, Trail or directional focus
   reaches it. Previously, with `node.click-collapsed-pan "never"` (the default),
   the window restored off screen and took focus out of sight until a second
@@ -114,11 +110,18 @@ All notable changes to this project will be documented in this file.
   such as a browser exiting fullscreen video, instead of dropping it back to
   its normal size in the Field. Leaving `Mod+F` still restores the normal
   window.
-- Add `debug.disable-explicit-sync` as a session-wide graphics compatibility
-  workaround. It defaults to `false` and requires restarting Halley; existing
-  user configurations are not rewritten.
-- Retain replaced and destroyed explicit-sync client buffers until earlier GPU
-  reads complete, so client reuse cannot race compositor rendering.
+- Give Apogee's `NODE` badge the same themed pill as Alt+Tab, in the top-left
+  corner of the tile. It previously drew bare, hardcoded light-blue text that
+  ignored the overlay theme.
+- Stop the first-decay notice from suggesting `Mod+N`, which acts on the
+  focused window rather than the one that just collapsed. It now says the
+  window is still running and points to its node or to Apogee, naming the key
+  actually bound to Apogee.
+- Internal: nested test sessions ignore the host's keyboard and pointer, so
+  moving the mouse over their windows can no longer change a test's result.
+- Internal: fix an intermittent nested XWayland test that read a game window's
+  frame in the instant after it left fullscreen, before the client's new size
+  arrived, and then indexed outside the screen capture.
 
 ## [0.9.2] - 2026-11-02
 
