@@ -517,7 +517,7 @@ fn build_logical(
                 output_geometry,
                 request.desktop.cameras,
                 request.desktop.clusters.config(),
-                request.desktop.nodes.config,
+                request.desktop.nodes.config(),
                 1.0,
             )?;
             // The veil reveals the restored Field, but the endpoint core is

@@ -49,7 +49,7 @@ pub(crate) fn elements(
     let dragging = drag.is_some();
     let allow_icons = clusters.config().tiling.overflow_show_icons
         && matches!(
-            nodes.config.show_app_icons,
+            nodes.config().show_app_icons,
             halley_config::NodeDisplayPolicy::Always
         );
 
@@ -90,7 +90,7 @@ pub(crate) fn elements(
         let record = nodes.record(node_id);
         let label = record
             .map(|record| record.title.as_str())
-            .or_else(|| nodes.field.node(node_id).map(|node| node.label.as_str()))
+            .or_else(|| nodes.field().node(node_id).map(|node| node.label.as_str()))
             .unwrap_or("Window");
         let hover_mix =
             clusters.overlay_label_hover_mix(node_id, hovered == Some(node_id) && !dragging);
@@ -109,7 +109,7 @@ pub(crate) fn elements(
                     work_area.loc.y + work_area.size.h,
                 ),
                 text: label,
-                shape: nodes.config.label_shape,
+                shape: nodes.config().label_shape,
                 fill: (visuals.fill.r, visuals.fill.g, visuals.fill.b),
                 ring: (visuals.border.r, visuals.border.g, visuals.border.b),
                 hover_mix,
@@ -134,7 +134,7 @@ pub(crate) fn elements(
         }
         let glyph = record
             .and_then(|record| record.app_id.as_deref())
-            .or_else(|| nodes.field.node(node_id).map(|node| node.label.as_str()))
+            .or_else(|| nodes.field().node(node_id).map(|node| node.label.as_str()))
             .and_then(|label| label.chars().find(char::is_ascii_alphanumeric))
             .map(|ch| ch.to_ascii_uppercase().to_string())
             .unwrap_or_else(|| "?".to_string());

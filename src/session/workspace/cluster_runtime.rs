@@ -114,7 +114,7 @@ pub(crate) fn dissolve_cluster<D: SessionDriver>(
     let dissolving_core = session.clusters.core_node(cluster_id);
     let Some(dissolution) = session
         .clusters
-        .dissolve_cluster(&mut session.nodes.field, cluster_id)
+        .dissolve_cluster(session.nodes.field_mut(), cluster_id)
     else {
         return false;
     };

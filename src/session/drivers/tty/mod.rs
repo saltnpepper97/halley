@@ -1423,7 +1423,7 @@ fn redraw_output(app: &mut TtyApp, output: &Output, loop_handle: &LoopHandle<'_,
             .bloom_is_animating_on_output(&output.name(), target_presentation_time);
     let cluster_labels_animating = app
         .clusters
-        .labels_animating_on_output(&output.name(), app.nodes.config.show_labels);
+        .labels_animating_on_output(&output.name(), app.nodes.config().show_labels);
     let cluster_animating = cluster_geometry_animating || cluster_labels_animating;
     let show_cursor = super::pointer::cursor_visible(app);
     let cursor_override = super::pointer::cursor_override(app);

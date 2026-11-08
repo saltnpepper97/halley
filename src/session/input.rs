@@ -677,7 +677,7 @@ pub(crate) fn tick_grabbed_window_edge_pan<D: SessionDriver>(
         return None;
     }
 
-    if !session.nodes.physics.enabled {
+    if !session.nodes.physics_enabled() {
         let _ = crate::nodes::move_grabbed_body_rigid(session, id, placement.center);
     }
     if ready && dt > 0.0 {

@@ -152,20 +152,20 @@ pub struct NodeRecord {
 }
 
 pub struct NodesState {
-    pub field: Field,
+    field: Field,
     records: HashMap<NodeId, NodeRecord>,
     by_surface: HashMap<WlSurface, NodeId>,
     decay: DecayTracker,
-    pub config: halley_config::Nodes,
+    config: halley_config::Nodes,
     configured_nodes: halley_config::Nodes,
     system_color_scheme: halley_config::SystemColorScheme,
-    pub decay_config: halley_config::Decay,
-    pub focus_rings: halley_config::FocusRings,
-    pub landmarks: halley_config::LandmarkPlacement,
-    pub physics: halley_config::Physics,
-    pub animation: halley_config::NodeAnimation,
-    pub animations_enabled: bool,
-    pub hovered: Option<NodeId>,
+    decay_config: halley_config::Decay,
+    focus_rings: halley_config::FocusRings,
+    landmarks: halley_config::LandmarkPlacement,
+    physics: halley_config::Physics,
+    animation: halley_config::NodeAnimation,
+    animations_enabled: bool,
+    hovered: Option<NodeId>,
     hover_started_at: Option<Duration>,
     focused: Option<NodeId>,
     last_focus_ms: HashMap<NodeId, u64>,
@@ -293,6 +293,48 @@ impl NodesState {
         let changed = self.config != nodes;
         self.config = nodes;
         changed
+    }
+
+    /// The spatial model every node lives on. Read it freely; change node
+    /// state through `NodesState` methods where one exists.
+    pub fn field(&self) -> &Field {
+        &self.field
+    }
+
+    /// Rearrange nodes on the shared Field: clusters join, detach and
+    /// dissolve members here, and pin and detach flags live here too.
+    pub fn field_mut(&mut self) -> &mut Field {
+        &mut self.field
+    }
+
+    /// Node appearance settings from `node:` in the config.
+    pub fn config(&self) -> halley_config::Nodes {
+        self.config
+    }
+
+    pub fn physics(&self) -> halley_config::Physics {
+        self.physics
+    }
+
+    /// Whether contact physics moves nodes instead of rigid displacement.
+    pub fn physics_enabled(&self) -> bool {
+        self.physics.enabled
+    }
+
+    pub fn landmarks(&self) -> &halley_config::LandmarkPlacement {
+        &self.landmarks
+    }
+
+    pub fn animation(&self) -> halley_config::NodeAnimation {
+        self.animation
+    }
+
+    pub fn animations_enabled(&self) -> bool {
+        self.animations_enabled
+    }
+
+    pub fn hovered(&self) -> Option<NodeId> {
+        self.hovered
     }
 
     pub fn focus_ring_for_output(&self, output: &str) -> halley_config::FocusRing {

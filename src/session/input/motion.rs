@@ -456,7 +456,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                             .space
                             .relocate_element(&window, desired_location);
                         session.request_redraw();
-                    } else if !session.nodes.physics.enabled {
+                    } else if !session.nodes.physics_enabled() {
                         let _ = crate::nodes::move_grabbed_body_rigid(session, id, desired_center);
                     }
                     let cluster_reordered = attached_tile
@@ -485,7 +485,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     let join_candidate_changed = cluster_drag.is_none()
                         && edge_pan.is_none()
                         && session.clusters.update_join_candidate(
-                            &session.nodes.field,
+                            session.nodes.field(),
                             &output_name,
                             id,
                             crate::clusters::JoinContact {
@@ -499,7 +499,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                                     + desired_outer.size.h as f32
                                     - desired_center.y,
                                 core_radius: crate::clusters::CORE_DIAMETER_PX * 0.5 / camera_scale,
-                                gap: session.nodes.landmarks.gap_px / camera_scale,
+                                gap: session.nodes.landmarks().gap_px / camera_scale,
                             },
                             now,
                         );
@@ -524,7 +524,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     *last_update = now;
                     *velocity = sampled;
                 }
-                if id.is_some() && session.nodes.physics.enabled {
+                if id.is_some() && session.nodes.physics_enabled() {
                     session.request_redraw();
                 }
                 if output_changed {
@@ -567,7 +567,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 let sampled =
                     sampled_drag_velocity(previous, desired, previous_velocity, last_update, now);
                 crate::nodes::set_collapsed_output(session, id, &output);
-                if !session.nodes.physics.enabled {
+                if !session.nodes.physics_enabled() {
                     let _ = crate::nodes::move_grabbed_body_rigid(session, id, desired);
                 }
                 if let crate::input::grab::Grab::MoveNode {
@@ -581,7 +581,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                     *last_update = now;
                     *velocity = sampled;
                 }
-                if session.nodes.physics.enabled {
+                if session.nodes.physics_enabled() {
                     session.request_redraw();
                 }
             }

@@ -209,7 +209,7 @@ pub(crate) fn begin_cluster_commit<D: SessionDriver>(session: &mut Session<D>) -
     let now = crate::frame_clock::monotonic_now();
     match session
         .clusters
-        .prepare_creation(&session.nodes.field, focused, fallback_core_position)
+        .prepare_creation(session.nodes.field(), focused, fallback_core_position)
     {
         Ok(prepared) => {
             if session
@@ -305,7 +305,7 @@ pub(crate) fn finish_cluster_creation<D: SessionDriver>(session: &mut Session<D>
     }
     let prepared = session.clusters.prepared_creation().cloned();
     let focused_before = session.nodes.focused();
-    match session.clusters.finish_creation(&mut session.nodes.field) {
+    match session.clusters.finish_creation(session.nodes.field_mut()) {
         Ok(id) => {
             crate::nodes::resolve_new_cluster_core(session, id);
             let focus_core = prepared.map_or_else(
@@ -401,7 +401,7 @@ pub(crate) fn wakeup_cluster_interactions<D: SessionDriver>(
     let world = crate::input::grab::screen_to_world_on_output(position, camera, output_geometry);
     if !session
         .clusters
-        .detach_member(&mut session.nodes.field, cluster_id, member_id, world, now)
+        .detach_member(session.nodes.field_mut(), cluster_id, member_id, world, now)
     {
         session.clusters.clear_bloom_pull();
         return true;

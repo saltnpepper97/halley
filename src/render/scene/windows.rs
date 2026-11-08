@@ -248,7 +248,11 @@ pub(super) fn live_window_elements(
     let node_id = context.nodes.id_for_surface(window_surface.as_ref());
     let user_pinned = node_id.is_some_and(|id| {
         context.clusters.cluster_for_member(id).is_none()
-            && context.nodes.field.node(id).is_some_and(|node| node.pinned)
+            & context
+                .nodes
+                .field()
+                .node(id)
+                .is_some_and(|node| node.pinned)
     });
     let arrange_animating = context
         .window_animations

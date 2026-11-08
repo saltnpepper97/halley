@@ -43,12 +43,12 @@ pub(crate) fn elements(
         return Ok(Vec::new());
     }
 
-    let ring = crate::render::scene::node_ring_color(nodes.config, false);
-    let fill = crate::render::scene::node_fill_color(nodes.config, ring);
+    let ring = crate::render::scene::node_ring_color(nodes.config(), false);
+    let fill = crate::render::scene::node_fill_color(nodes.config(), ring);
     let text = crate::render::scene::contrast_text_rgb(fill);
     let allow_real_icons = clusters.config().show_icons
         && matches!(
-            nodes.config.show_app_icons,
+            nodes.config().show_app_icons,
             halley_config::NodeDisplayPolicy::Always
         );
     let mut contents = Vec::new();
@@ -70,7 +70,7 @@ pub(crate) fn elements(
                 destination,
                 ring,
                 fill,
-                nodes.config.opacity,
+                nodes.config().opacity,
                 token.alpha,
             )?,
         ));
@@ -80,7 +80,7 @@ pub(crate) fn elements(
             .map(|record| record.title.as_str())
             .or_else(|| {
                 nodes
-                    .field
+                    .field()
                     .node(token.member_id)
                     .map(|node| node.label.as_str())
             })
@@ -98,7 +98,7 @@ pub(crate) fn elements(
                 marker_side: side,
                 output_size: (output_geometry.size.w, output_geometry.size.h),
                 text: label,
-                shape: nodes.config.label_shape,
+                shape: nodes.config().label_shape,
                 fill,
                 ring,
                 hover_mix,
@@ -118,7 +118,7 @@ pub(crate) fn elements(
                         (center.x - icon_side / 2, center.y - icon_side / 2).into(),
                         (icon_side, icon_side).into(),
                     ),
-                    nodes.config.opacity * token.alpha,
+                    nodes.config().opacity * token.alpha,
                 )
             });
         if let Some(icon) = real_icon {
@@ -130,7 +130,7 @@ pub(crate) fn elements(
             .and_then(|record| record.app_id.as_deref())
             .or_else(|| {
                 nodes
-                    .field
+                    .field()
                     .node(token.member_id)
                     .map(|node| node.label.as_str())
             })
@@ -143,7 +143,7 @@ pub(crate) fn elements(
                 (center.x - size.w / 2, center.y - size.h / 2).into(),
                 &glyph,
                 text,
-                nodes.config.opacity * token.alpha,
+                nodes.config().opacity * token.alpha,
             )?
         {
             contents.push(SceneElement::UiText(prepared.element));

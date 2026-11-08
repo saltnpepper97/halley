@@ -1070,14 +1070,14 @@ fn begin_modal_capture<D: SessionDriver>(session: &mut Session<D>) {
         crate::input::grab::Grab::MoveWindow { id, .. } => *id,
         _ => None,
     };
-    if (moving_node.is_some() || moving_window.is_some()) && session.nodes.physics.enabled {
+    if (moving_node.is_some() || moving_window.is_some()) && session.nodes.physics_enabled() {
         let _ = crate::nodes::tick_physics(session, crate::frame_clock::monotonic_now());
     }
     if let Some(id) = moving_node {
         session.nodes.clear_direct_motion(id);
     }
     if let Some(id) = moving_window
-        && session.nodes.physics.enabled
+        && session.nodes.physics_enabled()
     {
         session
             .nodes

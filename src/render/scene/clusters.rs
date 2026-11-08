@@ -138,7 +138,7 @@ pub(super) fn cluster_elements(
             .collapsed_on_output(&output_name)
             .filter(|record| clusters.cluster_for_member(record.id).is_none())
             .filter_map(|record| {
-                let node = nodes.field.node(record.id)?;
+                let node = nodes.field().node(record.id)?;
                 let position = nodes.landmark_position(record.id, node.pos, now);
                 let center = crate::nodes::screen_from_world(position, camera, output_geometry)
                     - output_geometry.loc;
@@ -193,10 +193,10 @@ pub(super) fn cluster_elements(
             (local.x - side / 2, local.y - side / 2).into(),
             (side, side).into(),
         );
-        let visual = collapsed_core_visuals(nodes.config, highlighted);
+        let visual = collapsed_core_visuals(nodes.config(), highlighted);
         let ring = visual.ring;
         let core_border = if visual_flags.join_border_ready {
-            let highlighted = nodes.config.border_color_highlighted;
+            let highlighted = nodes.config().border_color_highlighted;
             (highlighted.r, highlighted.g, highlighted.b)
         } else {
             ring
@@ -223,7 +223,7 @@ pub(super) fn cluster_elements(
         let hover_mix = if bloom_open {
             0.0
         } else {
-            match (node_grab_active, nodes.config.show_labels) {
+            match (node_grab_active, nodes.config().show_labels) {
                 (true, halley_config::NodeDisplayPolicy::Hover) => {
                     clusters.label_hover_mix(id, false)
                 }
@@ -252,7 +252,7 @@ pub(super) fn cluster_elements(
                 marker_side: side,
                 output_size: (output_geometry.size.w, output_geometry.size.h),
                 text: &metadata.name,
-                shape: nodes.config.label_shape,
+                shape: nodes.config().label_shape,
                 fill,
                 ring,
                 hover_mix,
@@ -289,13 +289,13 @@ pub(super) fn cluster_elements(
                         renderer,
                         glyph,
                         [text[0], text[1], text[2], 255],
-                        nodes.config.opacity,
+                        nodes.config().opacity,
                     )?,
                     crate::clusters::ClusterActionControl::Edit => cluster_renderer.edit_icon(
                         renderer,
                         glyph,
                         [text[0], text[1], text[2], 255],
-                        nodes.config.opacity,
+                        nodes.config().opacity,
                     )?,
                 };
                 elements.push(SceneElement::ClusterIcon(icon));
@@ -304,14 +304,14 @@ pub(super) fn cluster_elements(
                     button,
                     ring,
                     fill,
-                    nodes.config.opacity,
+                    nodes.config().opacity,
                     false,
                 )?));
             }
         }
         if clusters.config().show_icons {
             let icon_side =
-                ((side as f32 * nodes.config.icon_size * 0.98).round() as i32).clamp(16, 42);
+                ((side as f32 * nodes.config().icon_size * 0.98).round() as i32).clamp(16, 42);
             elements.push(SceneElement::ClusterIcon(cluster_renderer.icon(
                 renderer,
                 Rectangle::new(
@@ -320,7 +320,7 @@ pub(super) fn cluster_elements(
                 ),
                 highlighted,
                 visual.icon_colors,
-                nodes.config.opacity,
+                nodes.config().opacity,
             )?));
         }
         elements.push(SceneElement::ClusterCore(cluster_renderer.core(
@@ -328,7 +328,7 @@ pub(super) fn cluster_elements(
             destination,
             core_border,
             fill,
-            nodes.config.opacity,
+            nodes.config().opacity,
             visual_flags.join_border_ready,
         )?));
         if let Some(shadow) = shadow_renderer.element(
@@ -336,7 +336,7 @@ pub(super) fn cluster_elements(
             format!("{}:cluster:{}", output.name(), id.as_u64()),
             destination,
             side as f32 / 2.0,
-            nodes.config.opacity,
+            nodes.config().opacity,
             shadow_config,
         )? {
             elements.push(SceneElement::Shadow(shadow));

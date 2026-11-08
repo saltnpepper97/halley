@@ -64,11 +64,11 @@ pub(super) fn apogee_core_tile_elements(
         tile.target.size.to_physical(1),
     );
     let body = lerp_rect(source, target, progress);
-    let ring = node_ring_color(nodes.config, highlighted);
-    let fill = node_fill_color(nodes.config, ring);
+    let ring = node_ring_color(nodes.config(), highlighted);
+    let fill = node_fill_color(nodes.config(), ring);
     let icon_colors = [
-        rgba(nodes.config.border_color),
-        rgba(nodes.config.border_color_highlighted),
+        rgba(nodes.config().border_color),
+        rgba(nodes.config().border_color_highlighted),
     ];
     let mut elements = Vec::new();
 
@@ -113,7 +113,7 @@ pub(super) fn apogee_core_tile_elements(
         ));
     }
     if clusters.config().show_icons {
-        let icon_side = ((body.size.w.min(body.size.h) as f32 * nodes.config.icon_size * 0.98)
+        let icon_side = ((body.size.w.min(body.size.h) as f32 * nodes.config().icon_size * 0.98)
             .round() as i32)
             .clamp(16, 42);
         elements.push(SceneElement::ClusterIcon(
@@ -134,7 +134,14 @@ pub(super) fn apogee_core_tile_elements(
         ));
     }
     elements.push(SceneElement::ClusterCore(
-        cluster_renderer.core_with_alpha(renderer, body, ring, fill, nodes.config.opacity, 1.0)?,
+        cluster_renderer.core_with_alpha(
+            renderer,
+            body,
+            ring,
+            fill,
+            nodes.config().opacity,
+            1.0,
+        )?,
     ));
     Ok(elements)
 }
