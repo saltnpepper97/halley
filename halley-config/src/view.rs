@@ -8,7 +8,7 @@ use crate::nodes::{DecayZones, parse_decay_zone_fields};
 use crate::output::{OutputConfig, is_hardware_field, parse_hardware_output};
 
 /// The config-facing aggregate for output-specific view policy. Runtime
-/// consumers continue to receive hardware outputs and focus rings separately.
+/// consumers continue to receive hardware outputs and decay zones separately.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewConfig {
     pub outputs: Vec<OutputConfig>,
