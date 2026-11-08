@@ -35,17 +35,18 @@ All notable changes to this project will be documented in this file.
   and `zoom-fit-swipe-*`. The `apogee:` config section is no longer read and
   can be deleted. The first-decay notice now says to press the zoom-fit key,
   or only offers the click when nothing is bound to it.
-- Make Arrange (`Mod+A`) predictable. It now uses the mosaic layout Apogee
-  used: each window keeps its shape, bigger windows get bigger slots, nothing
-  overlaps, and the same windows always land the same way. A window that
-  cannot shrink below a minimum size, such as Steam or a tall X11 tool window,
-  gets a slot at least that big and the others shrink instead, so it no longer
-  overlaps its neighbours. No window is dropped. Moving or closing one arranged
-  window now keeps the others' way back, so the next `Mod+A` still returns
-  them. The window you are working in gets a larger slot than the others.
-  Arrange now fills the screen instead of leaving a wide border: windows grow
-  into free space up to the gap from bars and screen edges, stretching up to a
-  quarter beyond their shape, and leftover space is shared evenly.
+- Make Arrange (`Mod+A`) fill the screen and lay windows out predictably. The
+  windows now cover the work area like a tiled layout, with only the Field gap
+  between them and around bars and screen edges. The layout is not a fixed
+  master and stack: Halley picks the cuts that best fit the windows' own
+  shapes, sizes and places on the Field, so a wide window tends to get a wide
+  band, a tall one a column, bigger windows more room, and the window you are
+  working in a larger piece. The same windows always land the same way. A
+  window that cannot shrink below a minimum size, such as Steam or a tall X11
+  tool window, gets a piece at least that big and the others shrink instead,
+  so it no longer overlaps its neighbours. No window is dropped. Moving or
+  closing one arranged window now keeps the others' way back, so the next
+  `Mod+A` still returns them.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can

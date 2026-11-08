@@ -413,17 +413,17 @@ none of them overlap. It leaves out collapsed or detached windows, cluster membe
 windows, and fullscreen and maximized windows. Every other visible window takes
 part; none is dropped.
 
-Arrange is predictable: each window keeps roughly its shape (a wide window
-stays wide, a tall one stays tall), bigger windows get bigger slots, the window
-you are working in gets a larger slot than the rest, and the same windows always
-produce the same layout. The layout fills the work area, keeping one Field gap
-from panels, bars and the screen edges: windows grow into free space beside
-them, stretching up to a quarter beyond their own shape and growing by at most
-a quarter in area so the larger slots stay larger. Space no window can use is
-shared evenly rather than left on one side. A window that cannot shrink below a minimum
-size (common for X11 apps such as Steam) gets a slot at least that big, and the
-other windows shrink to make room, so nothing overlaps. A window with a maximum
-size smaller than its slot is centred in it.
+Arrange fills the work area like a tiled layout: the windows cover it with
+only the Field gap (`field.gap`) between them and around panels, bars and the
+screen edges. It is not a fixed master and stack. Halley cuts the screen into
+one piece per window, choosing the cuts that best fit the windows' own shapes,
+sizes and places on the Field: windows stay on the side of the screen they were
+on, a wide window tends to get a wide band and a tall one a column, bigger
+windows get more room, and the window you are working in gets a larger piece.
+The same windows always produce the same layout. A window that cannot shrink
+below a minimum size (common for X11 apps such as Steam) gets a piece at least
+that big, and the other windows shrink to make room, so nothing overlaps. A
+window with a maximum size smaller than its piece is centred in it.
 
 Arrangement is reversible cleanup rather than a layout mode: it creates no
 tiling tree, no relationship, and no persistent layout state, and every

@@ -1,13 +1,14 @@
 //! Arrange: lay out the windows visible on one Field output without overlap,
 //! and put them back with a second press.
 //!
-//! The layout is the mosaic packer that Apogee used, so it is predictable:
-//! windows keep their shapes, larger windows get larger slots, nothing
-//! overlaps, and Field reading order breaks ties. A window's minimum size is
-//! part of the packing, so a window that cannot shrink (common for X11 apps
-//! such as Steam) gets a slot at least that big and the others shrink instead.
-//! A maximum size smaller than the slot leaves the window centred in it. No
-//! eligible window is ever left out.
+//! The layout is the space-filling mosaic in `shell::partition`: the windows
+//! cover the work area with only the Field gap between them, and the cuts
+//! follow the windows' own shapes, sizes and Field positions instead of a
+//! fixed master and stack. The same windows always produce the same layout.
+//! A window's minimum size is a hard limit, so a window that cannot shrink
+//! (common for X11 apps such as Steam) gets a piece at least that big and the
+//! others shrink instead. A maximum size smaller than the piece leaves the
+//! window centred in it. No eligible window is ever left out.
 
 use halley_core::camera::Camera;
 use smithay::desktop::Window;
@@ -15,15 +16,6 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::{Session, SessionDriver};
-
-/// How much more room the window you are working in asks for. The packer
-/// turns weight into slot size through a square root, limited to 0.68 to
-/// 1.45 times the average, so doubling it gives the focused window a clearly
-/// larger slot without dwarfing everything else.
-const FOCUSED_WEIGHT: f32 = 2.0;
-
-/// Rows the packer may use. Matches Cluster Composer so both read alike.
-const MAX_ROWS: usize = 3;
 
 #[derive(Clone, Debug)]
 struct ArrangeTransaction {
@@ -480,33 +472,29 @@ fn arrange_slots(
             aspect: (candidate.outer.size.w.max(1) as f32 / candidate.outer.size.h.max(1) as f32)
                 .clamp(0.25, 4.5),
             stable_key: candidate.id.as_u64(),
-            weight: candidate.outer.size.w.max(1) as f32
-                * candidate.outer.size.h.max(1) as f32
-                * if focused == Some(candidate.id) {
-                    FOCUSED_WEIGHT
-                } else {
-                    1.0
-                },
+            weight: candidate.outer.size.w.max(1) as f32 * candidate.outer.size.h.max(1) as f32,
             min_w: candidate.min_outer.w as f32,
             min_h: candidate.min_outer.h as f32,
         })
         .collect::<Vec<_>>();
-    slots_in(&items, area, gap)
+    let focused = candidates
+        .iter()
+        .position(|candidate| focused == Some(candidate.id));
+    slots_in(&items, focused, area, gap)
 }
 
 fn slots_in(
     items: &[crate::shell::mosaic::Item],
+    focused: Option<usize>,
     area: Rectangle<i32, Logical>,
     gap: i32,
 ) -> Vec<Rectangle<i32, Logical>> {
     let gap = gap.max(0) as f32;
-    let mut slots = crate::shell::mosaic::mosaic(items, area.size.w, area.size.h, gap, MAX_ROWS);
-    crate::shell::mosaic::fill(&mut slots, items, area.size.w, area.size.h, gap);
-    slots
+    crate::shell::partition::partition(items, focused, area.size.w, area.size.h, gap)
         .into_iter()
         .map(|slot| {
-            // Round edges, not centre and size, so filled tiles that reach the
-            // area edge cannot spill past it by a rounding pixel.
+            // Round edges, not centre and size, so pieces that reach the area
+            // edge cannot spill past it by a rounding pixel.
             let left = ((slot.cx - slot.w * 0.5).round() as i32).clamp(0, area.size.w - 1);
             let top = ((slot.cy - slot.h * 0.5).round() as i32).clamp(0, area.size.h - 1);
             let right = ((slot.cx + slot.w * 0.5).round() as i32).clamp(left + 1, area.size.w);
@@ -718,7 +706,7 @@ mod tests {
                     )
                 })
                 .collect::<Vec<_>>();
-            let slots = slots_in(&items, area, 20);
+            let slots = slots_in(&items, None, area, 20);
             assert_eq!(slots.len(), count, "no window is left out");
             for (index, slot) in slots.iter().enumerate() {
                 assert!(
@@ -740,17 +728,11 @@ mod tests {
             item(900.0, 100.0, 600.0, 900.0, 2),
             item(400.0, 700.0, 640.0, 480.0, 3),
         ];
-        let slots = slots_in(&items, area, 20);
-        for (item, slot) in items.iter().zip(&slots) {
-            // Filling may stretch a tile up to a quarter beyond its shape,
-            // plus a rounding pixel, but never flips wide into tall.
-            let stretch = (slot.size.w as f32 / slot.size.h as f32) / item.aspect;
-            assert!(
-                (0.79..=1.26).contains(&stretch),
-                "shape drifted too far: {stretch} for aspect {}",
-                item.aspect
-            );
-        }
+        let slots = slots_in(&items, None, area, 20);
+        // Filling the screen bends shapes, but a wide window keeps a wide
+        // piece and a tall one a tall piece.
+        assert!(slots[0].size.w > slots[0].size.h, "{:?}", slots[0]);
+        assert!(slots[1].size.h > slots[1].size.w, "{:?}", slots[1]);
         let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
         assert!(area_of(&slots[0]) > area_of(&slots[2]));
     }
@@ -762,7 +744,7 @@ mod tests {
             let items = (0..count)
                 .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
                 .collect::<Vec<_>>();
-            let slots = slots_in(&items, area, 20);
+            let slots = slots_in(&items, None, area, 20);
             let left = slots.iter().map(|slot| slot.loc.x).min().unwrap();
             let top = slots.iter().map(|slot| slot.loc.y).min().unwrap();
             let right = slots
@@ -775,16 +757,14 @@ mod tests {
                 .map(|slot| slot.loc.y + slot.size.h)
                 .max()
                 .unwrap();
-            // The block reaches both edges of at least one axis.
             assert!(
-                (left <= 1 && right >= area.size.w - 1) || (top <= 1 && bottom >= area.size.h - 1),
+                left == 0 && top == 0 && right == area.size.w && bottom == area.size.h,
                 "{count} windows leave a border: {left},{top} to {right},{bottom}"
             );
             let covered: i32 = slots.iter().map(|slot| slot.size.w * slot.size.h).sum();
             let fraction = covered as f32 / (area.size.w * area.size.h) as f32;
-            // Three equal windows leave the lone bottom tile at its shape
-            // limit, so it covers least; every other count is far above.
-            assert!(fraction > 0.65, "{count} windows cover only {fraction:.2}");
+            // Everything but the gaps between pieces is covered.
+            assert!(fraction > 0.95, "{count} windows cover only {fraction:.2}");
         }
     }
 
@@ -794,7 +774,10 @@ mod tests {
         let items = (0..6)
             .map(|index| item(index as f32 * 300.0, 0.0, 800.0, 600.0, index))
             .collect::<Vec<_>>();
-        assert_eq!(slots_in(&items, area, 20), slots_in(&items, area, 20));
+        assert_eq!(
+            slots_in(&items, None, area, 20),
+            slots_in(&items, None, area, 20)
+        );
     }
 
     #[test]
@@ -811,7 +794,7 @@ mod tests {
             item(400.0, 900.0, 1200.0, 800.0, 3),
             item(1200.0, 900.0, 900.0, 700.0, 4),
         ];
-        let slots = slots_in(&items, area, 20);
+        let slots = slots_in(&items, None, area, 20);
         assert!(
             slots[1].size.w >= 700 && slots[1].size.h >= 1100,
             "{:?}",
@@ -828,12 +811,11 @@ mod tests {
     #[test]
     fn the_focused_window_gets_a_larger_slot() {
         let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
-        let mut items = (0..4)
+        let items = (0..4)
             .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
             .collect::<Vec<_>>();
-        let even = slots_in(&items, area, 20);
-        items[2].weight *= super::FOCUSED_WEIGHT;
-        let focused = slots_in(&items, area, 20);
+        let even = slots_in(&items, None, area, 20);
+        let focused = slots_in(&items, Some(2), area, 20);
         let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
         assert!(area_of(&focused[2]) > area_of(&even[2]));
         for other in [0, 1, 3] {
