@@ -213,17 +213,6 @@ animations:
   end
 end
 
-# Overview previews and backdrop dimming.
-apogee:
-  enabled true
-  live-previews true
-  preview-max-fps 30
-  transition-ms 320
-  gap 24.0
-  max-rows 3
-  background-dim 0.85
-end
-
 # Offscreen window markers.
 bearings:
   show-distance true

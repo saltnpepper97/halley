@@ -16,8 +16,19 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Replace Apogee with zoom to fit (`Mod+O`). Instead of opening a separate
+  overview screen, each monitor's Field zooms out until every window and node
+  on it fits. Click a window or node to zoom back in on it, or press `Mod+O`
+  again or Escape to return. Nothing moves, `Mod`-drag still moves windows
+  while zoomed out, and panning or zooming by hand keeps the new view. Zoom to
+  fit can look further out than `zoom.min`, down to 10%. Bindings to `apogee`
+  and the `apogee-open`, `apogee-close` and `apogee-swipe-*` gestures keep
+  working as older spellings of `zoom-fit`, `zoom-fit-open`, `zoom-fit-close`
+  and `zoom-fit-swipe-*`. The `apogee:` config section is no longer read and
+  can be deleted. The first-decay notice now says to press the zoom-fit key,
+  or only offers the click when nothing is bound to it.
 - Rename Arrange to Tidy (`Mod+A`) and make it predictable. It now uses the
-  same layout as Apogee: each window keeps its shape, bigger windows get bigger
+  mosaic layout Apogee used: each window keeps its shape, bigger windows get bigger
   slots, nothing overlaps, and the same windows always land the same way. A
   window with a minimum size, such as Steam, gets the nearest size it accepts in
   its own slot instead of reshaping the whole layout, and no window is dropped.
@@ -68,8 +79,8 @@ All notable changes to this project will be documented in this file.
   x11rb to 0.14. Adapt virtual-keyboard and text-input integration while
   preserving direct virtual-key delivery, independent modifier masks,
   configured hardware keyboard state, and session-lock input isolation.
-- Internal: Apogee, Cluster Composer and hover previews take one overview scene
-  value instead of 15 to 28 separate arguments. No behavior change.
+- Internal: Cluster Composer and hover previews take one overview scene value
+  instead of 15 to 28 separate arguments. No behavior change.
 - Internal: clusters decide what a dropped window or overflow member means,
   and the pointer code only measures the drop and applies the result. The drop
   rules now have unit tests. No behavior change.
@@ -125,13 +136,10 @@ All notable changes to this project will be documented in this file.
   such as a browser exiting fullscreen video, instead of dropping it back to
   its normal size in the Field. Leaving `Mod+F` still restores the normal
   window.
-- Give Apogee's `NODE` badge the same themed pill as Alt+Tab, in the top-left
-  corner of the tile. It previously drew bare, hardcoded light-blue text that
-  ignored the overlay theme.
 - Stop the first-decay notice from suggesting `Mod+N`, which acts on the
   focused window rather than the one that just collapsed. It now says the
-  window is still running and points to its node or to Apogee, naming the key
-  actually bound to Apogee.
+  window is still running and that clicking the notice brings it back, and
+  names the key actually bound to zoom to fit.
 - Internal: nested test sessions ignore the host's keyboard and pointer, so
   moving the mouse over their windows can no longer change a test's result.
 - Internal: fix an intermittent nested XWayland test that read a game window's

@@ -23,7 +23,7 @@ Retrieval in the compositor:
   Mod+Arrow      nearby spatial navigation
   Alt+Tab        recent-work navigation
   Bearings       retrieval for offscreen spatial work
-  Apogee         visual inventory across monitors
+  Mod+O          zoom out to see everything
   Lift           direct search by application, node, cluster, or action
 
 Options:
@@ -124,7 +124,7 @@ Usage:
 
 Bearings is Halley's retrieval overlay for offscreen spatial work on each
 monitor. Nearby spatial navigation stays on Mod+Arrow, recent-work navigation on
-Alt+Tab, the multi-monitor visual inventory on Apogee, and direct search on
+Alt+Tab, zooming out to see everything on Mod+O, and direct search on
 Halley Lift.
 ";
 

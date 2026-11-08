@@ -145,7 +145,7 @@ and a later client fullscreen request is accepted. Use the game's Windowed setti
 if an exclusive-fullscreen game keeps requesting fullscreen after a shortcut exit.
 A focus-loss exit request while another monitor is in use keeps the game
 presented on its own monitor.
-Alt+Tab follows the shared [visibility and presentation policy](apogee.md#alttab-visibility-and-presentation-policy).
+Alt+Tab follows the shared [visibility and presentation policy](alt-tab.md#alttab-visibility-and-presentation-policy).
 
 Leaving fullscreen restores the previous window position. A game's first
 windowed-size negotiation keeps that frame's center, including when it launched

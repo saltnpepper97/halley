@@ -105,8 +105,7 @@ resetting the camera when it finishes.
 Disabling fullscreen animations restores chrome immediately. Client-drawn
 titlebars remain part of the application's own content.
 
-Window screenshots, window screencasts, Alt+Tab previews, and Apogee previews
-include the server titlebar and border. Popups, override-redirect X11
+Window screenshots, window screencasts, and Alt+Tab previews include the server titlebar and border. Popups, override-redirect X11
 surfaces, and layer-shell surfaces are not decorated.
 
 ## Future custom button SVGs

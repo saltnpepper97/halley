@@ -95,7 +95,7 @@ end
 
 # Everything else keeps its default, documented at the link above:
 # wallpaper, effects (blur and shadows), overlays, field, node, clusters,
-# apogee, bearings, trail, physics, placement, rules, view and debug.
+# bearings, trail, physics, placement, rules, view and debug.
 
 # Bindings. This list replaces Halley's built-in bindings rather than adding
 # to them, so a binding removed here is unbound.

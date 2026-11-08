@@ -35,7 +35,7 @@ shows them bound to `Super+Alt+Arrow` and `Super+Alt+Shift+Arrow`.
 | Basic | `Super+M` | Toggle Field maximize |
 | Basic | `Super+N` | Collapse the focused window into its node, or restore it (a collapsed node also restores on click) |
 | Basic | `Super+P` | Pin or unpin the focused window |
-| Overview | `Super+O` | Toggle Apogee, the visual inventory across monitors |
+| Zoom to fit | `Super+O` | Zoom out until every window and node fits, or zoom back in |
 | Focus | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation: cycle the focus carousel forward/backward |
 | Focus | `Super+Arrow` | Nearby spatial navigation: directional focus in the active context |
 | Focus | `Super+H` | Center the last-focused Field window |
@@ -234,7 +234,7 @@ works as expected. Other held modifiers still have to appear in the chord.
 
 These are keyboard buttons. Touchpad gestures use the action maps under
 `input.gestures`: `swipe-DIRECTION-FINGERS`,
-`apogee-swipe-DIRECTION-FINGERS`, and `hold-FINGERS`. Their values accept the
+`zoom-fit-swipe-DIRECTION-FINGERS`, and `hold-FINGERS`. Their values accept the
 same built-in compositor actions as keybinds; arbitrary shell commands and
 pointer-grab actions are rejected. `pan-fingers` remains reserved for
 continuous camera panning.
@@ -345,7 +345,7 @@ resolving `keycode-N`.
 ## Actions
 
 The built-in action strings are `quit`, `close-focused`, `toggle-fullscreen`,
-`maximize-focused`, `toggle-state`, `toggle-focused-pin`, `apogee`,
+`maximize-focused`, `toggle-state`, `toggle-focused-pin`, `zoom-fit`,
 `bearings-show`, `bearings-toggle`, `cycle-focus`, `cycle-focus-backward`,
 `trail-prev`, `trail-next`, `center-last-focused`, `cluster-mode`,
 `cluster-layout-cycle`, `cluster-toggle-float`, `tidy`,
@@ -396,17 +396,15 @@ swapping. `monitor focus DP-1` targets an exact connector name. `Alt+Tab` and
 `Alt+Shift+Tab` open and navigate the focus carousel; releasing Alt commits,
 focuses and raises the selected window, and moves the pointer to the selected
 output's center. A collapsed target restores in that action. Escape cancels
-without changing focus or pointer position. `Mod+O` opens or closes the
-multi-monitor Apogee overview. Apogee stops trapping keys as soon as its close
-transition begins.
-The [Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy)
+without changing focus or pointer position. `Mod+O` zooms every monitor out to
+fit, or back in; see [Zoom to fit](zoom-fit.md).
+The [Alt+Tab visibility policy](alt-tab.md#alttab-visibility-and-presentation-policy)
 defines when retrieval pans and releases fullscreen or maximize.
 
 The five retrieval layers are meant to be used together, and they are described
 in the same order everywhere: `Mod+Arrow` walks to the nearest window or node
 for nearby spatial navigation, `Alt+Tab` navigates recent work, Bearings
-retrieves offscreen spatial work, `Mod+O` Apogee is the visual inventory across
-monitors, and `Mod+D` Lift searches directly by application, node, cluster, or
+retrieves offscreen spatial work, `Mod+O` zooms out to show everything, and `Mod+D` Lift searches directly by application, node, cluster, or
 action. None of them replaces another.
 
 The default `Mod+A` `tidy` action lays out the ordinary Field windows whose
@@ -455,7 +453,7 @@ hidden it.
 The first native session of each Halley package version also shows the
 basics card: the Field-first mental model and only the five essential chords
 (`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` tidy, `Mod+N` collapse/restore,
-`Mod+O` Apogee). It appears until dismissed for that version, captures just
+`Mod+O` zoom to fit). It appears until dismissed for that version, captures just
 `Enter`, `Escape`, and the first pointer press or touch, and records the
 dismissed version so it stays hidden on later launches of that same version. Reopen it by hand from Lift's
 **Show Halley basics** action or `halleyctl basics`. See
@@ -465,8 +463,8 @@ that remembers the dismissal.
 compositor immediately. Enter confirms and Escape cancels while preserving
 the focused client beneath it. Its appearance is configured in
 [Compositor overlays](overlays.md).
-See [Apogee and Alt+Tab](apogee.md) for navigation, gestures, and preview
-performance.
+See [Alt+Tab](alt-tab.md) and [Zoom to fit](zoom-fit.md) for navigation,
+gestures, and preview performance.
 Holding the default `Mod+Z` `bearings-show` binding exposes offscreen nodes and
 hides them on the initiating key's release, even if Mod was released first.
 `Mod+Shift+Z` toggles the same UI persistently. See
@@ -552,7 +550,7 @@ written with `_` in place of `-` in its first word, so `toggle_state` is
 | `fullscreen` | `toggle-fullscreen` |
 | `toggle-maximize` | `maximize-focused` |
 | `toggle-pin`, `pin-toggle` | `toggle-focused-pin` |
-| `overview` | `apogee` |
+| `overview`, `apogee` | `zoom-fit` |
 | `arrange-visible` | `tidy` |
 | `undo-arrange` | `undo-tidy` |
 | `trail-previous` | `trail-prev` |

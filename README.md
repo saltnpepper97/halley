@@ -115,8 +115,8 @@ Finding a window again comes down to four questions:
 - **What was I just using?** `Alt+Tab` / `Alt+Shift+Tab` cycles recent windows.
   Trail walks this monitor's focus history with `Super+,` and `Super+.`, and
   `Super+H` centers the last-focused window.
-- **What's out there?** `Super+O` opens Apogee, an overview of everything open
-  on every monitor. For this monitor alone, hold `Super+Z` (or toggle it with
+- **What's out there?** `Super+O` zooms out until you can see every window and
+  node on every monitor; click one to zoom back in on it. For this monitor alone, hold `Super+Z` (or toggle it with
   `Super+Shift+Z`) to show Bearings: chips at the screen edges pointing to
   offscreen nodes and clusters.
 - **What's it called?** `Super+D` opens Lift to search applications, running
@@ -136,7 +136,6 @@ Finding a window again comes down to four questions:
 | **Cluster** | An optional named group of windows that opens into its own tiling or stacking workspace. |
 | **Trail** | Per-monitor focus history you can walk backward and forward. |
 | **Bearings** | Edge chips pointing to offscreen nodes and clusters on this monitor. |
-| **Apogee** | An overview of every window across all monitors, with live previews. |
 | **Lift** | Halley's separately installed launcher and search. |
 
 ---
@@ -191,7 +190,7 @@ configuration.
 | `Super+F` | Toggle fullscreen |
 | `Super+Arrow` | Focus the nearest window or node in that direction |
 | `Alt+Tab` | Cycle recent windows |
-| `Super+O` | Open Apogee |
+| `Super+O` | Zoom out to see everything, or zoom back in |
 | `Super+Shift+E` | Quit Halley |
 
 Every binding is configurable. See [keybinds](docs/keybinds.md) for the full
@@ -271,7 +270,8 @@ halleyctl portal status
 - [Field behavior, maximize, zoom, and close succession](docs/field.md)
 - [Nodes, decay, decay zones, landmarks, and physics](docs/nodes.md)
 - [Bearings](docs/bearings.md)
-- [Apogee and Alt+Tab](docs/apogee.md)
+- [Zoom to fit](docs/zoom-fit.md)
+- [Alt+Tab](docs/alt-tab.md)
 - [Animations](docs/animations.md)
 - [Window decorations](docs/decorations.md)
 - [Backdrop blur and shadows](docs/effects.md)

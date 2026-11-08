@@ -435,7 +435,6 @@ fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
             runtime.animations.window_move,
             halley_config::WindowMoveAnimation::default()
         );
-        assert_eq!(config.get::<f32>("apogee.background-dim").unwrap(), 0.85);
         assert_eq!(runtime.decay.outside_delay_seconds, 600);
         assert_eq!(runtime.decay.inside_delay_seconds, 5400);
         assert!(runtime.animations.window_open.custom_shader.is_none());

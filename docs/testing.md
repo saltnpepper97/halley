@@ -115,7 +115,7 @@ checks the spoken basics card, screenshot menu selection and configuration
 error, rejects an
 unapproved keyboard-monitor client, and restarts the supervised Orca process.
 If `kitty` is installed, it also opens two nested windows and checks spoken
-Apogee selection changes.
+Alt+Tab selection changes.
 It does not publish the nested compositor to the host accessibility bus.
 The ignored `accessible_capture` tests in `xwayland_disconnect` exercise
 keyboard monitor selection and screenshot-region movement in a nested session.
@@ -243,7 +243,7 @@ bounds, preview cancellation and captured foreground pixels. Ordinary Field
 targets, collapsed-window restoration, and animated fullscreen/maximize exits
 are covered too. A camera regression verifies queued reveals wait for maximize
 exit and preserve the restored zoom. The canonical intended behavior is
-documented in the [Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy).
+documented in the [Alt+Tab visibility policy](alt-tab.md#alttab-visibility-and-presentation-policy).
 
 ## Resizing before a client titlebar drag
 

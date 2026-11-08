@@ -89,8 +89,8 @@ apply both to a newly generated configuration and to one that omits the
 
 The first automatic collapse explains itself once, in a non-modal notice:
 `<Application> was collapsed into a node. It's still running. Click here to
-bring it back, or find it in Apogee (<key>).`, where the key is the one bound to
-`apogee`. The application name is the window title, falling back to the
+bring it back, or press <key> to zoom out and find it.`, where the key is the
+one bound to `zoom-fit`; without one, only the click is offered. The application name is the window title, falling back to the
 application id and then to a generic "A window" sentence. Clicking the notice
 restores that window on screen and focuses it; nothing else about the notice
 takes input or changes focus. It stays up for `error-duration-ms` (9 seconds by

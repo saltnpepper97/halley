@@ -47,8 +47,8 @@ input:
 
     # Discrete swipes and holds may invoke any compositor keybind action.
     swipe-threshold-px 120.0
-    swipe-up-4 "apogee-open"
-    apogee-swipe-down-4 "apogee-close"
+    swipe-up-4 "zoom-fit-open"
+    zoom-fit-swipe-down-4 "zoom-fit-close"
     # swipe-left-4 "trail-prev"
     # swipe-right-4 "trail-next"
     # hold-3 "toggle-state"

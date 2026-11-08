@@ -5,7 +5,7 @@ Overlay sizes and offsets use logical pixels and follow the monitor's
 zero; bootstrap configs explicitly include `offset-x 0` and `offset-y 0`.
 
 The `overlays:` section is the shared style contract for compositor-owned UI:
-Apogee title bands, the Alt+Tab rail, Bearings chips, the screenshot picker,
+the Alt+Tab rail, Cluster Composer title bands, Bearings chips, the screenshot picker,
 configuration notices, the zoom indicator, the exit confirmation, the one-time
 automatic-decay explanation, and the one-time basics card. It
 deliberately does not restyle client window decorations or node labels; those
@@ -64,7 +64,7 @@ back to `auto` when the portal reports no preference or is unavailable.
 pixels and is clamped from `0` to `64`; it is independent of
 `decorations.border.size`. `border-colour` is also independent of window
 styling and defaults to Halley's orange `#d65d26`.
-Apogee and Alt+Tab title bands, monitor badges, `NODE` badges, and tiled-cluster
+Alt+Tab and Cluster Composer title bands, monitor badges, `NODE` badges, and tiled-cluster
 overflow strips remain borderless regardless of this setting, matching old
 Halley's label chrome.
 Window preview textures use `decorations.border.radius`; the one surrounding
@@ -128,7 +128,7 @@ remain configured but have no visible effect while `background false`.
 
 Each Halley package version's first native session shows a **Halley
 basics** card: the Field-first mental model plus the five essential operations
-(Lift, moving a window, tidy, collapse/restore, and Apogee). Clusters stay
+(Lift, moving a window, tidy, collapse/restore, and zoom to fit). Clusters stay
 out of first-run training in 0.8.0: the card names no cluster action, core, or
 layout, so a cluster is only ever introduced deliberately.
 
@@ -172,14 +172,14 @@ The first time automatic decay collapses a window into a node, Halley shows one
 ordinary success notification:
 
 ```text
-Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O).
+Firefox was collapsed into a node. It's still running. Click here to bring it back, or press Super+O to zoom out and find it.
 ```
 
 The notice names the collapsed window's title — the same text its node is
 labelled with — falling back to the application id, and finally to a generic
-"A window" when a client reports neither. The Apogee chord is the one actually
-bound to `apogee` in the Field; when nothing is bound, the notice names Apogee
-without a key. It never suggests `toggle-state` (`Mod+N`): that acts on the
+"A window" when a client reports neither. The key is the one actually bound to
+`zoom-fit` in the Field; when nothing is bound, the notice offers only the click
+and names no key. It never suggests `toggle-state` (`Mod+N`): that acts on the
 focused window, and decay only collapses unfocused ones. The `Untitled` placeholder used for an
 unnamed window is not shown as if it were an application name.
 
