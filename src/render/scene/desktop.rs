@@ -30,21 +30,22 @@ pub(super) fn append(
     );
 
     let mut hover_preview = hover_preview_elements(
-        renderer,
-        output,
-        output_geometry,
-        request.desktop.nodes,
-        request.desktop.cameras,
-        request.resources.overlay_previews,
-        request.resources.node_renderer,
-        request.resources.ui_text,
-        request.resources.window_decoration_renderer,
-        request.resources.titlebar_renderer,
+        super::overview::OverviewScene {
+            renderer,
+            output,
+            output_geometry,
+            desktop: super::overview::OverviewDesktop::from_request(request),
+            draw: super::overview::OverviewRenderers {
+                node: request.resources.node_renderer,
+                cluster: request.resources.cluster_renderer,
+                titlebar: request.resources.titlebar_renderer,
+                decoration: request.resources.window_decoration_renderer,
+                text: request.resources.ui_text,
+                previews: request.resources.overlay_previews,
+            },
+            now: request.frame.target_presentation_time,
+        },
         request.overlays.overlay_config,
-        request.visuals.decorations,
-        request.visuals.font,
-        request.desktop.fullscreen,
-        request.frame.target_presentation_time,
     )?;
     append_compositor_overlay_blur(
         renderer,
