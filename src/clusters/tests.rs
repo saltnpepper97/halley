@@ -1283,3 +1283,173 @@ fn per_output_selections_are_independent() {
     assert_eq!(system.active_on("DP-1"), Some(left));
     assert_eq!(system.active_on("DP-2"), None);
 }
+
+fn member_drop_site(
+    cluster: ClusterId,
+    floating: bool,
+    origin: Rectangle<i32, Logical>,
+    pointer_inside: bool,
+) -> WindowDropSite {
+    WindowDropSite::Member {
+        cluster_id: cluster,
+        source_output: "DP-1".into(),
+        member_output: "DP-1".into(),
+        floating,
+        work_area: Rectangle::new((0, 0).into(), (1_000, 700).into()),
+        origin,
+        pointer_inside,
+    }
+}
+
+/// A floating member released inside its workspace stays a floating member
+/// at its new rectangle; only the source output needs its surfaces refreshed.
+#[test]
+fn floating_member_dropped_inside_keeps_its_cluster() {
+    let (mut field, mut system, cluster, members) =
+        active_test_cluster(3, ClusterWorkspaceLayoutKind::Tiling);
+    let work_area = Rectangle::new((0, 0).into(), (1_000, 700).into());
+    let initial = Rectangle::new((120, 90).into(), (520, 400).into());
+    let moved = Rectangle::new((200, 150).into(), (520, 400).into());
+    assert_eq!(
+        system.toggle_member_floating("DP-1", members[0], work_area, initial, Duration::ZERO),
+        Some(true)
+    );
+    assert!(system.begin_floating_member_drag("DP-1", "DP-1", members[0], initial));
+
+    let drop = system.drop_dragged_window(
+        &mut field,
+        Some(members[0]),
+        member_drop_site(cluster, true, moved, true),
+        Vec2 { x: 460.0, y: 350.0 },
+        Duration::from_secs(2),
+    );
+
+    assert_eq!(
+        drop.outcome,
+        WindowDropOutcome::Placed {
+            reconcile: vec!["DP-1".into()]
+        }
+    );
+    assert_eq!(system.cluster_for_member(members[0]), Some(cluster));
+    assert!(system.is_member_floating(members[0]));
+}
+
+/// A member released outside its workspace leaves the cluster for the Field.
+#[test]
+fn member_dropped_outside_its_workspace_detaches() {
+    let (mut field, mut system, cluster, members) =
+        active_test_cluster(3, ClusterWorkspaceLayoutKind::Stacking);
+    let rect = Rectangle::new((300, 200).into(), (500, 400).into());
+    assert!(system.begin_workspace_drag("DP-1", members[0], rect));
+
+    let drop = system.drop_dragged_window(
+        &mut field,
+        Some(members[0]),
+        member_drop_site(cluster, false, rect, false),
+        Vec2 {
+            x: 1_400.0,
+            y: 220.0,
+        },
+        Duration::from_secs(2),
+    );
+
+    assert!(matches!(drop.outcome, WindowDropOutcome::Placed { .. }));
+    assert_eq!(system.cluster_for_member(members[0]), None);
+    assert_eq!(system.member_ids(cluster), members[1..]);
+}
+
+/// A drag whose workspace can no longer be measured, or that no workspace
+/// accepts, returns the member to the Field of the workspace it came from.
+#[test]
+fn unmeasured_or_rejected_member_drop_returns_to_its_source_output() {
+    let (mut field, mut system, cluster, members) =
+        active_test_cluster(2, ClusterWorkspaceLayoutKind::Tiling);
+    let drop = system.drop_dragged_window(
+        &mut field,
+        Some(members[0]),
+        WindowDropSite::MemberWithoutWorkspace {
+            source_output: "DP-1".into(),
+        },
+        Vec2 { x: 0.0, y: 0.0 },
+        Duration::ZERO,
+    );
+    assert_eq!(
+        drop.outcome,
+        WindowDropOutcome::Returned {
+            source_output: "DP-1".into()
+        }
+    );
+
+    // Not dragging this member, so the workspace refuses the drop.
+    let drop = system.drop_dragged_window(
+        &mut field,
+        Some(members[0]),
+        member_drop_site(
+            cluster,
+            false,
+            Rectangle::new((0, 0).into(), (10, 10).into()),
+            true,
+        ),
+        Vec2 { x: 0.0, y: 0.0 },
+        Duration::ZERO,
+    );
+    assert_eq!(
+        drop.outcome,
+        WindowDropOutcome::Returned {
+            source_output: "DP-1".into()
+        }
+    );
+}
+
+/// A Field window dropped on an active workspace joins it at the front, and
+/// one dropped on the open Field with nothing to join leaves clusters alone.
+#[test]
+fn field_window_drops_join_an_active_workspace_or_change_nothing() {
+    let (mut field, mut system, cluster, members) =
+        active_test_cluster(3, ClusterWorkspaceLayoutKind::Stacking);
+    let work_area = Rectangle::new((0, 0).into(), (1_000, 700).into());
+    let rect = Rectangle::new((300, 200).into(), (500, 400).into());
+    let front = members[0];
+    let now = Duration::from_secs(2);
+    assert!(system.begin_workspace_drag("DP-1", front, rect));
+    assert!(system.detach_active_member_for_drag(
+        &mut field,
+        "DP-1",
+        ClusterDragMember {
+            cluster_id: cluster,
+            node_id: front,
+        },
+        work_area,
+        Vec2 { x: 500.0, y: 350.0 },
+        now,
+    ));
+
+    let drop = system.drop_dragged_window(
+        &mut field,
+        Some(front),
+        WindowDropSite::ActiveWorkspace {
+            output: "DP-1".into(),
+            work_area,
+            origin: rect,
+        },
+        Vec2 { x: 500.0, y: 350.0 },
+        now + Duration::from_millis(10),
+    );
+    assert_eq!(
+        drop.outcome,
+        WindowDropOutcome::Placed {
+            reconcile: vec!["DP-1".into()]
+        }
+    );
+    assert_eq!(system.first_member(cluster), Some(front));
+
+    let drop = system.drop_dragged_window(
+        &mut field,
+        None,
+        WindowDropSite::Field,
+        Vec2 { x: 0.0, y: 0.0 },
+        now,
+    );
+    assert_eq!(drop.outcome, WindowDropOutcome::Unchanged);
+    assert!(!drop.presentation_released);
+}

@@ -451,6 +451,38 @@ impl ClusterSystem {
         self.overflow.drag.clone()
     }
 
+    /// Drop an overflow-strip member released at `output_local`. A drag that
+    /// never `moved` past the click threshold promotes the member into the
+    /// layout; otherwise it lands on the strip slot under the pointer, or
+    /// swaps with the visible tile there, or is promoted when it is over
+    /// neither. The strip is revealed again either way. Returns whether the
+    /// workspace changed.
+    pub fn drop_overflow_member(
+        &mut self,
+        output: &str,
+        member: NodeId,
+        output_local: Point<f64, Logical>,
+        moved: bool,
+        work_area: Rectangle<i32, Logical>,
+        now: Duration,
+    ) -> bool {
+        let strip_slot = moved
+            .then(|| self.overflow_strip_slot(output, work_area, output_local, now))
+            .flatten();
+        let target = (moved && strip_slot.is_none())
+            .then(|| self.visible_tile_hit_test(output, work_area, output_local))
+            .flatten();
+        let changed = if let Some(target_slot) = strip_slot {
+            self.reorder_overflow_member(output, member, target_slot, now)
+        } else if let Some(target) = target {
+            self.swap_overflow_member(output, member, target, work_area, now)
+        } else {
+            self.promote_overflow_member(output, member, work_area, now)
+        };
+        self.reveal_overflow(output, now);
+        changed
+    }
+
     pub fn take_overflow_drag(&mut self) -> Option<(String, OverflowDrag)> {
         self.overflow.drag.take()
     }

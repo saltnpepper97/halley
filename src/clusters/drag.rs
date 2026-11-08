@@ -2,6 +2,57 @@
 
 use super::*;
 
+/// Where a dragged window was released, in cluster terms. The input layer
+/// measures the pointer and geometry; [`ClusterSystem::drop_dragged_window`]
+/// decides what the drop means.
+#[derive(Clone, Debug)]
+pub enum WindowDropSite {
+    /// A member dragged out of a cluster workspace whose output and geometry
+    /// could be measured.
+    Member {
+        cluster_id: ClusterId,
+        /// The output of the workspace the drag started in.
+        source_output: String,
+        /// The output the window is on now.
+        member_output: String,
+        floating: bool,
+        work_area: Rectangle<i32, Logical>,
+        origin: Rectangle<i32, Logical>,
+        pointer_inside: bool,
+    },
+    /// A member dragged out of a cluster workspace whose output has gone.
+    MemberWithoutWorkspace { source_output: String },
+    /// A Field window released over an active cluster workspace.
+    ActiveWorkspace {
+        output: String,
+        work_area: Rectangle<i32, Logical>,
+        origin: Rectangle<i32, Logical>,
+    },
+    /// A Field window released on the Field.
+    Field,
+}
+
+/// What a window drop did to clusters, for the caller to follow up on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowDropOutcome {
+    /// A cluster kept or took the window; reconcile surfaces on these outputs.
+    Placed { reconcile: Vec<String> },
+    /// A dragged member no workspace accepted. It belongs on the Field of the
+    /// workspace it came from.
+    Returned { source_output: String },
+    /// The window joined the cluster it was held over on the Field.
+    Joined(ClusterId),
+    /// Nothing cluster-related changed.
+    Unchanged,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowDrop {
+    pub outcome: WindowDropOutcome,
+    /// Whether a drag presentation was still held and has now been released.
+    pub presentation_released: bool,
+}
+
 impl ClusterSystem {
     /// Gives one visible workspace member temporary pointer authority. The
     /// workspace keeps its slot in the layout while presentation and client
@@ -291,5 +342,90 @@ impl ClusterSystem {
 
     pub fn cancel_window_drag(&mut self) -> bool {
         self.dragged_window.take().is_some()
+    }
+
+    /// Finish a window drag released at `site`. Floating members move within
+    /// their workspace, laid-out members return to their slot, members
+    /// dropped outside their workspace detach onto the Field, Field windows
+    /// dropped on an active workspace join it at the front, and Field windows
+    /// held over a cluster on the Field commit that join. The drag
+    /// presentation always ends here.
+    pub fn drop_dragged_window(
+        &mut self,
+        field: &mut Field,
+        member: Option<NodeId>,
+        site: WindowDropSite,
+        last_world: Vec2,
+        now: Duration,
+    ) -> WindowDrop {
+        let outcome = match site {
+            WindowDropSite::Member {
+                cluster_id,
+                source_output,
+                member_output,
+                floating,
+                work_area,
+                origin,
+                pointer_inside,
+            } => {
+                let placed = member.is_some_and(|member| match (floating, pointer_inside) {
+                    (true, true) => self.finish_floating_member_drag(
+                        &source_output,
+                        &member_output,
+                        member,
+                        work_area,
+                        origin,
+                    ),
+                    (false, true) => {
+                        self.finish_workspace_drag(&source_output, member, work_area, origin, now)
+                    }
+                    (_, false) => self.detach_active_member_for_drag(
+                        field,
+                        &source_output,
+                        ClusterDragMember {
+                            cluster_id,
+                            node_id: member,
+                        },
+                        work_area,
+                        last_world,
+                        now,
+                    ),
+                });
+                if placed {
+                    let mut reconcile = vec![source_output.clone()];
+                    if member_output != source_output {
+                        reconcile.push(member_output);
+                    }
+                    WindowDropOutcome::Placed { reconcile }
+                } else {
+                    WindowDropOutcome::Returned { source_output }
+                }
+            }
+            WindowDropSite::MemberWithoutWorkspace { source_output } => {
+                WindowDropOutcome::Returned { source_output }
+            }
+            WindowDropSite::ActiveWorkspace {
+                output,
+                work_area,
+                origin,
+            } => {
+                if member.is_some_and(|member| {
+                    self.join_active_member_front(field, &output, member, work_area, origin, now)
+                }) {
+                    WindowDropOutcome::Placed {
+                        reconcile: vec![output],
+                    }
+                } else {
+                    WindowDropOutcome::Unchanged
+                }
+            }
+            WindowDropSite::Field => member
+                .and_then(|member| self.commit_join_candidate(field, member))
+                .map_or(WindowDropOutcome::Unchanged, WindowDropOutcome::Joined),
+        };
+        WindowDrop {
+            outcome,
+            presentation_released: self.cancel_window_drag(),
+        }
     }
 }

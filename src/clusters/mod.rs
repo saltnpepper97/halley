@@ -25,6 +25,7 @@ mod transition;
 pub use bloom::{DETACH_HOLD_DURATION, TokenLayout};
 pub(crate) use creation::DraftBuild;
 pub use creation::{CreationState, NameInput, PreparedCreation};
+pub use drag::{WindowDrop, WindowDropOutcome, WindowDropSite};
 pub use ipc::handle_request;
 pub use overflow::REVEAL_EDGE_PX;
 
