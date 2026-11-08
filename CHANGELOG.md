@@ -27,15 +27,14 @@ All notable changes to this project will be documented in this file.
   and `zoom-fit-swipe-*`. The `apogee:` config section is no longer read and
   can be deleted. The first-decay notice now says to press the zoom-fit key,
   or only offers the click when nothing is bound to it.
-- Rename Arrange to Tidy (`Mod+A`) and make it predictable. It now uses the
-  mosaic layout Apogee used: each window keeps its shape, bigger windows get bigger
-  slots, nothing overlaps, and the same windows always land the same way. A
-  window with a minimum size, such as Steam, gets the nearest size it accepts in
-  its own slot instead of reshaping the whole layout, and no window is dropped.
-  Moving or closing one tidied window now keeps the others' way back, so the
-  next `Mod+A` still returns them. `arrange-visible`, `undo-arrange` and
-  `animations.arrange:` keep working as older spellings of `tidy`, `undo-tidy`
-  and `animations.tidy:`.
+- Make Arrange (`Mod+A`) predictable. It now uses the mosaic layout Apogee
+  used: each window keeps its shape, bigger windows get bigger slots, nothing
+  overlaps, and the same windows always land the same way. A window that
+  cannot shrink below a minimum size, such as Steam or a tall X11 tool window,
+  gets a slot at least that big and the others shrink instead, so it no longer
+  overlaps its neighbours. No window is dropped. Moving or closing one arranged
+  window now keeps the others' way back, so the next `Mod+A` still returns
+  them.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can

@@ -111,7 +111,7 @@ pub(crate) fn transfer_window<D: crate::session::SessionDriver>(
     let center = transfer_center(center, (geometry.loc.x, geometry.loc.y));
     session
         .interactions
-        .tidy
+        .field_arrange
         .invalidate_surface(surface.as_ref());
     super::session_ops::set_collapsed_output(session, id, &target);
     super::session_physics::apply_dynamics_positions(

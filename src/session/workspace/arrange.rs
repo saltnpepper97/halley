@@ -1,12 +1,13 @@
-//! Tidy: lay out the windows visible on one Field output without overlap,
+//! Arrange: lay out the windows visible on one Field output without overlap,
 //! and put them back with a second press.
 //!
 //! The layout is the mosaic packer that Apogee used, so it is predictable:
 //! windows keep their shapes, larger windows get larger slots, nothing
-//! overlaps, and Field reading order breaks ties. A window whose minimum or
-//! maximum size rules out its slot gets the nearest size it accepts, centred
-//! on that slot, instead of reshaping everyone else's layout. No eligible
-//! window is ever left out.
+//! overlaps, and Field reading order breaks ties. A window's minimum size is
+//! part of the packing, so a window that cannot shrink (common for X11 apps
+//! such as Steam) gets a slot at least that big and the others shrink instead.
+//! A maximum size smaller than the slot leaves the window centred in it. No
+//! eligible window is ever left out.
 
 use halley_core::camera::Camera;
 use smithay::desktop::Window;
@@ -16,20 +17,20 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 use super::{Session, SessionDriver};
 
 /// Rows the packer may use. Matches Cluster Composer so both read alike.
-const TIDY_MAX_ROWS: usize = 3;
+const MAX_ROWS: usize = 3;
 
 #[derive(Clone, Debug)]
-struct TidyTransaction {
+struct ArrangeTransaction {
     restores: Vec<crate::presentation::maximize::FieldRestore>,
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct TidyTransactions {
-    by_output: std::collections::HashMap<String, TidyTransaction>,
+pub(crate) struct ArrangeTransactions {
+    by_output: std::collections::HashMap<String, ArrangeTransaction>,
 }
 
-impl TidyTransactions {
-    fn take(&mut self, output: &str) -> Option<TidyTransaction> {
+impl ArrangeTransactions {
+    fn take(&mut self, output: &str) -> Option<ArrangeTransaction> {
         self.by_output.remove(output)
     }
 
@@ -38,13 +39,14 @@ impl TidyTransactions {
         output: String,
         restores: Vec<crate::presentation::maximize::FieldRestore>,
     ) {
-        self.by_output.insert(output, TidyTransaction { restores });
+        self.by_output
+            .insert(output, ArrangeTransaction { restores });
     }
 
     /// A deliberate edit to one participant (moving, resizing, transferring
     /// or closing it) keeps that window where the user put it: only its own
     /// restore entry is forgotten. Untouched windows still go back on the
-    /// next press, and an output with nothing left to restore tidies afresh.
+    /// next press, and an output with nothing left to restore arranges afresh.
     pub(crate) fn invalidate_surface(&mut self, surface: &WlSurface) {
         self.by_output.retain(|_, transaction| {
             transaction
@@ -75,11 +77,16 @@ struct Candidate {
     surface: WlSurface,
     current: Rectangle<i32, Logical>,
     outer: Rectangle<i32, Logical>,
+    /// The smallest outer size the window accepts, decorations included.
+    min_outer: Size<i32, Logical>,
     center: Point<i32, Logical>,
 }
 
-pub(crate) fn tidy_visible<D: SessionDriver>(session: &mut Session<D>, output_name: &str) -> bool {
-    if let Some(transaction) = session.interactions.tidy.take(output_name) {
+pub(crate) fn arrange_visible<D: SessionDriver>(
+    session: &mut Session<D>,
+    output_name: &str,
+) -> bool {
+    if let Some(transaction) = session.interactions.field_arrange.take(output_name) {
         return restore_transaction(session, output_name, transaction);
     }
     if session.clusters.active_on(output_name).is_some() || session.interactions.has_grab() {
@@ -139,12 +146,23 @@ pub(crate) fn tidy_visible<D: SessionDriver>(session: &mut Session<D>, output_na
                 &session.settings.font,
             );
             let center = rect_center(outer);
+            // Asking for a 1x1 window returns the client's minimum size, from
+            // xdg min_size or X11 WM_NORMAL_HINTS alike.
+            let min_client = accepted_size(&record.window, Size::from((1, 1)));
+            let min_outer = crate::titlebar::outer_rect_for_client(
+                &record.window,
+                Rectangle::new(current.loc, min_client),
+                &session.settings.decorations,
+                &session.settings.font,
+            )
+            .size;
             visible_area.contains(center).then(|| Candidate {
                 id: record.id,
                 window: record.window.clone(),
                 surface: record.surface.clone(),
                 current,
                 outer,
+                min_outer,
                 center,
             })
         })
@@ -153,7 +171,7 @@ pub(crate) fn tidy_visible<D: SessionDriver>(session: &mut Session<D>, output_na
     if candidates.len() < 2 {
         return false;
     }
-    let slots = tidy_slots(&candidates, visible_area, gap);
+    let slots = arrange_slots(&candidates, visible_area, gap);
     let assignment = candidates
         .iter()
         .zip(slots)
@@ -225,7 +243,7 @@ pub(crate) fn tidy_visible<D: SessionDriver>(session: &mut Session<D>, output_na
     // their arranged sizes.
     session
         .interactions
-        .tidy
+        .field_arrange
         .insert(output_name.to_string(), restores);
     for (window, request, current_visual, target_visual) in transitions {
         capture_arrange_texture(
@@ -265,7 +283,7 @@ fn capture_arrange_texture<D: SessionDriver>(
 }
 
 pub(crate) fn undo_last<D: SessionDriver>(session: &mut Session<D>, output_name: &str) -> bool {
-    let Some(transaction) = session.interactions.tidy.take(output_name) else {
+    let Some(transaction) = session.interactions.field_arrange.take(output_name) else {
         return false;
     };
     restore_transaction(session, output_name, transaction)
@@ -274,7 +292,7 @@ pub(crate) fn undo_last<D: SessionDriver>(session: &mut Session<D>, output_name:
 fn restore_transaction<D: SessionDriver>(
     session: &mut Session<D>,
     output_name: &str,
-    transaction: TidyTransaction,
+    transaction: ArrangeTransaction,
 ) -> bool {
     let now = crate::frame_clock::monotonic_now();
     let mut restored = false;
@@ -439,7 +457,7 @@ fn visible_work_area_outer(
 }
 
 /// One outer rectangle per candidate, in Field coordinates inside `area`.
-fn tidy_slots(
+fn arrange_slots(
     candidates: &[Candidate],
     area: Rectangle<i32, Logical>,
     gap: i32,
@@ -453,6 +471,8 @@ fn tidy_slots(
                 .clamp(0.25, 4.5),
             stable_key: candidate.id.as_u64(),
             weight: candidate.outer.size.w.max(1) as f32 * candidate.outer.size.h.max(1) as f32,
+            min_w: candidate.min_outer.w as f32,
+            min_h: candidate.min_outer.h as f32,
         })
         .collect::<Vec<_>>();
     slots_in(&items, area, gap)
@@ -463,27 +483,21 @@ fn slots_in(
     area: Rectangle<i32, Logical>,
     gap: i32,
 ) -> Vec<Rectangle<i32, Logical>> {
-    crate::shell::mosaic::mosaic(
-        items,
-        area.size.w,
-        area.size.h,
-        gap.max(0) as f32,
-        TIDY_MAX_ROWS,
-    )
-    .into_iter()
-    .map(|slot| {
-        let width = slot.w.round().max(1.0) as i32;
-        let height = slot.h.round().max(1.0) as i32;
-        Rectangle::new(
-            (
-                area.loc.x + (slot.cx - slot.w * 0.5).round() as i32,
-                area.loc.y + (slot.cy - slot.h * 0.5).round() as i32,
+    crate::shell::mosaic::mosaic(items, area.size.w, area.size.h, gap.max(0) as f32, MAX_ROWS)
+        .into_iter()
+        .map(|slot| {
+            let width = slot.w.round().max(1.0) as i32;
+            let height = slot.h.round().max(1.0) as i32;
+            Rectangle::new(
+                (
+                    area.loc.x + (slot.cx - slot.w * 0.5).round() as i32,
+                    area.loc.y + (slot.cy - slot.h * 0.5).round() as i32,
+                )
+                    .into(),
+                (width, height).into(),
             )
-                .into(),
-            (width, height).into(),
-        )
-    })
-    .collect()
+        })
+        .collect()
 }
 
 /// The size the window accepts nearest to `requested`, centred on it.
@@ -539,14 +553,14 @@ fn rect_center(rect: Rectangle<i32, Logical>) -> Point<i32, Logical> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TidyTransactions, clamp_to_limits, slots_in, visible_work_area_outer};
+    use super::{ArrangeTransactions, clamp_to_limits, slots_in, visible_work_area_outer};
     use halley_core::camera::Camera;
     use halley_core::field::Vec2;
     use smithay::utils::{Logical, Rectangle};
 
     #[test]
-    fn tidy_transactions_toggle_once_per_output() {
-        let mut transactions = TidyTransactions::default();
+    fn arrange_transactions_toggle_once_per_output() {
+        let mut transactions = ArrangeTransactions::default();
         transactions.insert("DP-1".to_string(), Vec::new());
         transactions.insert("DP-2".to_string(), Vec::new());
 
@@ -600,7 +614,7 @@ mod tests {
                 geometry: Rectangle::new((0, 0).into(), (400, 300).into()),
                 output: output.into(),
             };
-        let mut transactions = TidyTransactions::default();
+        let mut transactions = ArrangeTransactions::default();
         transactions.insert(
             "DP-1".into(),
             vec![restore(&surfaces[0], "DP-1"), restore(&surfaces[1], "DP-1")],
@@ -622,7 +636,7 @@ mod tests {
         transactions.invalidate_surface(&surfaces[0]);
         assert!(
             !transactions.active_on("DP-1"),
-            "an output with nothing left to restore tidies afresh"
+            "an output with nothing left to restore arranges afresh"
         );
         assert!(transactions.contains_surface(&surfaces[2]));
         assert!(transactions.take("DP-2").is_some());
@@ -657,6 +671,8 @@ mod tests {
             aspect: w / h,
             stable_key: key,
             weight: w * h,
+            min_w: 0.0,
+            min_h: 0.0,
         }
     }
 
@@ -668,7 +684,7 @@ mod tests {
     }
 
     #[test]
-    fn tidy_places_every_window_inside_the_area_without_overlap() {
+    fn arrange_places_every_window_inside_the_area_without_overlap() {
         let area = Rectangle::<i32, Logical>::new((-400, 200).into(), (2560, 1400).into());
         for count in 2..=12 {
             let items = (0..count)
@@ -698,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn tidy_keeps_each_window_shape_and_favours_bigger_windows() {
+    fn arrange_keeps_each_window_shape_and_favours_bigger_windows() {
         let area = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
         let items = [
             item(100.0, 100.0, 1600.0, 900.0, 1),
@@ -719,12 +735,40 @@ mod tests {
     }
 
     #[test]
-    fn tidy_is_the_same_every_time_for_the_same_windows() {
+    fn arrange_is_the_same_every_time_for_the_same_windows() {
         let area = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
         let items = (0..6)
             .map(|index| item(index as f32 * 300.0, 0.0, 800.0, 600.0, index))
             .collect::<Vec<_>>();
         assert_eq!(slots_in(&items, area, 20), slots_in(&items, area, 20));
+    }
+
+    #[test]
+    fn a_window_with_a_large_minimum_size_gets_room_instead_of_overlapping() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        // A tall X11 tool window that refuses to be smaller than 700x1100,
+        // next to three ordinary windows.
+        let mut tower = item(1800.0, 300.0, 700.0, 1100.0, 1);
+        tower.min_w = 700.0;
+        tower.min_h = 1100.0;
+        let items = [
+            item(100.0, 100.0, 1600.0, 900.0, 2),
+            tower,
+            item(400.0, 900.0, 1200.0, 800.0, 3),
+            item(1200.0, 900.0, 900.0, 700.0, 4),
+        ];
+        let slots = slots_in(&items, area, 20);
+        assert!(
+            slots[1].size.w >= 700 && slots[1].size.h >= 1100,
+            "{:?}",
+            slots[1]
+        );
+        for (index, slot) in slots.iter().enumerate() {
+            assert!(area.contains_rect(*slot));
+            for other in &slots[index + 1..] {
+                assert!(!overlaps(*slot, *other), "{slot:?} overlaps {other:?}");
+            }
+        }
     }
 
     #[test]

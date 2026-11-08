@@ -102,8 +102,8 @@ triggers the notice.
 
 There is no active-window count cap. Pinned windows, focused windows, fullscreen or
 fullscreen-pending windows, field-maximized windows, windows waiting to be put
-back by Tidy, and windows in an interactive move/resize grab are hard-protected
-from decay. Putting tidied windows back starts a fresh timer for each still-eligible
+back by Arrange, and windows in an interactive move/resize grab are hard-protected
+from decay. Putting arranged windows back starts a fresh timer for each still-eligible
 window. Unpinning also starts a fresh timer; manually collapsing a pinned window
 remains available. Changing between protected, on-screen, and off-screen status starts
 a fresh timer; stale time from an earlier status is never reused.
@@ -386,7 +386,7 @@ Exact placement requires `node-move-to-v1`. All expanded-window moves use
 `animations.window-move`; the CLI needs no smoothness flag. Repeated commands
 retarget from the visible position. Collapsed markers keep their existing slide.
 Pinned, detached, fullscreen, maximized, clustered or currently grabbed windows
-reject movement. An active tidy transition must finish before moving a
+reject movement. An active arrange transition must finish before moving a
 participant. Other windows keep their own animation settings.
 
 `collapse` and

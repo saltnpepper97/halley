@@ -88,14 +88,14 @@ Halley is Field-first. Applications open onto the Field, you position them as
 you work, and you clean up when the visible Field becomes cluttered. The whole
 daily workflow is one loop:
 
-> Launch freely → position and overlap naturally → tidy when the visible
+> Launch freely → position and overlap naturally → arrange when the visible
 > Field becomes messy → collapse work intentionally → retrieve it spatially.
 
 1. **Launch freely.** `Super+D` opens Lift, so whatever you start lands
    directly on the Field.
 2. **Position and overlap naturally.** `Super+Left-drag` moves a window, and
    ordinary windows are free to overlap instead of being solved into slots.
-3. **Tidy when the visible Field becomes messy.** `Super+A` lays out the
+3. **Arrange when the visible Field becomes messy.** `Super+A` lays out the
    visible windows so none overlap, keeping each one's shape, and remembers
    where each one came from.
 4. **Collapse work intentionally.** `Super+N` collapses the focused window into
@@ -132,7 +132,7 @@ Finding a window again comes down to four questions:
 | **Node** | A window collapsed into a small marker that keeps its place on the Field. It is still running. |
 | **Decay** | Timers that collapse windows you have stopped using into nodes. |
 | **Pin** | Exempts a window from decay. You can still collapse and restore it yourself. |
-| **Tidy** | Lays out the visible windows without overlap, and puts them back when pressed again. |
+| **Arrange** | Lays out the visible windows without overlap, and puts them back when pressed again. |
 | **Cluster** | An optional named group of windows that opens into its own tiling or stacking workspace. |
 | **Trail** | Per-monitor focus history you can walk backward and forward. |
 | **Bearings** | Edge chips pointing to offscreen nodes and clusters on this monitor. |
@@ -184,7 +184,7 @@ configuration.
 | `Super+Q` | Close the focused window |
 | `Super+Left-drag` | Move a window |
 | `Super+Right-drag` | Resize a window |
-| `Super+A` | Tidy visible windows, or put them back |
+| `Super+A` | Arrange visible windows, or put them back |
 | `Super+N` | Collapse the focused window into a node, or restore it |
 | `Super+P` | Pin or unpin the focused window |
 | `Super+F` | Toggle fullscreen |

@@ -42,7 +42,7 @@ shows them bound to `Super+Alt+Arrow` and `Super+Alt+Shift+Arrow`.
 | Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
-| Tidy | `Super+A` | Reversible cleanup: lay out the visible Field windows without overlap, or press again to put them back |
+| Arrange | `Super+A` | Reversible cleanup: lay out the visible Field windows without overlap, or press again to put them back |
 | Clusters | `Super+Shift+C` | Enter cluster creation mode |
 | Clusters | `Super+L` | Cycle cluster layout |
 | Clusters | `Super+V` | Toggle the focused cluster member floating |
@@ -348,8 +348,8 @@ The built-in action strings are `quit`, `close-focused`, `toggle-fullscreen`,
 `maximize-focused`, `toggle-state`, `toggle-focused-pin`, `zoom-fit`,
 `bearings-show`, `bearings-toggle`, `cycle-focus`, `cycle-focus-backward`,
 `trail-prev`, `trail-next`, `center-last-focused`, `cluster-mode`,
-`cluster-layout-cycle`, `cluster-toggle-float`, `tidy`,
-`undo-tidy`, `default-terminal`, `reload`, `zoom-in`, `zoom-out`,
+`cluster-layout-cycle`, `cluster-toggle-float`, `arrange-visible`,
+`undo-arrange`, `default-terminal`, `reload`, `zoom-in`, `zoom-out`,
 `zoom-reset`, and `screenshot`. The pointer-drag actions are `move-window`,
 `resize-window`, `pan-field`, `pan-field-always`, and `drag-pan`.
 Parameterized actions also include `cluster-slot-N` (1 to 10),
@@ -362,7 +362,7 @@ walks spatially among expanded windows, collapsed nodes, and collapsed cluster
 cores on the active output. It pans each target minimally into view without
 opening node or core handles; a collapsed node reserves its full restored
 decorated-window bounds so opening it afterward remains completely visible.
-While a `Mod+A` tidy is active on that output, the same keybind still
+While a `Mod+A` arrangement is active on that output, the same keybind still
 moves focus but does not pan the camera.
 `node-move` shifts the focused or most-recent Field window/collapsed node. Without
 a distance it retains the original 80-Field-unit nearest-free placement. It has
@@ -407,29 +407,29 @@ for nearby spatial navigation, `Alt+Tab` navigates recent work, Bearings
 retrieves offscreen spatial work, `Mod+O` zooms out to show everything, and `Mod+D` Lift searches directly by application, node, cluster, or
 action. None of them replaces another.
 
-The default `Mod+A` `tidy` action lays out the ordinary Field windows whose
-centers are inside the active output's visible work area so that none of them
-overlap. It leaves out collapsed or detached windows, cluster members, pinned
+The default `Mod+A` `arrange-visible` action lays out the ordinary Field
+windows whose centers are inside the active output's visible work area so that
+none of them overlap. It leaves out collapsed or detached windows, cluster members, pinned
 windows, and fullscreen and maximized windows. Every other visible window takes
 part; none is dropped.
 
-Tidy is predictable: each window keeps its shape (a wide window stays wide, a
+Arrange is predictable: each window keeps its shape (a wide window stays wide, a
 tall one stays tall), bigger windows get bigger slots, and the same windows
-always produce the same layout. A window whose minimum or maximum size rules out
-its slot gets the nearest size it accepts, centred on that slot, instead of
-reshaping everyone else's layout.
+always produce the same layout. A window that cannot shrink below a minimum
+size (common for X11 apps such as Steam) gets a slot at least that big, and the
+other windows shrink to make room, so nothing overlaps. A window with a maximum
+size smaller than its slot is centred in it.
 
-Tidy is reversible cleanup rather than a layout mode: it creates no tiling tree,
-no relationship, and no persistent layout state, and every resulting window
-remains independently movable and resizable. While windows wait to be put back,
+Arrangement is reversible cleanup rather than a layout mode: it creates no
+tiling tree, no relationship, and no persistent layout state, and every
+resulting window remains independently movable and resizable. While windows wait to be put back,
 they are protected from automatic decay. Pressing `Mod+A` again puts them back
 exactly where they were. The restore set is recorded before clients are
 configured, so an immediate or mid-animation second press reverses reliably.
-Moving, resizing, transferring or closing one tidied window keeps it where you
+Moving, resizing, transferring or closing one arranged window keeps it where you
 put it and forgets only its own way back; the others still return on the next
-press. Once no window is left to put back, the next `Mod+A` tidies afresh.
-`undo-tidy` is available as an unbound action for custom configurations. The
-older names `arrange-visible` and `undo-arrange` still work.
+press. Once no window is left to put back, the next `Mod+A` arranges afresh.
+`undo-arrange` is available as an unbound action for custom configurations.
 
 `default-terminal` launches the first
 available built-in terminal in this order:
@@ -452,7 +452,7 @@ force the compositor cursor visible even if a client or inactivity policy had
 hidden it.
 The first native session of each Halley package version also shows the
 basics card: the Field-first mental model and only the five essential chords
-(`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` tidy, `Mod+N` collapse/restore,
+(`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange, `Mod+N` collapse/restore,
 `Mod+O` zoom to fit). It appears until dismissed for that version, captures just
 `Enter`, `Escape`, and the first pointer press or touch, and records the
 dismissed version so it stays hidden on later launches of that same version. Reopen it by hand from Lift's
@@ -551,8 +551,6 @@ written with `_` in place of `-` in its first word, so `toggle_state` is
 | `toggle-maximize` | `maximize-focused` |
 | `toggle-pin`, `pin-toggle` | `toggle-focused-pin` |
 | `overview`, `apogee` | `zoom-fit` |
-| `arrange-visible` | `tidy` |
-| `undo-arrange` | `undo-tidy` |
 | `trail-previous` | `trail-prev` |
 | `cluster-layout cycle` | `cluster-layout-cycle` |
 | `field-jump` | `drag-pan` |

@@ -369,14 +369,14 @@ pub(crate) fn dispatch<D: SessionDriver>(
                 crate::nodes::resize_selected_direction(session, direction, Some(&output));
             }
         }
-        super::dispatch::SessionControl::Tidy => {
+        super::dispatch::SessionControl::ArrangeVisible => {
             if let Some(output) = action_output {
-                super::super::tidy::tidy_visible(session, &output);
+                super::super::arrange::arrange_visible(session, &output);
             }
         }
-        super::dispatch::SessionControl::UndoTidy => {
+        super::dispatch::SessionControl::UndoArrange => {
             if let Some(output) = action_output {
-                super::super::tidy::undo_last(session, &output);
+                super::super::arrange::undo_last(session, &output);
             }
         }
         super::dispatch::SessionControl::CenterLastFocused => {

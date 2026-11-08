@@ -184,7 +184,7 @@ animations:
     curve "ease-in-out-cubic"
   end
 
-  tidy:
+  arrange:
     enabled true
     motion "easing"
     duration-ms 360

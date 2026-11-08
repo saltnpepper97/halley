@@ -29,8 +29,8 @@ pub(super) enum SessionControl {
     TransferWindow(halley_config::Direction),
     PanField(halley_config::Direction),
     ResizeWindow(halley_config::Direction),
-    Tidy,
-    UndoTidy,
+    ArrangeVisible,
+    UndoArrange,
     CenterLastFocused,
     BearingsShow,
     BearingsToggle,
@@ -86,8 +86,8 @@ pub(super) fn dispatch_action(
             };
         }
         Action::ResizeWindow(direction) => return SessionControl::ResizeWindow(direction),
-        Action::Tidy => return SessionControl::Tidy,
-        Action::UndoTidy => return SessionControl::UndoTidy,
+        Action::ArrangeVisible => return SessionControl::ArrangeVisible,
+        Action::UndoArrange => return SessionControl::UndoArrange,
         Action::PointerMoveWindow
         | Action::PointerResizeWindow
         | Action::PointerPanField

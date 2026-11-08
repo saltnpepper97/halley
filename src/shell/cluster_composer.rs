@@ -657,6 +657,8 @@ fn build_layout(
                     aspect: (width / height).clamp(0.25, 4.5),
                     stable_key: record.id.as_u64(),
                     weight: width * height,
+                    min_w: 0.0,
+                    min_h: 0.0,
                 },
             ))
         })

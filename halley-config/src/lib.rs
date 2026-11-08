@@ -29,9 +29,9 @@ pub mod view;
 pub mod zoom;
 
 pub use animations::{
-    AnimationCurve, AnimationMotion, Animations, ClusterAnimation, ClusterStackingAnimation,
-    ClusterTilingAnimation, EasingMotion, FullscreenAnimation, MaximizeAnimation, NodeAnimation,
-    SmoothResizeAnimation, SpringMotion, TidyAnimation, WindowCloseAnimation,
+    AnimationCurve, AnimationMotion, Animations, ArrangeAnimation, ClusterAnimation,
+    ClusterStackingAnimation, ClusterTilingAnimation, EasingMotion, FullscreenAnimation,
+    MaximizeAnimation, NodeAnimation, SmoothResizeAnimation, SpringMotion, WindowCloseAnimation,
     WindowCloseAnimationType, WindowMoveAnimation, WindowOpenAnimation, WindowOpenAnimationType,
     load_animations, parse_animations,
 };

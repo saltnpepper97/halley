@@ -758,7 +758,7 @@ fn apply_active_resize<D: SessionDriver>(session: &mut Session<D>) -> bool {
     {
         session
             .interactions
-            .tidy
+            .field_arrange
             .invalidate_surface(surface.as_ref());
     }
     if let Some(toplevel) = state.window.toplevel() {

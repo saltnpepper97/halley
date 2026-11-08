@@ -386,7 +386,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
                 {
                     session
                         .interactions
-                        .tidy
+                        .field_arrange
                         .invalidate_surface(surface.as_ref());
                 }
                 let now = crate::frame_clock::monotonic_now();

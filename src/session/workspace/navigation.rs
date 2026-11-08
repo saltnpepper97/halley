@@ -254,7 +254,7 @@ pub(super) fn focus_directional_field<D: SessionDriver>(
         })
         .map(|(_, _, id)| id);
 
-    let pan = !session.interactions.tidy.active_on(output_name);
+    let pan = !session.interactions.field_arrange.active_on(output_name);
     target.is_some_and(|id| focus_directional_field_target(session, id, output_name, pan))
 }
 

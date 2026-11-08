@@ -1,7 +1,7 @@
 # Field behavior and maximize
 
 The Field is where the normal Halley workflow happens: launch freely, position
-windows so they overlap naturally, tidy the visible Field with `Mod+A` when
+windows so they overlap naturally, arrange the visible Field with `Mod+A` when
 it gets messy, collapse finished work intentionally with `Mod+N` into clickable
 nodes, and retrieve it spatially — one step with directional focus, recently with
 `Alt+Tab`, offscreen with Bearings, all at once with zoom to fit, and by name
