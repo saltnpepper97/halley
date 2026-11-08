@@ -4,7 +4,7 @@ use std::fmt;
 use rune_cfg::RuneConfig;
 use rune_cfg::ast::{ObjectItem, Value};
 
-use crate::nodes::{FocusRings, parse_focus_ring_fields};
+use crate::nodes::{DecayZones, parse_decay_zone_fields};
 use crate::output::{OutputConfig, is_hardware_field, parse_hardware_output};
 
 /// The config-facing aggregate for output-specific view policy. Runtime
@@ -12,7 +12,7 @@ use crate::output::{OutputConfig, is_hardware_field, parse_hardware_output};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewConfig {
     pub outputs: Vec<OutputConfig>,
-    pub focus_rings: FocusRings,
+    pub decay_zones: DecayZones,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,11 +54,10 @@ pub fn parse_view_checked(config: &RuneConfig) -> Result<ViewConfig, ViewParseEr
                     "top-level output blocks were removed; nest them under view:".to_string(),
                 ));
             }
-            "focus-ring" => {
-                return Err(ViewParseError(
-                    "top-level focus-ring blocks were removed; nest focus-ring inside view.output"
-                        .to_string(),
-                ));
+            "decay-zone" | "focus-ring" => {
+                return Err(ViewParseError(format!(
+                    "top-level {key} blocks were removed; nest decay-zone inside view.output"
+                )));
             }
             "view" if view.is_some() => {
                 return Err(ViewParseError(
@@ -99,19 +98,19 @@ pub fn parse_view_checked(config: &RuneConfig) -> Result<ViewConfig, ViewParseEr
         }
 
         validate_output_keys(fields, &name)?;
-        let focus_ring = parse_focus_ring_block(fields, &name)?;
+        let decay_zone = parse_decay_zone_block(fields, &name)?;
         let hardware = parse_hardware_output(&name, fields)
             .map_err(|error| ViewParseError(error.to_string()))?;
-        if hardware.is_none() && focus_ring.is_none() {
+        if hardware.is_none() && decay_zone.is_none() {
             return Err(ViewParseError(format!(
-                "view.output {name:?} must configure hardware or a focus-ring"
+                "view.output {name:?} must configure hardware or a decay-zone"
             )));
         }
         if let Some(output) = hardware {
             parsed.outputs.push(output);
         }
-        if let Some(ring) = focus_ring {
-            parsed.focus_rings.by_output.insert(name, ring);
+        if let Some(zone) = decay_zone {
+            parsed.decay_zones.by_output.insert(name, zone);
         }
     }
     Ok(parsed)
@@ -149,7 +148,7 @@ fn validate_output_keys(fields: &[ObjectItem], output: &str) -> Result<(), ViewP
         let ObjectItem::Assign(key, _) = item else {
             continue;
         };
-        if key != "name" && key != "focus-ring" && !is_hardware_field(key) {
+        if key != "name" && !is_decay_zone_key(key) && !is_hardware_field(key) {
             return Err(ViewParseError(format!(
                 "view.output {output:?}: unknown setting {key:?}"
             )));
@@ -158,31 +157,36 @@ fn validate_output_keys(fields: &[ObjectItem], output: &str) -> Result<(), ViewP
     Ok(())
 }
 
-fn parse_focus_ring_block(
+/// `focus-ring` is the older spelling of `decay-zone`.
+fn is_decay_zone_key(key: &str) -> bool {
+    matches!(key, "decay-zone" | "focus-ring")
+}
+
+fn parse_decay_zone_block(
     fields: &[ObjectItem],
     output: &str,
-) -> Result<Option<crate::FocusRing>, ViewParseError> {
+) -> Result<Option<crate::DecayZone>, ViewParseError> {
     let blocks = fields
         .iter()
         .filter_map(|item| match item {
-            ObjectItem::Assign(key, value) if key == "focus-ring" => Some(value),
+            ObjectItem::Assign(key, value) if is_decay_zone_key(key) => Some(value),
             _ => None,
         })
         .collect::<Vec<_>>();
     if blocks.len() > 1 {
         return Err(ViewParseError(format!(
-            "view.output {output:?} may contain only one focus-ring"
+            "view.output {output:?} may contain only one decay-zone"
         )));
     }
     let Some(block) = blocks.first() else {
         return Ok(None);
     };
-    let Value::Object(ring_fields) = block else {
+    let Value::Object(zone_fields) = block else {
         return Err(ViewParseError(format!(
-            "focus-ring for output {output:?} must be an object"
+            "decay-zone for output {output:?} must be an object"
         )));
     };
-    parse_focus_ring_fields(ring_fields, output)
+    parse_decay_zone_fields(zone_fields, output)
         .map(Some)
         .map_err(|error| ViewParseError(error.to_string()))
 }
@@ -209,7 +213,7 @@ view:
     rate 179.998
     transform 90
     vrr "auto"
-    focus-ring:
+    decay-zone:
       radius-x 900
       radius-y 500
       offset-x 20
@@ -226,7 +230,32 @@ end
         assert_eq!(view.outputs[0].rate, Some(179.998));
         assert_eq!(view.outputs[0].transform, 90);
         assert_eq!(view.outputs[0].vrr, Vrr::Auto);
-        assert_eq!(view.focus_rings.for_output("DP-1").radius_x, 900.0);
+        assert_eq!(view.decay_zones.for_output("DP-1").unwrap().radius_x, 900.0);
+        assert_eq!(view.decay_zones.for_output("DP-2"), None);
+    }
+
+    #[test]
+    fn decay_zone_is_optional_and_accepts_the_focus_ring_spelling() {
+        let none = parse(
+            "view:\n  output:\n    name \"DP-1\"\n    width 1920\n    height 1080\n  end\nend\n",
+        )
+        .unwrap();
+        assert_eq!(none.decay_zones.for_output("DP-1"), None);
+
+        let old = parse(
+            "view:\n  output:\n    name \"DP-1\"\n    focus-ring:\n      radius-x 700\n    end\n  end\nend\n",
+        )
+        .unwrap();
+        assert_eq!(old.decay_zones.for_output("DP-1").unwrap().radius_x, 700.0);
+
+        let both = parse(
+            "view:\n  output:\n    name \"DP-1\"\n    focus-ring:\n      radius-x 700\n    end\n    decay-zone:\n      radius-x 700\n    end\n  end\nend\n",
+        );
+        assert!(
+            both.unwrap_err()
+                .to_string()
+                .contains("only one decay-zone")
+        );
     }
 
     #[test]

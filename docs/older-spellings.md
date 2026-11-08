@@ -31,3 +31,5 @@ An older section name works for every key in the section it became.
 | `field.pins.badge-corner` | `field.pins.corner` |
 | `field.pins.pin-colour` | `field.pins.colour` |
 | `field.pins.bg-colour` | `field.pins.background-colour` |
+| `debug.show-focus-ring` | `debug.show-decay-zone` |
+| `view.output` → `focus-ring:` | `view.output` → `decay-zone:` |

@@ -326,8 +326,8 @@ impl Camera {
     }
 }
 
-/// Tuning knobs `Camera::tick` reads. Mirrors the `DecayPolicy`/
-/// `FocusRingDecayPolicy` pattern already used in this crate: a small,
+/// Tuning knobs `Camera::tick` reads. Mirrors the `DecayPolicy` pattern
+/// already used in this crate: a small,
 /// explicit params struct instead of the method reaching into external
 /// config directly.
 #[derive(Clone, Copy, Debug)]

@@ -1,5 +1,4 @@
 use crate::field::{Field, NodeId, NodeState};
-use crate::viewport::{FocusRing, FocusZone, Viewport};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,8 +10,8 @@ pub enum DecayLevel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecayClass {
     Protected,
-    InsideRing,
-    OutsideRing,
+    OnScreen,
+    OffScreen,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,11 +63,11 @@ impl DecayTracker {
         }
         match class {
             DecayClass::Protected => None,
-            DecayClass::InsideRing => {
+            DecayClass::OnScreen => {
                 let deadline = entry.since_ms.saturating_add(policy.inside_ms);
                 (now_ms >= deadline).then_some(deadline)
             }
-            DecayClass::OutsideRing => {
+            DecayClass::OffScreen => {
                 let deadline = entry.since_ms.saturating_add(policy.outside_ms);
                 (now_ms >= deadline).then_some(deadline)
             }
@@ -80,8 +79,8 @@ impl DecayTracker {
             .values()
             .filter_map(|entry| match entry.class {
                 DecayClass::Protected => None,
-                DecayClass::InsideRing => Some(entry.since_ms.saturating_add(policy.inside_ms)),
-                DecayClass::OutsideRing => Some(entry.since_ms.saturating_add(policy.outside_ms)),
+                DecayClass::OnScreen => Some(entry.since_ms.saturating_add(policy.inside_ms)),
+                DecayClass::OffScreen => Some(entry.since_ms.saturating_add(policy.outside_ms)),
             })
             .filter(|deadline| *deadline > now_ms)
             .min()
@@ -113,19 +112,19 @@ mod timed_tests {
             inside_ms: 1_000,
         };
         assert_eq!(
-            tracker.update(id(1), DecayClass::OutsideRing, 10, policy),
+            tracker.update(id(1), DecayClass::OffScreen, 10, policy),
             None
         );
         assert_eq!(
-            tracker.update(id(1), DecayClass::InsideRing, 109, policy),
+            tracker.update(id(1), DecayClass::OnScreen, 109, policy),
             None
         );
         assert_eq!(
-            tracker.update(id(1), DecayClass::InsideRing, 1_108, policy),
+            tracker.update(id(1), DecayClass::OnScreen, 1_108, policy),
             None
         );
         assert_eq!(
-            tracker.update(id(1), DecayClass::InsideRing, 1_109, policy),
+            tracker.update(id(1), DecayClass::OnScreen, 1_109, policy),
             Some(1_109)
         );
     }
@@ -137,14 +136,14 @@ mod timed_tests {
             outside_ms: 100,
             inside_ms: 1_000,
         };
-        tracker.update(id(1), DecayClass::OutsideRing, 0, policy);
+        tracker.update(id(1), DecayClass::OffScreen, 0, policy);
         tracker.update(id(1), DecayClass::Protected, 99, policy);
         assert_eq!(
-            tracker.update(id(1), DecayClass::OutsideRing, 500, policy),
+            tracker.update(id(1), DecayClass::OffScreen, 500, policy),
             None
         );
         assert_eq!(
-            tracker.update(id(1), DecayClass::OutsideRing, 600, policy),
+            tracker.update(id(1), DecayClass::OffScreen, 600, policy),
             Some(600)
         );
     }
@@ -157,8 +156,8 @@ mod timed_tests {
             inside_ms: 1_000,
         };
         tracker.update(id(1), DecayClass::Protected, 0, policy);
-        tracker.update(id(2), DecayClass::InsideRing, 10, policy);
-        tracker.update(id(3), DecayClass::OutsideRing, 20, policy);
+        tracker.update(id(2), DecayClass::OnScreen, 10, policy);
+        tracker.update(id(3), DecayClass::OffScreen, 20, policy);
         assert_eq!(tracker.next_deadline(20, policy), Some(120));
     }
 }
@@ -210,101 +209,10 @@ pub fn tick_decay(field: &mut Field, now_ms: u64, policy: DecayPolicy, focused: 
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FocusRingDecayPolicy {
-    /// Inside the focus ring:
-    /// - age < inside_to_node_ms => Hot/Active
-    /// - otherwise => Cold/Node
-    pub inside_to_node_ms: u64,
-
-    /// Outside the focus ring:
-    /// - if true => immediately Cold/Node
-    pub outside_immediate_cold: bool,
-}
-
-impl FocusRingDecayPolicy {
-    pub fn new() -> Self {
-        Self {
-            inside_to_node_ms: 1_200_000,
-            outside_immediate_cold: true,
-        }
-    }
-}
-
-impl Default for FocusRingDecayPolicy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Focus-ring-aware decay:
-/// - Inside focus ring: Hot, then Node based on timer
-/// - Outside focus ring: Cold immediately
-/// - Focused node: Hot
-/// - Core nodes do not decay
-pub fn tick_decay_focus_ring(
-    field: &mut Field,
-    vp: &Viewport,
-    now_ms: u64,
-    focus_ring: FocusRing,
-    policy: FocusRingDecayPolicy,
-    focused: Option<NodeId>,
-) {
-    let ids: Vec<NodeId> = field.nodes().keys().copied().collect();
-
-    for id in ids {
-        let (state, pos, active_extent, last_touch_ms) = {
-            let Some(n) = field.node(id) else { continue };
-            (n.state.clone(), n.pos, n.footprint, n.last_touch_ms)
-        };
-
-        if state == NodeState::Core {
-            continue;
-        }
-
-        // NOTE: see the comment in `tick_decay` above — cluster-membership
-        // exclusion is the caller's job now, via `World`'s `ClusterRegistry`.
-
-        if Some(id) == focused {
-            let _ = field.set_decay_level(id, DecayLevel::Hot);
-            continue;
-        }
-
-        let zone = focus_ring.dominant_zone(vp.center, pos, active_extent);
-
-        match zone {
-            FocusZone::Inside => {
-                let age = now_ms.saturating_sub(last_touch_ms);
-                if age >= policy.inside_to_node_ms {
-                    let _ = field.set_decay_level(id, DecayLevel::Cold);
-                } else {
-                    let _ = field.set_decay_level(id, DecayLevel::Hot);
-                }
-            }
-            FocusZone::Outside => {
-                if policy.outside_immediate_cold {
-                    let _ = field.set_decay_level(id, DecayLevel::Cold);
-                } else {
-                    let age = now_ms.saturating_sub(last_touch_ms);
-                    if age >= policy.inside_to_node_ms {
-                        let _ = field.set_decay_level(id, DecayLevel::Cold);
-                    } else {
-                        let _ = field.set_decay_level(id, DecayLevel::Hot);
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::Vec2;
-
-    fn default_focus_ring() -> FocusRing {
-        FocusRing::new(50.0, 30.0, 0.0, 0.0)
-    }
 
     #[test]
     fn decays_hot_to_cold() {
@@ -347,75 +255,4 @@ mod tests {
     // lives in `cluster.rs`'s own tests (e.g. `collapse_cluster_creates_
     // core_and_shrinks_members`), and cluster-membership exclusion from
     // decay ticking is exercised wherever the caller does that filtering.
-
-    #[test]
-    fn focus_ring_decay_depends_on_position_age_and_focus() {
-        let viewport = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let ring = default_focus_ring();
-        let short_policy = FocusRingDecayPolicy {
-            inside_to_node_ms: 5000,
-            ..FocusRingDecayPolicy::new()
-        };
-        for (name, x, now, policy, focused, expected_decay, expected_state) in [
-            (
-                "center before default threshold",
-                0.0,
-                999_999,
-                FocusRingDecayPolicy::new(),
-                false,
-                DecayLevel::Hot,
-                NodeState::Active,
-            ),
-            (
-                "ring edge before threshold",
-                49.0,
-                1500,
-                short_policy,
-                false,
-                DecayLevel::Hot,
-                NodeState::Active,
-            ),
-            (
-                "center after threshold",
-                0.0,
-                7000,
-                short_policy,
-                false,
-                DecayLevel::Cold,
-                NodeState::Node,
-            ),
-            (
-                "outside ring",
-                500.0,
-                1000,
-                FocusRingDecayPolicy::new(),
-                false,
-                DecayLevel::Cold,
-                NodeState::Node,
-            ),
-            (
-                "focused outside ring",
-                500.0,
-                999_999,
-                FocusRingDecayPolicy::new(),
-                true,
-                DecayLevel::Hot,
-                NodeState::Active,
-            ),
-        ] {
-            let mut field = Field::new();
-            let node = field.spawn_surface("A", Vec2 { x, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
-            assert!(field.touch(node, 0), "{name}");
-            tick_decay_focus_ring(
-                &mut field,
-                &viewport,
-                now,
-                ring,
-                policy,
-                focused.then_some(node),
-            );
-            assert_eq!(field.node(node).unwrap().decay, expected_decay, "{name}");
-            assert_eq!(field.node(node).unwrap().state, expected_state, "{name}");
-        }
-    }
 }

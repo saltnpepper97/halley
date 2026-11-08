@@ -236,8 +236,8 @@ mod tests {
             effects,
             debug,
         );
-        // Per-output rings belong to the user's monitors; the fallback is shared.
-        same!(focus_rings.fallback);
+        // Decay zones are per monitor and opt-in, so the defaults set none.
+        same!(decay_zones);
         assert!(
             drift.is_empty(),
             "generated config and built-in defaults differ:\n{}",

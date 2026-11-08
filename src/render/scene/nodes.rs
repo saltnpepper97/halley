@@ -57,18 +57,21 @@ pub(super) fn node_elements(
         }
     }
 
-    if debug.show_focus_ring || nodes.ring_is_previewed(&output.name(), now) {
-        let focus_ring = nodes.focus_ring_for_output(&output.name());
-        let scale = crate::presentation::camera::scale(camera);
+    // The zone is measured in screen pixels, so it is drawn at the same size
+    // at every zoom level. Without a configured zone the screen edge is the
+    // boundary, which needs no outline.
+    if (debug.show_decay_zone || nodes.decay_zone_is_previewed(&output.name(), now))
+        && let Some(zone) = nodes.decay_zone_for_output(&output.name())
+    {
         let center = (
-            output_geometry.size.w as f32 / 2.0 + focus_ring.offset_x * scale,
-            output_geometry.size.h as f32 / 2.0 + focus_ring.offset_y * scale,
+            output_geometry.size.w as f32 / 2.0 + zone.offset_x,
+            output_geometry.size.h as f32 / 2.0 + zone.offset_y,
         );
-        overlay.push(SceneElement::FocusRing(node_renderer.focus_ring_element(
+        overlay.push(SceneElement::DecayZone(node_renderer.decay_zone_element(
             renderer,
             &output.name(),
             center,
-            (focus_ring.radius_x * scale, focus_ring.radius_y * scale),
+            (zone.radius_x, zone.radius_y),
             (focused.r, focused.g, focused.b),
             0.82,
         )?));
