@@ -28,14 +28,14 @@ fn example_config_parses_end_to_end() {
     assert_eq!(keybinds.modifier, ModifierKey::Super);
     assert_eq!(keybinds.binds.len(), 66);
 
-    let arrange = keybinds
+    let tidy = keybinds
         .binds
         .iter()
-        .find(|bind| bind.action == Action::ArrangeVisible)
-        .expect("arrange-visible bind present");
-    assert_eq!(arrange.key, "a");
-    assert!(arrange.modifiers.super_key);
-    assert!(!arrange.modifiers.shift);
+        .find(|bind| bind.action == Action::Tidy)
+        .expect("tidy bind present");
+    assert_eq!(tidy.key, "a");
+    assert!(tidy.modifiers.super_key);
+    assert!(!tidy.modifiers.shift);
 
     let drag_pan = keybinds
         .binds
@@ -405,7 +405,7 @@ fn shipped_configs_expose_recent_options_and_keep_optional_shaders_inert() {
         );
         assert_eq!(runtime.animations.node.duration_ms, 280);
         assert_eq!(
-            config.get::<u64>("animations.arrange.duration-ms").unwrap(),
+            config.get::<u64>("animations.tidy.duration-ms").unwrap(),
             360
         );
         assert!(

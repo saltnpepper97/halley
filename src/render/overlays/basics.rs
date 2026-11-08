@@ -63,8 +63,8 @@ pub(crate) fn rows(binds: &[ResolvedBind]) -> Vec<BasicsRow> {
             "Move a window",
         ),
         (
-            or_none(key(halley_config::Action::ArrangeVisible)),
-            "Arrange visible windows, or restore their saved geometry",
+            or_none(key(halley_config::Action::Tidy)),
+            "Tidy visible windows, or put them back",
         ),
         (
             or_none(key(halley_config::Action::ToggleState)),

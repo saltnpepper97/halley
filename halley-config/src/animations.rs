@@ -316,12 +316,12 @@ impl Default for WindowMoveAnimation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ArrangeAnimation {
+pub struct TidyAnimation {
     pub enabled: bool,
     pub motion: AnimationMotion,
 }
 
-impl Default for ArrangeAnimation {
+impl Default for TidyAnimation {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -360,7 +360,7 @@ pub struct Animations {
     pub window_move: WindowMoveAnimation,
     pub fullscreen: FullscreenAnimation,
     pub maximize: MaximizeAnimation,
-    pub arrange: ArrangeAnimation,
+    pub tidy: TidyAnimation,
     pub smooth_resize: SmoothResizeAnimation,
     pub node: NodeAnimation,
     pub cluster: ClusterAnimation,
@@ -375,7 +375,7 @@ impl Default for Animations {
             window_move: WindowMoveAnimation::default(),
             fullscreen: FullscreenAnimation::default(),
             maximize: MaximizeAnimation::default(),
-            arrange: ArrangeAnimation::default(),
+            tidy: TidyAnimation::default(),
             smooth_resize: SmoothResizeAnimation::default(),
             node: NodeAnimation::default(),
             cluster: ClusterAnimation::default(),
@@ -487,24 +487,32 @@ pub fn parse_animations(config: &RuneConfig) -> Animations {
                 motion: AnimationMotion::parse(config, "animations.window-move", configured_easing),
             }
         },
-        arrange: {
-            let default_easing = match defaults.arrange.motion {
+        tidy: {
+            // `animations.arrange` is the older name of this section.
+            let section = if config.has("animations.tidy") || !config.has("animations.arrange") {
+                "animations.tidy"
+            } else {
+                "animations.arrange"
+            };
+            let default_easing = match defaults.tidy.motion {
                 AnimationMotion::Easing(easing) => easing,
-                AnimationMotion::Spring(_) => unreachable!("arrange defaults use easing motion"),
+                AnimationMotion::Spring(_) => unreachable!("tidy defaults use easing motion"),
             };
             let configured_easing = AnimationMotion::Easing(EasingMotion {
-                duration_ms: config
-                    .get_or("animations.arrange.duration-ms", default_easing.duration_ms),
+                duration_ms: config.get_or(
+                    &format!("{section}.duration-ms"),
+                    default_easing.duration_ms,
+                ),
                 curve: config
-                    .get_optional::<String>("animations.arrange.curve")
+                    .get_optional::<String>(&format!("{section}.curve"))
                     .ok()
                     .flatten()
                     .and_then(|curve| AnimationCurve::parse(&curve))
                     .unwrap_or(default_easing.curve),
             });
-            ArrangeAnimation {
-                enabled: config.get_or("animations.arrange.enabled", defaults.arrange.enabled),
-                motion: AnimationMotion::parse(config, "animations.arrange", configured_easing),
+            TidyAnimation {
+                enabled: config.get_or(&format!("{section}.enabled"), defaults.tidy.enabled),
+                motion: AnimationMotion::parse(config, section, configured_easing),
             }
         },
         smooth_resize: SmoothResizeAnimation {
@@ -596,6 +604,33 @@ pub fn load_animations() -> Animations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tidy_section_accepts_the_arrange_spelling_and_prefers_tidy() {
+        let parse = |source: &str| parse_animations(&RuneConfig::from_str(source).unwrap()).tidy;
+        let old =
+            parse("animations:\n  arrange:\n    enabled false\n    duration-ms 90\n  end\nend\n");
+        assert!(!old.enabled);
+        assert!(matches!(
+            old.motion,
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 90,
+                ..
+            })
+        ));
+
+        let both = parse(
+            "animations:\n  arrange:\n    duration-ms 90\n  end\n  tidy:\n    duration-ms 120\n  end\nend\n",
+        );
+        assert!(matches!(
+            both.motion,
+            AnimationMotion::Easing(EasingMotion {
+                duration_ms: 120,
+                ..
+            })
+        ));
+        assert_eq!(parse(""), TidyAnimation::default());
+    }
 
     #[test]
     fn window_movement_supports_easing_spring_and_zero_duration() {

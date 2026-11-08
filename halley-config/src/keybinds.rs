@@ -110,11 +110,11 @@ pub enum Action {
     /// Resize the focused Field window by one placement step. Left and up
     /// shrink; right and down grow.
     ResizeWindow(Direction),
-    /// Arrange eligible windows visible on the active Field output into a
-    /// balanced, non-persistent mosaic.
-    ArrangeVisible,
-    /// Restore the one-shot geometry snapshot captured by the last arrange.
-    UndoArrange,
+    /// Tidy the eligible windows visible on the active Field output into a
+    /// non-overlapping mosaic, or put them back if they are already tidied.
+    Tidy,
+    /// Put back the windows the last tidy moved.
+    UndoTidy,
     /// Begin an interactive compositor move for the window under the pointer,
     /// falling back to Field panning when the grab starts on empty background.
     PointerMoveWindow,
@@ -181,8 +181,8 @@ impl Action {
             | Self::PanField(_)
             | Self::ResizeWindow(_)
             | Self::ToggleFocusedPin
-            | Self::ArrangeVisible
-            | Self::UndoArrange => BindingScope::Field,
+            | Self::Tidy
+            | Self::UndoTidy => BindingScope::Field,
             Self::PointerPanField | Self::PointerPanFieldAlways | Self::PointerDragPan => {
                 BindingScope::Field
             }

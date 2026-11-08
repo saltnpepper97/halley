@@ -32,4 +32,5 @@ An older section name works for every key in the section it became.
 | `field.pins.pin-colour` | `field.pins.colour` |
 | `field.pins.bg-colour` | `field.pins.background-colour` |
 | `debug.show-focus-ring` | `debug.show-decay-zone` |
+| `animations.arrange:` | `animations.tidy:` |
 | `view.output` → `focus-ring:` | `view.output` → `decay-zone:` |

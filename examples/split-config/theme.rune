@@ -68,14 +68,7 @@ effects:
       colour "#05030530"
     end
 
-    arrange:
-    enabled true
-    motion "easing"
-    duration-ms 360
-    curve "ease-in-out-cubic"
-  end
-
-  node:
+    node:
       enabled true
       blur-radius 14
       spread 0
@@ -191,7 +184,7 @@ animations:
     curve "ease-in-out-cubic"
   end
 
-  arrange:
+  tidy:
     enabled true
     motion "easing"
     duration-ms 360

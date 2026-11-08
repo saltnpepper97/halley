@@ -470,7 +470,7 @@ impl WindowAnimations {
         target_bounds: Rectangle<i32, Physical>,
     ) -> bool {
         self.moving.remove(&surface);
-        let config = self.config.arrange;
+        let config = self.config.tidy;
         if !self.config.enabled || !config.enabled || current_bounds == target_bounds {
             self.arranging.remove(&surface);
             return false;

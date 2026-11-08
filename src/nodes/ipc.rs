@@ -386,7 +386,7 @@ pub(crate) fn resize_selected_direction<D: crate::session::SessionDriver>(
     };
     session
         .interactions
-        .field_arrange
+        .tidy
         .invalidate_surface(&record.surface);
     if let Some(toplevel) = record.window.toplevel() {
         toplevel.with_pending_state(|pending| pending.size = Some(size));
@@ -592,7 +592,7 @@ fn place_node<D: crate::session::SessionDriver>(
         if next != location {
             session
                 .interactions
-                .field_arrange
+                .tidy
                 .invalidate_surface(&record.surface);
         }
         if next != location {

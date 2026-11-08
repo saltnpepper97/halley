@@ -1030,10 +1030,7 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
                     session.interactions.grab(),
                     &record.surface,
                 ),
-                session
-                    .interactions
-                    .field_arrange
-                    .contains_surface(&record.surface),
+                session.interactions.tidy.contains_surface(&record.surface),
             )
         })
         .map(|record| record.surface.clone())

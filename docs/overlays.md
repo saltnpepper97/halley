@@ -128,7 +128,7 @@ remain configured but have no visible effect while `background false`.
 
 Each Halley package version's first native session shows a **Halley
 basics** card: the Field-first mental model plus the five essential operations
-(Lift, moving a window, arrange, collapse/restore, and Apogee). Clusters stay
+(Lift, moving a window, tidy, collapse/restore, and Apogee). Clusters stay
 out of first-run training in 0.8.0: the card names no cluster action, core, or
 layout, so a cluster is only ever introduced deliberately.
 

@@ -9,8 +9,6 @@ use crate::wayland;
 
 // Source folders group related session work. Explicit paths keep the existing
 // session module boundaries and visibility while making those groups browsable.
-#[path = "workspace/arrange.rs"]
-mod arrange;
 #[path = "startup/autostart.rs"]
 mod autostart;
 #[path = "onboarding/basics.rs"]
@@ -72,6 +70,8 @@ mod screenshot;
 mod spawn;
 #[path = "startup/startup_clusters.rs"]
 mod startup_clusters;
+#[path = "workspace/tidy.rs"]
+mod tidy;
 #[path = "display/timing.rs"]
 mod timing;
 #[path = "input/touch.rs"]

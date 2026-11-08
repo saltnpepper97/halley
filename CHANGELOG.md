@@ -16,6 +16,15 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Rename Arrange to Tidy (`Mod+A`) and make it predictable. It now uses the
+  same layout as Apogee: each window keeps its shape, bigger windows get bigger
+  slots, nothing overlaps, and the same windows always land the same way. A
+  window with a minimum size, such as Steam, gets the nearest size it accepts in
+  its own slot instead of reshaping the whole layout, and no window is dropped.
+  Moving or closing one tidied window now keeps the others' way back, so the
+  next `Mod+A` still returns them. `arrange-visible`, `undo-arrange` and
+  `animations.arrange:` keep working as older spellings of `tidy`, `undo-tidy`
+  and `animations.tidy:`.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can
@@ -82,6 +91,8 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Fix the split-config example, where a stray animation block inside
+  `effects.shadows` broke the nesting of the node shadow settings.
 - With fullscreen animations off, stop an X11 window or game from flashing its
   old buffer at the new position for a frame when entering or leaving
   fullscreen. It now switches in one step once it has repainted at the new size,

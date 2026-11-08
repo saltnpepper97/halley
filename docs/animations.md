@@ -31,7 +31,7 @@ Use `motion "spring"` with `damping-ratio` and `stiffness` for a spring response
 just like fullscreen below. Disabling `animations.enabled`, disabling
 `window-move.enabled`, or choosing an easing duration of zero makes new moves
 immediate. Reloaded settings apply to subsequent moves. Collapsed node markers
-retain their existing node slide; arrange, fullscreen, maximize and cluster
+retain their existing node slide; tidy, fullscreen, maximize and cluster
 transitions keep their own animation settings.
 
 Interactive pointer resize has its own `animations.smooth-resize` block. It is
@@ -203,12 +203,12 @@ Disabling it keeps the maximize state and camera ownership but applies the
 endpoints immediately. A zero easing duration also snaps directly to the
 endpoint.
 
-Field arrangement has its own slightly slower default so a group of windows
-moves as one readable gesture:
+Tidy has its own slightly slower default so a group of windows moves as one
+readable gesture:
 
 ```rune
 animations:
-  arrange:
+  tidy:
     enabled true
     motion "easing"
     duration-ms 360
@@ -217,14 +217,14 @@ animations:
 end
 ```
 
-`animations.enabled` and `animations.arrange.enabled` both gate the visual
-motion. Disabling either keeps `Mod+A` toggle semantics but applies arrange and
-restore geometry immediately. Arrangement accepts the same easing and spring
+`animations.enabled` and `animations.tidy.enabled` both gate the visual
+motion. Disabling either keeps `Mod+A` toggle semantics but applies the tidy and
+put-back geometry immediately. Tidy accepts the same easing and spring
 motion knobs as maximize/fullscreen. Window contents, decorations, and input hit
 regions share the interpolated rectangle; a rapid toggle starts the return from
 the current intermediate presentation rather than snapping to either endpoint.
 
-During arrangement, each captured client layout fills the moving rectangle,
+During a tidy, each captured client layout fills the moving rectangle,
 including while Halley waits for the resized buffer. A brief crossfade near the
 middle switches to the resized layout; fitting both endpoints avoids repeated
 edge pixels and limits overlapping text. Contents temporarily scale with the

@@ -68,7 +68,7 @@ screenshot:
   directory "$env.HOME/Pictures/Screenshots"
 end
 
-# Halley animates opening, closing, fullscreen, arrange and nodes. Set
+# Halley animates opening, closing, fullscreen, tidy and nodes. Set
 # `enabled false` to switch every animation off at once.
 # More: https://saltnpepper97.github.io/halley-site/wiki/config/animations
 animations:
@@ -119,7 +119,7 @@ keybinds:
   "$var.mod+d" "halley-lift"
 
   # Tidy the visible windows into a mosaic; press again to undo.
-  "$var.mod+a" "arrange-visible"
+  "$var.mod+a" "tidy"
 
   # Finding things: Apogee shows everything, Bearings points to what is off
   # screen, Alt+Tab and the Trail walk recent windows.

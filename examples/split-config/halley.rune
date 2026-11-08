@@ -83,7 +83,7 @@ keybinds:
   "$var.mod+ctrl+up" "resize-window-up" with scope "field"
   "$var.mod+ctrl+down" "resize-window-down" with scope "field"
 
-  "$var.mod+a" "arrange-visible"
+  "$var.mod+a" "tidy"
 
   "$var.mod+shift+r" "reload"
   "$var.mod+t" "default-terminal"
