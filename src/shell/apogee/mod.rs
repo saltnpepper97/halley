@@ -413,7 +413,7 @@ fn layout_output(
         .iter()
         .filter_map(|(id, source_stack_index, source_stack_order)| {
             let record = nodes.record(*id)?;
-            let node = nodes.field.node(*id)?;
+            let node = nodes.field().node(*id)?;
             let width = record.geometry.size.w.max(1) as f32;
             let height = record.geometry.size.h.max(1) as f32;
             Some((

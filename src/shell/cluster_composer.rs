@@ -616,7 +616,7 @@ fn build_layout(
             )
         })
         .filter_map(|record| {
-            let node = nodes.field.node(record.id)?;
+            let node = nodes.field().node(record.id)?;
             let source_stack_index = record.collapsed_stack_index.or_else(|| {
                 space
                     .elements()

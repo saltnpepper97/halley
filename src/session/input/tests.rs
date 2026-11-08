@@ -197,14 +197,14 @@ fn maximized_titlebar_drag_ignores_double_click_jitter() {
 #[test]
 fn cluster_core_drag_start_commits_its_zoom_displacement() {
     let mut nodes = crate::nodes::NodesState::new(&halley_config::RuntimeConfig::default());
-    let core = nodes.field.spawn_surface(
+    let core = nodes.field_mut().spawn_surface(
         "cluster-core",
         Vec2 { x: 180.0, y: 120.0 },
         Vec2 { x: 48.0, y: 48.0 },
     );
     assert!(
         nodes
-            .field
+            .field_mut()
             .set_state(core, halley_core::field::NodeState::Core)
     );
     nodes.remember_zoom_home(core, Vec2 { x: 100.0, y: 120.0 });

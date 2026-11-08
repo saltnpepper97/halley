@@ -604,7 +604,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                         .bloom_is_animating_on_output(&output.name(), target_presentation_time)
                     || app
                         .clusters
-                        .labels_animating_on_output(&output.name(), app.nodes.config.show_labels);
+                        .labels_animating_on_output(&output.name(), app.nodes.config().show_labels);
                 let pointer_time = app.start_time.elapsed().as_millis() as u32;
                 if fullscreen_animating || maximize_animating || arrange_animating {
                     super::pointer::update_client_state(app, pointer_time);

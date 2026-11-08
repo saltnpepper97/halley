@@ -260,7 +260,7 @@ fn finish_left_release_drag<D: SessionDriver>(session: &mut Session<D>, click: C
             crate::input::grab::Grab::MoveNode { id, .. } => {
                 let id = *id;
                 let now = crate::frame_clock::monotonic_now();
-                if session.nodes.physics.enabled {
+                if session.nodes.physics_enabled() {
                     let _ = crate::nodes::tick_physics(session, now);
                 }
                 let active_workspace_release = (|| {
@@ -277,7 +277,7 @@ fn finish_left_release_drag<D: SessionDriver>(session: &mut Session<D>, click: C
                     {
                         return None;
                     }
-                    let center = session.nodes.field.node(id)?.pos;
+                    let center = session.nodes.field().node(id)?.pos;
                     let size = session.nodes.record(id)?.geometry.size;
                     let origin = collapsed_node_drop_origin(center, size, output_geometry);
                     Some((output, work_area, origin))
@@ -290,7 +290,7 @@ fn finish_left_release_drag<D: SessionDriver>(session: &mut Session<D>, click: C
                     crate::nodes::set_collapsed_output(session, id, &output);
                     if crate::nodes::restore_for_cluster_join(session, id, serial)
                         && session.clusters.join_active_member_front(
-                            &mut session.nodes.field,
+                            session.nodes.field_mut(),
                             &output_name,
                             id,
                             work_area,
@@ -1026,7 +1026,7 @@ fn node_press<D: SessionDriver>(
         && state == ButtonState::Pressed
         && let Some((id, output)) = node_at_pointer(session)
         && let Some(record) = session.nodes.record(id).cloned()
-        && let Some(node_position) = session.nodes.field.node(id).map(|node| node.pos)
+        && let Some(node_position) = session.nodes.field().node(id).map(|node| node.pos)
         && let Some(output_geometry) = session.wayland.space.output_geometry(&output)
         && let Some(camera) = session.cameras.get(&output.name())
     {
@@ -1161,7 +1161,7 @@ fn field_left_button<D: SessionDriver>(
                 {
                     finishing_client_move = client_owned;
                     let now = crate::frame_clock::monotonic_now();
-                    if session.nodes.physics.enabled {
+                    if session.nodes.physics_enabled() {
                         let _ = crate::nodes::tick_physics(session, now);
                     }
                     let cluster_release = cluster_drag.as_ref().and_then(|drag| {
@@ -1234,7 +1234,7 @@ fn field_left_button<D: SessionDriver>(
                         id.and_then(|member| {
                             session
                                 .clusters
-                                .commit_join_candidate(&mut session.nodes.field, member)
+                                .commit_join_candidate(session.nodes.field_mut(), member)
                         })
                     } else {
                         None
@@ -1274,7 +1274,7 @@ fn field_left_button<D: SessionDriver>(
                             | crate::input::grab::ClusterWindowDragKind::Layout(_) => {
                                 cluster_drop_handled =
                                     session.clusters.detach_active_member_for_drag(
-                                        &mut session.nodes.field,
+                                        session.nodes.field_mut(),
                                         &drag.output,
                                         crate::clusters::ClusterDragMember {
                                             cluster_id: drag.cluster_id,
@@ -1298,7 +1298,7 @@ fn field_left_button<D: SessionDriver>(
                     if let (Some(id), Some((output, work_area, origin))) =
                         (id, active_workspace_release)
                         && session.clusters.join_active_member_front(
-                            &mut session.nodes.field,
+                            session.nodes.field_mut(),
                             &output,
                             id,
                             work_area,
@@ -1332,7 +1332,7 @@ fn field_left_button<D: SessionDriver>(
                         }
                         session.request_redraw();
                     } else if !cluster_drop_handled
-                        && session.nodes.physics.enabled
+                        && session.nodes.physics_enabled()
                         && let Some(id) = id
                     {
                         session.nodes.lock_released_window(id, now);

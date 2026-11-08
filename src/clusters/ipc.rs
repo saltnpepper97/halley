@@ -267,7 +267,7 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 .map(NodeId::new)
                 .collect();
             match session.clusters.begin_draft(
-                &session.nodes.field,
+                session.nodes.field(),
                 output,
                 draft.name_hint,
                 running_nodes,

@@ -125,7 +125,7 @@ impl FocusCycleState {
     ) -> bool {
         if self.session.is_none() {
             let candidates = halley_core::focus::focus_cycle_candidates(
-                &nodes.field,
+                nodes.field(),
                 nodes.last_focus_ms(),
                 nodes.focused(),
             )
@@ -212,7 +212,7 @@ impl FocusCycleState {
         };
         let preview = session.preview();
         session.candidates.retain(|id| {
-            halley_core::focus::is_focus_cycle_candidate(&nodes.field, *id)
+            halley_core::focus::is_focus_cycle_candidate(nodes.field(), *id)
                 && nodes.record(*id).is_some_and(|record| record.attached)
         });
         if session.candidates.is_empty() {

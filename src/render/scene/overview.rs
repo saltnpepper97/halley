@@ -325,7 +325,7 @@ pub(super) fn overview_window_source_rect(
     let record = nodes.record(id)?;
     if record.collapsed {
         let camera = cameras.get(&output.name())?;
-        let node = nodes.field.node(id)?;
+        let node = nodes.field().node(id)?;
         let center = crate::nodes::screen_from_world(node.pos, camera, output_geometry)
             - output_geometry.loc;
         let side = crate::nodes::NODE_DIAMETER_PX.round() as i32;
@@ -1024,7 +1024,7 @@ pub(super) fn hover_preview_elements(
     else {
         return Ok(Vec::new());
     };
-    let Some(node) = nodes.field.node(id) else {
+    let Some(node) = nodes.field().node(id) else {
         return Ok(Vec::new());
     };
     let Some(camera) = cameras.get(&output.name()) else {

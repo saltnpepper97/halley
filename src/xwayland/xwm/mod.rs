@@ -609,7 +609,7 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
             let admitted_to_startup = !admitted_to_draft
                 && startup_cluster.is_some_and(|cluster| {
                     session.clusters.admit_attributed_window(
-                        &mut session.nodes.field,
+                        session.nodes.field_mut(),
                         cluster,
                         id,
                         work_area,
@@ -619,7 +619,7 @@ fn admit_window<D: SessionDriver>(session: &mut Session<D>, xid: u32) {
             let admitted_to_active = !admitted_to_draft
                 && !admitted_to_startup
                 && session.clusters.admit_mapped_window(
-                    &mut session.nodes.field,
+                    session.nodes.field_mut(),
                     &output.name(),
                     id,
                     rule.cluster_participation,

@@ -67,7 +67,13 @@ pub(crate) fn node_user_pinned<D: SessionDriver>(
         .cluster_for_core(id)
         .and_then(|cluster| session.clusters.registry().cluster(cluster))
         .map_or_else(
-            || session.nodes.field.node(id).is_some_and(|node| node.pinned),
+            || {
+                session
+                    .nodes
+                    .field()
+                    .node(id)
+                    .is_some_and(|node| node.pinned)
+            },
             |cluster| cluster.pinned,
         )
 }
@@ -83,9 +89,9 @@ pub(crate) fn set_node_user_pinned<D: SessionDriver>(
     if session.clusters.cluster_for_core(id).is_some() {
         session
             .clusters
-            .set_core_pinned(&mut session.nodes.field, id, pinned)
+            .set_core_pinned(session.nodes.field_mut(), id, pinned)
     } else {
-        session.nodes.field.set_pinned(id, pinned)
+        session.nodes.field_mut().set_pinned(id, pinned)
     }
 }
 
@@ -107,7 +113,7 @@ pub(super) fn toggle_focused_pin<D: SessionDriver>(
     let Some(id) = live_focus.or(logical_focus).or(output_focus) else {
         return false;
     };
-    if !session.nodes.field.is_visible(id) {
+    if !session.nodes.field().is_visible(id) {
         return false;
     }
     let pinned = !node_user_pinned(session, id);

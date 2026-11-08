@@ -111,7 +111,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
             record.attached
                 && !record.collapsed
                 && record.output == output_name
-                && session.nodes.field.is_visible(record.id)
+                && session.nodes.field().is_visible(record.id)
                 && !session.clusters.is_member(record.id)
                 && !super::node_user_pinned(session, record.id)
                 && !session.fullscreen.is_fullscreen_or_pending(&record.surface)

@@ -382,10 +382,10 @@ fn collect_layouts(
     for record in nodes.records().filter(|record| {
         record.attached && record.output == output_name && !clusters.is_member(record.id)
     }) {
-        let Some(node) = nodes.field.node(record.id) else {
+        let Some(node) = nodes.field().node(record.id) else {
             continue;
         };
-        let field_visible = nodes.field.is_visible(record.id);
+        let field_visible = nodes.field().is_visible(record.id);
         let parked_fullscreen = fullscreen.is_presentation_paused(&record.surface);
         if !bearing_node_is_eligible(field_visible, parked_fullscreen)
             || intersects_view(node.pos, node.footprint, &viewport)

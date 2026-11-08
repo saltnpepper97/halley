@@ -260,7 +260,7 @@ impl<D: super::SessionDriver> super::Session<D> {
                 halley_config::ClusterLayout::Stacking => ClusterWorkspaceLayoutKind::Stacking,
             };
             match self.clusters.create_collapsed_cluster(
-                &mut self.nodes.field,
+                self.nodes.field_mut(),
                 declaration.name.clone(),
                 output_name,
                 layout,

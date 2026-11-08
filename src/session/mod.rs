@@ -212,7 +212,7 @@ pub(crate) fn admit_cluster_draft_window<D: SessionDriver>(
     }
     match session
         .clusters
-        .finish_pending_draft(&mut session.nodes.field)
+        .finish_pending_draft(session.nodes.field_mut())
     {
         Ok((cluster, build)) => {
             crate::nodes::resolve_new_cluster_core(session, cluster);
@@ -232,7 +232,7 @@ pub(crate) fn admit_cluster_draft_window<D: SessionDriver>(
                     x: geometry.loc.x as f32 + view.center.x,
                     y: geometry.loc.y as f32 + view.center.y,
                 };
-                if let Some(node) = session.nodes.field.node_mut(core) {
+                if let Some(node) = session.nodes.field_mut().node_mut(core) {
                     node.pos = position;
                 }
                 session.clusters.set_core_position(cluster, position);
@@ -269,7 +269,7 @@ fn stage_draft_window<D: SessionDriver>(session: &mut Session<D>, id: halley_cor
     session
         .nodes
         .set_collapsed(id, true, session.start_time.elapsed().as_millis() as u64);
-    let _ = session.nodes.field.set_detached(id, true);
+    let _ = session.nodes.field_mut().set_detached(id, true);
 }
 
 fn restore_draft_window<D: SessionDriver>(
@@ -304,7 +304,7 @@ fn restore_draft_window<D: SessionDriver>(
     session
         .nodes
         .set_collapsed(id, false, session.start_time.elapsed().as_millis() as u64);
-    let _ = session.nodes.field.set_detached(id, false);
+    let _ = session.nodes.field_mut().set_detached(id, false);
 }
 
 fn expire_cluster_draft<D: SessionDriver>(

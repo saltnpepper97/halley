@@ -85,7 +85,7 @@ impl<D: SessionDriver> Session<D> {
             return;
         };
         if !record.attached
-            || !self.nodes.field.is_visible(id)
+            || !self.nodes.field().is_visible(id)
             || self.clusters.is_member(id)
             || self.clusters.active_on(&record.output).is_some()
         {
@@ -122,7 +122,7 @@ fn eligible<D: SessionDriver>(session: &Session<D>, output: &str, id: NodeId) ->
     session.nodes.record(id).is_some_and(|record| {
         record.attached
             && record.output == output
-            && session.nodes.field.is_visible(id)
+            && session.nodes.field().is_visible(id)
             && !session.clusters.is_member(id)
     })
 }

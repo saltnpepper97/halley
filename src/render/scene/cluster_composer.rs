@@ -189,7 +189,7 @@ pub(super) fn cluster_composer_elements(
             output_geometry,
             cameras,
             clusters.config(),
-            nodes.config,
+            nodes.config(),
             alpha,
         )?;
         elements.splice(0..0, core_elements);

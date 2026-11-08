@@ -318,7 +318,7 @@ pub(crate) fn forget_destroyed_cluster_member<D: SessionDriver>(
         .map(|output| smithay::desktop::layer_map_for_output(output).non_exclusive_zone());
     if let Some(work_area) = work_area {
         session.clusters.forget_destroyed_member_animated(
-            &mut session.nodes.field,
+            session.nodes.field_mut(),
             id,
             work_area,
             crate::frame_clock::monotonic_now(),
@@ -326,7 +326,7 @@ pub(crate) fn forget_destroyed_cluster_member<D: SessionDriver>(
     } else {
         session
             .clusters
-            .forget_destroyed_member(&mut session.nodes.field, id);
+            .forget_destroyed_member(session.nodes.field_mut(), id);
     }
 }
 

@@ -164,7 +164,7 @@ fn field_node_is_eligible_on_output<D: SessionDriver>(
         .map(|metadata| metadata.output.as_str());
     directional_field_node_is_eligible(
         output_name,
-        session.nodes.field.is_visible(id),
+        session.nodes.field().is_visible(id),
         session.clusters.is_member(id),
         record,
         core_output,
@@ -226,20 +226,20 @@ pub(super) fn focus_directional_field<D: SessionDriver>(
     let Some(current) = current else {
         return false;
     };
-    let Some(current_rect) = halley_core::focus::node_field_rect(&session.nodes.field, current)
+    let Some(current_rect) = halley_core::focus::node_field_rect(session.nodes.field(), current)
     else {
         return false;
     };
     let direction = portal_direction(direction);
     let target = session
         .nodes
-        .field
+        .field()
         .nodes()
         .keys()
         .copied()
         .filter(|id| *id != current && field_node_is_eligible_on_output(session, *id, output_name))
         .filter_map(|id| {
-            let rect = halley_core::focus::node_field_rect(&session.nodes.field, id)?;
+            let rect = halley_core::focus::node_field_rect(session.nodes.field(), id)?;
             let score =
                 halley_core::focus::directional_candidate_score(current_rect, rect, direction)?;
             Some((score, id.as_u64(), id))
@@ -275,7 +275,7 @@ pub(super) fn center_last_focused<D: SessionDriver>(
     let Some(record) = session.nodes.record(id).cloned() else {
         return false;
     };
-    let Some(node) = session.nodes.field.node(id) else {
+    let Some(node) = session.nodes.field().node(id) else {
         return false;
     };
     if !record.attached || record.output != output_name {

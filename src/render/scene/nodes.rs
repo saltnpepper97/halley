@@ -40,14 +40,14 @@ pub(super) fn node_elements(
     let Some(camera) = cameras.get(&output.name()) else {
         return Ok(NodeScene::default());
     };
-    let focused = nodes.config.border_color_highlighted;
+    let focused = nodes.config().border_color_highlighted;
     let mut overlay = Vec::new();
 
     // Resolve node icons while their windows are still live. Otherwise the
     // first decay starts the asynchronous load only after the node appears;
     // when that load completes after the fade window, the icon pops in at full
     // opacity. Later decays only looked correct because they reused the cache.
-    if nodes.config.show_app_icons != halley_config::NodeDisplayPolicy::Off {
+    if nodes.config().show_app_icons != halley_config::NodeDisplayPolicy::Off {
         for app_id in nodes.records().filter_map(|record| {
             (record.attached && record.output == output.name())
                 .then_some(record.app_id.as_deref())
@@ -82,7 +82,7 @@ pub(super) fn node_elements(
     let mut groups = Vec::new();
 
     for record in records {
-        let Some(node) = nodes.field.node(record.id) else {
+        let Some(node) = nodes.field().node(record.id) else {
             continue;
         };
         let mut icons = Vec::new();
@@ -90,12 +90,12 @@ pub(super) fn node_elements(
         let landmark_position = nodes.landmark_position(record.id, node.pos, now);
         let center = crate::nodes::screen_from_world(landmark_position, camera, output_geometry);
         let local = center - output_geometry.loc;
-        let progress = if nodes.animations_enabled
-            && nodes.animation.enabled
-            && nodes.animation.duration_ms > 0
+        let progress = if nodes.animations_enabled()
+            && nodes.animation().enabled
+            && nodes.animation().duration_ms > 0
         {
             (now.saturating_sub(record.collapsed_at).as_secs_f32()
-                / (nodes.animation.duration_ms as f32 / 1_000.0))
+                / (nodes.animation().duration_ms as f32 / 1_000.0))
                 .clamp(0.0, 1.0)
         } else {
             1.0
@@ -108,20 +108,20 @@ pub(super) fn node_elements(
             (local.x - side / 2, local.y - side / 2).into(),
             (side, side).into(),
         );
-        let hovered = nodes.hovered == Some(record.id);
+        let hovered = nodes.hovered() == Some(record.id);
         let highlighted = hovered || nodes.focused() == Some(record.id);
-        let ring = node_ring_color(nodes.config, highlighted);
-        let fill = node_fill_color(nodes.config, ring);
+        let ring = node_ring_color(nodes.config(), highlighted);
+        let fill = node_fill_color(nodes.config(), ring);
         markers.push(SceneElement::Node(node_renderer.element(
             renderer,
             destination,
-            nodes.config.shape,
+            nodes.config().shape,
             crate::render::node::NodeStyle {
                 border_rgb: ring,
                 fill_rgb: fill,
-                opacity: nodes.config.opacity,
+                opacity: nodes.config().opacity,
                 flat_fill: !matches!(
-                    nodes.config.background_color,
+                    nodes.config().background_color,
                     halley_config::NodeBackgroundColor::Auto
                         | halley_config::NodeBackgroundColor::System
                 ),
@@ -131,27 +131,28 @@ pub(super) fn node_elements(
             renderer,
             format!("{}:node:{}", output.name(), record.id.as_u64()),
             destination,
-            match nodes.config.shape {
+            match nodes.config().shape {
                 halley_config::NodeShape::Square => 0.0,
                 halley_config::NodeShape::Squircle => side as f32 * 0.21,
             },
-            nodes.config.opacity * eased,
+            nodes.config().opacity * eased,
             shadow_config,
         )? {
             markers.push(SceneElement::Shadow(shadow));
         }
 
         let elapsed_ms = now.saturating_sub(record.collapsed_at).as_millis() as f32;
-        let icon_alpha = (((elapsed_ms - 1_000.0) / 220.0).clamp(0.0, 1.0) * nodes.config.opacity)
+        let icon_alpha = (((elapsed_ms - 1_000.0) / 220.0).clamp(0.0, 1.0)
+            * nodes.config().opacity)
             .clamp(0.0, 1.0);
-        let allow_real = nodes.config.show_app_icons == halley_config::NodeDisplayPolicy::Always
-            || (nodes.config.show_app_icons == halley_config::NodeDisplayPolicy::Hover
+        let allow_real = nodes.config().show_app_icons == halley_config::NodeDisplayPolicy::Always
+            || (nodes.config().show_app_icons == halley_config::NodeDisplayPolicy::Hover
                 && highlighted);
         if allow_real && let Some(app_id) = record.app_id.as_deref() {
             node_renderer.request_app_icon(renderer, app_id);
         }
         if icon_alpha > 0.001 {
-            let icon_side = ((crate::nodes::NODE_DIAMETER_PX * nodes.config.icon_size).round()
+            let icon_side = ((crate::nodes::NODE_DIAMETER_PX * nodes.config().icon_size).round()
                 as i32)
                 .clamp(16, 42);
             let real_icon = allow_real
@@ -173,7 +174,7 @@ pub(super) fn node_elements(
             }
         }
 
-        let hover_mix = match (node_grab_active, nodes.config.show_labels) {
+        let hover_mix = match (node_grab_active, nodes.config().show_labels) {
             (true, halley_config::NodeDisplayPolicy::Hover) => {
                 nodes.label_hover_mix(record.id, false)
             }
@@ -192,7 +193,7 @@ pub(super) fn node_elements(
                 marker_side: side,
                 output_size: (output_geometry.size.w, output_geometry.size.h),
                 text: &node.label,
-                shape: nodes.config.label_shape,
+                shape: nodes.config().label_shape,
                 fill,
                 ring,
                 hover_mix,

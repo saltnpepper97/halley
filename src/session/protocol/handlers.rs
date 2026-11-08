@@ -379,7 +379,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                             .as_ref()
                             .is_some_and(|(id, _, work_area)| {
                                 self.clusters.admit_attributed_window(
-                                    &mut self.nodes.field,
+                                    self.nodes.field_mut(),
                                     cluster,
                                     *id,
                                     *work_area,
@@ -393,7 +393,7 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
                         .as_ref()
                         .is_some_and(|(id, output, work_area)| {
                             self.clusters.admit_mapped_window(
-                                &mut self.nodes.field,
+                                self.nodes.field_mut(),
                                 output,
                                 *id,
                                 rule.cluster_participation,
