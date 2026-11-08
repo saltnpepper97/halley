@@ -1,4 +1,4 @@
-use super::nodes::ease_in_out_cubic;
+use super::nodes::{ease_in_out_cubic, fit_ui_text};
 use super::*;
 
 use crate::render::draw::DrawContext;
@@ -54,6 +54,28 @@ pub(super) struct OverviewScene<'a> {
     pub desktop: OverviewDesktop<'a>,
     pub draw: OverviewRenderers<'a>,
     pub now: std::time::Duration,
+}
+
+/// One window card in an overview: which window, where it goes, and how it
+/// is highlighted.
+#[derive(Clone, Copy)]
+pub(super) struct OverviewTile {
+    pub id: halley_core::field::NodeId,
+    pub target_global: Rectangle<i32, Logical>,
+    pub body_override: Option<Rectangle<i32, Physical>>,
+    pub progress: f32,
+    pub focused: bool,
+    pub member_selected: bool,
+    pub hovered: bool,
+}
+
+pub(super) fn overview_backdrop_color(
+    dim: f32,
+    progress: f32,
+) -> smithay::backend::renderer::Color32F {
+    // Smithay expects premultiplied RGBA. Neutral black only attenuates the
+    // wallpaper, and contributes no color even at zero transition opacity.
+    smithay::backend::renderer::Color32F::BLACK * (dim * progress)
 }
 
 pub(super) fn preview_content_radius(overlay_radius: f32) -> f32 {
@@ -201,6 +223,40 @@ fn push_live_preview(
     Ok(true)
 }
 
+const SELECTION_BORDER_PX: f32 = 4.0;
+const SELECTION_ACCENT_MIX: f32 = 0.55;
+
+fn overview_window_chrome(
+    mut visuals: crate::render::overlays::shell::OverlayVisuals,
+    selected: bool,
+    hovered: bool,
+) -> (
+    crate::render::overlays::shell::OverlayVisuals,
+    crate::render::overlays::shell::OverlayRgb,
+    crate::render::overlays::shell::OverlayRgb,
+) {
+    // Keyboard navigation clears `hovered` while retaining `selected`. Restore
+    // old Halley's strong accent band and add an always-visible focus frame so
+    // that selection remains obvious even when decorative overlay borders are
+    // disabled.
+    if selected {
+        visuals.border_px = visuals.border_px.max(SELECTION_BORDER_PX);
+    }
+    let caption_fill = if selected {
+        visuals.fill.mix(visuals.border, SELECTION_ACCENT_MIX)
+    } else if hovered {
+        visuals.fill.mix(visuals.border, 0.32)
+    } else {
+        visuals.fill
+    };
+    let card_fill = if selected || hovered {
+        visuals.fill.mix(visuals.border, 0.12)
+    } else {
+        visuals.fill
+    };
+    (visuals, caption_fill, card_fill)
+}
+
 pub(super) fn overview_window_source_rect(
     output: &Output,
     output_geometry: Rectangle<i32, Logical>,
@@ -265,11 +321,258 @@ pub(super) fn overview_window_source_rect(
     }
 }
 
-/// How visible creation chrome (badges, outline and instruction bar) is at an
-/// opening progress. It waits until the camera has started moving, then fades
-/// in over the rest of the transition.
-pub(super) fn chrome_alpha(progress: f32) -> f32 {
-    ((progress.clamp(0.0, 1.0) - 0.18) / 0.62).clamp(0.0, 1.0)
+pub(super) fn push_overview_window(
+    elements: &mut Vec<SceneElement>,
+    scene: OverviewScene<'_>,
+    tile: OverviewTile,
+    config: crate::shell::cluster_composer::ComposerStyle,
+    overlay_visuals: crate::render::overlays::shell::OverlayVisuals,
+    visuals: OverviewTransitionVisuals,
+) -> Result<(), Box<dyn Error>> {
+    let OverviewScene {
+        renderer,
+        output,
+        output_geometry,
+        now,
+        desktop,
+        draw,
+    } = scene;
+    let OverviewDesktop {
+        nodes,
+        fullscreen,
+        maximize,
+        decorations,
+        font,
+        ..
+    } = desktop;
+    let OverviewRenderers {
+        node: node_renderer,
+        titlebar: titlebar_renderer,
+        decoration: window_decoration_renderer,
+        text: ui_text,
+        previews: overlay_previews,
+        ..
+    } = draw;
+    let OverviewTile {
+        id,
+        target_global,
+        body_override,
+        progress,
+        focused,
+        member_selected,
+        hovered,
+    } = tile;
+    let Some(record) = nodes.record(id) else {
+        return Ok(());
+    };
+    let target = Rectangle::<i32, Physical>::new(
+        (target_global.loc - output_geometry.loc).to_physical(1),
+        target_global.size.to_physical(1),
+    );
+    let Some(source) = overview_window_source_rect(output, output_geometry, id, desktop, now)
+    else {
+        return Ok(());
+    };
+    let body = body_override.unwrap_or_else(|| lerp_rect(source, target, progress));
+    let (mut card_visuals, mut caption_fill, mut card_fill) =
+        overview_window_chrome(overlay_visuals, focused, hovered);
+    let mut caption_text = overlay_visuals.text;
+    // A selected member gets a thick frame that hugs its tile in the theme's
+    // border colour, with the caption band in the same colour and the overlay
+    // fill as its text. All of it comes from the resolved overlay palette.
+    if member_selected {
+        let selection_fill = overlay_visuals.border;
+        card_visuals.border = selection_fill;
+        card_visuals.border_px = card_visuals.border_px.max(CLUSTER_MEMBER_BORDER_PX);
+        caption_fill = selection_fill;
+        caption_text = overlay_visuals.fill;
+        card_fill = card_fill.mix(selection_fill, 0.22);
+    }
+    let chrome_alpha = visuals.chrome_alpha;
+    // Old Halley kept the caption inside the preview. Growing the card by
+    // a fixed footer made its backing look like an enlarged second window,
+    // especially for short and wide overview tiles.
+    let card = preview_card_rect(body, card_visuals.border_px);
+    let caption = overview_caption_rect(body);
+    if let Some(caption) = caption {
+        let (title, size) = fit_ui_text(
+            renderer,
+            ui_text,
+            &record.title,
+            caption_text.bytes(),
+            caption.size.w - 16,
+        )?;
+        if !title.is_empty()
+            && let Some(text) = ui_text.element(
+                renderer,
+                (
+                    caption.loc.x + (caption.size.w - size.w).max(0) / 2,
+                    caption.loc.y + (caption.size.h - size.h).max(0) / 2,
+                )
+                    .into(),
+                &title,
+                caption_text.bytes(),
+                chrome_alpha,
+            )?
+        {
+            elements.push(SceneElement::UiText(text.element));
+        }
+        elements.push(SceneElement::NodeLabel(
+            crate::render::overlays::shell::label_card_element(
+                renderer,
+                node_renderer,
+                caption,
+                overlay_visuals,
+                caption_fill,
+                if focused || hovered {
+                    0.96 * chrome_alpha
+                } else {
+                    0.88 * chrome_alpha
+                },
+            )?,
+        ));
+    }
+    if record.collapsed {
+        push_node_badge(
+            &mut crate::render::draw::DrawContext {
+                renderer,
+                node: node_renderer,
+                text: ui_text,
+            },
+            elements,
+            body,
+            overlay_visuals,
+            chrome_alpha,
+        )?;
+    }
+
+    let chrome_visible = preview_chrome_visible(&record.window, fullscreen);
+    let maximized = record
+        .window
+        .wl_surface()
+        .is_some_and(|surface| maximize.contains(surface.as_ref()));
+    let direct = config.live_previews
+        && !record.collapsed
+        && push_live_preview(
+            elements,
+            renderer,
+            &record.window,
+            body,
+            visuals.preview_alpha,
+            overlay_visuals.radius,
+            decorations,
+            font,
+            chrome_visible,
+            maximized,
+            titlebar_renderer,
+            window_decoration_renderer,
+            node_renderer,
+            ui_text,
+        )?;
+    if !direct {
+        match overlay_previews.element_with_texture(
+            renderer,
+            crate::render::overlays::preview::OverlayPreviewRequest {
+                id,
+                window: &record.window,
+                destination: body,
+                alpha: visuals.preview_alpha,
+                allow_refresh: !record.collapsed,
+                live: false,
+                decorations,
+                font,
+                chrome_visible,
+                maximized,
+            },
+            crate::render::overlays::preview::OverlayPreviewRenderers {
+                titlebar: titlebar_renderer,
+                decoration: window_decoration_renderer,
+                node: node_renderer,
+                text: ui_text,
+            },
+        ) {
+            Ok((preview, texture)) => push_preview_texture(
+                elements,
+                renderer,
+                window_decoration_renderer,
+                preview,
+                texture,
+                body,
+                overlay_visuals.radius,
+            ),
+            Err(_) => {
+                if let Some(app_id) = record.app_id.as_deref()
+                    && let Some(icon) = node_renderer.app_icon_element(
+                        renderer,
+                        app_id,
+                        body,
+                        visuals.preview_alpha,
+                    )
+                {
+                    elements.push(SceneElement::NodeTexture(icon));
+                }
+            }
+        }
+    }
+    elements.push(SceneElement::NodeLabel(
+        crate::render::overlays::shell::card_element(
+            renderer,
+            node_renderer,
+            card,
+            card_visuals,
+            card_fill,
+            0.96 * visuals.overlay_alpha,
+        )?,
+    ));
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct OverviewTransitionVisuals {
+    pub(super) preview_alpha: f32,
+    pub(super) overlay_alpha: f32,
+    pub(super) chrome_alpha: f32,
+}
+
+pub(super) fn overview_transition_visuals(progress: f32) -> OverviewTransitionVisuals {
+    let overlay_alpha = progress.clamp(0.0, 1.0);
+    OverviewTransitionVisuals {
+        // The preview is the handoff surface: at progress zero it occupies the
+        // live window's exact rect, so fading it would expose a wallpaper-only
+        // frame on both entry and exit.
+        preview_alpha: 1.0,
+        overlay_alpha,
+        chrome_alpha: ((overlay_alpha - 0.18) / 0.62).clamp(0.0, 1.0),
+    }
+}
+
+pub(super) fn lerp_rect(
+    from: Rectangle<i32, Physical>,
+    to: Rectangle<i32, Physical>,
+    progress: f32,
+) -> Rectangle<i32, Physical> {
+    let lerp = |a: i32, b: i32| (a as f32 + (b - a) as f32 * progress).round() as i32;
+    Rectangle::new(
+        (lerp(from.loc.x, to.loc.x), lerp(from.loc.y, to.loc.y)).into(),
+        (
+            lerp(from.size.w, to.size.w).max(1),
+            lerp(from.size.h, to.size.h).max(1),
+        )
+            .into(),
+    )
+}
+
+pub(super) fn overview_caption_rect(
+    body: Rectangle<i32, Physical>,
+) -> Option<Rectangle<i32, Physical>> {
+    if body.size.w < 96 || body.size.h < 72 {
+        return None;
+    }
+    let height = ((body.size.h as f32 * 0.13).round() as i32).clamp(22, 34);
+    Some(Rectangle::new(
+        (body.loc.x + 8, body.loc.y + body.size.h - height - 8).into(),
+        ((body.size.w - 16).max(1), height).into(),
+    ))
 }
 
 pub(super) struct FocusCycleRenderContext<'a> {
@@ -919,5 +1222,77 @@ pub(super) fn truncate_chars(text: &str, max: usize) -> String {
         format!("{prefix}…")
     } else {
         prefix
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SELECTION_ACCENT_MIX, SELECTION_BORDER_PX, overview_window_chrome};
+    use crate::render::overlays::shell::{OverlayRgb, OverlayVisuals};
+
+    fn visuals(border_px: f32) -> OverlayVisuals {
+        OverlayVisuals {
+            fill: OverlayRgb {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            },
+            text: OverlayRgb {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+            error: OverlayRgb {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            subtext: OverlayRgb {
+                r: 0.8,
+                g: 0.8,
+                b: 0.8,
+                a: 1.0,
+            },
+            key_fill: OverlayRgb {
+                r: 0.2,
+                g: 0.2,
+                b: 0.2,
+                a: 1.0,
+            },
+            border: OverlayRgb {
+                r: 0.4,
+                g: 0.7,
+                b: 1.0,
+                a: 1.0,
+            },
+            border_px,
+            radius: 8.0,
+        }
+    }
+
+    #[test]
+    fn keyboard_selection_restores_accent_band_and_focus_frame() {
+        let base = visuals(0.0);
+        let (selected, caption_fill, card_fill) = overview_window_chrome(base, true, false);
+
+        assert_eq!(selected.border_px, SELECTION_BORDER_PX);
+        assert_eq!(
+            caption_fill,
+            base.fill.mix(base.border, SELECTION_ACCENT_MIX)
+        );
+        assert_eq!(card_fill, base.fill.mix(base.border, 0.12));
+    }
+
+    #[test]
+    fn idle_window_keeps_configured_chrome() {
+        let base = visuals(2.0);
+        let (idle, caption_fill, card_fill) = overview_window_chrome(base, false, false);
+
+        assert_eq!(idle.border_px, base.border_px);
+        assert_eq!(caption_fill, base.fill);
+        assert_eq!(card_fill, base.fill);
     }
 }

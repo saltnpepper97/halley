@@ -396,15 +396,13 @@ pub(crate) fn dispatch<D: SessionDriver>(
                     let now = crate::frame_clock::monotonic_now();
                     if session.clusters.begin_creation(output.clone()) {
                         if session.shell.cluster_composer.open(
+                            &session.wayland.space,
                             &session.nodes,
                             &session.clusters,
                             &output,
                             crate::shell::cluster_composer::ComposerStyle::default(),
                             now,
                         ) {
-                            // Creation happens on the Field itself: zoom this
-                            // monitor out so every candidate is in view.
-                            crate::session::zoom_fit::enter_for_creation(session, &output);
                             session.cursor.set_override(
                                 crate::cursor::OverrideSource::Modal,
                                 Some(smithay::input::pointer::CursorIcon::Default),

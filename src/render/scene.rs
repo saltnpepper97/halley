@@ -58,7 +58,7 @@ pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
 #[cfg(test)]
 use capture_ui::picker_layout;
 #[cfg(test)]
-use overview::aspect_fit_rect;
+use overview::{aspect_fit_rect, overview_transition_visuals};
 
 #[cfg(test)]
 use smithay::utils::Point;
@@ -223,7 +223,14 @@ fn build_logical(
     }
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
-    if privacy.redact_cached_scene() && request.overlays.focus_cycle.is_active() {
+    if privacy.redact_cached_scene()
+        && (request.overlays.focus_cycle.is_active()
+            || request
+                .overlays
+                .cluster_composer
+                .target_output()
+                .is_some_and(|name| name == output.name()))
+    {
         return Ok(vec![SceneElement::Border(super::solid_color_element(
             Id::new(),
             Rectangle::from_size(output_geometry.size.to_physical(1)),
@@ -307,7 +314,9 @@ fn build_logical(
         &mut cluster_creation,
     )?;
     elements.extend(cluster_creation);
-    let mut creation_overlay = cluster_composer_elements(
+    // Cluster creation lays its candidates out over the live Field, which
+    // stays visible behind them; the real windows are hidden meanwhile.
+    let mut creation_tiles = cluster_composer_elements(
         overview::OverviewScene {
             renderer,
             output,
@@ -324,17 +333,18 @@ fn build_logical(
             now: request.frame.target_presentation_time,
         },
         request.overlays.cluster_composer,
+        crate::shell::cluster_composer::ComposerStyle::default(),
         request.overlays.overlay_config,
     )?;
     append_overlay_shadows(
         renderer,
         output,
-        "cluster-creation-chrome",
+        "cluster-composer",
         request.visuals.shadows.overlay,
         request.resources.shadow_renderer,
-        &mut creation_overlay,
+        &mut creation_tiles,
     )?;
-    elements.extend(creation_overlay);
+    elements.extend(creation_tiles);
     elements.extend(layer_surface_scene_elements(
         renderer,
         output,

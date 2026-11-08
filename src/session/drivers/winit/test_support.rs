@@ -135,6 +135,12 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                     let snapshot = app.shell.overlays.snapshot(&output.name(), now).empty_cluster?;
                     Some(serde_json::json!({"output": output.name(), "shortcut": snapshot.shortcut, "armed": snapshot.armed}))
                 }).collect::<Vec<_>>(),
+                "composer": app.shell.cluster_composer.session().map(|composer| serde_json::json!({
+                    "interactive": app.shell.cluster_composer.accepts_input()
+                        && composer.progress(now) >= 1.0,
+                    "tiles": composer.tiles.iter().map(|tile| serde_json::json!({"id": tile.id.as_u64(),
+                        "rect": [tile.target.loc.x, tile.target.loc.y, tile.target.size.w, tile.target.size.h]})).collect::<Vec<_>>(),
+                })),
                 "notices": app.wayland.space.outputs().filter_map(|output| {
                     let origin = output.current_location();
                     let (target, rect) = app.shell.overlays.notice_card(&output.name())?;

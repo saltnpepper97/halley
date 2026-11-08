@@ -83,6 +83,9 @@ pub(super) struct LiveWindowContext<'a> {
     pub(super) instance_identity: Option<&'static str>,
     pub(super) titlebar_hovered: Option<&'a crate::titlebar::ButtonTarget>,
     pub(super) titlebar_pressed: Option<&'a crate::titlebar::ButtonTarget>,
+    /// Windows drawn elsewhere for now, such as cluster creation's laid-out
+    /// copies. Their live scene is skipped so a window is never shown twice.
+    pub(super) hidden: &'a [halley_core::field::NodeId],
 }
 
 /// Keep the accepted live endpoint in the offscreen blend until motion is

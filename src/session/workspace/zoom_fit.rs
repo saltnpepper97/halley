@@ -36,9 +36,6 @@ struct Fitted {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ZoomFitState {
     by_output: HashMap<String, Fitted>,
-    /// The view cluster creation zoomed out from, kept apart from `Mod+O` so
-    /// Escape and the zoom-fit key keep their own meaning while creating.
-    creation: Option<(String, Fitted)>,
 }
 
 impl ZoomFitState {
@@ -164,130 +161,58 @@ pub(crate) fn enter<D: SessionDriver>(session: &mut Session<D>) -> bool {
         return false;
     }
     session.nodes.sync_from_space(&session.wayland.space);
-    let outputs = session
-        .wayland
-        .space
-        .outputs()
-        .map(|output| output.name())
-        .collect::<Vec<_>>();
+    let outputs = session.wayland.space.outputs().cloned().collect::<Vec<_>>();
     let mut changed = false;
-    for name in outputs {
+    for output in outputs {
+        let name = output.name();
         if session.clusters.active_on(&name).is_some() {
             continue;
         }
-        if let Some(fitted) = fit_output(session, &name, true) {
-            session.interactions.zoom_fit.by_output.insert(name, fitted);
-            changed = true;
-        }
+        let Some(geometry) = session.wayland.space.output_geometry(&output) else {
+            continue;
+        };
+        let Some(bounds) = content_bounds(session, &name) else {
+            continue;
+        };
+        let Some(camera) = session.cameras.get_mut_for_pan(&name) else {
+            continue;
+        };
+        // Room for a node drawn at the edge plus one reflow push away from a
+        // neighbouring window: a node diameter and its gap on top of the
+        // half diameter it already needs.
+        let node_margin =
+            crate::nodes::NODE_DIAMETER_PX * 1.5 + session.settings.field.gap.max(0.0);
+        let (center, scale) = fit(
+            bounds,
+            Vec2 {
+                x: geometry.size.w as f32,
+                y: geometry.size.h as f32,
+            },
+            node_margin,
+        );
+        let fitted = Fitted {
+            saved_center: camera.target_center,
+            saved_view_size: camera.target_view_size,
+            fitted_center: Vec2 {
+                x: center.x - geometry.loc.x as f32,
+                y: center.y - geometry.loc.y as f32,
+            },
+            fitted_view_size: Vec2 {
+                x: camera.base_size.x / scale,
+                y: camera.base_size.y / scale,
+            },
+        };
+        camera.zoom_log_vel = 0.0;
+        camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
+        camera.target_center = fitted.fitted_center;
+        camera.target_view_size = fitted.fitted_view_size;
+        session.interactions.zoom_fit.by_output.insert(name, fitted);
+        changed = true;
     }
     if changed {
         session.request_redraw();
     }
     changed
-}
-
-/// Zooms `output` out so every window and node that could join a new cluster
-/// is in view. Creation never zooms in and leaves the camera alone when
-/// everything already fits.
-pub(crate) fn enter_for_creation<D: SessionDriver>(session: &mut Session<D>, output: &str) {
-    if !session.settings.zoom.enabled {
-        return;
-    }
-    if let Some(fitted) = fit_output(session, output, false) {
-        session.interactions.zoom_fit.creation = Some((output.to_string(), fitted));
-        session.request_redraw();
-    }
-}
-
-/// Returns the monitor cluster creation zoomed out back to its earlier view,
-/// unless the user has moved the camera since.
-pub(crate) fn leave_for_creation<D: SessionDriver>(session: &mut Session<D>) {
-    let Some((output, fitted)) = session.interactions.zoom_fit.creation.take() else {
-        return;
-    };
-    if let Some(camera) = session.cameras.get_mut_for_pan(&output)
-        && camera.target_center == fitted.fitted_center
-        && camera.target_view_size == fitted.fitted_view_size
-    {
-        camera.target_center = fitted.saved_center;
-        camera.target_view_size = fitted.saved_view_size;
-        session.request_redraw();
-    }
-}
-
-/// Moves one output's camera to fit its windows and nodes and returns the
-/// saved and fitted views. Without `allow_zoom_in`, the scale never grows and
-/// nothing changes when everything is already on screen.
-fn fit_output<D: SessionDriver>(
-    session: &mut Session<D>,
-    name: &str,
-    allow_zoom_in: bool,
-) -> Option<Fitted> {
-    let output = session
-        .wayland
-        .space
-        .outputs()
-        .find(|output| output.name() == name)?
-        .clone();
-    let geometry = session.wayland.space.output_geometry(&output)?;
-    let bounds = content_bounds(session, name)?;
-    // Room for a node drawn at the edge plus one reflow push away from a
-    // neighbouring window: a node diameter and its gap on top of the half
-    // diameter it already needs.
-    let node_margin = crate::nodes::NODE_DIAMETER_PX * 1.5 + session.settings.field.gap.max(0.0);
-    let screen = Vec2 {
-        x: geometry.size.w as f32,
-        y: geometry.size.h as f32,
-    };
-    let camera = session.cameras.get_mut_for_pan(name)?;
-    let (center, mut scale) = fit(bounds, screen, node_margin);
-    if !allow_zoom_in {
-        let current = crate::presentation::camera::scale(camera);
-        if already_visible(bounds, camera, geometry, node_margin, current) {
-            return None;
-        }
-        scale = scale.min(current);
-    }
-    let fitted = Fitted {
-        saved_center: camera.target_center,
-        saved_view_size: camera.target_view_size,
-        fitted_center: Vec2 {
-            x: center.x - geometry.loc.x as f32,
-            y: center.y - geometry.loc.y as f32,
-        },
-        fitted_view_size: Vec2 {
-            x: camera.base_size.x / scale,
-            y: camera.base_size.y / scale,
-        },
-    };
-    camera.zoom_log_vel = 0.0;
-    camera.pan_vel = Vec2 { x: 0.0, y: 0.0 };
-    camera.target_center = fitted.fitted_center;
-    camera.target_view_size = fitted.fitted_view_size;
-    Some(fitted)
-}
-
-/// Whether `bounds`, plus screen room for nodes, is already inside the
-/// camera's current view.
-fn already_visible(
-    bounds: Bounds,
-    camera: &Camera,
-    geometry: Rectangle<i32, Logical>,
-    node_margin_px: f32,
-    scale: f32,
-) -> bool {
-    let scale = scale.max(f32::EPSILON);
-    let center = Vec2 {
-        x: geometry.loc.x as f32 + camera.center.x,
-        y: geometry.loc.y as f32 + camera.center.y,
-    };
-    let half_w = geometry.size.w as f32 * 0.5 / scale;
-    let half_h = geometry.size.h as f32 * 0.5 / scale;
-    let room = node_margin_px / scale;
-    bounds.min.x - room >= center.x - half_w
-        && bounds.max.x + room <= center.x + half_w
-        && bounds.min.y - room >= center.y - half_h
-        && bounds.max.y + room <= center.y + half_h
 }
 
 /// Returns every fitted monitor to the view it had before.
@@ -382,25 +307,6 @@ fn pick_at<D: SessionDriver>(
             .then_some(Pick::Window(id))
         })
         .unwrap_or(Pick::Field)
-}
-
-/// The window or node under `position` on `output`, if any, using what is
-/// actually drawn: node markers first, then the topmost window.
-pub(crate) fn node_under<D: SessionDriver>(
-    session: &Session<D>,
-    position: Point<f64, Logical>,
-) -> Option<NodeId> {
-    let output = session
-        .wayland
-        .space
-        .output_under((position.x, position.y))
-        .next()?;
-    let geometry = session.wayland.space.output_geometry(output)?;
-    let camera = session.cameras.get(&output.name())?;
-    match pick_at(session, output, geometry, camera, position) {
-        Pick::Node(id) | Pick::Window(id) => Some(id),
-        Pick::Field => None,
-    }
 }
 
 /// Zooms back in on the picked window or node and focuses it. A collapsed

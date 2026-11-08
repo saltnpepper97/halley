@@ -43,7 +43,7 @@ shows them bound to `Super+Alt+Arrow` and `Super+Alt+Shift+Arrow`.
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
 | Arrange | `Super+A` | Reversible cleanup: lay out the visible Field windows without overlap, or press again to put them back |
-| Clusters | `Super+Shift+C` | Create a cluster: pick windows on the zoomed-out Field |
+| Clusters | `Super+Shift+C` | Create a cluster: windows are laid out over the Field to pick from |
 | Clusters | `Super+L` | Cycle cluster layout |
 | Clusters | `Super+V` | Toggle the focused cluster member floating |
 | Clusters | `Super+0..9` | Open a per-monitor cluster slot |

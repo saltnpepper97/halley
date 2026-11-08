@@ -212,19 +212,9 @@ pub(crate) fn begin_cluster_commit<D: SessionDriver>(session: &mut Session<D>) -
         .prepare_creation(session.nodes.field(), focused, fallback_core_position)
     {
         Ok(prepared) => {
-            // The real windows fly into the new cluster node. The commit ends
-            // a little before their flight does, so the cluster takes them
-            // while they are still on their way rather than after they would
-            // snap back to their old places.
-            let flying = start_commit_flights(session, &prepared, now);
-            let transition_ms = if flying {
-                commit_duration_ms(session)
-            } else {
-                0
-            };
             if session.shell.cluster_composer.begin_commit(
                 prepared,
-                crate::shell::cluster_composer::ComposerStyle { transition_ms },
+                crate::shell::cluster_composer::ComposerStyle::default(),
                 now,
             ) {
                 session
@@ -466,89 +456,4 @@ pub(crate) fn wakeup_cluster_interactions<D: SessionDriver>(
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
     true
-}
-
-/// Starts each selected window flying from where it is drawn now into the new
-/// cluster node, using the same animation as Arrange. Collapsed nodes are
-/// absorbed when the cluster forms. Returns whether anything is flying.
-fn start_commit_flights<D: SessionDriver>(
-    session: &mut Session<D>,
-    prepared: &crate::clusters::PreparedCreation,
-    now: std::time::Duration,
-) -> bool {
-    let Some(output) = session
-        .wayland
-        .space
-        .outputs()
-        .find(|output| output.name() == prepared.output)
-        .cloned()
-    else {
-        return false;
-    };
-    let Some(scale) = session
-        .cameras
-        .view(&prepared.output)
-        .map(|view| view.scale)
-    else {
-        return false;
-    };
-    // The cluster node is drawn at a fixed screen size.
-    let side = (crate::clusters::CORE_DIAMETER_PX / scale.max(f32::EPSILON)).round() as i32;
-    let core = Rectangle::new(
-        (
-            prepared.core_position.x.round() as i32 - side / 2,
-            prepared.core_position.y.round() as i32 - side / 2,
-        )
-            .into(),
-        (side.max(1), side.max(1)).into(),
-    );
-    let Some(target) = super::super::arrange::field_visual_rect(session, &output, core) else {
-        return false;
-    };
-    let mut flying = false;
-    for id in &prepared.members {
-        let Some(record) = session
-            .nodes
-            .record(*id)
-            .filter(|record| record.attached && !record.collapsed)
-            .cloned()
-        else {
-            continue;
-        };
-        let Some(current) =
-            super::super::presented_window_rect(session, &record.window, &output, now)
-        else {
-            continue;
-        };
-        let size = session
-            .wayland
-            .space
-            .element_geometry(&record.window)
-            .map_or(record.geometry.size, |geometry| geometry.size);
-        super::super::arrange::capture_arrange_texture(
-            session,
-            &record.window,
-            &record.surface,
-            size,
-            now,
-        );
-        flying |= session
-            .window_animations
-            .arrange(record.surface.clone(), now, current, target);
-    }
-    if flying {
-        session.request_output_redraw(&output);
-    }
-    flying
-}
-
-/// How long the commit lasts: slightly shorter than the window flight, so the
-/// cluster forms before a finished flight would hand the windows back.
-fn commit_duration_ms<D: SessionDriver>(session: &Session<D>) -> u64 {
-    match session.settings.animations.arrange.motion {
-        halley_config::AnimationMotion::Easing(easing) => u64::from(easing.duration_ms) * 85 / 100,
-        halley_config::AnimationMotion::Spring(_) => {
-            crate::shell::cluster_composer::ComposerStyle::default().transition_ms
-        }
-    }
 }

@@ -179,11 +179,10 @@ pub(super) fn cluster_composer<D: SessionDriver, B: InputBackend>(
                         },
                     );
                 } else {
-                    let hovered = crate::session::zoom_fit::node_under(
-                        session,
-                        Point::<f64, Logical>::from(proposed_position),
-                    );
-                    session.shell.cluster_composer.hover(hovered);
+                    session
+                        .shell
+                        .cluster_composer
+                        .hover(Point::<f64, Logical>::from(proposed_position));
                 }
             }
             InputEvent::PointerButton { event } => {
@@ -218,15 +217,12 @@ pub(super) fn cluster_composer<D: SessionDriver, B: InputBackend>(
                                 }
                             } else {
                                 let position = Point::<f64, Logical>::from(proposed_position);
-                                let clicked =
-                                    crate::session::zoom_fit::node_under(session, position).filter(
-                                        |id| {
-                                            session.shell.cluster_composer.session().is_some_and(
-                                                |composer| composer.tile(*id).is_some(),
-                                            )
-                                        },
-                                    );
-                                session.shell.cluster_composer.hover(clicked);
+                                let clicked = session
+                                    .shell
+                                    .cluster_composer
+                                    .session()
+                                    .and_then(|composer| composer.hit_test(position));
+                                session.shell.cluster_composer.hover(position);
                                 if let (Some(id), Some(output)) = (
                                     clicked,
                                     session

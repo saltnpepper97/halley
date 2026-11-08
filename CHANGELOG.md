@@ -16,13 +16,13 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
-- Create clusters on the Field instead of a separate screen. `Super+Shift+C`
-  now zooms the monitor out just far enough to show every window and node that
-  can join, and you pick them where they are, with the same keys as before:
-  arrows or the pointer to highlight, Space or a click to select, Enter to
-  name, Escape to back out. The selected windows fly into the new cluster node,
-  and the camera returns to your view afterwards. Cluster Composer's separate
-  mosaic screen is gone.
+- Create clusters over the Field instead of on a separate screen.
+  `Super+Shift+C` still lays every window and node that can join out so none
+  overlap, but over the live Field, lightly dimmed, rather than a dark
+  wallpaper-only screen, and the windows glide there from where they are. The
+  keys are unchanged: arrows or the pointer to highlight, Space or a click to
+  select, Enter to name, Escape to back out. Selected windows get a thick frame
+  in the overlay's border colour instead of the inverted text colour.
 - Replace Apogee with zoom to fit (`Mod+O`). Instead of opening a separate
   overview screen, each monitor's Field zooms out until every window and node
   on it fits. Click a window or node to zoom back in on it, or press `Mod+O`

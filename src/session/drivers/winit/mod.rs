@@ -734,6 +734,19 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             frame_callback_sequence,
                         );
                     }
+                } else if app
+                    .shell
+                    .cluster_composer
+                    .target_output()
+                    .is_some_and(|name| name == output.name())
+                {
+                    crate::shell::cluster_composer::send_preview_frames(
+                        &app.shell.cluster_composer,
+                        &app.nodes,
+                        &output,
+                        elapsed,
+                        frame_callback_sequence,
+                    );
                 } else if app.shell.focus_cycle.is_active() {
                     crate::shell::focus_cycle::send_preview_frames(
                         &app.shell.focus_cycle,

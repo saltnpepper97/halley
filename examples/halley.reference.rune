@@ -622,9 +622,9 @@ debug:
 end
 
 # Clusters group related windows behind one circular desktop icon. Press the
-# cluster-mode binding and the monitor zooms out so you can pick windows where
-# they are. Use arrows or the pointer to focus, Space or click to select, Enter
-# to name, and Escape to back out or cancel.
+# cluster-mode binding and the windows are laid out over the Field without
+# overlapping. Use arrows or the pointer to focus, Space or click to select,
+# Enter to name, and Escape to back out or cancel.
 clusters:
   # New clusters open in "stacking" (overlapping cards) or "tiling" (one
   # master window beside a vertical stack). Mod+L changes the active cluster.

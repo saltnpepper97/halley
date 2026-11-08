@@ -19,6 +19,8 @@ pub(super) fn append(
     elements: &mut Vec<SceneElement>,
 ) -> Result<(), Box<dyn Error>> {
     let privacy = placement.privacy;
+    // Cluster creation draws its candidates as laid-out tiles over the Field.
+    let hidden = request.overlays.cluster_composer.hidden_on(&output.name());
     let cluster_exclusive = crate::presentation::window::cluster_exclusive_presentation(
         request.desktop.clusters,
         request.desktop.nodes,
@@ -82,6 +84,7 @@ pub(super) fn append(
             shadow_config: request.visuals.shadows.node,
             shadow_renderer: request.resources.shadow_renderer,
             now: request.frame.target_presentation_time,
+            hidden: &hidden,
         },
     )?;
     elements.extend(node_scene.overlay);
@@ -159,6 +162,7 @@ pub(super) fn append(
     elements.extend(cluster_overflow);
     stack.extend(cluster_scene);
     let context = LiveWindowContext {
+        hidden: &hidden,
         space: request.desktop.space,
         output,
         output_geometry,

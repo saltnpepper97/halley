@@ -33,10 +33,10 @@ position first.
 
 ## Creating a cluster
 
-Press `Super+Shift+C` (the `cluster-mode` binding). Creation happens on the
-Field itself: the monitor zooms out just far enough to show every window and
-node that can join, and zooms back when you finish or cancel. Nothing moves
-while you choose.
+Press `Super+Shift+C` (the `cluster-mode` binding). Creation happens over the
+Field rather than on a separate screen: every window and node that can join
+glides from where it is into a layout where nothing overlaps, with the Field
+still visible, lightly dimmed, behind them. Cancelling glides them back.
 
 - The arrow keys move the highlight to the nearest window or node in that
   direction, and pointing at one highlights it too.

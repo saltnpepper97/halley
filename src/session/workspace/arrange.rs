@@ -265,7 +265,7 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     true
 }
 
-pub(crate) fn capture_arrange_texture<D: SessionDriver>(
+fn capture_arrange_texture<D: SessionDriver>(
     session: &mut Session<D>,
     window: &Window,
     surface: &WlSurface,
@@ -373,7 +373,7 @@ fn restore_transaction<D: SessionDriver>(
     restored
 }
 
-pub(crate) fn field_visual_rect<D: SessionDriver>(
+fn field_visual_rect<D: SessionDriver>(
     session: &Session<D>,
     output: &smithay::output::Output,
     geometry: Rectangle<i32, Logical>,
