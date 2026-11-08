@@ -49,7 +49,6 @@ pub(super) fn sync<D: SessionDriver>(session: &mut Session<D>, now: Duration) ->
         || session.shell.overlays.confirmation_modal_active()
         || session.shell.overlays.basics_card_accepts_input()
         || session.capture.is_active()
-        || session.shell.apogee.is_active()
         || session.shell.focus_cycle.is_open()
         || session.shell.cluster_composer.is_active()
         || session.clusters.accepts_modal_input()

@@ -384,7 +384,7 @@ fn read_pixels<E: RenderElement<GlesRenderer>>(
 
 #[test]
 #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
-fn apogee_dimming_preserves_wallpaper_hue_and_fades_without_a_brightness_jump() {
+fn overview_dimming_preserves_wallpaper_hue_and_fades_without_a_brightness_jump() {
     let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
     let context = EGLContext::new(&display).unwrap();
     let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
@@ -406,7 +406,7 @@ fn apogee_dimming_preserves_wallpaper_hue_and_fades_without_a_brightness_jump() 
                     crate::render::solid_color_element(
                         backdrop_id.clone(),
                         Rectangle::from_size(size.into()),
-                        overview::apogee_backdrop_color(dim, progress),
+                        overview::overview_backdrop_color(dim, progress),
                     ),
                     crate::render::solid_color_element(
                         wallpaper_id.clone(),
@@ -441,7 +441,7 @@ fn apogee_dimming_preserves_wallpaper_hue_and_fades_without_a_brightness_jump() 
             }
         }
     }
-    println!("verified {frames} Apogee dimming frames with reused-buffer damage");
+    println!("verified {frames} overview dimming frames with reused-buffer damage");
 }
 
 #[test]

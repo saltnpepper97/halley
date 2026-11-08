@@ -18,7 +18,7 @@ const SELECTED_BADGE_CORNER_OVERLAP: i32 = 5;
 pub(super) fn cluster_composer_elements(
     scene: OverviewScene<'_>,
     state: &crate::shell::cluster_composer::ClusterComposerState,
-    config: halley_config::Apogee,
+    config: crate::shell::cluster_composer::ComposerStyle,
     overlay_config: &halley_config::Overlays,
 ) -> Result<Vec<SceneElement>, Box<dyn Error>> {
     let OverviewScene {
@@ -51,7 +51,7 @@ pub(super) fn cluster_composer_elements(
     };
     let creation = clusters.creation();
     let progress = session.progress(now).clamp(0.0, 1.0);
-    let ordinary_transition = super::overview::apogee_transition_visuals(progress);
+    let ordinary_transition = super::overview::overview_transition_visuals(progress);
     let commit_progress = session.commit_progress(now);
     let committing = matches!(
         session.phase(),
@@ -114,7 +114,7 @@ pub(super) fn cluster_composer_elements(
         };
         let mut tile_transition = if committing {
             let chrome = (1.0 - commit_progress / 0.62).clamp(0.0, 1.0);
-            let mut transition = super::overview::apogee_transition_visuals(1.0);
+            let mut transition = super::overview::overview_transition_visuals(1.0);
             transition.chrome_alpha = chrome;
             transition.overlay_alpha = chrome;
             if selected {
@@ -215,7 +215,7 @@ pub(super) fn cluster_composer_elements(
     elements.push(SceneElement::Border(crate::render::solid_color_element(
         node_renderer.active_slot_id(crate::render::node::NodeSlot::ClusterComposerBackdrop),
         output_local,
-        super::overview::apogee_backdrop_color(config.background_dim, backdrop_progress),
+        super::overview::overview_backdrop_color(config.background_dim, backdrop_progress),
     )));
     if session.phase() == crate::shell::cluster_composer::Phase::CommitEndpointHeld {
         session.mark_endpoint_rendered();

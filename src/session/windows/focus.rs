@@ -402,7 +402,6 @@ fn hover_is_blocked<D: SessionDriver>(session: &Session<D>) -> bool {
     pointer_grabbed
         || session.interactions.has_grab()
         || session.capture.is_active()
-        || session.shell.apogee.is_active()
         || session.shell.focus_cycle.is_open()
         || super::pointer::has_active_constraint(session)
         || exclusive_layer

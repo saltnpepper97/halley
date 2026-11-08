@@ -71,8 +71,8 @@ pub(crate) fn rows(binds: &[ResolvedBind]) -> Vec<BasicsRow> {
             "Collapse or restore a window",
         ),
         (
-            or_none(key(halley_config::Action::Apogee)),
-            "See everything in Apogee",
+            or_none(key(halley_config::Action::ZoomFit)),
+            "Zoom out to see everything",
         ),
     ]
 }
@@ -282,9 +282,9 @@ mod tests {
     #[test]
     fn unbound_rows_say_so() {
         let mut keybinds = Keybinds::default();
-        keybinds.binds.retain(|bind| bind.action != Action::Apogee);
+        keybinds.binds.retain(|bind| bind.action != Action::ZoomFit);
         let rows = rows_for(&keybinds, BackendKind::Tty);
-        assert_eq!(rows[4], (NO_SHORTCUT.into(), "See everything in Apogee"));
+        assert_eq!(rows[4], (NO_SHORTCUT.into(), "Zoom out to see everything"));
     }
 
     #[test]

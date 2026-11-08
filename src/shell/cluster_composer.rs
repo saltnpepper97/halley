@@ -5,6 +5,29 @@ use halley_core::field::NodeId;
 use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Point, Rectangle};
 
+/// Timing and spacing for Cluster Composer's mosaic. These used to come from
+/// the removed `apogee:` config section; Composer keeps the same defaults.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ComposerStyle {
+    pub transition_ms: u64,
+    pub gap: f32,
+    pub max_rows: u32,
+    pub background_dim: f32,
+    pub live_previews: bool,
+}
+
+impl Default for ComposerStyle {
+    fn default() -> Self {
+        Self {
+            transition_ms: 320,
+            gap: 24.0,
+            max_rows: 3,
+            background_dim: 0.85,
+            live_previews: true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Left,
@@ -208,7 +231,7 @@ impl ClusterComposerState {
         nodes: &crate::nodes::NodesState,
         clusters: &crate::clusters::ClusterSystem,
         output: &str,
-        config: halley_config::Apogee,
+        config: ComposerStyle,
         now: Duration,
     ) -> bool {
         if self.session.is_some() {
@@ -326,7 +349,7 @@ impl ClusterComposerState {
         true
     }
 
-    pub fn close(&mut self, config: halley_config::Apogee, now: Duration) -> bool {
+    pub fn close(&mut self, config: ComposerStyle, now: Duration) -> bool {
         let Some(session) = self
             .session
             .as_mut()
@@ -348,7 +371,7 @@ impl ClusterComposerState {
     pub fn begin_commit(
         &mut self,
         prepared: crate::clusters::PreparedCreation,
-        config: halley_config::Apogee,
+        config: ComposerStyle,
         now: Duration,
     ) -> bool {
         let Some(session) = self.session.as_mut().filter(|session| {
@@ -384,7 +407,7 @@ impl ClusterComposerState {
         true
     }
 
-    pub fn begin_reveal(&mut self, config: halley_config::Apogee, now: Duration) -> bool {
+    pub fn begin_reveal(&mut self, config: ComposerStyle, now: Duration) -> bool {
         let Some(session) = self
             .session
             .as_mut()
@@ -547,7 +570,7 @@ pub fn tick_session<D: crate::session::SessionDriver>(
         session
             .shell
             .cluster_composer
-            .close(session.settings.apogee, now);
+            .close(ComposerStyle::default(), now);
     }
     match session.shell.cluster_composer.tick(now) {
         Tick::Idle => {
@@ -567,7 +590,7 @@ pub fn tick_session<D: crate::session::SessionDriver>(
                 session
                     .shell
                     .cluster_composer
-                    .begin_reveal(session.settings.apogee, now);
+                    .begin_reveal(ComposerStyle::default(), now);
             } else {
                 session.shell.cluster_composer.abort_commit();
                 session.clusters.abort_prepared_creation();
@@ -603,7 +626,7 @@ fn build_layout(
     clusters: &crate::clusters::ClusterSystem,
     output: &str,
     bounds: Rectangle<i32, Logical>,
-    config: halley_config::Apogee,
+    config: ComposerStyle,
 ) -> Vec<Tile> {
     let mut entries = nodes
         .records()
@@ -804,9 +827,9 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = halley_config::Apogee {
+        let config = ComposerStyle {
             transition_ms: 300,
-            ..halley_config::Apogee::default()
+            ..ComposerStyle::default()
         };
         assert!(state.close(config, Duration::ZERO));
         assert!(!state.accepts_input());
@@ -834,9 +857,9 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(opening),
         };
-        let config = halley_config::Apogee {
+        let config = ComposerStyle {
             transition_ms: 300,
-            ..halley_config::Apogee::default()
+            ..ComposerStyle::default()
         };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::from_millis(150)));
         assert_eq!(state.session().unwrap().commit_opening_progress(), 0.5);
@@ -848,9 +871,9 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = halley_config::Apogee {
+        let config = ComposerStyle {
             transition_ms: 300,
-            ..halley_config::Apogee::default()
+            ..ComposerStyle::default()
         };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::ZERO));
         assert!(matches!(
@@ -878,9 +901,9 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = halley_config::Apogee {
+        let config = ComposerStyle {
             transition_ms: 0,
-            ..halley_config::Apogee::default()
+            ..ComposerStyle::default()
         };
         assert!(state.begin_commit(prepared(vec![id]), config, Duration::ZERO));
         assert!(matches!(
@@ -899,9 +922,9 @@ mod tests {
         let mut state = ClusterComposerState {
             session: Some(interactive_session(vec![tile(1, 0, 0)])),
         };
-        let config = halley_config::Apogee {
+        let config = ComposerStyle {
             transition_ms: 300,
-            ..halley_config::Apogee::default()
+            ..ComposerStyle::default()
         };
         assert!(state.begin_commit(expected.clone(), config, Duration::ZERO));
         assert!(matches!(

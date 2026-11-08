@@ -121,9 +121,9 @@ keybinds:
   # Tidy the visible windows into a mosaic; press again to undo.
   "$var.mod+a" "tidy"
 
-  # Finding things: Apogee shows everything, Bearings points to what is off
-  # screen, Alt+Tab and the Trail walk recent windows.
-  "$var.mod+o" "apogee"
+  # Finding things: zoom-fit zooms out to show everything, Bearings points to
+  # what is off screen, Alt+Tab and the Trail walk recent windows.
+  "$var.mod+o" "zoom-fit"
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
   "alt+tab" "cycle-focus"

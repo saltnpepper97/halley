@@ -1,8 +1,8 @@
 //! Tidy: lay out the windows visible on one Field output without overlap,
 //! and put them back with a second press.
 //!
-//! The layout is the Apogee mosaic packer, so it is predictable in the same
-//! way: windows keep their shapes, larger windows get larger slots, nothing
+//! The layout is the mosaic packer that Apogee used, so it is predictable:
+//! windows keep their shapes, larger windows get larger slots, nothing
 //! overlaps, and Field reading order breaks ties. A window whose minimum or
 //! maximum size rules out its slot gets the nearest size it accepts, centred
 //! on that slot, instead of reshaping everyone else's layout. No eligible
@@ -15,7 +15,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::{Session, SessionDriver};
 
-/// Rows the packer may use. Matches Apogee's default so both read alike.
+/// Rows the packer may use. Matches Cluster Composer so both read alike.
 const TIDY_MAX_ROWS: usize = 3;
 
 #[derive(Clone, Debug)]

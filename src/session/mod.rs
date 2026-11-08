@@ -91,6 +91,8 @@ mod window_presentation;
 pub mod winit;
 #[path = "workspace/workspace.rs"]
 pub(crate) mod workspace;
+#[path = "workspace/zoom_fit.rs"]
+pub(crate) mod zoom_fit;
 
 mod interaction;
 mod settings;

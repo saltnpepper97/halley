@@ -1,4 +1,3 @@
-use super::apogee_clusters::{ApogeeCoreTileContext, apogee_core_tile_elements};
 use super::nodes::{ease_in_out_cubic, fit_ui_text};
 use super::*;
 
@@ -46,7 +45,7 @@ pub(super) struct OverviewRenderers<'a> {
     pub previews: &'a mut crate::render::overlays::preview::OverlayPreviewCache,
 }
 
-/// One Apogee, Cluster Composer or hover-preview frame: where it draws, what
+/// One Cluster Composer or hover-preview frame: where it draws, what
 /// it shows, and what it draws with.
 pub(super) struct OverviewScene<'a> {
     pub renderer: &'a mut GlesRenderer,
@@ -70,7 +69,7 @@ pub(super) struct OverviewTile {
     pub hovered: bool,
 }
 
-pub(super) fn apogee_backdrop_color(
+pub(super) fn overview_backdrop_color(
     dim: f32,
     progress: f32,
 ) -> smithay::backend::renderer::Color32F {
@@ -224,10 +223,10 @@ fn push_live_preview(
     Ok(true)
 }
 
-const APOGEE_SELECTION_BORDER_PX: f32 = 4.0;
-const APOGEE_SELECTION_ACCENT_MIX: f32 = 0.55;
+const SELECTION_BORDER_PX: f32 = 4.0;
+const SELECTION_ACCENT_MIX: f32 = 0.55;
 
-fn apogee_window_chrome(
+fn overview_window_chrome(
     mut visuals: crate::render::overlays::shell::OverlayVisuals,
     selected: bool,
     hovered: bool,
@@ -241,12 +240,10 @@ fn apogee_window_chrome(
     // that selection remains obvious even when decorative overlay borders are
     // disabled.
     if selected {
-        visuals.border_px = visuals.border_px.max(APOGEE_SELECTION_BORDER_PX);
+        visuals.border_px = visuals.border_px.max(SELECTION_BORDER_PX);
     }
     let caption_fill = if selected {
-        visuals
-            .fill
-            .mix(visuals.border, APOGEE_SELECTION_ACCENT_MIX)
+        visuals.fill.mix(visuals.border, SELECTION_ACCENT_MIX)
     } else if hovered {
         visuals.fill.mix(visuals.border, 0.32)
     } else {
@@ -258,120 +255,6 @@ fn apogee_window_chrome(
         visuals.fill
     };
     (visuals, caption_fill, card_fill)
-}
-
-pub(super) fn apogee_elements(
-    scene: OverviewScene<'_>,
-    state: &crate::shell::apogee::ApogeeState,
-    config: halley_config::Apogee,
-    overlay_config: &halley_config::Overlays,
-) -> Result<Vec<SceneElement>, Box<dyn Error>> {
-    let OverviewScene {
-        renderer,
-        output,
-        output_geometry,
-        now,
-        desktop,
-        draw,
-    } = scene;
-    let OverviewDesktop {
-        cameras,
-        nodes,
-        clusters,
-        ..
-    } = desktop;
-    let OverviewRenderers {
-        node: node_renderer,
-        cluster: cluster_renderer,
-        titlebar: titlebar_renderer,
-        decoration: window_decoration_renderer,
-        text: ui_text,
-        previews: overlay_previews,
-    } = draw;
-    let Some(session) = state.session() else {
-        return Ok(Vec::new());
-    };
-    let progress = session.progress(now).clamp(0.0, 1.0);
-    let visuals = apogee_transition_visuals(progress);
-    let output_local = Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1));
-    let overlay_visuals = crate::render::overlays::shell::resolve_visuals(overlay_config);
-    let mut tiles = session
-        .tiles
-        .iter()
-        .filter(|tile| tile.output == output.name())
-        .collect::<Vec<_>>();
-    sort_apogee_tiles(&mut tiles, session.selected);
-
-    let mut elements = Vec::new();
-    overlay_previews.retain(
-        session
-            .tiles
-            .iter()
-            .filter(|tile| tile.kind == crate::shell::apogee::TileKind::Window)
-            .map(|tile| tile.id),
-    );
-    for tile in tiles {
-        if let crate::shell::apogee::TileKind::ClusterCore(cluster) = tile.kind {
-            elements.extend(apogee_core_tile_elements(
-                renderer,
-                ApogeeCoreTileContext {
-                    output_geometry,
-                    tile,
-                    cluster,
-                    progress,
-                    chrome_alpha: visuals.chrome_alpha,
-                    highlighted: session.selected == Some(tile.id)
-                        || session.hovered == Some(tile.id),
-                    overlay_visuals,
-                    cameras,
-                    nodes,
-                    clusters,
-                    node_renderer,
-                    cluster_renderer,
-                    ui_text,
-                    now,
-                },
-            )?);
-            continue;
-        }
-        push_overview_window(
-            &mut elements,
-            OverviewScene {
-                renderer: &mut *renderer,
-                output,
-                output_geometry,
-                desktop,
-                draw: OverviewRenderers {
-                    node: &mut *node_renderer,
-                    cluster: &mut *cluster_renderer,
-                    titlebar: &mut *titlebar_renderer,
-                    decoration: &mut *window_decoration_renderer,
-                    text: &mut *ui_text,
-                    previews: &mut *overlay_previews,
-                },
-                now,
-            },
-            OverviewTile {
-                id: tile.id,
-                target_global: tile.target,
-                body_override: None,
-                progress,
-                focused: session.selected == Some(tile.id),
-                member_selected: false,
-                hovered: session.hovered == Some(tile.id),
-            },
-            config,
-            overlay_visuals,
-            visuals,
-        )?;
-    }
-    let backdrop_color = apogee_backdrop_color(config.background_dim, visuals.overlay_alpha);
-    elements.push(SceneElement::Border(crate::render::solid_color_element(
-        node_renderer.active_slot_id(crate::render::node::NodeSlot::ApogeeBackdrop),
-        output_local,
-        backdrop_color,
-    )));
-    Ok(elements)
 }
 
 pub(super) fn overview_window_source_rect(
@@ -442,9 +325,9 @@ pub(super) fn push_overview_window(
     elements: &mut Vec<SceneElement>,
     scene: OverviewScene<'_>,
     tile: OverviewTile,
-    config: halley_config::Apogee,
+    config: crate::shell::cluster_composer::ComposerStyle,
     overlay_visuals: crate::render::overlays::shell::OverlayVisuals,
-    visuals: ApogeeTransitionVisuals,
+    visuals: OverviewTransitionVisuals,
 ) -> Result<(), Box<dyn Error>> {
     let OverviewScene {
         renderer,
@@ -492,7 +375,7 @@ pub(super) fn push_overview_window(
     };
     let body = body_override.unwrap_or_else(|| lerp_rect(source, target, progress));
     let (mut card_visuals, mut caption_fill, mut card_fill) =
-        apogee_window_chrome(overlay_visuals, focused, hovered);
+        overview_window_chrome(overlay_visuals, focused, hovered);
     let mut caption_text = overlay_visuals.text;
     // Membership uses an inverted card treatment rather than another shade of
     // the focus accent. Both colors come from the resolved overlay palette, so
@@ -508,9 +391,9 @@ pub(super) fn push_overview_window(
     let chrome_alpha = visuals.chrome_alpha;
     // Old Halley kept the caption inside the preview. Growing the card by
     // a fixed footer made its backing look like an enlarged second window,
-    // especially for short and wide Apogee tiles.
+    // especially for short and wide overview tiles.
     let card = preview_card_rect(body, card_visuals.border_px);
-    let caption = apogee_caption_rect(body);
+    let caption = overview_caption_rect(body);
     if let Some(caption) = caption {
         let (title, size) = fit_ui_text(
             renderer,
@@ -645,15 +528,15 @@ pub(super) fn push_overview_window(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ApogeeTransitionVisuals {
+pub(super) struct OverviewTransitionVisuals {
     pub(super) preview_alpha: f32,
     pub(super) overlay_alpha: f32,
     pub(super) chrome_alpha: f32,
 }
 
-pub(super) fn apogee_transition_visuals(progress: f32) -> ApogeeTransitionVisuals {
+pub(super) fn overview_transition_visuals(progress: f32) -> OverviewTransitionVisuals {
     let overlay_alpha = progress.clamp(0.0, 1.0);
-    ApogeeTransitionVisuals {
+    OverviewTransitionVisuals {
         // The preview is the handoff surface: at progress zero it occupies the
         // live window's exact rect, so fading it would expose a wallpaper-only
         // frame on both entry and exit.
@@ -661,21 +544,6 @@ pub(super) fn apogee_transition_visuals(progress: f32) -> ApogeeTransitionVisual
         overlay_alpha,
         chrome_alpha: ((overlay_alpha - 0.18) / 0.62).clamp(0.0, 1.0),
     }
-}
-
-pub(super) fn sort_apogee_tiles(
-    tiles: &mut [&crate::shell::apogee::Tile],
-    selected: Option<halley_core::field::NodeId>,
-) {
-    tiles.sort_by_key(|tile| {
-        (
-            usize::from(selected == Some(tile.id)),
-            tile.source_stack_index,
-            tile.source_stack_order,
-        )
-    });
-    // Smithay render-element lists are front-to-back.
-    tiles.reverse();
 }
 
 pub(super) fn lerp_rect(
@@ -694,7 +562,7 @@ pub(super) fn lerp_rect(
     )
 }
 
-pub(super) fn apogee_caption_rect(
+pub(super) fn overview_caption_rect(
     body: Rectangle<i32, Physical>,
 ) -> Option<Rectangle<i32, Physical>> {
     if body.size.w < 96 || body.size.h < 72 {
@@ -718,7 +586,7 @@ pub(super) struct FocusCycleRenderContext<'a> {
     pub now: std::time::Duration,
 }
 
-/// The NODE marker on a collapsed window's tile, shared by Apogee and Alt+Tab
+/// The NODE marker on a collapsed window's tile, shared by overview tiles and Alt+Tab
 /// so the two views cannot drift apart: accent text on a pill in the overlay
 /// fill, both from the resolved overlay theme, inset in the tile's top-left
 /// corner. The top-right corner belongs to Alt+Tab's monitor name and, on the
@@ -1359,7 +1227,7 @@ pub(super) fn truncate_chars(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{APOGEE_SELECTION_ACCENT_MIX, APOGEE_SELECTION_BORDER_PX, apogee_window_chrome};
+    use super::{SELECTION_ACCENT_MIX, SELECTION_BORDER_PX, overview_window_chrome};
     use crate::render::overlays::shell::{OverlayRgb, OverlayVisuals};
 
     fn visuals(border_px: f32) -> OverlayVisuals {
@@ -1408,12 +1276,12 @@ mod tests {
     #[test]
     fn keyboard_selection_restores_accent_band_and_focus_frame() {
         let base = visuals(0.0);
-        let (selected, caption_fill, card_fill) = apogee_window_chrome(base, true, false);
+        let (selected, caption_fill, card_fill) = overview_window_chrome(base, true, false);
 
-        assert_eq!(selected.border_px, APOGEE_SELECTION_BORDER_PX);
+        assert_eq!(selected.border_px, SELECTION_BORDER_PX);
         assert_eq!(
             caption_fill,
-            base.fill.mix(base.border, APOGEE_SELECTION_ACCENT_MIX)
+            base.fill.mix(base.border, SELECTION_ACCENT_MIX)
         );
         assert_eq!(card_fill, base.fill.mix(base.border, 0.12));
     }
@@ -1421,7 +1289,7 @@ mod tests {
     #[test]
     fn idle_window_keeps_configured_chrome() {
         let base = visuals(2.0);
-        let (idle, caption_fill, card_fill) = apogee_window_chrome(base, false, false);
+        let (idle, caption_fill, card_fill) = overview_window_chrome(base, false, false);
 
         assert_eq!(idle.border_px, base.border_px);
         assert_eq!(caption_fill, base.fill);

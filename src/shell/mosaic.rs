@@ -17,9 +17,10 @@ pub(crate) struct Rect {
     pub h: f32,
 }
 
-/// The original Halley Apogee mosaic packer. Items retain field-space reading
-/// order while larger/aspect-heavy windows are placed first into a MaxRects
-/// atlas, allowing small previews to fill cuts without overlapping.
+/// The Halley mosaic packer, used by Tidy and Cluster Composer. Items retain
+/// field-space reading order while larger/aspect-heavy windows are placed
+/// first into a MaxRects atlas, allowing small tiles to fill cuts without
+/// overlapping.
 pub(crate) fn mosaic(
     items: &[Item],
     screen_w: i32,

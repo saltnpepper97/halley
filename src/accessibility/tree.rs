@@ -234,48 +234,6 @@ fn overlay_snapshot<D: SessionDriver>(session: &Session<D>) -> Snapshot {
             announcement: None,
         };
     }
-    if session.shell.apogee.accepts_input() {
-        let label = session
-            .shell
-            .apogee
-            .selected()
-            .map(|id| {
-                if let Some(record) = session.nodes.record(id) {
-                    let title = if record.title.is_empty() {
-                        "Untitled window"
-                    } else {
-                        &record.title
-                    };
-                    format!(
-                        "Apogee, {title}, monitor {}{}",
-                        record.output,
-                        if record.collapsed { ", collapsed" } else { "" }
-                    )
-                } else if let Some(metadata) = session
-                    .clusters
-                    .cluster_for_core(id)
-                    .and_then(|id| session.clusters.metadata(id))
-                {
-                    format!(
-                        "Apogee, cluster {}, monitor {}",
-                        metadata.name, metadata.output
-                    )
-                } else {
-                    "Apogee, unknown item".into()
-                }
-            })
-            .unwrap_or_else(|| {
-                "Apogee, no selection. Use arrow keys to select, Enter to open or Escape to cancel."
-                    .into()
-            });
-        return Snapshot {
-            role: Role::Group,
-            label,
-            focused: true,
-            identity: session.shell.apogee.selected().map_or(0, |id| id.as_u64()),
-            announcement: None,
-        };
-    }
     if session.shell.focus_cycle.is_open() {
         let label = session
             .shell
@@ -335,7 +293,7 @@ mod tests {
         assert_eq!(desktop.tree().focus, ROOT);
         let overlay = Snapshot {
             role: Role::Group,
-            label: "Apogee".into(),
+            label: "Recent windows".into(),
             focused: true,
             identity: 10,
             announcement: None,

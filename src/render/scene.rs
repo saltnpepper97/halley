@@ -23,7 +23,6 @@ use crate::presentation::window::{
 };
 #[cfg(test)]
 mod animation_pixels;
-mod apogee_clusters;
 mod capture_ui;
 mod chrome;
 mod close_stack;
@@ -47,9 +46,7 @@ use effects::{
     layer_surface_scene_elements,
 };
 use nodes::{NodeElementContext, node_elements};
-use overview::{
-    FocusCycleRenderContext, apogee_elements, focus_cycle_elements, hover_preview_elements,
-};
+use overview::{FocusCycleRenderContext, focus_cycle_elements, hover_preview_elements};
 use privacy::CapturePrivacy;
 pub(crate) use windows::append_titlebar_elements;
 use windows::{
@@ -62,7 +59,7 @@ pub(crate) use nodes::{contrast_text_rgb, node_fill_color, node_ring_color};
 #[cfg(test)]
 use capture_ui::picker_layout;
 #[cfg(test)]
-use overview::{apogee_transition_visuals, aspect_fit_rect, sort_apogee_tiles};
+use overview::{aspect_fit_rect, overview_transition_visuals};
 
 #[cfg(test)]
 use smithay::utils::Point;
@@ -228,8 +225,7 @@ fn build_logical(
     // These replacement scenes render cached previews that may have been
     // captured before a privacy rule was enabled. Fail closed during them.
     if privacy.redact_cached_scene()
-        && (request.overlays.apogee.is_active()
-            || request.overlays.focus_cycle.is_active()
+        && (request.overlays.focus_cycle.is_active()
             || request
                 .overlays
                 .cluster_composer
@@ -263,13 +259,6 @@ fn build_logical(
             request,
             overlay_snapshot,
         );
-    }
-
-    // Apogee is a replacement scene, not a translucent layer over the live
-    // desktop. Keep only its tiles and the wallpaper layer behind them; normal
-    // windows, nodes, panels, and desktop overlays must not bleed through.
-    if request.overlays.apogee.is_active() {
-        return replacement::apogee(renderer, output, output_geometry, request, overlay_snapshot);
     }
 
     let mut elements = capture_overlay_elements(
@@ -505,7 +494,10 @@ fn build_logical(
                 .node_renderer
                 .active_slot_id(crate::render::node::NodeSlot::ClusterComposerBackdrop),
             Rectangle::<i32, Physical>::from_size(output_geometry.size.to_physical(1)),
-            overview::apogee_backdrop_color(request.overlays.apogee_config.background_dim, alpha),
+            overview::overview_backdrop_color(
+                crate::shell::cluster_composer::ComposerStyle::default().background_dim,
+                alpha,
+            ),
         ));
         elements.insert(0, veil);
         if let Some(prepared) = session.prepared() {

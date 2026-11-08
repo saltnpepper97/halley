@@ -203,7 +203,6 @@ fn repeat_allowed<D: SessionDriver>(session: &Session<D>, action: &halley_config
     }
     !session.shell.overlays.confirmation_modal_active()
         && !session.capture.is_active()
-        && !session.shell.apogee.accepts_input()
         && !session.clusters.accepts_modal_input()
 }
 

@@ -1,4 +1,3 @@
-pub(crate) mod apogee;
 pub(crate) mod bearings;
 pub(crate) mod cluster_composer;
 pub(crate) mod focus_cycle;

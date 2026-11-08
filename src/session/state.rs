@@ -401,9 +401,12 @@ impl<D: SessionDriver> Session<D> {
             return false;
         }
         let output = self.notification_output_name();
-        let apogee_key = super::decay_notice::apogee_key(&self.keyboard.binds);
-        let message =
-            super::decay_notice::collapsed_into_node_message(title, app_id, apogee_key.as_deref());
+        let zoom_fit_key = super::decay_notice::zoom_fit_key(&self.keyboard.binds);
+        let message = super::decay_notice::collapsed_into_node_message(
+            title,
+            app_id,
+            zoom_fit_key.as_deref(),
+        );
         self.shell.overlays.show_decay_notice(
             output.clone(),
             message,
@@ -543,9 +546,6 @@ impl<D: SessionDriver> Session<D> {
             || self.session_lock.active()
         {
             return false;
-        }
-        if self.shell.apogee.is_active() {
-            return true;
         }
         self.fullscreen
             .stable_fullscreen_surface_on_output_matching(output, now, |surface| {

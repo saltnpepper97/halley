@@ -68,7 +68,6 @@ struct DesktopRefreshBlockers {
     constraint_active: bool,
     compositor_grab_active: bool,
     capture_active: bool,
-    shell_active: bool,
     focus_cycle_open: bool,
     session_locked: bool,
     fullscreen_active: bool,
@@ -79,7 +78,6 @@ fn desktop_refresh_allowed(blockers: DesktopRefreshBlockers) -> bool {
         && !blockers.constraint_active
         && !blockers.compositor_grab_active
         && !blockers.capture_active
-        && !blockers.shell_active
         && !blockers.focus_cycle_open
         && !blockers.session_locked
         && !blockers.fullscreen_active
@@ -565,7 +563,6 @@ pub(crate) fn refresh_desktop_client_focus<D: SessionDriver>(session: &mut Sessi
         constraint_active: has_active_constraint(session),
         compositor_grab_active: session.interactions.has_grab(),
         capture_active: session.capture.is_active(),
-        shell_active: session.shell.apogee.is_active(),
         focus_cycle_open: session.shell.focus_cycle.is_open(),
         session_locked: session.session_lock.active(),
         fullscreen_active,
@@ -675,7 +672,6 @@ pub(super) fn constraint_suspended_for_grab<D: SessionDriver>(session: &Session<
 
 pub(super) fn cursor_visible<D: SessionDriver>(session: &Session<D>) -> bool {
     if interactive_overlay_forces_cursor(
-        session.shell.apogee.is_active(),
         session.capture.is_active(),
         session.clusters.accepts_modal_input(),
     ) {
@@ -704,12 +700,8 @@ fn interactive_overlay_cursor_override(
         .then_some(smithay::input::pointer::CursorIcon::Default)
 }
 
-fn interactive_overlay_forces_cursor(
-    apogee_active: bool,
-    capture_active: bool,
-    cluster_creation_active: bool,
-) -> bool {
-    apogee_active || capture_active || cluster_creation_active
+fn interactive_overlay_forces_cursor(capture_active: bool, cluster_creation_active: bool) -> bool {
+    capture_active || cluster_creation_active
 }
 
 fn cursor_presentation_visible(policy_visible: bool, constraint_visible: bool) -> bool {
@@ -878,10 +870,9 @@ mod tests {
 
     #[test]
     fn interactive_overlays_force_the_cursor_visible() {
-        assert!(interactive_overlay_forces_cursor(true, false, false));
-        assert!(interactive_overlay_forces_cursor(false, true, false));
-        assert!(interactive_overlay_forces_cursor(false, false, true));
-        assert!(!interactive_overlay_forces_cursor(false, false, false));
+        assert!(interactive_overlay_forces_cursor(true, false));
+        assert!(interactive_overlay_forces_cursor(false, true));
+        assert!(!interactive_overlay_forces_cursor(false, false));
     }
 
     #[test]

@@ -92,7 +92,8 @@ pub enum Action {
     ToggleFieldMaximize,
     ToggleState,
     ToggleFocusedPin,
-    Apogee,
+    /// Zoom every Field monitor out to fit everything on it, or zoom back.
+    ZoomFit,
     BearingsShow,
     BearingsToggle,
     FocusCycle(FocusCycleDirection),

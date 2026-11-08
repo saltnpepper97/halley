@@ -9,10 +9,7 @@ enum KeyboardOutcome {
     ClusterDeleteCancel,
     ClusterDeleteIntercept,
     AccessibilityIntercept,
-    ApogeeCancel,
-    ApogeeAccept,
-    ApogeeMove(crate::shell::apogee::Direction),
-    ApogeeIntercept,
+    ZoomFitLeave,
     FocusCycleCancel,
     FocusCycleIntercept,
     CaptureAccept,
@@ -239,58 +236,11 @@ pub(super) fn handle<D, B>(
             if state == KeyState::Released && data.shell.bearings.is_show_key_held(keycode.raw()) {
                 return FilterResult::Intercept(KeyboardOutcome::BearingsRelease);
             }
-            if data.shell.apogee.accepts_input() {
-                let sym = handle.raw_latin_sym_or_raw_current_sym();
-                if state == KeyState::Released {
-                    // Mod was pressed before Apogee opened and was forwarded to
-                    // the focused client. Forward its release while swallowing
-                    // releases for keys whose presses Apogee intercepted; this
-                    // prevents clients from being left in a stuck modifier or
-                    // terminal keyboard-protocol state after Mod+O closes.
-                    return match modal_key_routing(true, state, release_is_suppressed) {
-                        ModalKeyRouting::SuppressRelease => {
-                            FilterResult::Intercept(KeyboardOutcome::ApogeeIntercept)
-                        }
-                        ModalKeyRouting::RetireUnfocusedRelease => FilterResult::Forward,
-                        ModalKeyRouting::Evaluate => unreachable!("release routing was requested"),
-                    };
-                }
-                let outcome = match sym {
-                    Some(Keysym::Escape) => KeyboardOutcome::ApogeeCancel,
-                    Some(Keysym::Return | Keysym::KP_Enter) => KeyboardOutcome::ApogeeAccept,
-                    Some(Keysym::Left) => {
-                        KeyboardOutcome::ApogeeMove(crate::shell::apogee::Direction::Left)
-                    }
-                    Some(Keysym::Right) => {
-                        KeyboardOutcome::ApogeeMove(crate::shell::apogee::Direction::Right)
-                    }
-                    Some(Keysym::Up) => {
-                        KeyboardOutcome::ApogeeMove(crate::shell::apogee::Direction::Up)
-                    }
-                    Some(Keysym::Down) => {
-                        KeyboardOutcome::ApogeeMove(crate::shell::apogee::Direction::Down)
-                    }
-                    _ => {
-                        if let Some(bind) = match_keyboard_binding(
-                            &data.keyboard.binds,
-                            modifiers,
-                            data.keyboard.side_modifiers,
-                            crate::input::BindingContext::default(),
-                            sym,
-                            keycode,
-                        ) && matches!(
-                            bind.action,
-                            halley_config::Action::Apogee
-                                | halley_config::Action::Quit
-                                | halley_config::Action::OpenTerminal
-                        ) {
-                            KeyboardOutcome::Action(bind.clone())
-                        } else {
-                            KeyboardOutcome::ApogeeIntercept
-                        }
-                    }
-                };
-                return FilterResult::Intercept(outcome);
+            if state == KeyState::Pressed
+                && handle.raw_latin_sym_or_raw_current_sym() == Some(Keysym::Escape)
+                && crate::session::zoom_fit::showing(data)
+            {
+                return FilterResult::Intercept(KeyboardOutcome::ZoomFitLeave);
             }
             if data.shell.focus_cycle.is_open() {
                 let sym = handle.raw_latin_sym_or_raw_current_sym();
@@ -475,10 +425,10 @@ pub(super) fn handle<D, B>(
             {
                 // Commit, endpoint hold, and reveal are atomic modal phases.
             } else if session.shell.cluster_composer.accepts_input() && !naming {
-                session
-                    .shell
-                    .cluster_composer
-                    .close(session.settings.apogee, crate::frame_clock::monotonic_now());
+                session.shell.cluster_composer.close(
+                    crate::shell::cluster_composer::ComposerStyle::default(),
+                    crate::frame_clock::monotonic_now(),
+                );
                 session.request_redraw();
             } else if session.clusters.back_or_cancel_creation() {
                 session
@@ -621,25 +571,9 @@ pub(super) fn handle<D, B>(
             }
         }
         Some(KeyboardOutcome::AccessibilityIntercept) => {}
-        Some(KeyboardOutcome::ApogeeCancel) => {
+        Some(KeyboardOutcome::ZoomFitLeave) => {
             session.interactions.suppressed_keys.suppress(keycode);
-            crate::shell::apogee::cancel(session);
-        }
-        Some(KeyboardOutcome::ApogeeAccept) => {
-            session.interactions.suppressed_keys.suppress(keycode);
-            crate::shell::apogee::select(session);
-        }
-        Some(KeyboardOutcome::ApogeeMove(direction)) => {
-            session.interactions.suppressed_keys.suppress(keycode);
-            crate::shell::apogee::move_selection(session, direction);
-            if session.cursor_policy.keyboard_navigation() {
-                session.request_redraw();
-            }
-        }
-        Some(KeyboardOutcome::ApogeeIntercept) => {
-            if state == KeyState::Pressed {
-                session.interactions.suppressed_keys.suppress(keycode);
-            }
+            crate::session::zoom_fit::leave(session);
         }
         Some(KeyboardOutcome::FocusCycleCancel) => {
             session.interactions.suppressed_keys.suppress(keycode);

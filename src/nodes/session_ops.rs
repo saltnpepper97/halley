@@ -501,7 +501,7 @@ pub fn pan_after_close_restore<D: crate::session::SessionDriver>(
 }
 
 /// Focus and raise a presentation-navigation target, then smoothly place its
-/// center at the output center. Used by explicit spatial retrieval (Apogee).
+/// center at the output center. Used by explicit spatial retrieval.
 pub fn focus_and_center_node<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
@@ -511,7 +511,7 @@ pub fn focus_and_center_node<D: crate::session::SessionDriver>(
 }
 
 /// Alt+Tab raises an onscreen target in place. Only a target needing a reveal
-/// may release presentation ownership on its output. See docs/apogee.md.
+/// may release presentation ownership on its output. See docs/alt-tab.md.
 pub fn focus_cycle_node<D: crate::session::SessionDriver>(
     session: &mut crate::session::Session<D>,
     id: NodeId,
@@ -670,7 +670,7 @@ fn focus_navigation_node<D: crate::session::SessionDriver>(
 
     // Presentation owners already place their window at the output center.
     // Rewriting the parked Field camera underneath them would make their later
-    // restore jump to an unrelated Apogee selection.
+    // restore jump to an unrelated selection.
     if !session.fullscreen.is_fullscreen_or_pending(&record.surface)
         && !session.maximize.contains(&record.surface)
         && let Some(output) = selected_output

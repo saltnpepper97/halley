@@ -273,9 +273,7 @@ pub struct OverlayContext<'a> {
     pub capture_overlay: crate::capture::CaptureOverlay<'a>,
     pub bearings: &'a crate::shell::bearings::BearingsState,
     pub focus_cycle: &'a crate::shell::focus_cycle::FocusCycleState,
-    pub apogee: &'a crate::shell::apogee::ApogeeState,
     pub cluster_composer: &'a crate::shell::cluster_composer::ClusterComposerState,
-    pub apogee_config: halley_config::Apogee,
     pub overlays: &'a crate::shell::overlay::OverlayManager,
     pub overlay_config: &'a halley_config::Overlays,
 }

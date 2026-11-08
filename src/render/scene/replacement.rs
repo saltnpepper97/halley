@@ -1,4 +1,4 @@
-//! Replacement scenes for Cluster Composer and Apogee.
+//! The replacement scene for Cluster Composer.
 
 use super::*;
 
@@ -26,7 +26,7 @@ pub(super) fn cluster_composer(
             now: request.frame.target_presentation_time,
         },
         request.overlays.cluster_composer,
-        request.overlays.apogee_config,
+        crate::shell::cluster_composer::ComposerStyle::default(),
         request.overlays.overlay_config,
     )?;
     append_overlay_shadows(
@@ -92,79 +92,6 @@ pub(super) fn cluster_composer(
     )?;
     elements.splice(0..0, naming);
 
-    chrome::prepend_common_overlays(
-        renderer,
-        output,
-        output_geometry,
-        request,
-        overlay_snapshot,
-        &mut elements,
-    )?;
-    prepend_pointer_elements(
-        renderer,
-        output,
-        output_geometry,
-        &request.cursor,
-        request.frame.target_presentation_time,
-        true,
-        &mut elements,
-    )?;
-    Ok(elements)
-}
-
-pub(super) fn apogee(
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geometry: Rectangle<i32, Logical>,
-    request: &mut RenderRequest<'_>,
-    overlay_snapshot: crate::shell::overlay::OverlaySnapshot,
-) -> Result<Vec<SceneElement>, Box<dyn Error>> {
-    let mut elements = apogee_elements(
-        super::overview::OverviewScene {
-            renderer,
-            output,
-            output_geometry,
-            desktop: super::overview::OverviewDesktop::from_request(request),
-            draw: super::overview::OverviewRenderers {
-                node: request.resources.node_renderer,
-                cluster: request.resources.cluster_renderer,
-                titlebar: request.resources.titlebar_renderer,
-                decoration: request.resources.window_decoration_renderer,
-                text: request.resources.ui_text,
-                previews: request.resources.overlay_previews,
-            },
-            now: request.frame.target_presentation_time,
-        },
-        request.overlays.apogee,
-        request.overlays.apogee_config,
-        request.overlays.overlay_config,
-    )?;
-    append_overlay_shadows(
-        renderer,
-        output,
-        "apogee",
-        request.visuals.shadows.overlay,
-        request.resources.shadow_renderer,
-        &mut elements,
-    )?;
-    elements.extend(
-        crate::render::layer_surface_elements(renderer, output, Layer::Background)
-            .into_iter()
-            .map(SceneElement::Layer),
-    );
-    append_background(
-        renderer,
-        request.resources.background_renderer,
-        BackgroundSceneRequest {
-            output,
-            output_geometry,
-            cameras: request.desktop.cameras,
-            config: request.visuals.background,
-            config_dir: request.visuals.background_base,
-            now: request.frame.target_presentation_time,
-        },
-        &mut elements,
-    );
     chrome::prepend_common_overlays(
         renderer,
         output,

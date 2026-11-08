@@ -885,7 +885,7 @@ keybinds:
   # timer for genuinely abandoned work.
   "$var.mod+n" "toggle-state"
   "$var.mod+p" "toggle-focused-pin"
-  "$var.mod+o" "apogee"
+  "$var.mod+o" "zoom-fit"
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
   "alt+tab" "cycle-focus"
