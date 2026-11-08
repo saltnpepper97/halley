@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Measure decay against the screen. A window now takes the shorter decay delay
+  only once 90% of it is off screen, instead of outside an invisible 820×420
+  ring that stayed the same size in the Field. Zoomed out, windows you can
+  plainly see no longer collapse after 10 minutes.
+- Rename the focus ring to `decay-zone`. It is now optional and advanced:
+  without one, the screen edge decides. A configured zone is measured in screen
+  pixels, so it covers the same part of the screen at every zoom level.
+  `focus-ring:` and `debug.show-focus-ring` keep working as older spellings of
+  `decay-zone:` and `debug.show-decay-zone`.
 - Internal: Apogee, Cluster Composer and hover previews take one overview scene
   value instead of 15 to 28 separate arguments. No behavior change.
 - Internal: clusters decide what a dropped window or overflow member means,

@@ -1,4 +1,4 @@
-# Nodes, decay, and the focus ring
+# Nodes, decay, and the decay zone
 
 Every managed XDG toplevel and normal Xwayland window has one stable node ID
 for its lifetime. An active node is a normal window in the compositor space. A
@@ -79,8 +79,10 @@ end
 ```
 
 `outside-delay-seconds` counts from the moment a window becomes ineligible
-while it sits outside its output's focus ring; `inside-delay-seconds` counts the
-same way for a window still inside the ring. The defaults are 10 minutes and
+while it is off screen; `inside-delay-seconds` counts the same way for a window
+you can still see. A window is off screen when at least 90% of it lies outside
+what its monitor currently shows, so zooming out keeps every visible window on
+the longer delay. The defaults are 10 minutes and
 90 minutes, so genuinely abandoned work survives an ordinary interruption. They
 apply both to a newly generated configuration and to one that omits the
 `decay:` section; an existing configuration keeps the values it states.
@@ -101,50 +103,47 @@ fullscreen-pending windows, field-maximized windows, windows in an active Field
 arrangement, and windows in an interactive move/resize grab are hard-protected
 from decay. Undoing an arrangement starts a fresh timer for each still-eligible
 window. Unpinning also starts a fresh timer; manually collapsing a pinned window
-remains available. Changing between protected, inside-ring, and outside-ring status starts
+remains available. Changing between protected, on-screen, and off-screen status starts
 a fresh timer; stale time from an earlier status is never reused.
 
-Each output has its own camera-centered ellipse. Configure it inside that
-connector's `view.output` entry. An entry may contain both hardware settings
-and a focus ring, or only a focus ring when no hardware override is wanted:
+Moving a window to another output starts a fresh eligibility timer.
+
+### Decay zone (advanced)
+
+Most setups never need this. To make only part of a monitor count as on
+screen, give that connector's `view.output` entry a `decay-zone:` ellipse. A
+window then takes the shorter delay once 90% of it is outside the ellipse,
+instead of outside the screen. The zone is measured in screen pixels from the
+centre of the monitor, so it covers the same part of the screen at every zoom
+level. An entry may contain both hardware settings and a decay zone, or only a
+decay zone:
 
 ```rune
 view:
   output:
     name "DP-1"
-    focus-ring:
+    decay-zone:
       radius-x 820.0
       radius-y 420.0
       offset-x 0.0
       offset-y 0.0
     end
   end
-
-  output:
-    name "DP-2"
-    focus-ring:
-      radius-x 700.0
-      radius-y 360.0
-      offset-x 0.0
-      offset-y 20.0
-    end
-  end
 end
 ```
 
-A window uses the shorter outside delay only when at least 90% of its footprint
-is outside the ellipse for its owning output. Moving it to another output or
-changing that output's ring starts a fresh eligibility timer. Editing one
-output does not reset timers on the others. An output without a configured
-ring uses the built-in 820×420 default. Top-level `focus-ring:` and `output:`
-blocks are rejected; both belong under `view:`.
+Omitted fields use the values shown. Monitors without a `decay-zone:` use the
+screen edge. Changing one output's zone starts fresh timers only for windows on
+that output. Top-level `decay-zone:` and `output:` blocks are rejected; both
+belong under `view:`. Configs written before this setting was renamed may still
+say `focus-ring:`, which works the same way.
 
-The ring is normally hidden. Saving a changed focus-ring configuration previews
-it briefly; `debug.show-focus-ring true` keeps it visible:
+A configured zone is normally hidden. Saving a change previews it briefly;
+`debug.show-decay-zone true` keeps it visible:
 
 ```rune
 debug:
-  show-focus-ring false
+  show-decay-zone false
   # Keeps unlocked outputs repainting continuously while enabled.
   overlay-fps false
 end

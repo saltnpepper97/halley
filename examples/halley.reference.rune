@@ -91,30 +91,26 @@ view:
     # window when the backend can switch without a modeset.
     # vrr "auto"
 
-    # Camera-relative decay ellipse for this connector.
-    focus-ring:
-      radius-x 820.0
-      radius-y 420.0
-      offset-x 0.0
-      offset-y 0.0
-    end
+    # Advanced, optional: only windows inside this ellipse count as on screen
+    # for decay. Measured in screen pixels from the centre of the monitor.
+    # Without it, the screen edge decides.
+    # decay-zone:
+    #   radius-x 820.0
+    #   radius-y 420.0
+    #   offset-x 0.0
+    #   offset-y 0.0
+    # end
   end
 
   output:
     name "DP-2"
     scale 1.0
-    focus-ring:
-      radius-x 820.0
-      radius-y 420.0
-      offset-x 0.0
-      offset-y 0.0
-    end
   end
 end
 
 # Hardware output reloads are diffed per connector. Changing one output does
-# not force an unchanged output through a redundant mode set. A ring-only
-# change never creates hardware output work.
+# not force an unchanged output through a redundant mode set. A change to a
+# decay zone alone never creates hardware output work.
 
 # Keyboard, pointer-focus, physical-device, touch, and gesture settings.
 # Keyboard/focus policy and client gesture protocols are backend-independent.
@@ -520,8 +516,8 @@ end
 
 # Collapse focused work manually with Mod+N; its node remains clickable, and
 # either the node or Mod+N restores the window immediately. Automatic decay is
-# only a later fallback for unfocused work: the outside delay applies beyond
-# this output's focus ring, and the inside delay applies within it. The
+# only a later fallback for unfocused work: the outside delay applies to
+# windows mostly off screen, and the inside delay to windows you can see. The
 # defaults are 10 and 90 minutes, whether this section is written out or
 # omitted. The first automatic collapse explains itself once in a non-modal
 # notice.
@@ -617,8 +613,9 @@ debug:
   # Set true to stop advertising explicit sync to applications.
   disable-explicit-sync false
 
-  # The ring is still previewed briefly when its configuration changes.
-  show-focus-ring false
+  # Draw the decay zone, if one is configured. It is still previewed briefly
+  # when its configuration changes.
+  show-decay-zone false
 
   # Show a live per-output FPS chip. This keeps each unlocked output repainting.
   overlay-fps false
