@@ -1234,10 +1234,9 @@ impl TtyBackend {
             }
         }
 
-        for index in 0..self.drm_outputs.len() {
+        for (index, target) in targets.into_iter().enumerate() {
             let (target, diff, enable_changed) = {
                 let entry = &self.drm_outputs[index];
-                let target = targets[index];
                 let location = entry.output.current_location();
                 let current = HardwareOutputState {
                     mode: drm_output_mode(&entry.current_mode),
