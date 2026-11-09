@@ -113,6 +113,9 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Internal: wait for XWayland's asynchronous pointer release in the offscreen
+  capture test before checking unrestricted motion, avoiding a timing-dependent
+  test failure.
 - Stop nodes drifting away when you zoom out, pan and zoom back in. A
   placement check that runs whenever a window repaints measured nodes at the
   zoomed-out size and always searched from the top-left, so panning (which
