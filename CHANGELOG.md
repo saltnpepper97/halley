@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Make `Alt+Tab` the same switcher in stacking clusters. It no longer flips
+  through the stack (`Mod+Left` and `Mod+Right` still do), so in a stack it
+  also reaches windows on your other monitors. With a single window in the
+  stack, `Alt+Tab` used to do nothing at all.
 - Create clusters over the Field instead of on a separate screen.
   `Super+Shift+C` still lays every window and node that can join out so none
   overlap, but over the live, undimmed Field rather than a dark wallpaper-only
@@ -113,6 +117,11 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Show every window of an open cluster in `Alt+Tab`. Windows that were in the
+  cluster before you opened it were left out, so only windows opened inside
+  it appeared. `Alt+Tab` now lists the open cluster's windows plus what your
+  other monitors are showing; clusters that are not open, and Field windows
+  behind an open cluster, stay out.
 - Translate monitor layouts with negative offsets into a shared nonnegative
   desktop for XWayland, preserving the configured relative positions and gaps.
   Keep the original config offsets, retain the primary monitor in RandR, and
