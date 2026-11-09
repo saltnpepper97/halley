@@ -56,11 +56,24 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
         size: (1024, 768).into(),
         refresh: 60_000,
     };
-    let x = app.driver.backend.logical_size().w;
-    output.change_current_state(Some(mode), None, None, Some((x, 0).into()));
+    let default_x = app.driver.backend.logical_size().w;
+    let positions = std::env::var("HALLEY_TEST_OUTPUT_LAYOUT")
+        .map(|value| {
+            let coordinates = value
+                .split(',')
+                .map(|part| part.parse::<i32>().expect("test output coordinate"))
+                .collect::<Vec<_>>();
+            assert_eq!(coordinates.len(), 4, "primary x,y and secondary x,y");
+            [(coordinates[0], coordinates[1]), (coordinates[2], coordinates[3])]
+        })
+        .unwrap_or([(0, 0), (default_x, 0)]);
+    let primary = app.driver.backend.output().clone();
+    primary.change_current_state(None, None, None, Some(positions[0].into()));
+    app.wayland.space.map_output(&primary, positions[0]);
+    output.change_current_state(Some(mode), None, None, Some(positions[1].into()));
     output.set_preferred(mode);
     app.wayland.ensure_output_global::<App>(&output);
-    app.wayland.space.map_output(&output, (x, 0));
+    app.wayland.space.map_output(&output, positions[1]);
     app.cameras.insert(output.name(), mode.size);
     app.driver.extra_outputs.push(output);
 
