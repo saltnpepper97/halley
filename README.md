@@ -65,6 +65,19 @@ For CI coverage and local checks, see [testing](docs/testing.md).
    is Halley's launcher, packaged separately, and `Super+D` opens it. Without
    it, `Super+T` still opens a terminal.
 
+   This quickstart builds Halley from `main`, so install Lift from `main` too:
+
+   ```sh
+   cargo install --git https://github.com/saltnpepper97/halley-lift \
+     --branch main --locked --force halley-lift
+   ```
+
+   Released Lift 0.4.1 lacks the new outside-click dismissal support required
+   by current Halley `main`. `--force` replaces an existing installation even
+   while Lift's version number is unchanged. Ensure the installed binary is
+   on your `PATH`; see Lift's install guide for release pairing and source
+   revision details.
+
 4. **Run it.** `halley --winit` starts a nested development compositor inside
    your current desktop. Use `halley-session` or `halley --session` for a
    native desktop session. See [the packaging guide](docs/packaging.md) for
