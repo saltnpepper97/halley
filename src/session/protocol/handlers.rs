@@ -1642,3 +1642,7 @@ impl<D: SessionDriver> crate::ime_policy::ImeHost for Session<D> {
     }
 }
 crate::ime_policy::delegate_ime_policy!(@<D: SessionDriver> Session<D>);
+
+smithay::reexports::wayland_server::delegate_global_dispatch!(@<D: SessionDriver> Session<D>: [halley_api::wayland::server::halley_surface_dismissal_manager_v1::HalleySurfaceDismissalManagerV1: ()] => crate::wayland::surface_dismissal::State);
+smithay::reexports::wayland_server::delegate_dispatch!(@<D: SessionDriver> Session<D>: [halley_api::wayland::server::halley_surface_dismissal_manager_v1::HalleySurfaceDismissalManagerV1: ()] => crate::wayland::surface_dismissal::State);
+smithay::reexports::wayland_server::delegate_dispatch!(@<D: SessionDriver> Session<D>: [halley_api::wayland::server::halley_surface_dismissal_v1::HalleySurfaceDismissalV1: crate::wayland::surface_dismissal::WatchData] => crate::wayland::surface_dismissal::State);

@@ -29,6 +29,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for NativeState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if let wl_pointer::Event::Button {
+            button,
+            state: button_state,
+            ..
+        } = event
+        {
+            state.pointer_buttons.push((button, button_state));
+        }
         let observations = &mut state.pointer_warp;
         match event {
             wl_pointer::Event::Enter {

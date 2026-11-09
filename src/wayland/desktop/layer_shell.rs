@@ -59,6 +59,9 @@ pub fn handle_commit(wayland: &mut WaylandState, root: &WlSurface) -> bool {
     if has_buffer {
         wayland.unmapped_layers.remove(root);
     } else {
+        if !wayland.unmapped_layers.contains(root) {
+            super::surface_dismissal::cancel(root);
+        }
         wayland.unmapped_layers.insert(root.clone());
         super::super::focus::forget_layer(wayland, root);
 
@@ -71,6 +74,7 @@ pub fn handle_commit(wayland: &mut WaylandState, root: &WlSurface) -> bool {
 }
 
 pub fn destroyed(wayland: &mut WaylandState, surface: &WlrLayerSurface) {
+    super::surface_dismissal::cancel(surface.wl_surface());
     wayland.unmapped_layers.remove(surface.wl_surface());
     super::super::focus::forget_layer(wayland, surface.wl_surface());
 

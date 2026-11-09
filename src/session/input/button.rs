@@ -63,7 +63,7 @@ pub(super) fn handle<D: SessionDriver, B: InputBackend>(
     if route_through_popup_grab(session, click, &pointer_handle, &mut route) {
         return finish(session);
     }
-    dismiss_lift_on_outside_press(session, route.as_ref(), button, state);
+    notify_surface_outside_press(session, route.as_ref(), button, state);
     if cluster_creation_click(session, click, &route)
         || decoration_pointer_grab(session, click, &route)
         || titlebar_click(session, click, &route)

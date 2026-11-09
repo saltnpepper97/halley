@@ -14,7 +14,8 @@ pub use capture::{ext_image_copy_capture, wlr_screencopy};
 pub(crate) use data_transfer::{clipboard_helper, screenshot_clipboard};
 pub use data_transfer::{dnd, selection};
 pub use desktop::{
-    decoration, ext_workspace, foreign_toplevel, fullscreen, layer_shell, popup, xdg_shell,
+    decoration, ext_workspace, foreign_toplevel, fullscreen, layer_shell, popup, surface_dismissal,
+    xdg_shell,
 };
 pub use input::{focus, text_input};
 pub use output::display_scale;

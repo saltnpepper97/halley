@@ -274,6 +274,8 @@ pub enum ClusterRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClusterDraftSource {
+    /// Retired launcher-specific source. Preserve discriminant 0 for old clients.
+    #[deprecated(note = "legacy wire slot; SDK consumers use External")]
     HalleyLift,
     External,
 }

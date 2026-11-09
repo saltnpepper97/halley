@@ -234,3 +234,48 @@ change the API version.
 
 The workspace's `halleyctl` and the standalone [Halley Lift](https://github.com/saltnpepper97/halley-lift) are reference consumers: neither
 constructs low-level node or cluster wire messages.
+
+## Surface dismissal
+
+SDK 0.6 provides optional `wayland-client` and `wayland-server` features for
+`halley-surface-dismissal-v1`. This is a surface-bound Wayland interface, separate
+from the command socket. The protocol XML ships in `halley-api/protocols`.
+
+Bind `halley_surface_dismissal_manager_v1` if advertised, then call `watch` with
+an owned surface that already has a layer-shell role. Handle `outside_press` on
+the resulting object in the application's Wayland dispatch. Destroy the watch
+to cancel it or after its one event. The application decides how to dismiss its
+UI; Halley never closes it on the application's behalf.
+
+Only an outside left-button press while a buffer-mapped surface owns keyboard
+focus (directly or through a popup) produces an event. Passive layers cannot
+observe outside input.
+The watch is one-shot; inside presses, including the layer's popups, right
+buttons, and releases do not trigger it. Unmapping permanently cancels existing
+watches; remapping needs a new watch. Initial configuration before the first
+buffer does not cancel a watch. Destroying the manager does not cancel watches.
+The outside press and release retain ordinary delivery to the underlying target.
+Session-lock input isolation applies before notifications. The protocol exposes
+no pointer coordinates, target identities, or events for another client's
+surface. Surface references are scoped to the requesting Wayland connection.
+
+An absent global is normal on older compositors. Applications retain their
+Escape and optional focus-loss paths. Older Lift builds do not opt in, so update
+Lift together with a compositor that removes its old application-specific rule.
+
+## Consumer tests
+
+Enable `halley-api`'s `test-support` feature in dev-dependencies to use
+`test_support::request` and `test_support::reply` with Unix sockets. Fixtures
+exchange public SDK values, while the SDK owns private encoding and versioning.
+The helpers cover handshake, subscriptions, node/cluster queries, focus, basics,
+and config operations. Unsupported fixture operations return a typed error.
+Tests own their accept deadlines, socket timeouts, stalls, and disconnects.
+
+## Library ownership
+
+`halley-api` owns compositor commands, observations, and optional public
+protocol bindings. It does not own an application event loop, launcher search,
+widgets, or dismissal decisions. `halley-ui` owns reusable layout, components,
+text editing, rendering, and accessibility. Applications interpret UI events and
+invoke the SDK themselves; the UI toolkit does not depend on the SDK.

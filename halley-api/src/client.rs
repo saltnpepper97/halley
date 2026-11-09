@@ -36,10 +36,11 @@ impl Client {
     }
 
     pub fn connect_with(options: ConnectOptions) -> Result<Self> {
-        let path = options.socket_path.unwrap_or(
-            halley_ipc::default_socket_path()
+        let path = match options.socket_path {
+            Some(path) => path,
+            None => halley_ipc::default_socket_path()
                 .map_err(|e| Error::new(ErrorKind::Connection, e.to_string()))?,
-        );
+        };
         let mut connection = halley_ipc::Connection::connect_to(&path)?;
         connection
             .set_read_timeout(options.read_timeout)

@@ -11,7 +11,7 @@ use super::{BTN_LEFT, BTN_RIGHT, BasicsInputRouting, BasicsTouchPhase, PendingWi
 use super::{
     activation_shows_cluster_indicator, begin_cluster_core_direct_motion, bloom_drag_handoff,
     collapsed_node_drop_origin, drag_threshold_reached, forward_pointer_button,
-    layer_allows_field_pan_always, outside_lift_press_dismisses, pending_window_move_motion,
+    layer_allows_field_pan_always, pending_window_move_motion,
     plain_background_press_dismisses_bloom, pointer_move_falls_back_to_field_pan,
     preferred_cluster_navigation_focus, releases_field_pan, releases_pending_window_move,
     sampled_drag_velocity, shortcut_policy_allows_bindings, stacking_cycle_direction,
@@ -266,34 +266,6 @@ fn client_titlebar_move_forwards_its_consumed_release() {
     assert!(forward_pointer_button(true, true));
     assert!(!forward_pointer_button(true, false));
     assert!(forward_pointer_button(false, false));
-}
-
-#[test]
-fn left_press_outside_lift_dismisses_without_claiming_inside_clicks() {
-    assert!(outside_lift_press_dismisses(
-        BTN_LEFT,
-        ButtonState::Pressed,
-        true,
-        false
-    ));
-    assert!(!outside_lift_press_dismisses(
-        BTN_LEFT,
-        ButtonState::Pressed,
-        true,
-        true
-    ));
-    assert!(!outside_lift_press_dismisses(
-        BTN_LEFT,
-        ButtonState::Released,
-        true,
-        false
-    ));
-    assert!(!outside_lift_press_dismisses(
-        BTN_LEFT,
-        ButtonState::Pressed,
-        false,
-        false
-    ));
 }
 
 #[test]

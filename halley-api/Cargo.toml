@@ -1,6 +1,6 @@
 [package]
 name = "halley-api"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "Stable Rust client API for the Halley compositor"
 authors.workspace = true
@@ -14,3 +14,13 @@ categories.workspace = true
 [dependencies]
 halley-ipc = { version = "0.8.0", path = "../halley-ipc" }
 serde = { version = "1", features = ["derive"] }
+wayland-client = { version = "0.31.14", optional = true }
+wayland-server = { version = "0.31.13", optional = true }
+wayland-scanner = { version = "0.31.9", optional = true }
+wayland-backend = { version = "0.3.15", optional = true }
+
+[features]
+default = []
+wayland-client = ["dep:wayland-client", "dep:wayland-scanner", "dep:wayland-backend"]
+wayland-server = ["dep:wayland-server", "dep:wayland-scanner", "dep:wayland-backend"]
+test-support = []

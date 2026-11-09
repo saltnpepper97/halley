@@ -31,3 +31,8 @@ moves up to a positive number of Field units and stops at obstructions. It requi
 `Client::move_node_to(x, y, selector, output)` requests exact Field placement and
 requires `node-move-to-v1`. Expanded-window movement follows the compositor's
 `animations.window-move` settings, including when using existing move methods.
+
+Optional `wayland-client` / `wayland-server` features expose surface-dismissal
+protocol bindings. `test-support` provides semantic socket fixtures for consumer
+tests without a direct private-IPC dependency. See [the changelog](CHANGELOG.md)
+for independently versioned SDK releases.

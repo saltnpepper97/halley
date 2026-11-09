@@ -78,6 +78,8 @@ mod output_origin;
 mod pointer_warp;
 #[path = "support/resize_drag.rs"]
 mod resize_drag;
+#[path = "support/surface_dismissal.rs"]
+mod surface_dismissal;
 #[path = "support/commit_timing_nested.rs"]
 mod timing_nested;
 #[path = "support/window_movement.rs"]
@@ -356,6 +358,12 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct NativeState {
+    outside_presses: usize,
+    hold_layer_buffer: bool,
+    pointer_buttons: Vec<(
+        u32,
+        wayland_client::WEnum<wayland_client::protocol::wl_pointer::ButtonState>,
+    )>,
     commit_timing: timing_nested::Observations,
     fifo_frames: Vec<(u32, u32)>,
     globals: HashMap<String, u32>,
@@ -518,11 +526,16 @@ impl Dispatch<layer_surface::ZwlrLayerSurfaceV1, ()> for NativeState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if let layer_surface::Event::Closed = event {
+            state.close_requested = true;
+        }
         if let layer_surface::Event::Configure { serial, .. } = event {
             layer.ack_configure(serial);
-            let surface = state.surface.as_ref().unwrap();
-            surface.attach(state.buffer.as_ref(), 0, 0);
-            surface.commit();
+            if !state.hold_layer_buffer {
+                let surface = state.surface.as_ref().unwrap();
+                surface.attach(state.buffer.as_ref(), 0, 0);
+                surface.commit();
+            }
         }
     }
 }
