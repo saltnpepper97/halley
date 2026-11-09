@@ -78,6 +78,8 @@ mod output_origin;
 mod pointer_warp;
 #[path = "support/resize_drag.rs"]
 mod resize_drag;
+#[path = "support/surface_dismissal.rs"]
+mod surface_dismissal;
 #[path = "support/commit_timing_nested.rs"]
 mod timing_nested;
 #[path = "support/window_movement.rs"]
@@ -356,6 +358,11 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 
 #[derive(Default)]
 struct NativeState {
+    outside_presses: usize,
+    pointer_buttons: Vec<(
+        u32,
+        wayland_client::WEnum<wayland_client::protocol::wl_pointer::ButtonState>,
+    )>,
     commit_timing: timing_nested::Observations,
     fifo_frames: Vec<(u32, u32)>,
     globals: HashMap<String, u32>,

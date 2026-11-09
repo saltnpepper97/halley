@@ -37,7 +37,6 @@ use crate::input::buttons::BTN_LEFT;
 #[cfg(test)]
 use crate::input::buttons::BTN_RIGHT;
 const NODE_DRAG_THRESHOLD_PX: f64 = 8.0;
-const LIFT_LAYER_NAMESPACE: &str = "halley-lift";
 
 fn sampled_drag_velocity(
     previous: halley_core::field::Vec2,
@@ -178,43 +177,26 @@ fn basics_touch_routing(
     }
 }
 
-fn outside_lift_press_dismisses(
-    button: u32,
-    state: ButtonState,
-    lift_is_mapped: bool,
-    route_is_lift: bool,
-) -> bool {
-    button == BTN_LEFT && state == ButtonState::Pressed && lift_is_mapped && !route_is_lift
-}
-
-/// Lift intentionally uses a palette-sized exclusive layer surface. That lets an
-/// outside click route to the underlying client, but means Lift itself cannot observe
-/// the click. Close the mapped first-party layer here while leaving the press unconsumed.
-fn dismiss_lift_on_outside_press<D: SessionDriver>(
-    session: &mut Session<D>,
+/// Observe an outside left press for opted-in mapped layer surfaces. The
+/// ordinary routing path still owns and delivers the press and its release.
+fn notify_surface_outside_press<D: SessionDriver>(
+    session: &Session<D>,
     route: Option<&crate::input::pointer::PointerRoute>,
     button: u32,
     state: ButtonState,
 ) {
-    let lift = session.wayland.space.outputs().find_map(|output| {
+    if button != BTN_LEFT || state != ButtonState::Pressed {
+        return;
+    }
+    for output in session.wayland.space.outputs() {
         let map = smithay::desktop::layer_map_for_output(output);
-        map.layers()
-            .find(|layer| {
-                layer.namespace() == LIFT_LAYER_NAMESPACE
-                    && !session.wayland.unmapped_layers.contains(layer.wl_surface())
-            })
-            .cloned()
-    });
-    let route_is_lift = lift.as_ref().is_some_and(|lift| {
-        matches!(
-            route.map(|route| &route.target),
-            Some(crate::input::pointer::PointerTarget::Layer(layer)) if layer == lift
-        )
-    });
-    if outside_lift_press_dismisses(button, state, lift.is_some(), route_is_lift)
-        && let Some(lift) = lift
-    {
-        lift.layer_surface().send_close();
+        for layer in map.layers() {
+            let inside = matches!(route.map(|route| &route.target),
+                Some(crate::input::pointer::PointerTarget::Layer(target)) if target == layer);
+            if !inside && !session.wayland.unmapped_layers.contains(layer.wl_surface()) {
+                wayland::surface_dismissal::outside_press(layer.wl_surface());
+            }
+        }
     }
 }
 

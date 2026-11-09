@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add the optional `halley-surface-dismissal-v1` Wayland interface for clients
+  watching their own layer surfaces. Outside left presses are one-shot
+  notifications; the client owns dismissal and the click keeps its normal target.
+- Release `halley-api` 0.6.0 independently, with optional Wayland protocol
+  bindings, semantic consumer-test fixtures, and explicit-socket connection
+  support without a runtime-directory environment variable.
 - Click the first-decay notice to bring the collapsed window back. It is
   restored on screen and focused, and the notice fades out. The notice now
   stays up for 9 seconds instead of 4, and still never takes keyboard focus or
@@ -16,6 +22,9 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Remove Lift-specific outside-click handling from compositor input. Lift opts
+  into the generic surface interface; update Lift alongside this compositor.
+  Retire the old launcher source label without changing private wire slots.
 - Docs: describe behaviour rather than older Halley versions. The top-level
   `zoom:` section and `field.gap-px` are now listed with the other older
   spellings, which also notes that the current spelling wins when a config
