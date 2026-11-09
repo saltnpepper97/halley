@@ -69,7 +69,11 @@ pub(crate) fn activate_node<D: SessionDriver>(
     let Some(record) = session
         .nodes
         .record(id)
-        .filter(|record| record.attached && record.window.alive())
+        .filter(|record| {
+            record.attached
+                && record.window.alive()
+                && !crate::window::closing::pending(&record.window)
+        })
         .cloned()
     else {
         return false;
@@ -156,6 +160,7 @@ fn field_node_is_eligible_on_output<D: SessionDriver>(
     let record = session
         .nodes
         .record(id)
+        .filter(|record| !crate::window::closing::pending(&record.window))
         .map(|record| (record.output.as_str(), record.attached));
     let core_output = session
         .clusters

@@ -131,7 +131,9 @@ fn select_focus_successor(
             nodes
                 .id_for_surface(surface)
                 .and_then(|id| nodes.record(id))
-                .filter(|record| record.attached)
+                .filter(|record| {
+                    record.attached && !crate::window::closing::pending(&record.window)
+                })
                 .map(|record| Some(record.output.clone()))
         },
         |surface| {
@@ -264,6 +266,7 @@ fn cluster_focus_successor<D: SessionDriver>(
         };
         record.attached
             && !record.collapsed
+            && !crate::window::closing::pending(&record.window)
             && session
                 .wayland
                 .space
@@ -342,24 +345,12 @@ where
     local.or(global).map(|(candidate, _)| candidate)
 }
 
-pub(crate) fn prepare_window_unmap<D: SessionDriver>(
-    session: &mut Session<D>,
+fn capture_close_focus<D: SessionDriver>(
+    session: &Session<D>,
     surface: &WlSurface,
-) -> WindowUnmapPreparation {
-    let captured_parents = smithay::wayland::compositor::with_states(surface, |states| {
-        states
-            .data_map
-            .get::<UnmapParents>()
-            .and_then(|parents| parents.0.lock().unwrap().take())
-    });
-    if let Some(id) = session.nodes.id_for_surface(surface) {
-        session.wayland.foreign_toplevel_state.unmap(id.as_u64());
-    }
-    super::touch::cancel_surface(session, surface);
-    super::gesture::cancel_surface(session, surface);
-    super::pointer::prepare_unmap(session, surface);
-    remember_presentation_close_size(session, surface);
-    let focus = (session.wayland.focused_window.as_ref() == Some(surface)).then(|| {
+    captured_parents: Option<Vec<WlSurface>>,
+) -> Option<FocusSuccession> {
+    (session.wayland.focused_window.as_ref() == Some(surface)).then(|| {
         let output = mapped_managed_window(&session.wayland, surface)
             .and_then(|window| crate::wayland::window_output_name(&window));
         let cluster = active_cluster_for_closing(session, surface);
@@ -391,7 +382,27 @@ pub(crate) fn prepare_window_unmap<D: SessionDriver>(
             pan: session.settings.field.close_restore_pan,
             clipboard_return: crate::wayland::clipboard_helper::saved_focus(surface),
         }
+    })
+}
+
+pub(crate) fn prepare_window_unmap<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &WlSurface,
+) -> WindowUnmapPreparation {
+    let captured_parents = smithay::wayland::compositor::with_states(surface, |states| {
+        states
+            .data_map
+            .get::<UnmapParents>()
+            .and_then(|parents| parents.0.lock().unwrap().take())
     });
+    if let Some(id) = session.nodes.id_for_surface(surface) {
+        session.wayland.foreign_toplevel_state.unmap(id.as_u64());
+    }
+    super::touch::cancel_surface(session, surface);
+    super::gesture::cancel_surface(session, surface);
+    super::pointer::prepare_unmap(session, surface);
+    remember_presentation_close_size(session, surface);
+    let focus = capture_close_focus(session, surface, captured_parents);
     WindowUnmapPreparation {
         surface: surface.clone(),
         focus,
@@ -427,6 +438,33 @@ pub(crate) fn finish_window_unmap<D: SessionDriver>(
         super::closing::start(session, &surface);
     }
 
+    apply_close_focus(session, &surface, focus);
+}
+
+/// Transfer input ownership at the visual boundary without unmapping the X11
+/// client, removing its node, or changing fullscreen/cluster lifetime state.
+pub(super) fn handoff_visual_close_focus<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &WlSurface,
+) {
+    let focus = capture_close_focus(session, surface, None);
+    super::touch::cancel_surface(session, surface);
+    super::gesture::cancel_surface(session, surface);
+    super::pointer::prepare_unmap(session, surface);
+    super::cancel_grab_for_surface(session, surface);
+    apply_close_focus(session, surface, focus);
+    super::sync_keyboard_focus(session, SERIAL_COUNTER.next_serial());
+    super::pointer::refresh_desktop_client_focus(
+        session,
+        session.start_time.elapsed().as_millis() as u32,
+    );
+}
+
+fn apply_close_focus<D: SessionDriver>(
+    session: &mut Session<D>,
+    surface: &WlSurface,
+    focus: Option<FocusSuccession>,
+) {
     let Some(focus) = focus else {
         return;
     };
@@ -434,7 +472,7 @@ pub(crate) fn finish_window_unmap<D: SessionDriver>(
         .wayland
         .focused_window
         .as_ref()
-        .is_some_and(|focused| focused != &surface)
+        .is_some_and(|focused| focused != surface)
     {
         return;
     }
@@ -488,7 +526,7 @@ pub(crate) fn finish_window_unmap<D: SessionDriver>(
             .is_some_and(|metadata| session.clusters.active_on(&metadata.output) == Some(*id))
     });
     if let Some(cluster) = active_cluster
-        && cluster_focus_successor(session, &surface).is_none()
+        && cluster_focus_successor(session, surface).is_none()
     {
         crate::window::clear_focus(&mut session.wayland);
         session.nodes.focus(
@@ -509,13 +547,13 @@ pub(crate) fn finish_window_unmap<D: SessionDriver>(
     }
 
     let revalidated = if active_cluster.is_some() {
-        cluster_focus_successor(session, &surface)
+        cluster_focus_successor(session, surface)
     } else {
         parent_focus_successor(session, &focus.parents).or_else(|| {
             select_focus_successor(
                 &session.wayland,
                 &session.nodes,
-                &surface,
+                surface,
                 focus.output.as_deref(),
             )
         })

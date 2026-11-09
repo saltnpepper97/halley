@@ -1,3 +1,4 @@
+pub(crate) mod closing;
 pub(crate) mod dialog;
 pub(crate) mod games;
 pub(crate) mod recovery;
@@ -48,14 +49,15 @@ impl ManagedWindowStack {
 /// manager focus policy. ICCCM leaves keyboard focus for those windows to the
 /// client (typically via a grab or a managed owner using WM_TAKE_FOCUS).
 pub fn accepts_wm_focus(window: &Window) -> bool {
-    focus_policy(crate::xwayland::is_override_redirect(window))
+    !closing::pending(window) && focus_policy(crate::xwayland::is_override_redirect(window))
 }
 
 /// Compositor move/resize grabs are window-management operations. X11 menus,
 /// tooltips, and other override-redirect surfaces remain interactive client
 /// surfaces, but are never draggable or resizable as managed windows.
 pub fn accepts_compositor_grab(window: &Window) -> bool {
-    compositor_grab_policy(crate::xwayland::is_override_redirect(window))
+    !closing::pending(window)
+        && compositor_grab_policy(crate::xwayland::is_override_redirect(window))
 }
 
 pub fn focus(wayland: &mut WaylandState, window: &Window, raise: bool) {

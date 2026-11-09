@@ -78,6 +78,8 @@ mod output_origin;
 mod pointer_warp;
 #[path = "support/resize_drag.rs"]
 mod resize_drag;
+#[path = "support/steam_close.rs"]
+mod steam_close;
 #[path = "support/surface_dismissal.rs"]
 mod surface_dismissal;
 #[path = "support/commit_timing_nested.rs"]

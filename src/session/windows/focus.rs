@@ -217,6 +217,7 @@ fn stacking_front_window<D: SessionDriver>(
         .find(|record| {
             record.attached
                 && !record.collapsed
+                && !crate::window::closing::pending(&record.window)
                 && !session.clusters.is_member_floating(record.id)
                 && session
                     .wayland

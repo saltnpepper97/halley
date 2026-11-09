@@ -24,9 +24,10 @@ The checks cover:
   desktop feature set.
 - `nix flake check` on native x86_64 and aarch64 runners, including the package,
   its workspace tests, installed resources and NixOS module assertions.
-- Seven nested XWayland regressions covering disconnect cleanup, dialog focus
-  and stacking, offscreen pointer capture, fullscreen repainting and geometry,
-  and minimize/remap. They run sequentially under headless Weston and Mesa
+- Twelve nested XWayland regressions covering Steam close response and recovery,
+  collapsed-window closure, disconnect cleanup, dialog focus and stacking,
+  offscreen pointer capture, fullscreen repainting and geometry, and
+  minimize/remap. They run sequentially under headless Weston and Mesa
   llvmpipe, on a private D-Bus session, without a physical display or GPU.
 
 Cargo commands use `--locked`. Nix uses the committed `flake.lock` and rejects
@@ -58,7 +59,7 @@ dinit (put Cargo flags before Clippy's `-- -D warnings`). On Ubuntu 26.04,
 the native build and test packages. On a Nix-enabled host, run
 `nix flake check --no-update-lock-file --print-build-logs`.
 
-Rust and Nix run the non-ignored tests. XWayland explicitly selects ten ignored
+Rust and Nix run the non-ignored tests. XWayland explicitly selects twelve ignored
 tests; other display-dependent tests and subprocess helpers remain ignored
 unless invoked by their fixtures. To reproduce the headless suite on Ubuntu
 26.04, install `weston xwayland libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core`

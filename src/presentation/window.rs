@@ -245,6 +245,9 @@ pub(crate) fn window_visual_state_with_cluster_presentation(
     window: &Window,
     cluster_override: Option<crate::clusters::WindowPresentation>,
 ) -> Option<WindowVisualState> {
+    if crate::window::closing::pending(window) {
+        return None;
+    }
     let WindowVisualContext {
         space,
         cameras,

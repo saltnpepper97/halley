@@ -111,6 +111,83 @@ pub(crate) fn capture_before_close_request<D: SessionDriver>(
         && capture_window(session, window)
 }
 
+/// Give secondary Steam windows the same immediate visual response as their
+/// client-owned close button, without retiring their actual client lifetime.
+pub(crate) fn start_shortcut_close<D: SessionDriver>(
+    session: &mut Session<D>,
+    window: &Window,
+    captured: bool,
+) {
+    if !crate::xwayland::is_steam_auxiliary_window(window) {
+        return;
+    }
+    let Some(surface) = window.wl_surface().map(|surface| surface.into_owned()) else {
+        return;
+    };
+    let eligible = session
+        .nodes
+        .id_for_surface(&surface)
+        .and_then(|id| session.nodes.record(id))
+        .is_some_and(|record| record.attached && !record.collapsed);
+    if !eligible
+        || session.pointer_handle().is_grabbed()
+        || session.fullscreen.is_fullscreen_or_pending(&surface)
+        || crate::xwayland::is_fullscreen(window)
+    {
+        return;
+    }
+    let animations = &session.settings.animations;
+    let animated = animations.enabled
+        && animations.window_close.enabled
+        && animations.window_close.duration_ms > 0;
+    // Capture failure keeps the ordinary close path. Disabled animations still
+    // receive immediate, reversible visual dismissal.
+    if animated && !captured {
+        return;
+    }
+    let Some(generation) = crate::window::closing::begin(window) else {
+        return;
+    };
+    if !session
+        .xwayland
+        .arm_shortcut_close_timeout(window.clone(), generation)
+    {
+        crate::window::closing::finish(window);
+        return;
+    }
+    if captured {
+        session
+            .render
+            .window_close_animations
+            .start_speculative(&surface, crate::frame_clock::monotonic_now());
+    }
+    super::lifecycle::handoff_visual_close_focus(session, &surface);
+    session.request_redraw();
+}
+
+pub(crate) fn recover_shortcut_close<D: SessionDriver>(
+    session: &mut Session<D>,
+    window: &Window,
+    generation: u64,
+) {
+    if !crate::window::closing::expire(window, generation) {
+        return;
+    }
+    if let Some(surface) = window.wl_surface() {
+        session
+            .render
+            .window_close_animations
+            .cancel(surface.as_ref());
+    }
+    session.xwayland.cancel_close_request(window);
+    // Reveal without stealing the user's new keyboard focus.
+    super::pointer::refresh_desktop_client_focus(
+        session,
+        session.start_time.elapsed().as_millis() as u32,
+    );
+    session.request_redraw();
+}
+
 /// Captures a close-button target before pointer focus activates its X11
 /// client. The snapshot remains provisional until the button is released and
 /// is discarded if the pointer or touch leaves the control.
@@ -514,6 +591,13 @@ pub(crate) fn x11_buffer_removed<D: SessionDriver>(
 }
 
 pub(crate) fn mapped<D: SessionDriver>(session: &mut Session<D>, surface: &WlSurface) {
+    for record in session
+        .nodes
+        .records()
+        .filter(|record| &record.surface == surface)
+    {
+        crate::window::closing::finish(&record.window);
+    }
     session.render.window_close_animations.cancel(surface);
 }
 
