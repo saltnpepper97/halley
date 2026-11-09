@@ -16,3 +16,9 @@ pub use types::*;
 
 /// Version of the public semantic contract exposed by this crate.
 pub const HALLEY_API_VERSION: u32 = 1;
+
+#[cfg(any(feature = "wayland-client", feature = "wayland-server"))]
+pub mod wayland;
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

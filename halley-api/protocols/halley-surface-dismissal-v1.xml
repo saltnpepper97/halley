@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="halley_surface_dismissal_v1">
+  <copyright>
+    Copyright 2026 Dustin Pilgrim
+    SPDX-License-Identifier: MIT
+  </copyright>
+  <interface name="halley_surface_dismissal_manager_v1" version="1">
+    <description summary="opt-in outside-click notifications for layer surfaces">
+      Applications may watch one of their own layer-shell surfaces for an
+      outside left-button press. This is not a global input monitor: no pointer
+      coordinates, target identities, or unrelated input events are exposed.
+      Binding this optional global does not change focus or input routing.
+    </description>
+    <enum name="error">
+      <entry name="invalid_surface" value="0" summary="surface must have a layer-shell role"/>
+    </enum>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">Existing watches remain valid.</description>
+    </request>
+    <request name="watch">
+      <description summary="watch an owned layer surface">
+        The surface must already have a layer-shell role. Each watch is one-shot
+        and takes effect immediately. Notifications are sent only while the
+        surface is buffer-mapped. Destroying the watch cancels it. Unmapping or
+        destroying the surface cancels the watch permanently; remapping requires
+        a new watch. A client can only reference surfaces on its own connection.
+      </description>
+      <arg name="id" type="new_id" interface="halley_surface_dismissal_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+  </interface>
+  <interface name="halley_surface_dismissal_v1" version="1">
+    <description summary="one surface's outside-click watch">
+      The application decides whether and how to dismiss its UI. The compositor
+      does not close the surface or consume the outside click. This interface
+      does not grant input grabs or permission to observe another client.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <event name="outside_press">
+      <description summary="a left press occurred outside the mapped surface">
+        Sent at most once per watch. Input continues to the ordinary target.
+        Clicks on this surface or its popups are considered inside. The client
+        should destroy this watch after receiving the event.
+      </description>
+    </event>
+  </interface>
+</protocol>

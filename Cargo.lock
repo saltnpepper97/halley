@@ -1192,6 +1192,7 @@ dependencies = [
  "drm-ffi",
  "eventline",
  "futures-util",
+ "halley-api",
  "halley-config",
  "halley-core",
  "halley-ipc",
@@ -1219,10 +1220,14 @@ dependencies = [
 
 [[package]]
 name = "halley-api"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "halley-ipc",
  "serde",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+ "wayland-server",
 ]
 
 [[package]]
