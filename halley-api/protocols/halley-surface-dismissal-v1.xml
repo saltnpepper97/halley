@@ -2,7 +2,7 @@
 <protocol name="halley_surface_dismissal_v1">
   <copyright>
     Copyright 2026 Dustin Pilgrim
-    SPDX-License-Identifier: MIT
+    SPDX-License-Identifier: GPL-3.0-only
   </copyright>
   <interface name="halley_surface_dismissal_manager_v1" version="1">
     <description summary="opt-in outside-click notifications for layer surfaces">
