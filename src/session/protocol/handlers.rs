@@ -638,9 +638,6 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
         if let Some(id) = preview_node {
             self.render.overlay_previews.mark_dirty(id);
         }
-        let apogee_preview_commit = self.settings.apogee.live_previews
-            && self.shell.apogee.accepts_live_previews()
-            && preview_node.is_some_and(|id| self.shell.apogee.contains(id));
         let focus_cycle_preview_commit = self.shell.focus_cycle.accepts_live_previews()
             && preview_node.is_some_and(|id| self.shell.focus_cycle.contains_preview(id));
         if dnd_icon_commit {
@@ -650,24 +647,6 @@ impl<D: SessionDriver> CompositorHandler for Session<D> {
             // any visible card therefore damages every copy, not just the
             // window's home output.
             self.request_redraw();
-        } else if apogee_preview_commit {
-            // Apogee cards only exist on their home output. Queue that output
-            // and let its native vblank cadence coalesce client commits.
-            let preview_output = preview_node
-                .and_then(|id| self.nodes.record(id))
-                .map(|record| record.output.clone())
-                .and_then(|name| {
-                    self.wayland
-                        .space
-                        .outputs()
-                        .find(|output| output.name() == name)
-                        .cloned()
-                });
-            if let Some(output) = preview_output {
-                self.request_output_redraw(&output);
-            } else {
-                self.request_redraw();
-            }
         } else {
             self.request_redraw();
         }

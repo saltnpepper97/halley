@@ -8,7 +8,6 @@ pub struct RuntimeSettings {
     pub overlays: halley_config::Overlays,
     configured_overlays: halley_config::Overlays,
     system_color_scheme: halley_config::SystemColorScheme,
-    pub apogee: halley_config::Apogee,
     pub input: halley_config::Input,
     pub animations: halley_config::Animations,
     pub decorations: halley_config::Decorations,
@@ -40,7 +39,6 @@ impl RuntimeSettings {
             overlays: config.overlays.resolved_for_system(system_color_scheme),
             configured_overlays: config.overlays,
             system_color_scheme,
-            apogee: config.apogee,
             input: applied_input,
             animations: config.animations.clone(),
             decorations: config.decorations,
@@ -73,7 +71,6 @@ impl RuntimeSettings {
     /// Input is applied separately so a failed XKB reload can retain the last
     /// working keyboard configuration.
     pub fn reload_non_input(&mut self, config: &halley_config::RuntimeConfig) {
-        self.apogee = config.apogee;
         self.animations = config.animations.clone();
         self.decorations = config.decorations;
         self.font = config.font.clone();

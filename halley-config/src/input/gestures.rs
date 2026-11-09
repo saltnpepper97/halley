@@ -32,8 +32,8 @@ pub enum GestureSwipeDirection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GestureAction {
-    ApogeeOpen,
-    ApogeeClose,
+    ZoomFitOpen,
+    ZoomFitClose,
     Compositor(Action),
 }
 
@@ -66,7 +66,7 @@ pub struct GestureSettings {
     pub flick_min_px_per_s: f32,
     pub swipe_threshold_px: f32,
     pub swipe_bindings: Vec<GestureBinding>,
-    pub apogee_swipe_bindings: Vec<GestureBinding>,
+    pub zoom_fit_swipe_bindings: Vec<GestureBinding>,
     pub hold_bindings: Vec<GestureHoldBinding>,
 }
 
@@ -89,12 +89,12 @@ impl Default for GestureSettings {
             swipe_bindings: vec![GestureBinding {
                 direction: GestureSwipeDirection::Up,
                 fingers: 4,
-                action: GestureAction::ApogeeOpen,
+                action: GestureAction::ZoomFitOpen,
             }],
-            apogee_swipe_bindings: vec![GestureBinding {
+            zoom_fit_swipe_bindings: vec![GestureBinding {
                 direction: GestureSwipeDirection::Down,
                 fingers: 4,
-                action: GestureAction::ApogeeClose,
+                action: GestureAction::ZoomFitClose,
             }],
             hold_bindings: Vec::new(),
         }

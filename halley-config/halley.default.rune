@@ -95,7 +95,7 @@ end
 
 # Everything else keeps its default, documented at the link above:
 # wallpaper, effects (blur and shadows), overlays, field, node, clusters,
-# apogee, bearings, trail, physics, placement, rules, view and debug.
+# bearings, trail, physics, placement, rules, view and debug.
 
 # Bindings. This list replaces Halley's built-in bindings rather than adding
 # to them, so a binding removed here is unbound.
@@ -118,12 +118,12 @@ keybinds:
   "$var.mod+t" "default-terminal"
   "$var.mod+d" "halley-lift"
 
-  # Tidy the visible windows into a mosaic; press again to undo.
+  # Arrange the visible windows into a mosaic; press again to undo.
   "$var.mod+a" "arrange-visible"
 
-  # Finding things: Apogee shows everything, Bearings points to what is off
-  # screen, Alt+Tab and the Trail walk recent windows.
-  "$var.mod+o" "apogee"
+  # Finding things: zoom-fit zooms out to show everything, Bearings points to
+  # what is off screen, Alt+Tab and the Trail walk recent windows.
+  "$var.mod+o" "zoom-fit"
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
   "alt+tab" "cycle-focus"

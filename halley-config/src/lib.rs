@@ -1,6 +1,5 @@
 mod aliases;
 pub mod animations;
-pub mod apogee;
 pub mod background;
 pub mod bearings;
 pub mod bootstrap;
@@ -36,7 +35,6 @@ pub use animations::{
     WindowCloseAnimationType, WindowMoveAnimation, WindowOpenAnimation, WindowOpenAnimationType,
     load_animations, parse_animations,
 };
-pub use apogee::{Apogee, parse_apogee};
 pub use background::{
     Background, BackgroundColor, BackgroundFit, BackgroundMode, BackgroundParseError,
     parse_background,

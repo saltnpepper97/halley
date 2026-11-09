@@ -474,7 +474,6 @@ pub fn enter_secure_mode<D: SessionDriver>(session: &mut Session<D>) {
     }
     session.cancel_exit_confirmation();
     crate::capture::cancel_selected(session);
-    crate::shell::apogee::cancel(session);
     crate::shell::focus_cycle::cancel(session);
     crate::session::pointer::release_for_compositor_warp(session);
     let old_cursor = session

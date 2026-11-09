@@ -1,12 +1,21 @@
+//! Arrange: lay out the windows visible on one Field output without overlap,
+//! and put them back with a second press.
+//!
+//! The layout is the space-filling mosaic in `shell::partition`: the windows
+//! cover the work area with only the Field gap between them, and the cuts
+//! follow the windows' own shapes, sizes and Field positions instead of a
+//! fixed master and stack. The same windows always produce the same layout.
+//! A window's minimum size is a hard limit, so a window that cannot shrink
+//! (common for X11 apps such as Steam) gets a piece at least that big and the
+//! others shrink instead. A maximum size smaller than the piece leaves the
+//! window centred in it. No eligible window is ever left out.
+
 use halley_core::camera::Camera;
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::{Session, SessionDriver};
-
-const INFEASIBLE_COST: i64 = i64::MAX / 16;
-const UNREACHED_COST: i64 = i64::MAX / 4;
 
 #[derive(Clone, Debug)]
 struct ArrangeTransaction {
@@ -32,15 +41,16 @@ impl ArrangeTransactions {
             .insert(output, ArrangeTransaction { restores });
     }
 
-    /// A deliberate edit to any participant accepts the current layout as
-    /// ordinary Field geometry. Forget the entire output's restore snapshot,
-    /// rather than letting a later toggle overwrite that newer choice.
+    /// A deliberate edit to one participant (moving, resizing, transferring
+    /// or closing it) keeps that window where the user put it: only its own
+    /// restore entry is forgotten. Untouched windows still go back on the
+    /// next press, and an output with nothing left to restore arranges afresh.
     pub(crate) fn invalidate_surface(&mut self, surface: &WlSurface) {
         self.by_output.retain(|_, transaction| {
-            !transaction
+            transaction
                 .restores
-                .iter()
-                .any(|restore| restore.surface == *surface)
+                .retain(|restore| restore.surface != *surface);
+            !transaction.restores.is_empty()
         });
     }
 
@@ -60,9 +70,13 @@ impl ArrangeTransactions {
 
 #[derive(Clone)]
 struct Candidate {
+    id: halley_core::field::NodeId,
     window: Window,
     surface: WlSurface,
     current: Rectangle<i32, Logical>,
+    outer: Rectangle<i32, Logical>,
+    /// The smallest outer size the window accepts, decorations included.
+    min_outer: Size<i32, Logical>,
     center: Point<i32, Logical>,
 }
 
@@ -96,15 +110,18 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
     else {
         return false;
     };
-    let configured_gap = session.settings.field.gap.ceil() as i32;
-    let Some((layout_outer, gap)) =
-        visible_work_area_outer(camera, output_geometry, work_area, configured_gap)
-    else {
-        return false;
-    };
-
+    // Which windows take part is decided on the whole visible work area; the
+    // layout itself keeps one gap clear of bars and screen edges, since the
+    // filled mosaic otherwise reaches them.
+    let (layout_area, gap) = visible_work_area_outer(
+        camera,
+        output_geometry,
+        work_area,
+        session.settings.field.gap.ceil() as i32,
+    )
+    .unwrap_or((visible_area, 0));
     session.nodes.sync_from_space(&session.wayland.space);
-    let mut candidates = session
+    let candidates = session
         .nodes
         .records()
         .filter(|record| {
@@ -130,105 +147,46 @@ pub(crate) fn arrange_visible<D: SessionDriver>(
                 &session.settings.font,
             );
             let center = rect_center(outer);
+            // Asking for a 1x1 window returns the client's minimum size, from
+            // xdg min_size or X11 WM_NORMAL_HINTS alike.
+            let min_client = accepted_size(&record.window, Size::from((1, 1)));
+            let min_outer = crate::titlebar::outer_rect_for_client(
+                &record.window,
+                Rectangle::new(current.loc, min_client),
+                &session.settings.decorations,
+                &session.settings.font,
+            )
+            .size;
             visible_area.contains(center).then(|| Candidate {
+                id: record.id,
                 window: record.window.clone(),
                 surface: record.surface.clone(),
                 current,
+                outer,
+                min_outer,
                 center,
             })
         })
         .collect::<Vec<_>>();
 
-    let assignment = loop {
-        if candidates.len() < 2 {
-            return false;
-        }
-        let Some(region_variants) = mosaic_region_variants(layout_outer, candidates.len(), gap)
-        else {
-            return false;
-        };
-        let mut best_removal_costs = None;
-        let mut best_feasible_cells = 0usize;
-        let mut selected = None;
-        for regions in region_variants {
-            let target_clients = candidates
-                .iter()
-                .map(|candidate| {
-                    regions
-                        .iter()
-                        .map(|region| {
-                            crate::titlebar::client_rect_for_outer(
-                                &candidate.window,
-                                *region,
-                                &session.settings.decorations,
-                                &session.settings.font,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
-            let costs = candidates
-                .iter()
-                .enumerate()
-                .map(|(candidate_index, candidate)| {
-                    regions
-                        .iter()
-                        .enumerate()
-                        .map(|(region_index, region)| {
-                            let target = target_clients[candidate_index][region_index];
-                            if !window_size_is_accepted(&candidate.window, target.size) {
-                                INFEASIBLE_COST
-                            } else {
-                                let feasible_ceiling =
-                                    INFEASIBLE_COST / (candidates.len() as i64 + 1) - 1;
-                                squared_distance(candidate.center, rect_center(*region))
-                                    .min(feasible_ceiling)
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
-            let feasible_cells = costs
-                .iter()
-                .flatten()
-                .filter(|cost| **cost < INFEASIBLE_COST)
-                .count();
-            if feasible_cells > best_feasible_cells || best_removal_costs.is_none() {
-                best_feasible_cells = feasible_cells;
-                best_removal_costs = Some(costs.clone());
-            }
-            if let Some(assignment) = feasible_assignment(&costs) {
-                selected = Some(
-                    assignment
-                        .into_iter()
-                        .enumerate()
-                        .map(|(candidate, region)| (candidate, target_clients[candidate][region]))
-                        .collect::<Vec<_>>(),
-                );
-                break;
-            }
-        }
-        if let Some(selected) = selected {
-            break selected;
-        }
-
-        let costs = best_removal_costs.expect("a mosaic has at least one layout variant");
-        let remove = costs
-            .iter()
-            .enumerate()
-            .min_by_key(|(index, row)| {
-                (
-                    row.iter().filter(|cost| **cost < INFEASIBLE_COST).count(),
-                    std::cmp::Reverse(
-                        candidates[*index].current.size.w as i64
-                            * candidates[*index].current.size.h as i64,
-                    ),
-                )
-            })
-            .map(|(index, _)| index)
-            .expect("candidate list is non-empty");
-        candidates.remove(remove);
-    };
+    if candidates.len() < 2 {
+        return false;
+    }
+    let slots = arrange_slots(&candidates, session.nodes.focused(), layout_area, gap);
+    let assignment = candidates
+        .iter()
+        .zip(slots)
+        .enumerate()
+        .map(|(index, (candidate, slot))| {
+            let requested = crate::titlebar::client_rect_for_outer(
+                &candidate.window,
+                slot,
+                &session.settings.decorations,
+                &session.settings.font,
+            );
+            (index, fit_accepted_size(&candidate.window, requested))
+        })
+        .collect::<Vec<_>>();
 
     let restores = candidates
         .iter()
@@ -499,269 +457,110 @@ fn visible_work_area_outer(
     Some((outer, world_gap))
 }
 
-fn mosaic_regions(
-    outer: Rectangle<i32, Logical>,
-    count: usize,
+/// One outer rectangle per candidate, in Field coordinates inside `area`.
+fn arrange_slots(
+    candidates: &[Candidate],
+    focused: Option<halley_core::field::NodeId>,
+    area: Rectangle<i32, Logical>,
     gap: i32,
-) -> Option<Vec<Rectangle<i32, Logical>>> {
-    if count < 2 {
-        return None;
-    }
-    if count == 3 {
-        let columns = split_axis(outer.loc.x, outer.size.w, 2, gap)?;
-        let right_rows = split_axis(outer.loc.y, outer.size.h, 2, gap)?;
-        return Some(vec![
-            Rectangle::new(
-                (columns[0].0, outer.loc.y).into(),
-                (columns[0].1, outer.size.h).into(),
-            ),
-            Rectangle::new(
-                (columns[1].0, right_rows[0].0).into(),
-                (columns[1].1, right_rows[0].1).into(),
-            ),
-            Rectangle::new(
-                (columns[1].0, right_rows[1].0).into(),
-                (columns[1].1, right_rows[1].1).into(),
-            ),
-        ]);
-    }
-
-    let columns = ceil_sqrt(count);
-    let rows = count.div_ceil(columns);
-    let row_heights = split_axis(outer.loc.y, outer.size.h, rows, gap)?;
-    let base = count / rows;
-    let extra = count % rows;
-    let mut regions = Vec::with_capacity(count);
-    for (row, (top, height)) in row_heights.into_iter().enumerate() {
-        let in_row = base + usize::from(row < extra);
-        let widths = split_axis(outer.loc.x, outer.size.w, in_row, gap)?;
-        regions.extend(
-            widths
-                .into_iter()
-                .map(|(left, width)| Rectangle::new((left, top).into(), (width, height).into())),
-        );
-    }
-    Some(regions)
+) -> Vec<Rectangle<i32, Logical>> {
+    let items = candidates
+        .iter()
+        .map(|candidate| crate::shell::mosaic::Item {
+            x: candidate.center.x as f32,
+            y: candidate.center.y as f32,
+            aspect: (candidate.outer.size.w.max(1) as f32 / candidate.outer.size.h.max(1) as f32)
+                .clamp(0.25, 4.5),
+            stable_key: candidate.id.as_u64(),
+            weight: candidate.outer.size.w.max(1) as f32 * candidate.outer.size.h.max(1) as f32,
+            min_w: candidate.min_outer.w as f32,
+            min_h: candidate.min_outer.h as f32,
+        })
+        .collect::<Vec<_>>();
+    let focused = candidates
+        .iter()
+        .position(|candidate| focused == Some(candidate.id));
+    slots_in(&items, focused, area, gap)
 }
 
-/// Keeps the balanced mosaic as the stable default, then offers layouts with
-/// one larger slot for clients whose minimum size cannot fit the equal grid.
-fn mosaic_region_variants(
-    outer: Rectangle<i32, Logical>,
-    count: usize,
+fn slots_in(
+    items: &[crate::shell::mosaic::Item],
+    focused: Option<usize>,
+    area: Rectangle<i32, Logical>,
     gap: i32,
-) -> Option<Vec<Vec<Rectangle<i32, Logical>>>> {
-    let balanced = mosaic_regions(outer, count, gap)?;
-    let mut variants = vec![balanced];
-    for (numerator, denominator) in [(3, 5), (2, 3), (3, 4)] {
-        for vertical in [true, false] {
-            for featured_at_start in [true, false] {
-                if let Some(regions) = featured_mosaic(
-                    outer,
-                    count,
-                    gap,
-                    numerator,
-                    denominator,
-                    vertical,
-                    featured_at_start,
-                ) {
-                    variants.push(regions);
-                }
-            }
-        }
-    }
-    Some(variants)
+) -> Vec<Rectangle<i32, Logical>> {
+    let gap = gap.max(0) as f32;
+    crate::shell::partition::partition(items, focused, area.size.w, area.size.h, gap)
+        .into_iter()
+        .map(|slot| {
+            // Round edges, not centre and size, so pieces that reach the area
+            // edge cannot spill past it by a rounding pixel.
+            let left = ((slot.cx - slot.w * 0.5).round() as i32).clamp(0, area.size.w - 1);
+            let top = ((slot.cy - slot.h * 0.5).round() as i32).clamp(0, area.size.h - 1);
+            let right = ((slot.cx + slot.w * 0.5).round() as i32).clamp(left + 1, area.size.w);
+            let bottom = ((slot.cy + slot.h * 0.5).round() as i32).clamp(top + 1, area.size.h);
+            Rectangle::new(
+                (area.loc.x + left, area.loc.y + top).into(),
+                (right - left, bottom - top).into(),
+            )
+        })
+        .collect()
 }
 
-fn featured_mosaic(
-    outer: Rectangle<i32, Logical>,
-    count: usize,
-    gap: i32,
-    numerator: i32,
-    denominator: i32,
-    vertical: bool,
-    featured_at_start: bool,
-) -> Option<Vec<Rectangle<i32, Logical>>> {
-    if count < 2 || numerator <= 0 || numerator >= denominator {
-        return None;
+/// The size the window accepts nearest to `requested`, centred on it.
+fn fit_accepted_size(
+    window: &Window,
+    requested: Rectangle<i32, Logical>,
+) -> Rectangle<i32, Logical> {
+    if window_size_is_accepted(window, requested.size) {
+        return requested;
     }
-    let gap = gap.max(0);
-    let axis_length = if vertical { outer.size.w } else { outer.size.h };
-    let available = axis_length.checked_sub(gap)?;
-    let featured_length = available.checked_mul(numerator)?.div_euclid(denominator);
-    let remainder_length = available.checked_sub(featured_length)?;
-    if featured_length < 1 || remainder_length < 1 {
-        return None;
-    }
-    let (featured_axis, remainder_axis) = if featured_at_start {
-        (
-            if vertical { outer.loc.x } else { outer.loc.y },
-            (if vertical { outer.loc.x } else { outer.loc.y })
-                .checked_add(featured_length)?
-                .checked_add(gap)?,
-        )
-    } else {
-        (
-            (if vertical { outer.loc.x } else { outer.loc.y })
-                .checked_add(remainder_length)?
-                .checked_add(gap)?,
-            if vertical { outer.loc.x } else { outer.loc.y },
-        )
-    };
-    let featured = if vertical {
-        Rectangle::new(
-            (featured_axis, outer.loc.y).into(),
-            (featured_length, outer.size.h).into(),
-        )
-    } else {
-        Rectangle::new(
-            (outer.loc.x, featured_axis).into(),
-            (outer.size.w, featured_length).into(),
-        )
-    };
-    let remainder = if vertical {
-        Rectangle::new(
-            (remainder_axis, outer.loc.y).into(),
-            (remainder_length, outer.size.h).into(),
-        )
-    } else {
-        Rectangle::new(
-            (outer.loc.x, remainder_axis).into(),
-            (outer.size.w, remainder_length).into(),
-        )
-    };
-    let mut regions = vec![featured];
-    if count == 2 {
-        regions.push(remainder);
-    } else {
-        regions.extend(mosaic_regions(remainder, count - 1, gap)?);
-    }
-    Some(regions)
+    let size = accepted_size(window, requested.size);
+    let center = rect_center(requested);
+    Rectangle::new((center.x - size.w / 2, center.y - size.h / 2).into(), size)
 }
 
-fn split_axis(start: i32, length: i32, count: usize, gap: i32) -> Option<Vec<(i32, i32)>> {
-    let count = i32::try_from(count).ok()?;
-    let gap = gap.max(0);
-    let available = length.checked_sub(gap.checked_mul(count.checked_sub(1)?)?)?;
-    if available < count {
-        return None;
+fn accepted_size(window: &Window, requested: Size<i32, Logical>) -> Size<i32, Logical> {
+    let requested = Size::from((requested.w.max(1), requested.h.max(1)));
+    if crate::xwayland::is_x11(window) {
+        return crate::xwayland::constrain_window_size(window, requested);
     }
-    let base = available / count;
-    let remainder = available % count;
-    let mut cursor = start;
-    let mut segments = Vec::with_capacity(count as usize);
-    for index in 0..count {
-        let size = base + i32::from(index < remainder);
-        segments.push((cursor, size));
-        cursor = cursor.checked_add(size)?.checked_add(gap)?;
-    }
-    Some(segments)
+    let Some(toplevel) = window.toplevel() else {
+        return requested;
+    };
+    smithay::wayland::compositor::with_states(toplevel.wl_surface(), |states| {
+        let mut cached = states
+            .cached_state
+            .get::<smithay::wayland::shell::xdg::SurfaceCachedState>();
+        let state = cached.current();
+        clamp_to_limits(requested, state.min_size, state.max_size)
+    })
 }
 
-fn ceil_sqrt(value: usize) -> usize {
-    let mut root = 1usize;
-    while root.saturating_mul(root) < value {
-        root += 1;
-    }
-    root
+/// Clamps each axis to a client's limits, where 0 means "no limit".
+fn clamp_to_limits(
+    requested: Size<i32, Logical>,
+    min: Size<i32, Logical>,
+    max: Size<i32, Logical>,
+) -> Size<i32, Logical> {
+    let axis = |value: i32, min: i32, max: i32| {
+        let value = if max > 0 { value.min(max) } else { value };
+        if min > 0 { value.max(min) } else { value }
+    };
+    (
+        axis(requested.w, min.w, max.w),
+        axis(requested.h, min.h, max.h),
+    )
+        .into()
 }
 
 fn rect_center(rect: Rectangle<i32, Logical>) -> Point<i32, Logical> {
     (rect.loc.x + rect.size.w / 2, rect.loc.y + rect.size.h / 2).into()
 }
 
-fn squared_distance(a: Point<i32, Logical>, b: Point<i32, Logical>) -> i64 {
-    let dx = i64::from(a.x) - i64::from(b.x);
-    let dy = i64::from(a.y) - i64::from(b.y);
-    dx.saturating_mul(dx)
-        .saturating_add(dy.saturating_mul(dy))
-        .min(INFEASIBLE_COST - 1)
-}
-
-fn feasible_assignment(costs: &[Vec<i64>]) -> Option<Vec<usize>> {
-    if costs.len() < 2 || costs.iter().any(|row| row.len() != costs.len()) {
-        return None;
-    }
-    let assignment = minimum_cost_assignment(costs);
-    assignment
-        .iter()
-        .enumerate()
-        .all(|(candidate, region)| costs[candidate][*region] < INFEASIBLE_COST)
-        .then_some(assignment)
-}
-
-fn minimum_cost_assignment(costs: &[Vec<i64>]) -> Vec<usize> {
-    let count = costs.len();
-    debug_assert!(costs.iter().all(|row| row.len() == count));
-    let mut row_potential = vec![0i64; count + 1];
-    let mut column_potential = vec![0i64; count + 1];
-    let mut matched_row = vec![0usize; count + 1];
-    let mut previous_column = vec![0usize; count + 1];
-
-    for row in 1..=count {
-        matched_row[0] = row;
-        let mut column = 0usize;
-        let mut minimum = vec![UNREACHED_COST; count + 1];
-        let mut used = vec![false; count + 1];
-        loop {
-            used[column] = true;
-            let active_row = matched_row[column];
-            let mut delta = UNREACHED_COST;
-            let mut next_column = 0usize;
-            for candidate_column in 1..=count {
-                if used[candidate_column] {
-                    continue;
-                }
-                let reduced = costs[active_row - 1][candidate_column - 1]
-                    .saturating_sub(row_potential[active_row])
-                    .saturating_sub(column_potential[candidate_column]);
-                if reduced < minimum[candidate_column] {
-                    minimum[candidate_column] = reduced;
-                    previous_column[candidate_column] = column;
-                }
-                if minimum[candidate_column] < delta {
-                    delta = minimum[candidate_column];
-                    next_column = candidate_column;
-                }
-            }
-            for candidate_column in 0..=count {
-                if used[candidate_column] {
-                    row_potential[matched_row[candidate_column]] =
-                        row_potential[matched_row[candidate_column]].saturating_add(delta);
-                    column_potential[candidate_column] =
-                        column_potential[candidate_column].saturating_sub(delta);
-                } else {
-                    minimum[candidate_column] = minimum[candidate_column].saturating_sub(delta);
-                }
-            }
-            column = next_column;
-            if matched_row[column] == 0 {
-                break;
-            }
-        }
-        loop {
-            let prior = previous_column[column];
-            matched_row[column] = matched_row[prior];
-            column = prior;
-            if column == 0 {
-                break;
-            }
-        }
-    }
-
-    let mut assignment = vec![0usize; count];
-    for column in 1..=count {
-        assignment[matched_row[column] - 1] = column - 1;
-    }
-    assignment
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        ArrangeTransactions, feasible_assignment, minimum_cost_assignment, mosaic_region_variants,
-        mosaic_regions, visible_work_area_outer,
-    };
+    use super::{ArrangeTransactions, clamp_to_limits, slots_in, visible_work_area_outer};
     use halley_core::camera::Camera;
     use halley_core::field::Vec2;
     use smithay::utils::{Logical, Rectangle};
@@ -782,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn editing_a_participant_forgets_its_whole_output_but_not_other_outputs() {
+    fn editing_a_participant_forgets_only_that_window() {
         use smithay::reexports::wayland_server::{
             Client, DataInit, Dispatch, Display, DisplayHandle,
             protocol::wl_surface::{self, WlSurface},
@@ -833,10 +632,19 @@ mod tests {
         assert!(transactions.active_on("DP-1"));
         assert!(transactions.active_on("DP-2"));
         transactions.invalidate_surface(&surfaces[1]);
-        assert!(!transactions.active_on("DP-1"));
-        assert!(!transactions.contains_surface(&surfaces[0]));
+        assert!(
+            transactions.active_on("DP-1"),
+            "the untouched window still goes back"
+        );
+        assert!(transactions.contains_surface(&surfaces[0]));
         assert!(!transactions.contains_surface(&surfaces[1]));
         assert!(transactions.active_on("DP-2"));
+
+        transactions.invalidate_surface(&surfaces[0]);
+        assert!(
+            !transactions.active_on("DP-1"),
+            "an output with nothing left to restore arranges afresh"
+        );
         assert!(transactions.contains_surface(&surfaces[2]));
         assert!(transactions.take("DP-2").is_some());
     }
@@ -863,75 +671,166 @@ mod tests {
         assert!(!layout.contains((10, 40)));
     }
 
-    #[test]
-    fn three_windows_use_large_left_and_split_right() {
-        let regions = mosaic_regions(
-            Rectangle::<i32, Logical>::new((0, 0).into(), (1000, 800).into()),
-            3,
-            20,
-        )
-        .unwrap();
-        assert_eq!(regions[0], Rectangle::new((0, 0).into(), (490, 800).into()));
-        assert_eq!(
-            regions[1],
-            Rectangle::new((510, 0).into(), (490, 390).into())
-        );
-        assert_eq!(
-            regions[2],
-            Rectangle::new((510, 410).into(), (490, 390).into())
-        );
+    fn item(x: f32, y: f32, w: f32, h: f32, key: u64) -> crate::shell::mosaic::Item {
+        crate::shell::mosaic::Item {
+            x,
+            y,
+            aspect: w / h,
+            stable_key: key,
+            weight: w * h,
+            min_w: 0.0,
+            min_h: 0.0,
+        }
+    }
+
+    fn overlaps(a: Rectangle<i32, Logical>, b: Rectangle<i32, Logical>) -> bool {
+        a.loc.x < b.loc.x + b.size.w
+            && b.loc.x < a.loc.x + a.size.w
+            && a.loc.y < b.loc.y + b.size.h
+            && b.loc.y < a.loc.y + a.size.h
     }
 
     #[test]
-    fn asymmetric_variants_offer_a_large_slot_on_smaller_outputs() {
-        let outer = Rectangle::<i32, Logical>::new((0, 0).into(), (1800, 1000).into());
-        let variants = mosaic_region_variants(outer, 3, 20).unwrap();
-
-        assert_eq!(variants[0], mosaic_regions(outer, 3, 20).unwrap());
-        assert!(variants[0].iter().all(|region| region.size.w < 1000));
-        assert!(variants.iter().skip(1).any(|regions| {
-            regions.len() == 3 && regions.iter().any(|region| region.size.w >= 1068)
-        }));
+    fn arrange_places_every_window_inside_the_area_without_overlap() {
+        let area = Rectangle::<i32, Logical>::new((-400, 200).into(), (2560, 1400).into());
+        for count in 2..=12 {
+            let items = (0..count)
+                .map(|index| {
+                    let wide = index % 3 == 0;
+                    item(
+                        (index * 137 % 2000) as f32,
+                        (index * 89 % 1200) as f32,
+                        if wide { 1600.0 } else { 900.0 },
+                        if wide { 900.0 } else { 1000.0 },
+                        index as u64,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let slots = slots_in(&items, None, area, 20);
+            assert_eq!(slots.len(), count, "no window is left out");
+            for (index, slot) in slots.iter().enumerate() {
+                assert!(
+                    area.contains_rect(*slot),
+                    "{count} windows: slot {index} {slot:?} leaves {area:?}"
+                );
+                for other in &slots[index + 1..] {
+                    assert!(!overlaps(*slot, *other), "{count} windows overlap");
+                }
+            }
+        }
     }
 
     #[test]
-    fn feasible_assignment_keeps_a_constrained_window_in_a_featured_slot() {
-        let impossible = super::INFEASIBLE_COST;
-        let balanced = vec![
-            vec![impossible, impossible, impossible],
-            vec![1, 2, 3],
-            vec![3, 2, 1],
+    fn arrange_keeps_each_window_shape_and_favours_bigger_windows() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
+        let items = [
+            item(100.0, 100.0, 1600.0, 900.0, 1),
+            item(900.0, 100.0, 600.0, 900.0, 2),
+            item(400.0, 700.0, 640.0, 480.0, 3),
         ];
-        assert!(feasible_assignment(&balanced).is_none());
+        let slots = slots_in(&items, None, area, 20);
+        // Filling the screen bends shapes, but a wide window keeps a wide
+        // piece and a tall one a tall piece.
+        assert!(slots[0].size.w > slots[0].size.h, "{:?}", slots[0]);
+        assert!(slots[1].size.h > slots[1].size.w, "{:?}", slots[1]);
+        let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
+        assert!(area_of(&slots[0]) > area_of(&slots[2]));
+    }
 
-        let featured = vec![
-            vec![1, impossible, impossible],
-            vec![impossible, 1, 2],
-            vec![impossible, 2, 1],
+    #[test]
+    fn arrange_uses_the_screen_instead_of_leaving_a_border() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        for count in 2..=6_u64 {
+            let items = (0..count)
+                .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
+                .collect::<Vec<_>>();
+            let slots = slots_in(&items, None, area, 20);
+            let left = slots.iter().map(|slot| slot.loc.x).min().unwrap();
+            let top = slots.iter().map(|slot| slot.loc.y).min().unwrap();
+            let right = slots
+                .iter()
+                .map(|slot| slot.loc.x + slot.size.w)
+                .max()
+                .unwrap();
+            let bottom = slots
+                .iter()
+                .map(|slot| slot.loc.y + slot.size.h)
+                .max()
+                .unwrap();
+            assert!(
+                left == 0 && top == 0 && right == area.size.w && bottom == area.size.h,
+                "{count} windows leave a border: {left},{top} to {right},{bottom}"
+            );
+            let covered: i32 = slots.iter().map(|slot| slot.size.w * slot.size.h).sum();
+            let fraction = covered as f32 / (area.size.w * area.size.h) as f32;
+            // Everything but the gaps between pieces is covered.
+            assert!(fraction > 0.95, "{count} windows cover only {fraction:.2}");
+        }
+    }
+
+    #[test]
+    fn arrange_is_the_same_every_time_for_the_same_windows() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (1920, 1080).into());
+        let items = (0..6)
+            .map(|index| item(index as f32 * 300.0, 0.0, 800.0, 600.0, index))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            slots_in(&items, None, area, 20),
+            slots_in(&items, None, area, 20)
+        );
+    }
+
+    #[test]
+    fn a_window_with_a_large_minimum_size_gets_room_instead_of_overlapping() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        // A tall X11 tool window that refuses to be smaller than 700x1100,
+        // next to three ordinary windows.
+        let mut tower = item(1800.0, 300.0, 700.0, 1100.0, 1);
+        tower.min_w = 700.0;
+        tower.min_h = 1100.0;
+        let items = [
+            item(100.0, 100.0, 1600.0, 900.0, 2),
+            tower,
+            item(400.0, 900.0, 1200.0, 800.0, 3),
+            item(1200.0, 900.0, 900.0, 700.0, 4),
         ];
-        assert_eq!(feasible_assignment(&featured), Some(vec![0, 1, 2]));
+        let slots = slots_in(&items, None, area, 20);
+        assert!(
+            slots[1].size.w >= 700 && slots[1].size.h >= 1100,
+            "{:?}",
+            slots[1]
+        );
+        for (index, slot) in slots.iter().enumerate() {
+            assert!(area.contains_rect(*slot));
+            for other in &slots[index + 1..] {
+                assert!(!overlaps(*slot, *other), "{slot:?} overlaps {other:?}");
+            }
+        }
     }
 
     #[test]
-    fn assignment_minimizes_total_window_travel() {
-        let assignment =
-            minimum_cost_assignment(&[vec![100, 1, 50], vec![1, 100, 50], vec![50, 50, 1]]);
-        assert_eq!(assignment, vec![1, 0, 2]);
+    fn the_focused_window_gets_a_larger_slot() {
+        let area = Rectangle::<i32, Logical>::new((0, 0).into(), (2560, 1400).into());
+        let items = (0..4)
+            .map(|index| item(index as f32 * 400.0, 0.0, 800.0, 600.0, index))
+            .collect::<Vec<_>>();
+        let even = slots_in(&items, None, area, 20);
+        let focused = slots_in(&items, Some(2), area, 20);
+        let area_of = |slot: &Rectangle<i32, Logical>| slot.size.w * slot.size.h;
+        assert!(area_of(&focused[2]) > area_of(&even[2]));
+        for other in [0, 1, 3] {
+            assert!(area_of(&focused[2]) > area_of(&focused[other]));
+        }
     }
 
     #[test]
-    fn assignment_can_avoid_infeasible_targets() {
-        let impossible = super::INFEASIBLE_COST;
-        let assignment = minimum_cost_assignment(&[vec![impossible, 1], vec![1, impossible]]);
-        assert_eq!(assignment, vec![1, 0]);
-    }
-
-    #[test]
-    fn assignment_terminates_when_no_target_is_feasible() {
-        let impossible = super::INFEASIBLE_COST;
-        let mut assignment =
-            minimum_cost_assignment(&[vec![impossible, impossible], vec![impossible, impossible]]);
-        assignment.sort_unstable();
-        assert_eq!(assignment, vec![0, 1]);
+    fn size_limits_clamp_each_axis_and_zero_means_unlimited() {
+        let clamp = |requested: (i32, i32), min: (i32, i32), max: (i32, i32)| {
+            clamp_to_limits(requested.into(), min.into(), max.into())
+        };
+        assert_eq!(clamp((400, 300), (0, 0), (0, 0)), (400, 300).into());
+        assert_eq!(clamp((400, 300), (1000, 600), (0, 0)), (1000, 600).into());
+        assert_eq!(clamp((2000, 300), (0, 0), (1200, 0)), (1200, 300).into());
+        assert_eq!(clamp((400, 900), (500, 0), (0, 700)), (500, 700).into());
     }
 }

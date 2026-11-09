@@ -43,7 +43,7 @@ keybinds:
   "$var.mod+m" "maximize-focused"
   "$var.mod+n" "toggle-state"
   "$var.mod+p" "toggle-focused-pin"
-  "$var.mod+o" "apogee"
+  "$var.mod+o" "zoom-fit"
   "$var.mod+space" "center-last-focused"
 
   # Contextual navigation follows the active context: the Field arrows move

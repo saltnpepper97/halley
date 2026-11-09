@@ -16,6 +16,37 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Create clusters over the Field instead of on a separate screen.
+  `Super+Shift+C` still lays every window and node that can join out so none
+  overlap, but over the live, undimmed Field rather than a dark wallpaper-only
+  screen, and the windows glide there from where they are. The
+  keys are unchanged: arrows or the pointer to highlight, Space or a click to
+  select, Enter to name, Escape to back out. Selected windows get a thick frame
+  in the overlay's border colour instead of the inverted text colour.
+- Replace Apogee with zoom to fit (`Mod+O`). Instead of opening a separate
+  overview screen, each monitor's Field zooms out until every window and node
+  on it fits. Click a window or node to zoom back in on it, or press `Mod+O`
+  again or Escape to return. Nothing moves, `Mod`-drag still moves windows
+  while zoomed out, and panning or zooming by hand keeps the new view. Zoom to
+  fit can look further out than `zoom.min`, down to 10%, and leaves room at
+  the edges so nodes pushed aside by nearby windows stay in view. Bindings to
+  `apogee` and the `apogee-open`, `apogee-close` and `apogee-swipe-*` gestures keep
+  working as older spellings of `zoom-fit`, `zoom-fit-open`, `zoom-fit-close`
+  and `zoom-fit-swipe-*`. The `apogee:` config section is no longer read and
+  can be deleted. The first-decay notice now says to press the zoom-fit key,
+  or only offers the click when nothing is bound to it.
+- Make Arrange (`Mod+A`) fill the screen and lay windows out predictably. The
+  windows now cover the work area like a tiled layout, with only the Field gap
+  between them and around bars and screen edges. The layout is not a fixed
+  master and stack: Halley picks the cuts that best fit the windows' own
+  shapes, sizes and places on the Field, so a wide window tends to get a wide
+  band, a tall one a column, bigger windows more room, and the window you are
+  working in a larger piece. The same windows always land the same way. A
+  window that cannot shrink below a minimum size, such as Steam or a tall X11
+  tool window, gets a piece at least that big and the others shrink instead,
+  so it no longer overlaps its neighbours. No window is dropped. Moving or
+  closing one arranged window now keeps the others' way back, so the next
+  `Mod+A` still returns them.
 - Measure decay against the screen. A window now takes the shorter decay delay
   only once 90% of it is off screen, instead of outside an invisible 820×420
   ring that stayed the same size in the Field. Zoomed out, windows you can
@@ -59,8 +90,8 @@ All notable changes to this project will be documented in this file.
   x11rb to 0.14. Adapt virtual-keyboard and text-input integration while
   preserving direct virtual-key delivery, independent modifier masks,
   configured hardware keyboard state, and session-lock input isolation.
-- Internal: Apogee, Cluster Composer and hover previews take one overview scene
-  value instead of 15 to 28 separate arguments. No behavior change.
+- Internal: Cluster Composer and hover previews take one overview scene value
+  instead of 15 to 28 separate arguments. No behavior change.
 - Internal: clusters decide what a dropped window or overflow member means,
   and the pointer code only measures the drop and applies the result. The drop
   rules now have unit tests. No behavior change.
@@ -82,6 +113,18 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Internal: wait for XWayland's asynchronous pointer release in the offscreen
+  capture test before checking unrestricted motion, avoiding a timing-dependent
+  test failure.
+- Stop nodes drifting away when you zoom out, pan and zoom back in. A
+  placement check that runs whenever a window repaints measured nodes at the
+  zoomed-out size and always searched from the top-left, so panning (which
+  makes windows repaint) pushed nearby nodes further away and made them forget
+  their way back. It now measures at normal size and moves a node the shortest
+  straight way when it really must, and zoomed-out nodes return home as you
+  zoom in.
+- Fix the split-config example, where a stray animation block inside
+  `effects.shadows` broke the nesting of the node shadow settings.
 - With fullscreen animations off, stop an X11 window or game from flashing its
   old buffer at the new position for a frame when entering or leaving
   fullscreen. It now switches in one step once it has repainted at the new size,
@@ -114,13 +157,10 @@ All notable changes to this project will be documented in this file.
   such as a browser exiting fullscreen video, instead of dropping it back to
   its normal size in the Field. Leaving `Mod+F` still restores the normal
   window.
-- Give Apogee's `NODE` badge the same themed pill as Alt+Tab, in the top-left
-  corner of the tile. It previously drew bare, hardcoded light-blue text that
-  ignored the overlay theme.
 - Stop the first-decay notice from suggesting `Mod+N`, which acts on the
   focused window rather than the one that just collapsed. It now says the
-  window is still running and points to its node or to Apogee, naming the key
-  actually bound to Apogee.
+  window is still running and that clicking the notice brings it back, and
+  names the key actually bound to zoom to fit.
 - Internal: nested test sessions ignore the host's keyboard and pointer, so
   moving the mouse over their windows can no longer change a test's result.
 - Internal: fix an intermittent nested XWayland test that read a game window's

@@ -212,11 +212,11 @@ pub(crate) fn begin_cluster_commit<D: SessionDriver>(session: &mut Session<D>) -
         .prepare_creation(session.nodes.field(), focused, fallback_core_position)
     {
         Ok(prepared) => {
-            if session
-                .shell
-                .cluster_composer
-                .begin_commit(prepared, session.settings.apogee, now)
-            {
+            if session.shell.cluster_composer.begin_commit(
+                prepared,
+                crate::shell::cluster_composer::ComposerStyle::default(),
+                now,
+            ) {
                 session
                     .cursor
                     .set_override(crate::cursor::OverrideSource::Modal, None);

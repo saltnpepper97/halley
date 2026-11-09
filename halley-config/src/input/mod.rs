@@ -254,7 +254,7 @@ fn parse_gestures(fields: &[ObjectItem]) -> Result<GestureSettings, InputParseEr
             "input.gestures.swipe-threshold-px must be between 8 and 10000".to_string(),
         ));
     }
-    let (swipe_bindings, apogee_swipe_bindings, hold_bindings) =
+    let (swipe_bindings, zoom_fit_swipe_bindings, hold_bindings) =
         parse_gesture_bindings(fields, path)?;
 
     Ok(GestureSettings {
@@ -289,10 +289,10 @@ fn parse_gestures(fields: &[ObjectItem]) -> Result<GestureSettings, InputParseEr
         } else {
             swipe_bindings
         },
-        apogee_swipe_bindings: if apogee_swipe_bindings.is_empty() {
-            defaults.apogee_swipe_bindings
+        zoom_fit_swipe_bindings: if zoom_fit_swipe_bindings.is_empty() {
+            defaults.zoom_fit_swipe_bindings
         } else {
-            apogee_swipe_bindings
+            zoom_fit_swipe_bindings
         },
         hold_bindings,
     })
@@ -300,7 +300,7 @@ fn parse_gestures(fields: &[ObjectItem]) -> Result<GestureSettings, InputParseEr
 
 enum GestureBindingKey {
     Swipe {
-        apogee: bool,
+        zoom_fit: bool,
         direction: GestureSwipeDirection,
         fingers: u32,
     },
@@ -316,7 +316,11 @@ fn parse_gesture_binding_key(key: &str) -> Option<GestureBindingKey> {
             .contains(&fingers)
             .then_some(GestureBindingKey::Hold { fingers });
     }
-    let (apogee, suffix) = if let Some(suffix) = key.strip_prefix("apogee-swipe-") {
+    // `apogee-swipe-` is the older spelling of `zoom-fit-swipe-`.
+    let (zoom_fit, suffix) = if let Some(suffix) = key
+        .strip_prefix("zoom-fit-swipe-")
+        .or_else(|| key.strip_prefix("apogee-swipe-"))
+    {
         (true, suffix)
     } else {
         (false, key.strip_prefix("swipe-")?)
@@ -333,7 +337,7 @@ fn parse_gesture_binding_key(key: &str) -> Option<GestureBindingKey> {
     (1..=32)
         .contains(&fingers)
         .then_some(GestureBindingKey::Swipe {
-            apogee,
+            zoom_fit,
             direction,
             fingers,
         })
@@ -377,8 +381,9 @@ fn parse_gesture_action(value: &Value, path: &str) -> Result<GestureAction, Inpu
         return Err(InputParseError(format!("{path} must be a string")));
     };
     match value.as_str() {
-        "apogee-open" | "overview-open" => Ok(GestureAction::ApogeeOpen),
-        "apogee-close" | "overview-close" => Ok(GestureAction::ApogeeClose),
+        // `apogee-*` and `overview-*` are older spellings.
+        "zoom-fit-open" | "apogee-open" | "overview-open" => Ok(GestureAction::ZoomFitOpen),
+        "zoom-fit-close" | "apogee-close" | "overview-close" => Ok(GestureAction::ZoomFitClose),
         _ => match crate::parse::parse_action_checked(value)
             .map_err(|error| InputParseError(format!("{path}: {error}")))?
         {
@@ -406,7 +411,7 @@ fn parse_gesture_bindings(
     path: &str,
 ) -> Result<ParsedGestureBindings, InputParseError> {
     let mut swipe = Vec::new();
-    let mut apogee_swipe = Vec::new();
+    let mut zoom_fit_swipe = Vec::new();
     let mut hold = Vec::new();
     for item in fields {
         let ObjectItem::Assign(key, value) = item else {
@@ -418,7 +423,7 @@ fn parse_gesture_bindings(
         let action = parse_gesture_action(value, &format!("{path}.{key}"))?;
         match binding {
             GestureBindingKey::Swipe {
-                apogee,
+                zoom_fit,
                 direction,
                 fingers,
             } => {
@@ -427,8 +432,8 @@ fn parse_gesture_bindings(
                     fingers,
                     action,
                 };
-                if apogee {
-                    apogee_swipe.push(binding);
+                if zoom_fit {
+                    zoom_fit_swipe.push(binding);
                 } else {
                     swipe.push(binding);
                 }
@@ -438,7 +443,7 @@ fn parse_gesture_bindings(
             }
         }
     }
-    Ok((swipe, apogee_swipe, hold))
+    Ok((swipe, zoom_fit_swipe, hold))
 }
 
 fn parse_scope(
@@ -956,14 +961,15 @@ end
     }
 
     #[test]
-    fn parses_arbitrary_swipe_apogee_swipe_and_hold_bindings() {
+    fn parses_arbitrary_swipe_zoom_fit_swipe_and_hold_bindings() {
         let input = parse(
             r#"
 input:
   gestures:
     swipe-left-5 "trail-prev"
     swipe-right-5 "monitor focus DP-1"
-    apogee-swipe-up-3 "toggle-state"
+    zoom-fit-swipe-up-3 "toggle-state"
+    apogee-swipe-down-3 "zoom-fit-close"
     hold-2 "zoom-reset"
   end
 end
@@ -987,7 +993,7 @@ end
                         crate::MonitorTarget::Output("DP-1".into()),
                     ))
         }));
-        assert_eq!(input.gestures.apogee_swipe_bindings.len(), 1);
+        assert_eq!(input.gestures.zoom_fit_swipe_bindings.len(), 2);
         assert_eq!(input.gestures.hold_bindings.len(), 1);
         assert_eq!(
             input.gestures.hold_bindings[0].action,

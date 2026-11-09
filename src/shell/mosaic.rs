@@ -7,6 +7,11 @@ pub(crate) struct Item {
     pub aspect: f32,
     pub stable_key: u64,
     pub weight: f32,
+    /// The smallest slot this item accepts, such as a window's minimum size.
+    /// Zero means no limit. The packer shrinks other items instead of this
+    /// one, so a constrained window never overlaps its neighbours.
+    pub min_w: f32,
+    pub min_h: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -17,9 +22,10 @@ pub(crate) struct Rect {
     pub h: f32,
 }
 
-/// The original Halley Apogee mosaic packer. Items retain field-space reading
-/// order while larger/aspect-heavy windows are placed first into a MaxRects
-/// atlas, allowing small previews to fill cuts without overlapping.
+/// The Halley mosaic packer, used by Arrange and Cluster Composer. Items retain
+/// field-space reading order while larger/aspect-heavy windows are placed
+/// first into a MaxRects atlas, allowing small tiles to fill cuts without
+/// overlapping.
 pub(crate) fn mosaic(
     items: &[Item],
     screen_w: i32,
@@ -252,7 +258,7 @@ fn best_pack_for_width(
     let mut best = None;
     for _ in 0..16 {
         let mid = (lo + hi) * 0.5;
-        match pack_scaled(items.len(), sizes, order, width, avail_h, gap, mid) {
+        match pack_scaled(items, sizes, order, width, avail_h, gap, mid) {
             Some(attempt) => {
                 lo = mid;
                 best = Some(attempt);
@@ -267,7 +273,7 @@ fn best_pack_for_width(
 }
 
 fn pack_scaled(
-    count: usize,
+    items: &[Item],
     sizes: &[Size],
     order: &[usize],
     width: f32,
@@ -275,7 +281,7 @@ fn pack_scaled(
     gap: f32,
     scale: f32,
 ) -> Option<PackAttempt> {
-    let mut rects = vec![Rect::default(); count];
+    let mut rects = vec![Rect::default(); items.len()];
     let mut free = vec![FreeRect {
         x: 0.0,
         y: 0.0,
@@ -289,8 +295,8 @@ fn pack_scaled(
     let mut content_area = 0.0_f32;
 
     for &index in order {
-        let w = sizes[index].w * scale;
-        let h = sizes[index].h * scale;
+        let w = (sizes[index].w * scale).max(items[index].min_w);
+        let h = (sizes[index].h * scale).max(items[index].min_h);
         let used = best_free_rect(&free, w + gap, h + gap)?;
         rects[index] = Rect {
             cx: used.x + w * 0.5,
@@ -520,6 +526,8 @@ mod tests {
             aspect,
             stable_key: x.to_bits() as u64 ^ ((y.to_bits() as u64) << 32),
             weight: 800.0 * 600.0,
+            min_w: 0.0,
+            min_h: 0.0,
         }
     }
 

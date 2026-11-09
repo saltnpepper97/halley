@@ -160,55 +160,14 @@ fn surface_rects_map_into_animated_client_bounds() {
 }
 
 #[test]
-fn apogee_transition_never_fades_the_handoff_preview() {
+fn overview_transition_never_fades_the_handoff_preview() {
     for progress in [0.0, 0.0005, 0.5, 1.0] {
-        let visuals = apogee_transition_visuals(progress);
+        let visuals = overview_transition_visuals(progress);
         assert_eq!(visuals.preview_alpha, 1.0);
         assert_eq!(visuals.overlay_alpha, progress);
     }
-    assert_eq!(apogee_transition_visuals(0.0).chrome_alpha, 0.0);
-    assert_eq!(apogee_transition_visuals(1.0).chrome_alpha, 1.0);
-}
-
-#[test]
-fn apogee_transition_preserves_source_stack_and_promotes_selection() {
-    let back = crate::shell::apogee::Tile {
-        id: halley_core::field::NodeId::new(1),
-        kind: crate::shell::apogee::TileKind::Window,
-        output: "DP-1".into(),
-        target: Rectangle::new((0, 0).into(), (100, 100).into()),
-        source_stack_index: 0,
-        source_stack_order: u64::MAX,
-    };
-    let middle = crate::shell::apogee::Tile {
-        id: halley_core::field::NodeId::new(2),
-        kind: crate::shell::apogee::TileKind::Window,
-        output: "DP-1".into(),
-        target: Rectangle::new((100, 0).into(), (100, 100).into()),
-        source_stack_index: 1,
-        source_stack_order: 0,
-    };
-    let front = crate::shell::apogee::Tile {
-        id: halley_core::field::NodeId::new(3),
-        kind: crate::shell::apogee::TileKind::Window,
-        output: "DP-1".into(),
-        target: Rectangle::new((200, 0).into(), (100, 100).into()),
-        source_stack_index: 2,
-        source_stack_order: u64::MAX,
-    };
-    let mut tiles = vec![&middle, &front, &back];
-
-    sort_apogee_tiles(&mut tiles, None);
-    assert_eq!(
-        tiles.iter().map(|tile| tile.id).collect::<Vec<_>>(),
-        vec![front.id, middle.id, back.id]
-    );
-
-    sort_apogee_tiles(&mut tiles, Some(middle.id));
-    assert_eq!(
-        tiles.iter().map(|tile| tile.id).collect::<Vec<_>>(),
-        vec![middle.id, front.id, back.id]
-    );
+    assert_eq!(overview_transition_visuals(0.0).chrome_alpha, 0.0);
+    assert_eq!(overview_transition_visuals(1.0).chrome_alpha, 1.0);
 }
 
 #[test]

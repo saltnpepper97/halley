@@ -288,6 +288,12 @@ fn offscreen_x11_capture_and_recenter_preserve_input_and_live_frames() {
         });
         x11.ungrab_pointer(x11rb::CURRENT_TIME).unwrap();
         x11.flush().unwrap();
+        // The X11 release travels through XWayland before the compositor
+        // sees it; the private input socket can otherwise overtake it.
+        wait_for("X11 pointer release reaches the compositor", || {
+            (input.motion(500.0, 400.0)["pointer"] == serde_json::json!([500.0, 400.0]))
+                .then_some(())
+        });
         input.motion(30.0, 180.0);
     }
     assert_eq!(

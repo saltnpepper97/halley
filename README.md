@@ -95,9 +95,9 @@ daily workflow is one loop:
    directly on the Field.
 2. **Position and overlap naturally.** `Super+Left-drag` moves a window, and
    ordinary windows are free to overlap instead of being solved into slots.
-3. **Arrange when the visible Field becomes messy.** `Super+A` gathers the
-   visible windows into a balanced mosaic and remembers the geometry each one
-   came from.
+3. **Arrange when the visible Field becomes messy.** `Super+A` lays out the
+   visible windows so none overlap, keeping each one's shape, and remembers
+   where each one came from.
 4. **Collapse work intentionally.** `Super+N` collapses the focused window into
    its clickable node — the marker that keeps the window's place on the Field —
    and restores it again.
@@ -115,8 +115,8 @@ Finding a window again comes down to four questions:
 - **What was I just using?** `Alt+Tab` / `Alt+Shift+Tab` cycles recent windows.
   Trail walks this monitor's focus history with `Super+,` and `Super+.`, and
   `Super+H` centers the last-focused window.
-- **What's out there?** `Super+O` opens Apogee, an overview of everything open
-  on every monitor. For this monitor alone, hold `Super+Z` (or toggle it with
+- **What's out there?** `Super+O` zooms out until you can see every window and
+  node on every monitor; click one to zoom back in on it. For this monitor alone, hold `Super+Z` (or toggle it with
   `Super+Shift+Z`) to show Bearings: chips at the screen edges pointing to
   offscreen nodes and clusters.
 - **What's it called?** `Super+D` opens Lift to search applications, running
@@ -132,11 +132,10 @@ Finding a window again comes down to four questions:
 | **Node** | A window collapsed into a small marker that keeps its place on the Field. It is still running. |
 | **Decay** | Timers that collapse windows you have stopped using into nodes. |
 | **Pin** | Exempts a window from decay. You can still collapse and restore it yourself. |
-| **Arrange** | Gathers the visible windows into a mosaic, and restores their saved geometry when pressed again. |
+| **Arrange** | Lays out the visible windows without overlap, and puts them back when pressed again. |
 | **Cluster** | An optional named group of windows that opens into its own tiling or stacking workspace. |
 | **Trail** | Per-monitor focus history you can walk backward and forward. |
 | **Bearings** | Edge chips pointing to offscreen nodes and clusters on this monitor. |
-| **Apogee** | An overview of every window across all monitors, with live previews. |
 | **Lift** | Halley's separately installed launcher and search. |
 
 ---
@@ -169,8 +168,7 @@ Clusters are optional named contexts assembled from windows on the Field or
 declared at startup. Each cluster opens into a monitor-local workspace with a
 tiling or stacking layout, leaving the Field behind it intact.
 
-Use `Super+Shift+C` to open the Cluster Composer and select windows for a new
-cluster, then `Super+1` through `Super+0` to open a monitor's cluster slots.
+Use `Super+Shift+C` to pick windows for a new cluster right on the Field, then `Super+1` through `Super+0` to open a monitor's cluster slots.
 See [clusters](docs/clusters.md) for creation, layouts, and startup
 configuration.
 
@@ -185,13 +183,13 @@ configuration.
 | `Super+Q` | Close the focused window |
 | `Super+Left-drag` | Move a window |
 | `Super+Right-drag` | Resize a window |
-| `Super+A` | Arrange visible windows, or restore their saved geometry |
+| `Super+A` | Arrange visible windows, or put them back |
 | `Super+N` | Collapse the focused window into a node, or restore it |
 | `Super+P` | Pin or unpin the focused window |
 | `Super+F` | Toggle fullscreen |
 | `Super+Arrow` | Focus the nearest window or node in that direction |
 | `Alt+Tab` | Cycle recent windows |
-| `Super+O` | Open Apogee |
+| `Super+O` | Zoom out to see everything, or zoom back in |
 | `Super+Shift+E` | Quit Halley |
 
 Every binding is configurable. See [keybinds](docs/keybinds.md) for the full
@@ -271,7 +269,8 @@ halleyctl portal status
 - [Field behavior, maximize, zoom, and close succession](docs/field.md)
 - [Nodes, decay, decay zones, landmarks, and physics](docs/nodes.md)
 - [Bearings](docs/bearings.md)
-- [Apogee and Alt+Tab](docs/apogee.md)
+- [Zoom to fit](docs/zoom-fit.md)
+- [Alt+Tab](docs/alt-tab.md)
 - [Animations](docs/animations.md)
 - [Window decorations](docs/decorations.md)
 - [Backdrop blur and shadows](docs/effects.md)

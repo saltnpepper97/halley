@@ -1022,18 +1022,22 @@ fn nearest_free_landmark(
         return desired;
     }
     for radius in 1_i32.. {
-        for x in -radius..=radius {
-            for y in -radius..=radius {
-                if x.abs() != radius && y.abs() != radius {
-                    continue;
-                }
-                let candidate = Vec2 {
-                    x: desired.x + x as f32 * node_spacing,
-                    y: desired.y + y as f32 * node_spacing,
-                };
-                if free(candidate) {
-                    return candidate;
-                }
+        // Try the closest cells of each ring first: straight left, right, up
+        // and down before diagonals. Scanning in grid order instead always
+        // started at the top-left corner, so repeated placements drifted that
+        // way.
+        let mut ring = (-radius..=radius)
+            .flat_map(|x| (-radius..=radius).map(move |y| (x, y)))
+            .filter(|(x, y)| x.abs() == radius || y.abs() == radius)
+            .collect::<Vec<_>>();
+        ring.sort_by_key(|(x, y)| (x * x + y * y, y.abs(), *x, *y));
+        for (x, y) in ring {
+            let candidate = Vec2 {
+                x: desired.x + x as f32 * node_spacing,
+                y: desired.y + y as f32 * node_spacing,
+            };
+            if free(candidate) {
+                return candidate;
             }
         }
     }
@@ -1468,6 +1472,25 @@ mod tests {
         let dy = placed.y - desired.y;
         assert!(dx * dx + dy * dy >= spacing * spacing);
         assert!(dx.abs() <= spacing && dy.abs() <= spacing);
+    }
+
+    #[test]
+    fn placement_prefers_a_straight_move_and_has_no_corner_bias() {
+        let desired = Vec2 { x: 0.0, y: 0.0 };
+        let spacing = 71.0;
+        let placed = nearest_free_landmark(desired, &[desired], &[], spacing, 45.5);
+        assert!(
+            placed.x == desired.x || placed.y == desired.y,
+            "a free straight neighbour wins over a diagonal: {placed:?}"
+        );
+        // Blocking the straight left neighbour must not send the node to the
+        // top-left corner while the other straight neighbours are free.
+        let left = Vec2 {
+            x: -spacing,
+            y: 0.0,
+        };
+        let placed = nearest_free_landmark(desired, &[desired, left], &[], spacing, 45.5);
+        assert!(placed.x == desired.x || placed.y == desired.y, "{placed:?}");
     }
 
     #[test]

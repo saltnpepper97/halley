@@ -13,7 +13,7 @@ content are simply cleared to opaque black; Halley does not enforce a
 wallpaper colour.
 
 The wallpaper is part of the shared renderer, so TTY, nested Winit,
-screenshots, screencopy, and Apogee use the same scene. It is always appended
+screenshots and screencopy use the same scene. It is always appended
 behind the protocol `background` layer. Windows, panels, overlays, capture UI,
 and the cursor therefore remain above it. An active session lock replaces the
 desktop with its fail-closed lock scene and never exposes the wallpaper.
@@ -59,8 +59,7 @@ coherent. `animated true` restores the old-Halley star-field motion; use
 `animated false` when a completely static field is preferred. Halley requests
 continued frames only while an animated field shader is visible; a settled,
 opaque fullscreen window suppresses that work and remains eligible for
-automatic VRR. Apogee continues the animation because its tiles intentionally
-show the wallpaper.
+automatic VRR.
 
 A shader value other than `space` is treated as a fragment-shader path. Custom
 shaders use the same Smithay texture-shader interface as the bundled shader and

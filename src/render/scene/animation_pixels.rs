@@ -384,68 +384,6 @@ fn read_pixels<E: RenderElement<GlesRenderer>>(
 
 #[test]
 #[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
-fn apogee_dimming_preserves_wallpaper_hue_and_fades_without_a_brightness_jump() {
-    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
-    let context = EGLContext::new(&display).unwrap();
-    let mut renderer = unsafe { GlesRenderer::new(context) }.unwrap();
-    let size = (4, 4);
-    let mut target = renderer
-        .create_buffer(Fourcc::Abgr8888, size.into())
-        .unwrap();
-    let backdrop_id = Id::new();
-    let wallpaper_id = Id::new();
-    let mut frames = 0;
-    for wallpaper in [0_u8, 0x11, 0x40, 0x80, 0xff] {
-        for dim in [0.0, 0.5, 0.85, 1.0] {
-            let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
-            // Open, hold, and close with the same buffer to exercise opacity damage.
-            for (frame, step) in (0..=10).chain((0..=10).rev()).enumerate() {
-                let progress = step as f32 / 10.0;
-                let value = wallpaper as f32 / 255.0;
-                let scene = [
-                    crate::render::solid_color_element(
-                        backdrop_id.clone(),
-                        Rectangle::from_size(size.into()),
-                        overview::apogee_backdrop_color(dim, progress),
-                    ),
-                    crate::render::solid_color_element(
-                        wallpaper_id.clone(),
-                        Rectangle::from_size(size.into()),
-                        Color32F::new(value, value, value, 1.0),
-                    ),
-                ];
-                let (pixels, _) = read_pixels(
-                    &mut renderer,
-                    &mut target,
-                    &mut tracker,
-                    &scene,
-                    usize::from(frame > 0),
-                );
-                let expected = (wallpaper as f32 * (1.0 - dim * progress)).round() as u8;
-                for pixel in pixels.chunks_exact(4) {
-                    assert_eq!(pixel[0], pixel[1], "red/green hue shift: {pixel:?}");
-                    assert_eq!(pixel[1], pixel[2], "green/blue hue shift: {pixel:?}");
-                    assert!(
-                        pixel[0].abs_diff(expected) <= 1,
-                        "wallpaper={wallpaper}, dim={dim}, progress={progress}: {pixel:?}, expected={expected}"
-                    );
-                    if dim == 0.0 || progress == 0.0 {
-                        assert_eq!(
-                            pixel[0], wallpaper,
-                            "transparent backdrop changed wallpaper"
-                        );
-                    }
-                    assert_eq!(pixel[3], 255);
-                }
-                frames += 1;
-            }
-        }
-    }
-    println!("verified {frames} Apogee dimming frames with reused-buffer damage");
-}
-
-#[test]
-#[ignore = "requires surfaceless GLES; run with LIBGL_ALWAYS_SOFTWARE=1 and --ignored"]
 fn conservative_animation_pixels_match_full_repaint_with_blur_shadows_and_reused_buffers() {
     let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay) }.unwrap();
     let context = EGLContext::new(&display).unwrap();

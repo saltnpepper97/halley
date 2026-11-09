@@ -1073,7 +1073,6 @@ where
     // Modal owners claim pointer events in this order before screenshot and grabs.
     if modal::capture(session, event, proposed_position)
         || modal::cluster_composer(session, event, proposed_position)
-        || modal::apogee(session, event, proposed_position)
     {
         return;
     }
@@ -1081,6 +1080,9 @@ where
         return;
     }
     if super::decay_notice::handle_pointer(session, event) {
+        return;
+    }
+    if super::zoom_fit::handle_pointer(session, event) {
         return;
     }
     let Some(position_after) = motion::handle(session, event, position_before, proposed_position)

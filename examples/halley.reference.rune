@@ -168,15 +168,15 @@ input:
     pan-decay-rate 6.0
     flick-min-px-per-s 200.0
 
-    # Discrete swipes use `swipe-DIRECTION-FINGERS`; while Apogee is open they
-    # use the separate `apogee-swipe-DIRECTION-FINGERS` map. Holds use
+    # Discrete swipes use `swipe-DIRECTION-FINGERS`; while zoomed out to fit
+    # they use the separate `zoom-fit-swipe-DIRECTION-FINGERS` map. Holds use
     # `hold-FINGERS`. Values may be any built-in compositor keybind action.
-    # A configured binding replaces the defaults in its normal/Apogee map.
-    # Apogee open/close actions are global unless a pointer constraint or
-    # client grab owns the sequence. Opening is interactive and reversible.
+    # A configured binding replaces the defaults in its normal/zoom-fit map.
+    # Zoom-fit open/close actions are global unless a pointer constraint or
+    # client grab owns the sequence.
     swipe-threshold-px 120.0
-    swipe-up-4 "apogee-open"
-    apogee-swipe-down-4 "apogee-close"
+    swipe-up-4 "zoom-fit-open"
+    zoom-fit-swipe-down-4 "zoom-fit-close"
     # swipe-left-4 "trail-prev"
     # swipe-right-4 "trail-next"
     # hold-3 "toggle-state"
@@ -349,7 +349,7 @@ font:
   size 11
 end
 
-# Shared compositor-owned UI. This styles Apogee, Alt+Tab, Bearings,
+# Shared compositor-owned UI. This styles Alt+Tab, cluster creation, Bearings,
 # configuration notices, the zoom indicator, and the exit confirmation.
 # Window decorations and node labels keep their own existing configuration.
 overlays:
@@ -396,7 +396,7 @@ end
 # than under `decorations:` (which is compositor chrome attached to surfaces).
 effects:
   blur:
-    # Allow compositor-owned overlays (Bearings, Apogee, Alt-Tab,
+    # Allow compositor-owned overlays (Bearings, Alt-Tab, cluster creation,
     # notifications, popups, and labels) to use blur.
     overlays true
 
@@ -622,9 +622,9 @@ debug:
 end
 
 # Clusters group related windows behind one circular desktop icon. Press the
-# cluster-mode binding to open a non-overlapping composer. Use arrows or the
-# pointer to focus, Space or click to select, Enter to name, and Escape to back
-# out or cancel.
+# cluster-mode binding and the windows are laid out over the Field without
+# overlapping. Use arrows or the pointer to focus, Space or click to select,
+# Enter to name, and Escape to back out or cancel.
 clusters:
   # New clusters open in "stacking" (overlapping cards) or "tiling" (one
   # master window beside a vertical stack). Mod+L changes the active cluster.
@@ -667,19 +667,6 @@ clusters:
     # Maximum overlapping cards drawn at once. 0 means no limit.
     max-visible 5
   end
-end
-
-# Multi-monitor window overview. It replaces the desktop with tiles over the
-# wallpaper only. GPU-local previews coalesce commits at the configured
-# ceiling; max-rows accepts the old-Halley range 1 through 5.
-apogee:
-  enabled true
-  live-previews true
-  preview-max-fps 30
-  transition-ms 320
-  gap 24.0
-  max-rows 3
-  background-dim 0.85
 end
 
 # Browser-like per-monitor window focus history. Navigating the trail restores
@@ -813,7 +800,7 @@ animations:
 
   arrange:
     # Smoothly gathers visible Field windows into a mosaic and returns them
-    # when the arrange-visible action is toggled again.
+    # when the arrange-visible action is pressed again.
     enabled true
     motion "easing"
     duration-ms 360
@@ -885,7 +872,7 @@ keybinds:
   # timer for genuinely abandoned work.
   "$var.mod+n" "toggle-state"
   "$var.mod+p" "toggle-focused-pin"
-  "$var.mod+o" "apogee"
+  "$var.mod+o" "zoom-fit"
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
   "alt+tab" "cycle-focus"

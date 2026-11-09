@@ -33,3 +33,16 @@ An older section name works for every key in the section it became.
 | `field.pins.bg-colour` | `field.pins.background-colour` |
 | `debug.show-focus-ring` | `debug.show-decay-zone` |
 | `view.output` → `focus-ring:` | `view.output` → `decay-zone:` |
+
+## Renamed gesture names
+
+| Older name | Current name |
+|---|---|
+| `apogee-open`, `overview-open` | `zoom-fit-open` |
+| `apogee-close`, `overview-close` | `zoom-fit-close` |
+| `apogee-swipe-DIRECTION-FINGERS` | `zoom-fit-swipe-DIRECTION-FINGERS` |
+
+## Removed sections
+
+`apogee:` is no longer read, because [zoom to fit](zoom-fit.md) replaced
+Apogee. A config that still has it loads normally; the section can be deleted.

@@ -89,8 +89,8 @@ apply both to a newly generated configuration and to one that omits the
 
 The first automatic collapse explains itself once, in a non-modal notice:
 `<Application> was collapsed into a node. It's still running. Click here to
-bring it back, or find it in Apogee (<key>).`, where the key is the one bound to
-`apogee`. The application name is the window title, falling back to the
+bring it back, or press <key> to zoom out and find it.`, where the key is the
+one bound to `zoom-fit`; without one, only the click is offered. The application name is the window title, falling back to the
 application id and then to a generic "A window" sentence. Clicking the notice
 restores that window on screen and focuses it; nothing else about the notice
 takes input or changes focus. It stays up for `error-duration-ms` (9 seconds by
@@ -101,9 +101,9 @@ collapse is your own deliberate action, is visible as it animates, and never
 triggers the notice.
 
 There is no active-window count cap. Pinned windows, focused windows, fullscreen or
-fullscreen-pending windows, field-maximized windows, windows in an active Field
-arrangement, and windows in an interactive move/resize grab are hard-protected
-from decay. Undoing an arrangement starts a fresh timer for each still-eligible
+fullscreen-pending windows, field-maximized windows, windows waiting to be put
+back by Arrange, and windows in an interactive move/resize grab are hard-protected
+from decay. Putting arranged windows back starts a fresh timer for each still-eligible
 window. Unpinning also starts a fresh timer; manually collapsing a pinned window
 remains available. Changing between protected, on-screen, and off-screen status starts
 a fresh timer; stale time from an earlier status is never reused.

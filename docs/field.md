@@ -4,7 +4,7 @@ The Field is where the normal Halley workflow happens: launch freely, position
 windows so they overlap naturally, arrange the visible Field with `Mod+A` when
 it gets messy, collapse finished work intentionally with `Mod+N` into clickable
 nodes, and retrieve it spatially — one step with directional focus, recently with
-`Alt+Tab`, offscreen with Bearings, across monitors with Apogee, and by name
+`Alt+Tab`, offscreen with Bearings, all at once with zoom to fit, and by name
 with Halley Lift. Clusters are the optional later step rather than the starting
 point. [Keybind triggers and actions](keybinds.md) owns the action reference and
 the README opens with the same loop; this document owns the shared spatial
@@ -116,7 +116,7 @@ grab point. Resize is blocked while maximized. Collapsing, minimizing, closing,
 unmapping, or entering fullscreen ends field maximize cleanly.
 Alt+Tab preserves maximize when its selected target already fits onscreen and
 exits it only for a reveal that needs panning; see the canonical
-[Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy).
+[Alt+Tab visibility policy](alt-tab.md#alttab-visibility-and-presentation-policy).
 
 An active cluster workspace is the exception to the normal visible-stack rule:
 maximizing a cluster member gives that member an exclusive presentation above

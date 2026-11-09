@@ -284,8 +284,8 @@ pub(crate) fn dispatch<D: SessionDriver>(
         super::dispatch::SessionControl::ToggleFocusedPin => {
             super::super::toggle_focused_pin(session, action_output.as_deref());
         }
-        super::dispatch::SessionControl::Apogee => {
-            crate::shell::apogee::toggle(session);
+        super::dispatch::SessionControl::ZoomFit => {
+            crate::session::zoom_fit::toggle(session);
         }
         super::dispatch::SessionControl::FocusCycle(direction) => {
             let cluster_cycle = action_output.as_deref().map_or(
@@ -387,7 +387,6 @@ pub(crate) fn dispatch<D: SessionDriver>(
         super::dispatch::SessionControl::ClusterMode => {
             if let Some(output) = action_output {
                 let conflicts = session.capture.is_active()
-                    || session.shell.apogee.is_active()
                     || session.shell.focus_cycle.is_open()
                     || session.shell.cluster_composer.is_active()
                     || session.interactions.has_grab()
@@ -401,7 +400,7 @@ pub(crate) fn dispatch<D: SessionDriver>(
                             &session.nodes,
                             &session.clusters,
                             &output,
-                            session.settings.apogee,
+                            crate::shell::cluster_composer::ComposerStyle::default(),
                             now,
                         ) {
                             session.cursor.set_override(

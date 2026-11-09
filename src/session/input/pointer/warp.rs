@@ -78,7 +78,6 @@ impl<D: SessionDriver> PointerWarpHandler for Session<D> {
             || self.interactions.has_grab()
             || (pointer.is_grabbed() && !super::client_click_grab_active(self))
             || self.capture.is_active()
-            || self.shell.apogee.is_active()
             || self.shell.focus_cycle.is_open()
             || self.shell.cluster_composer.is_active()
             || self.shell.overlays.confirmation_modal_active()

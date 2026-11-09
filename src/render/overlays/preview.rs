@@ -17,7 +17,7 @@ struct Entry {
     maximized: bool,
 }
 
-/// GPU-local overview previews shared by Apogee and the focus cycle.
+/// GPU-local overview previews shared by Cluster Composer and the focus cycle.
 ///
 /// Captures render directly into GLES textures, so DMA-BUF-backed client
 /// buffers remain on the GPU. Commits only mark an entry dirty; the texture is
@@ -76,7 +76,7 @@ impl OverlayPreviewCache {
     /// to leave the mapped scene. Collapsed nodes keep their client surface
     /// hidden, so trying to create their first preview later can otherwise
     /// sample an empty surface tree (Steam commonly exposes this as a white
-    /// Alt-Tab/Apogee tile).
+    /// Alt-Tab tile).
     pub fn store_last_good(&mut self, id: NodeId, texture: WindowTexture, maximized: bool) {
         // The texture contents are new, so the render-element identity must
         // be new as well. Reusing the old Id makes output damage tracking treat

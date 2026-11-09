@@ -7,7 +7,6 @@ pub struct ShellState {
     pub(crate) overlays: super::overlay::OverlayManager,
     pub(crate) bearings: super::bearings::BearingsState,
     pub(crate) focus_cycle: super::focus_cycle::FocusCycleState,
-    pub(crate) apogee: super::apogee::ApogeeState,
     pub(crate) cluster_composer: super::cluster_composer::ClusterComposerState,
 }
 
@@ -17,7 +16,6 @@ impl ShellState {
             overlays: super::overlay::OverlayManager::default(),
             bearings: super::bearings::BearingsState::new(config.bearings),
             focus_cycle: super::focus_cycle::FocusCycleState::default(),
-            apogee: super::apogee::ApogeeState::default(),
             cluster_composer: super::cluster_composer::ClusterComposerState::default(),
         }
     }

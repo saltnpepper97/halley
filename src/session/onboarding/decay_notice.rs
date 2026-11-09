@@ -54,28 +54,29 @@ pub(super) fn explanation_due(trigger: CollapseTrigger, already_shown: bool) -> 
 ///
 /// It deliberately never suggests `toggle-state` (`Mod+N`): that acts on the
 /// focused window, and decay only ever collapses unfocused ones, so following
-/// it would collapse the window the user is working in instead. `apogee_key`
-/// is the chord actually bound to Apogee; without one, Apogee is still named
-/// but no key is invented.
+/// it would collapse the window the user is working in instead.
+/// `zoom_fit_key` is the chord actually bound to `zoom-fit`; without one, the
+/// notice only offers the click and invents no key.
 pub(super) fn collapsed_into_node_message(
     title: &str,
     app_id: Option<&str>,
-    apogee_key: Option<&str>,
+    zoom_fit_key: Option<&str>,
 ) -> String {
     let name = application_name(title, app_id).unwrap_or("A window");
-    let apogee = match apogee_key {
-        Some(key) => format!("Apogee ({key})"),
-        None => String::from("Apogee"),
-    };
-    format!(
-        "{name} was collapsed into a node. It's still running. Click here to bring it back, or find it in {apogee}."
-    )
+    match zoom_fit_key {
+        Some(key) => format!(
+            "{name} was collapsed into a node. It's still running. Click here to bring it back, or press {key} to zoom out and find it."
+        ),
+        None => format!(
+            "{name} was collapsed into a node. It's still running. Click here to bring it back."
+        ),
+    }
 }
 
-/// The chord bound to Apogee in the Field, where decay happens.
-pub(super) fn apogee_key(binds: &[crate::input::keybinds::ResolvedBind]) -> Option<String> {
+/// The chord bound to `zoom-fit` in the Field, where decay happens.
+pub(super) fn zoom_fit_key(binds: &[crate::input::keybinds::ResolvedBind]) -> Option<String> {
     crate::input::keybinds::shortcut_label(binds, crate::input::BindingContext::field(), |action| {
-        *action == halley_config::Action::Apogee
+        *action == halley_config::Action::ZoomFit
     })
 }
 
@@ -101,7 +102,6 @@ pub(super) fn click_target<D: super::SessionDriver>(
         || session.capture.is_active()
         || session.shell.overlays.confirmation_modal_active()
         || session.shell.cluster_composer.is_active()
-        || session.shell.apogee.accepts_input()
         || session.interactions.has_grab()
         || session.seat.get_pointer().is_some_and(|p| p.is_grabbed())
         || super::pointer::has_active_constraint(session)
@@ -196,16 +196,16 @@ mod tests {
         let message = collapsed_into_node_message("Firefox", None, Some("Super+O"));
         assert_eq!(
             message,
-            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or press Super+O to zoom out and find it."
         );
         assert!(!message.contains("Mod+N"));
     }
 
     #[test]
-    fn the_message_names_only_a_bound_apogee_key() {
+    fn the_message_names_only_a_bound_zoom_fit_key() {
         assert_eq!(
             collapsed_into_node_message("Untitled", None, None),
-            "A window was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee."
+            "A window was collapsed into a node. It's still running. Click here to bring it back."
         );
         assert!(
             collapsed_into_node_message("", Some("org.gnome.Nautilus"), Some("Alt+O"))
@@ -214,21 +214,21 @@ mod tests {
     }
 
     #[test]
-    fn the_apogee_key_follows_the_configured_binding() {
+    fn the_zoom_fit_key_follows_the_configured_binding() {
         use crate::input::keybinds::{BackendKind, resolve_binds};
         let mut keybinds = halley_config::Keybinds::default();
         for bind in &mut keybinds.binds {
-            if bind.action == halley_config::Action::Apogee {
+            if bind.action == halley_config::Action::ZoomFit {
                 bind.key = "g".into();
             }
         }
         let binds = resolve_binds(&keybinds, BackendKind::Tty);
-        assert_eq!(apogee_key(&binds).as_deref(), Some("Super+G"));
+        assert_eq!(zoom_fit_key(&binds).as_deref(), Some("Super+G"));
         keybinds
             .binds
-            .retain(|bind| bind.action != halley_config::Action::Apogee);
+            .retain(|bind| bind.action != halley_config::Action::ZoomFit);
         assert_eq!(
-            apogee_key(&resolve_binds(&keybinds, BackendKind::Tty)),
+            zoom_fit_key(&resolve_binds(&keybinds, BackendKind::Tty)),
             None
         );
     }

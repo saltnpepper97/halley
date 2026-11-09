@@ -224,7 +224,6 @@ mod tests {
             cursor,
             input,
             animations,
-            apogee,
             bearings,
             trail,
             clusters,

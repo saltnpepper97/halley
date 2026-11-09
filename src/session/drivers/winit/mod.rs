@@ -593,7 +593,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 let focus_cycle_animating = app.shell.focus_cycle.tick(target_presentation_time);
                 let composer_animating =
                     crate::shell::cluster_composer::tick_session(app, target_presentation_time);
-                let apogee_animating = crate::shell::apogee::tick(app, target_presentation_time);
                 let background_animating =
                     app.background_animates_on_output(&output, target_presentation_time);
                 let cluster_animating = app
@@ -670,9 +669,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             capture_overlay: app.capture.overlay(),
                             bearings: &app.shell.bearings,
                             focus_cycle: &app.shell.focus_cycle,
-                            apogee: &app.shell.apogee,
                             cluster_composer: &app.shell.cluster_composer,
-                            apogee_config: app.settings.apogee,
                             overlays: &app.shell.overlays,
                             overlay_config: &app.settings.overlays,
                         },
@@ -745,14 +742,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                 {
                     crate::shell::cluster_composer::send_preview_frames(
                         &app.shell.cluster_composer,
-                        &app.nodes,
-                        &output,
-                        elapsed,
-                        frame_callback_sequence,
-                    );
-                } else if app.shell.apogee.is_active() {
-                    crate::shell::apogee::send_preview_frames(
-                        &app.shell.apogee,
                         &app.nodes,
                         &output,
                         elapsed,
@@ -885,7 +874,6 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                     || bearings_animating
                     || focus_cycle_animating
                     || composer_animating
-                    || apogee_animating
                     || background_animating
                     || overlay_animating
                     || cluster_animating

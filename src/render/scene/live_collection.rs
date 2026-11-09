@@ -24,6 +24,14 @@ pub(super) fn collect(
             continue;
         }
         if window.wl_surface().is_some_and(|surface| {
+            context
+                .nodes
+                .id_for_surface(surface.as_ref())
+                .is_some_and(|id| context.hidden.contains(&id))
+        }) {
+            continue;
+        }
+        if window.wl_surface().is_some_and(|surface| {
             let animations = &close_animations;
             animations.has_pending(surface.as_ref()) || animations.is_active(surface.as_ref())
         }) {

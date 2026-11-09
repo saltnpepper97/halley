@@ -39,8 +39,6 @@ struct ActionSwipe {
     bindings: Vec<GestureBinding>,
     net_x: f64,
     net_y: f64,
-    last_delta_y: f64,
-    interactive_started: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -191,10 +189,10 @@ fn owner_is_current<D: SessionDriver, T>(session: &Session<D>, sequence: &Sequen
         == Some(owner)
 }
 
-fn is_apogee_action(action: &GestureAction) -> bool {
+fn is_zoom_fit_action(action: &GestureAction) -> bool {
     matches!(
         action,
-        GestureAction::ApogeeOpen | GestureAction::ApogeeClose
+        GestureAction::ZoomFitOpen | GestureAction::ZoomFitClose
     )
 }
 
@@ -227,15 +225,13 @@ fn dispatch_gesture_action<D: SessionDriver>(
     output: &str,
 ) {
     match action {
-        GestureAction::ApogeeOpen => {
-            if !session.shell.apogee.is_active() {
-                crate::shell::apogee::toggle(session);
+        GestureAction::ZoomFitOpen => {
+            if !crate::session::zoom_fit::is_active(session) {
+                crate::session::zoom_fit::enter(session);
             }
         }
-        GestureAction::ApogeeClose => {
-            if session.shell.apogee.is_active() {
-                crate::shell::apogee::cancel(session);
-            }
+        GestureAction::ZoomFitClose => {
+            crate::session::zoom_fit::leave(session);
         }
         GestureAction::Compositor(action) => {
             let Some(socket_name) = session.wayland_display.clone() else {
@@ -262,9 +258,9 @@ where
     let settings = session.settings.input.gestures.clone();
     let fingers = event.fingers();
     let pan = settings.pan_fingers > 0 && fingers == settings.pan_fingers;
-    let apogee_context = session.shell.apogee.is_active();
-    let bindings = if apogee_context {
-        &settings.apogee_swipe_bindings
+    let zoom_fit_context = crate::session::zoom_fit::is_active(session);
+    let bindings = if zoom_fit_context {
+        &settings.zoom_fit_swipe_bindings
     } else {
         &settings.swipe_bindings
     };
@@ -273,16 +269,13 @@ where
     } else {
         bindings
             .iter()
-            .filter(|binding| {
-                binding.fingers == fingers
-                    && (session.settings.apogee.enabled || !is_apogee_action(&binding.action))
-            })
+            .filter(|binding| binding.fingers == fingers)
             .cloned()
             .collect::<Vec<_>>()
     };
     let scope = if action_bindings
         .iter()
-        .any(|binding| is_apogee_action(&binding.action))
+        .any(|binding| is_zoom_fit_action(&binding.action))
     {
         GestureScope::Global
     } else {
@@ -323,8 +316,6 @@ where
                     bindings: action_bindings,
                     net_x: 0.0,
                     net_y: 0.0,
-                    last_delta_y: 0.0,
-                    interactive_started: false,
                 }))
             }
         }),
@@ -366,40 +357,6 @@ where
             let delta = event.delta();
             gesture.net_x += delta.x;
             gesture.net_y += delta.y;
-            gesture.last_delta_y = delta.y;
-            let drives_apogee_open = !session.shell.apogee.is_active()
-                && gesture.bindings.iter().any(|binding| {
-                    binding.direction == GestureSwipeDirection::Up
-                        && binding.action == GestureAction::ApogeeOpen
-                });
-            if drives_apogee_open && gesture.net_y.abs() >= gesture.net_x.abs() {
-                const DEADZONE_PX: f64 = 8.0;
-                const OPEN_TRAVEL_PX: f64 = 320.0;
-                let travel = (-gesture.net_y - DEADZONE_PX).max(0.0);
-                if travel > 0.0 && !gesture.interactive_started {
-                    session.nodes.sync_from_space(&session.wayland.space);
-                    gesture.interactive_started = session.shell.apogee.begin_interactive(
-                        &session.wayland.space,
-                        &session.nodes,
-                        &session.clusters,
-                        session.settings.apogee,
-                    );
-                    if gesture.interactive_started {
-                        session.cursor.set_override(
-                            crate::cursor::OverrideSource::Modal,
-                            Some(smithay::input::pointer::CursorIcon::Default),
-                        );
-                        super::note_pointer_activity(session);
-                    }
-                }
-                if gesture.interactive_started {
-                    session
-                        .shell
-                        .apogee
-                        .set_interactive_progress((travel / OPEN_TRAVEL_PX) as f32);
-                    session.request_redraw();
-                }
-            }
         }
         Sequence::Ignored => {}
     }
@@ -438,20 +395,7 @@ where
             }
         }
         Sequence::Compositor(SwipeGesture::Action(gesture)) => {
-            if gesture.interactive_started {
-                const DEADZONE_PX: f64 = 8.0;
-                const OPEN_TRAVEL_PX: f64 = 320.0;
-                let progress =
-                    ((-gesture.net_y - DEADZONE_PX).max(0.0) / OPEN_TRAVEL_PX).clamp(0.0, 1.0);
-                let upward_flick = gesture.last_delta_y < -10.0;
-                let commit = !event.cancelled() && (progress >= 0.4 || upward_flick);
-                session.shell.apogee.finish_interactive(
-                    commit,
-                    session.settings.apogee,
-                    crate::frame_clock::monotonic_now(),
-                );
-                session.request_redraw();
-            } else if !event.cancelled()
+            if !event.cancelled()
                 && let Some(direction) = classify_swipe_direction(
                     gesture.net_x,
                     gesture.net_y,
@@ -620,7 +564,7 @@ where
         .cloned();
     let scope = if binding
         .as_ref()
-        .is_some_and(|binding| is_apogee_action(&binding.action))
+        .is_some_and(|binding| is_zoom_fit_action(&binding.action))
     {
         GestureScope::Global
     } else {

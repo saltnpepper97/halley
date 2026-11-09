@@ -985,7 +985,7 @@ mod tests {
         let mut overlays = OverlayManager::default();
         overlays.show_decay_notice(
             "DP-1".into(),
-            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or press Super+O to zoom out and find it."
                 .to_string(),
             NodeId::new(7),
             9_000,
@@ -996,7 +996,7 @@ mod tests {
         let notification = snapshot.notification.expect("the explanation is visible");
         assert_eq!(
             notification.message,
-            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or find it in Apogee (Super+O)."
+            "Firefox was collapsed into a node. It's still running. Click here to bring it back, or press Super+O to zoom out and find it."
         );
         assert_eq!(notification.kind, NotificationKind::Success);
         assert!(

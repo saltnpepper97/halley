@@ -441,7 +441,7 @@ mod tests {
                 .iter()
                 .any(|bind| bind.action == Action::ToggleFieldMaximize)
         );
-        assert!(resolved.iter().any(|bind| bind.action == Action::Apogee));
+        assert!(resolved.iter().any(|bind| bind.action == Action::ZoomFit));
         assert!(resolved.iter().any(|bind| {
             bind.action == Action::FocusCycle(halley_config::FocusCycleDirection::Forward)
         }));

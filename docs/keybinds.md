@@ -35,15 +35,15 @@ shows them bound to `Super+Alt+Arrow` and `Super+Alt+Shift+Arrow`.
 | Basic | `Super+M` | Toggle Field maximize |
 | Basic | `Super+N` | Collapse the focused window into its node, or restore it (a collapsed node also restores on click) |
 | Basic | `Super+P` | Pin or unpin the focused window |
-| Overview | `Super+O` | Toggle Apogee, the visual inventory across monitors |
+| Zoom to fit | `Super+O` | Zoom out until every window and node fits, or zoom back in |
 | Focus | `Alt+Tab` / `Alt+Shift+Tab` | Recent-work navigation: cycle the focus carousel forward/backward |
 | Focus | `Super+Arrow` | Nearby spatial navigation: directional focus in the active context |
 | Focus | `Super+H` | Center the last-focused Field window |
 | Trail | `Super+,` / `Super+.` | Previous/next Trail entry |
 | Monitor | `Super+Shift+Arrow` | Focus an adjacent monitor |
 | Resize/Tile | `Super+Ctrl+Arrow` | Resize in the Field or swap in a tiling cluster |
-| Arrange | `Super+A` | Reversible cleanup: gather visible Field windows into a mosaic, or press again to restore their saved geometry |
-| Clusters | `Super+Shift+C` | Enter cluster creation mode |
+| Arrange | `Super+A` | Reversible cleanup: lay out the visible Field windows without overlap, or press again to put them back |
+| Clusters | `Super+Shift+C` | Create a cluster: windows are laid out over the Field to pick from |
 | Clusters | `Super+L` | Cycle cluster layout |
 | Clusters | `Super+V` | Toggle the focused cluster member floating |
 | Clusters | `Super+0..9` | Open a per-monitor cluster slot |
@@ -234,7 +234,7 @@ works as expected. Other held modifiers still have to appear in the chord.
 
 These are keyboard buttons. Touchpad gestures use the action maps under
 `input.gestures`: `swipe-DIRECTION-FINGERS`,
-`apogee-swipe-DIRECTION-FINGERS`, and `hold-FINGERS`. Their values accept the
+`zoom-fit-swipe-DIRECTION-FINGERS`, and `hold-FINGERS`. Their values accept the
 same built-in compositor actions as keybinds; arbitrary shell commands and
 pointer-grab actions are rejected. `pan-fingers` remains reserved for
 continuous camera panning.
@@ -345,7 +345,7 @@ resolving `keycode-N`.
 ## Actions
 
 The built-in action strings are `quit`, `close-focused`, `toggle-fullscreen`,
-`maximize-focused`, `toggle-state`, `toggle-focused-pin`, `apogee`,
+`maximize-focused`, `toggle-state`, `toggle-focused-pin`, `zoom-fit`,
 `bearings-show`, `bearings-toggle`, `cycle-focus`, `cycle-focus-backward`,
 `trail-prev`, `trail-next`, `center-last-focused`, `cluster-mode`,
 `cluster-layout-cycle`, `cluster-toggle-float`, `arrange-visible`,
@@ -396,42 +396,45 @@ swapping. `monitor focus DP-1` targets an exact connector name. `Alt+Tab` and
 `Alt+Shift+Tab` open and navigate the focus carousel; releasing Alt commits,
 focuses and raises the selected window, and moves the pointer to the selected
 output's center. A collapsed target restores in that action. Escape cancels
-without changing focus or pointer position. `Mod+O` opens or closes the
-multi-monitor Apogee overview. Apogee stops trapping keys as soon as its close
-transition begins.
-The [Alt+Tab visibility policy](apogee.md#alttab-visibility-and-presentation-policy)
+without changing focus or pointer position. `Mod+O` zooms every monitor out to
+fit, or back in; see [Zoom to fit](zoom-fit.md).
+The [Alt+Tab visibility policy](alt-tab.md#alttab-visibility-and-presentation-policy)
 defines when retrieval pans and releases fullscreen or maximize.
 
 The five retrieval layers are meant to be used together, and they are described
 in the same order everywhere: `Mod+Arrow` walks to the nearest window or node
 for nearby spatial navigation, `Alt+Tab` navigates recent work, Bearings
-retrieves offscreen spatial work, `Mod+O` Apogee is the visual inventory across
-monitors, and `Mod+D` Lift searches directly by application, node, cluster, or
+retrieves offscreen spatial work, `Mod+O` zooms out to show everything, and `Mod+D` Lift searches directly by application, node, cluster, or
 action. None of them replaces another.
 
-The default `Mod+A` `arrange-visible` action reorganizes ordinary Field
-windows whose centers are inside the active output's current visible work area.
-It excludes collapsed or detached windows, cluster members, pinned windows,
-fullscreen and maximized windows, and clients whose size constraints cannot fit
-the resulting mosaic. Two windows use equal halves; three use one large region
-and two smaller regions; four use a 2×2 grid; larger sets use balanced,
-near-square rows. Halley assigns windows to regions by minimum total travel, so
-their approximate spatial order is preserved.
+The default `Mod+A` `arrange-visible` action lays out the ordinary Field
+windows whose centers are inside the active output's visible work area so that
+none of them overlap. It leaves out collapsed or detached windows, cluster members, pinned
+windows, and fullscreen and maximized windows. Every other visible window takes
+part; none is dropped.
+
+Arrange fills the work area like a tiled layout: the windows cover it with
+only the Field gap (`field.gap`) between them and around panels, bars and the
+screen edges. It is not a fixed master and stack. Halley cuts the screen into
+one piece per window, choosing the cuts that best fit the windows' own shapes,
+sizes and places on the Field: windows stay on the side of the screen they were
+on, a wide window tends to get a wide band and a tall one a column, bigger
+windows get more room, and the window you are working in gets a larger piece.
+The same windows always produce the same layout. A window that cannot shrink
+below a minimum size (common for X11 apps such as Steam) gets a piece at least
+that big, and the other windows shrink to make room, so nothing overlaps. A
+window with a maximum size smaller than its piece is centred in it.
 
 Arrangement is reversible cleanup rather than a layout mode: it creates no
 tiling tree, no relationship, and no persistent layout state, and every
-resulting window remains independently movable and resizable. While its restore
-transaction is active, its windows are protected from automatic decay. Pressing
-`Mod+A` again restores the exact geometry/output
-snapshot captured by that output's arrangement. The restore transaction is
-recorded before clients are configured, so an immediate or mid-animation second
-press reverses reliably without waiting for clients to commit. Moving, resizing,
-or closing any participating window ends that output's restore transaction and
-its decay protection. The current positions become ordinary Field geometry;
-the next `Mod+A` creates a new arrangement instead of restoring the old snapshot.
-Changes to non-participating windows or other outputs do not discard it.
-`undo-arrange` remains available as an unbound compatibility action for custom
-configurations and follows the same lifetime.
+resulting window remains independently movable and resizable. While windows wait to be put back,
+they are protected from automatic decay. Pressing `Mod+A` again puts them back
+exactly where they were. The restore set is recorded before clients are
+configured, so an immediate or mid-animation second press reverses reliably.
+Moving, resizing, transferring or closing one arranged window keeps it where you
+put it and forgets only its own way back; the others still return on the next
+press. Once no window is left to put back, the next `Mod+A` arranges afresh.
+`undo-arrange` is available as an unbound action for custom configurations.
 
 `default-terminal` launches the first
 available built-in terminal in this order:
@@ -455,7 +458,7 @@ hidden it.
 The first native session of each Halley package version also shows the
 basics card: the Field-first mental model and only the five essential chords
 (`Mod+D` Lift, `Mod+Left-drag` move, `Mod+A` arrange, `Mod+N` collapse/restore,
-`Mod+O` Apogee). It appears until dismissed for that version, captures just
+`Mod+O` zoom to fit). It appears until dismissed for that version, captures just
 `Enter`, `Escape`, and the first pointer press or touch, and records the
 dismissed version so it stays hidden on later launches of that same version. Reopen it by hand from Lift's
 **Show Halley basics** action or `halleyctl basics`. See
@@ -465,8 +468,8 @@ that remembers the dismissal.
 compositor immediately. Enter confirms and Escape cancels while preserving
 the focused client beneath it. Its appearance is configured in
 [Compositor overlays](overlays.md).
-See [Apogee and Alt+Tab](apogee.md) for navigation, gestures, and preview
-performance.
+See [Alt+Tab](alt-tab.md) and [Zoom to fit](zoom-fit.md) for navigation,
+gestures, and preview performance.
 Holding the default `Mod+Z` `bearings-show` binding exposes offscreen nodes and
 hides them on the initiating key's release, even if Mod was released first.
 `Mod+Shift+Z` toggles the same UI persistently. See
@@ -552,7 +555,7 @@ written with `_` in place of `-` in its first word, so `toggle_state` is
 | `fullscreen` | `toggle-fullscreen` |
 | `toggle-maximize` | `maximize-focused` |
 | `toggle-pin`, `pin-toggle` | `toggle-focused-pin` |
-| `overview` | `apogee` |
+| `overview`, `apogee` | `zoom-fit` |
 | `trail-previous` | `trail-prev` |
 | `cluster-layout cycle` | `cluster-layout-cycle` |
 | `field-jump` | `drag-pan` |

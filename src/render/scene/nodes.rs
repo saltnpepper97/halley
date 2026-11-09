@@ -14,6 +14,8 @@ pub(super) struct NodeElementContext<'a> {
     pub(super) shadow_config: halley_config::ShadowLayer,
     pub(super) shadow_renderer: &'a mut crate::render::effects::shadow::ShadowRenderer,
     pub(super) now: std::time::Duration,
+    /// Nodes drawn elsewhere for now, such as cluster creation's tiles.
+    pub(super) hidden: &'a [halley_core::field::NodeId],
 }
 
 pub(super) fn node_elements(
@@ -36,6 +38,7 @@ pub(super) fn node_elements(
         shadow_config,
         shadow_renderer,
         now,
+        hidden,
     } = context;
     let Some(camera) = cameras.get(&output.name()) else {
         return Ok(NodeScene::default());
@@ -85,6 +88,9 @@ pub(super) fn node_elements(
     let mut groups = Vec::new();
 
     for record in records {
+        if hidden.contains(&record.id) {
+            continue;
+        }
         let Some(node) = nodes.field().node(record.id) else {
             continue;
         };
