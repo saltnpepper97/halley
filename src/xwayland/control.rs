@@ -5,6 +5,7 @@ use std::error::Error;
 use x11rb::connection::Connection;
 use x11rb::errors::ReplyError;
 use x11rb::protocol::ErrorKind;
+use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xkb::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     AtomEnum, AutoRepeatMode, ChangeKeyboardControlAux, ConfigureWindowAux, ConnectionExt as _,
@@ -95,6 +96,7 @@ pub struct X11Control {
     focus_sink: Window,
     active_window: Cell<Option<Window>>,
     desktop_geometry: Cell<Option<PublishedDesktopGeometry>>,
+    primary_layout: Cell<Option<u64>>,
     frame_extents: RefCell<HashMap<Window, (i32, i32, i32, i32)>>,
 }
 
@@ -132,8 +134,36 @@ impl X11Control {
             focus_sink,
             active_window: Cell::new(None),
             desktop_geometry: Cell::new(None),
+            primary_layout: Cell::new(None),
             frame_extents: RefCell::new(HashMap::new()),
         })
+    }
+
+    pub fn publish_primary_output(&self, name: &str, layout: u64) -> Result<(), Box<dyn Error>> {
+        if self.primary_layout.get() == Some(layout) {
+            return Ok(());
+        }
+        let resources = self
+            .connection
+            .randr_get_screen_resources_current(self.root)?
+            .reply()?;
+        for output in resources.outputs {
+            let info = self
+                .connection
+                .randr_get_output_info(output, resources.config_timestamp)?
+                .reply()?;
+            if info.name == name.as_bytes() && info.crtc != NONE {
+                self.connection
+                    .randr_set_output_primary(self.root, output)?
+                    .check()?;
+                self.connection.flush()?;
+                self.primary_layout.set(Some(layout));
+                break;
+            }
+        }
+        // XWayland can announce WM readiness before creating RandR outputs.
+        // Leave the cache empty until it has consumed the wl_output events.
+        Ok(())
     }
 
     /// Publishes the decoration Halley draws around a client window.

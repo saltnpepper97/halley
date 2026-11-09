@@ -20,6 +20,21 @@ pub(super) struct WorkspaceSurfaceState {
 }
 
 impl WorkspaceSurfaceState {
+    pub(super) fn translate(
+        &mut self,
+        members: &[NodeId],
+        delta: smithay::utils::Point<i32, Logical>,
+    ) {
+        for member in members {
+            if let Some(rect) = self.requested.get_mut(member) {
+                rect.loc += delta;
+            }
+            if let Some(rect) = self.restore.get_mut(member) {
+                rect.loc += delta;
+            }
+        }
+    }
+
     fn prepare(
         &mut self,
         node_id: NodeId,

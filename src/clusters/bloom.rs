@@ -61,6 +61,13 @@ pub(super) struct BloomState {
 }
 
 impl BloomState {
+    pub(super) fn translate_output(&mut self, output: &str, delta: Point<i32, Logical>) {
+        if let Some(pull) = self.pull.as_mut().filter(|pull| pull.output == output) {
+            pull.slot_center += delta;
+            pull.core_center += delta;
+        }
+    }
+
     pub(super) fn set_hovered(
         &mut self,
         hovered: Option<ClusterId>,

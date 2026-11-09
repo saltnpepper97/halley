@@ -42,6 +42,13 @@ the next monitor at `offset-x 1920`, rather than `3840`. Existing positions
 remain unchanged when scale is `1.0`. Position, refresh, VRR, and transform
 settings still require an explicit width/height pair.
 
+Negative monitor offsets are accepted. Halley translates the active layout as
+one group so its effective coordinates are nonnegative, preserving monitor
+spacing and relative positions. The config file keeps the offsets you wrote;
+IPC and output-management clients report the effective positions. This keeps
+the entire monitor layout inside XWayland's zero-based root desktop. It does
+not restrict where windows can be placed in the infinite Field.
+
 If existing offsets leave a gap after scaling, relative mouse motion crosses
 that gap directly into the nearest monitor along the exited edge. Dragged
 windows follow the cursor. Crossing is possible where the monitors overlap

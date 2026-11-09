@@ -24,6 +24,12 @@ impl Input {
     pub(super) fn state(&self) -> Value {
         self.command("state")
     }
+    pub(super) fn layout(&self, positions: [i32; 4]) -> Value {
+        self.command(&format!(
+            "layout {} {} {} {}",
+            positions[0], positions[1], positions[2], positions[3]
+        ))
+    }
     pub(super) fn key(&self, code: u32, pressed: bool) -> Value {
         self.command(&format!(
             "key {code} {}",

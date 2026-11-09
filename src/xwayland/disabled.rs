@@ -22,6 +22,13 @@ pub struct State<D: SessionDriver> {
 }
 
 impl<D: SessionDriver> State<D> {
+    pub(crate) fn translate_window(
+        &mut self,
+        _window: &Window,
+        _delta: smithay::utils::Point<i32, smithay::utils::Logical>,
+    ) {
+    }
+
     pub fn new(_display: &DisplayHandle, _loop_handle: LoopHandle<'static, Session<D>>) -> Self {
         Self {
             _driver: PhantomData,

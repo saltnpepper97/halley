@@ -70,6 +70,8 @@ mod multi_keyboard;
 mod offscreen_pointer;
 #[path = "support/output_management.rs"]
 mod output_management;
+#[path = "support/output_origin.rs"]
+mod output_origin;
 #[path = "support/pointer_warp.rs"]
 mod pointer_warp;
 #[path = "support/resize_drag.rs"]
@@ -118,6 +120,26 @@ impl Fixture {
     }
 
     fn with_backend(layout: &str, extra: &str, capture: bool, two_outputs: bool) -> Self {
+        Self::with_layout_backend(layout, extra, capture, two_outputs, None)
+    }
+
+    fn with_output_layout(positions: &str) -> Self {
+        Self::with_layout_backend(
+            "stacking",
+            "animations:\n enabled false\nend\n",
+            true,
+            true,
+            Some(positions),
+        )
+    }
+
+    fn with_layout_backend(
+        layout: &str,
+        extra: &str,
+        capture: bool,
+        two_outputs: bool,
+        output_layout: Option<&str>,
+    ) -> Self {
         let host_runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
         let host_display = PathBuf::from(std::env::var_os("WAYLAND_DISPLAY").unwrap());
         let host_display = if host_display.is_absolute() {
@@ -141,6 +163,13 @@ impl Fixture {
         } else {
             ""
         };
+        let bindings = if output_layout.is_some() {
+            format!(
+                "{bindings}  \"F11\" \"arrange-visible\"\n  \"F12\" \"zoom-fit\"\n  \"F5\" \"toggle-focused-pin\"\n  \"F4\" \"maximize-focused\"\n"
+            )
+        } else {
+            bindings.to_string()
+        };
         fs::write(&config, format!(
             "autostart:\n  cluster:\n    name \"Disconnect regression\"\n    layout \"{layout}\"\n    members []\n  end\nend\nkeybinds:\n{bindings}end\n{extra}\nscreenshot:\n  directory \"{}\"\nend\n", path.join("screenshots").display()
         )).unwrap();
@@ -154,6 +183,9 @@ impl Fixture {
                 .unwrap_or_else(|| env!("CARGO_BIN_EXE_halley").into())
         };
         let mut command = Command::new(binary);
+        if let Some(positions) = output_layout {
+            command.env("HALLEY_TEST_OUTPUT_LAYOUT", positions);
+        }
         command.args(["--winit", "--config"]).arg(&config);
         if two_outputs {
             command

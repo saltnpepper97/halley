@@ -184,6 +184,22 @@ pub struct ClusterComposerState {
 }
 
 impl ClusterComposerState {
+    pub(crate) fn translate_output(&mut self, output: &str, delta: Point<i32, Logical>) {
+        if let Some(session) = self
+            .session
+            .as_mut()
+            .filter(|session| session.output == output)
+        {
+            for tile in &mut session.tiles {
+                tile.target.loc += delta;
+            }
+            if let Some(commit) = session.commit.as_mut() {
+                commit.prepared.core_position.x += delta.x as f32;
+                commit.prepared.core_position.y += delta.y as f32;
+            }
+        }
+    }
+
     pub fn session(&self) -> Option<&Session> {
         self.session.as_ref()
     }

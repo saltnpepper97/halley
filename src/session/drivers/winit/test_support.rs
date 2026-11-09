@@ -9,6 +9,7 @@ use smithay::backend::input::{
 };
 use smithay::backend::winit::WinitVirtualDevice;
 use smithay::output::{Mode as OutputMode, Output, PhysicalProperties, Subpixel};
+use smithay::utils::Point;
 use std::os::unix::net::UnixDatagram;
 
 pub(super) fn output_state(output: &Output) -> super::super::output::OutputState {
@@ -56,19 +57,50 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
         size: (1024, 768).into(),
         refresh: 60_000,
     };
-    let x = app.driver.backend.logical_size().w;
-    output.change_current_state(Some(mode), None, None, Some((x, 0).into()));
+    let default_x = app.driver.backend.logical_size().w;
+    let mut positions = std::env::var("HALLEY_TEST_OUTPUT_LAYOUT")
+        .map(|value| {
+            let coordinates = value
+                .split(',')
+                .map(|part| part.parse::<i32>().expect("test output coordinate"))
+                .collect::<Vec<_>>();
+            assert_eq!(coordinates.len(), 4, "primary x,y and secondary x,y");
+            [
+                (coordinates[0], coordinates[1]),
+                (coordinates[2], coordinates[3]),
+            ]
+        })
+        .unwrap_or([(0, 0), (default_x, 0)]);
+    if std::env::var_os("HALLEY_TEST_RAW_OUTPUT_LAYOUT").is_none() {
+        let origin =
+            crate::backend::output_layout::LayoutOrigin::for_locations(positions.map(Point::from));
+        positions = positions.map(|position| {
+            let point = origin
+                .effective(position.into())
+                .expect("valid test output layout");
+            (point.x, point.y)
+        });
+    }
+    let primary = app.driver.backend.output().clone();
+    primary.change_current_state(None, None, None, Some(positions[0].into()));
+    app.wayland.space.map_output(&primary, positions[0]);
+    output.change_current_state(Some(mode), None, None, Some(positions[1].into()));
     output.set_preferred(mode);
     app.wayland.ensure_output_global::<App>(&output);
-    app.wayland.space.map_output(&output, (x, 0));
+    app.wayland.space.map_output(&output, positions[1]);
     app.cameras.insert(output.name(), mode.size);
     app.driver.extra_outputs.push(output);
+    app.pointer.set_position((
+        f64::from(positions[0].0) + f64::from(default_x) * 0.5,
+        f64::from(positions[0].1) + f64::from(app.driver.backend.logical_size().h) * 0.5,
+    ));
 
     let socket = UnixDatagram::bind(path).unwrap();
     socket.set_nonblocking(true).unwrap();
     handle.insert_source(Generic::new(socket, Interest::READ, Mode::Level), move |_, socket, app| {
         let mut bytes = [0; 256];
         while let Ok((size, peer)) = socket.recv_from(&mut bytes) {
+            let mut layout_error = None;
             let command = std::str::from_utf8(&bytes[..size]).unwrap();
             let parts = command.split_whitespace().collect::<Vec<_>>();
             if matches!(parts.first(), Some(&"key") | Some(&"seat-key")) {
@@ -96,6 +128,19 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 let event = TestButton { code: parts[1].parse().unwrap(), pressed: parts[2] == "down", time: app.start_time.elapsed().as_millis() as u32 };
                 let socket_name = app.wayland_display.clone().unwrap();
                 super::super::input::handle::<_, TestInput>(app, &InputEvent::PointerButton { event }, &socket_name);
+            } else if parts.first() == Some(&"layout") {
+                use crate::session::state::OutputDriver;
+                assert_eq!(parts.len(), 5);
+                let coordinates = parts[1..].iter().map(|part| part.parse::<i32>().unwrap()).collect::<Vec<_>>();
+                let requested = app.driver.output_states().into_iter().enumerate().map(|(index,state)| {
+                    super::super::output::OutputConfiguration {
+                        output: state.output, enabled: true, mode: state.mode,
+                        location: (coordinates[index*2], coordinates[index*2+1]).into(),
+                        transform: state.transform, scale: state.scale, adaptive_sync: false,
+                    }
+                }).collect::<Vec<_>>();
+                layout_error = app.apply_wayland_output_configuration(&requested).err();
+                if layout_error.is_none() { app.notify_output_management(); }
             } else { assert_eq!(command, "state"); }
             let now = crate::frame_clock::monotonic_now();
             let windows = app.nodes.records().map(|record| {
@@ -130,7 +175,7 @@ pub(super) fn install(app: &mut App, handle: &LoopHandle<'static, App>) {
                 crate::capture::CaptureOverlay::Region(rect) => Some([rect.loc.x, rect.loc.y, rect.size.w, rect.size.h]),
                 _ => None,
             };
-            let reply = serde_json::json!({"open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
+            let reply = serde_json::json!({"layout_error": layout_error, "open": app.shell.focus_cycle.is_open(), "active": app.shell.focus_cycle.is_active(),
                 "empty_cluster": app.wayland.space.outputs().filter_map(|output| {
                     let snapshot = app.shell.overlays.snapshot(&output.name(), now).empty_cluster?;
                     Some(serde_json::json!({"output": output.name(), "shortcut": snapshot.shortcut, "armed": snapshot.armed}))

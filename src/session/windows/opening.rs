@@ -21,6 +21,14 @@ pub struct OpeningOrigins {
 }
 
 impl OpeningOrigins {
+    pub(crate) fn translate_surface(&mut self, surface: &WlSurface, delta: Point<i32, Logical>) {
+        for origins in [&mut self.pending, &mut self.active] {
+            if let Some(point) = origins.get_mut(surface) {
+                *point += delta.to_f64();
+            }
+        }
+    }
+
     fn remember_fallback(&mut self, surface: WlSurface, origin: Point<f64, Logical>) {
         self.pending.entry(surface).or_insert(origin);
     }

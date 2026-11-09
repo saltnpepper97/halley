@@ -58,6 +58,8 @@ pub(crate) mod opening;
 pub(crate) mod output;
 #[path = "display/output_power.rs"]
 mod output_power;
+#[path = "display/output_rebase.rs"]
+mod output_rebase;
 #[path = "input/pointer/mod.rs"]
 pub(crate) mod pointer;
 #[path = "protocol/handlers.rs"]

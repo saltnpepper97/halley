@@ -15,6 +15,12 @@ pub(super) struct ClientGeometryGuard {
 }
 
 impl ClientGeometryGuard {
+    pub(super) fn translate(&mut self, delta: smithay::utils::Point<i32, Logical>) {
+        if let Some(placement) = self.restore_center.as_mut() {
+            placement.translate(delta);
+        }
+    }
+
     pub(super) fn arm(now: Duration) -> Self {
         Self {
             quiet_until: now.saturating_add(CLIENT_GEOMETRY_QUIET_PERIOD),
@@ -107,6 +113,11 @@ pub(super) struct OpeningPlacement {
 }
 
 impl OpeningPlacement {
+    pub(super) fn translate(&mut self, delta: smithay::utils::Point<i32, Logical>) {
+        self.center_x_twice += delta.x * 2;
+        self.center_y_twice += delta.y * 2;
+    }
+
     pub(super) fn preferred_size(
         initial_size: Size<i32, Logical>,
         fallback: Size<i32, Logical>,

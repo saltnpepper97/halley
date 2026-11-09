@@ -528,7 +528,7 @@ impl<D: SessionDriver> Dispatch<ZwlrOutputConfigurationV1, ConfigurationData, Se
                 let result = if apply {
                     session.apply_wayland_output_configuration(&requested)
                 } else {
-                    session.driver.test_output_configuration(&requested)
+                    session.test_wayland_output_configuration(&requested)
                 };
                 match result {
                     Ok(()) => {

@@ -113,6 +113,12 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Translate monitor layouts with negative offsets into a shared nonnegative
+  desktop for XWayland, preserving the configured relative positions and gaps.
+  Keep the original config offsets, retain the primary monitor in RandR, and
+  move Field geometry and saved restore positions together during live layout
+  changes. This addresses the coordinate mismatch investigated in #298; the
+  reporter's game behavior still needs confirmation.
 - Internal: wait for XWayland's asynchronous pointer release in the offscreen
   capture test before checking unrestricted motion, avoiding a timing-dependent
   test failure.
