@@ -188,12 +188,24 @@ fn notify_surface_outside_press<D: SessionDriver>(
     if button != BTN_LEFT || state != ButtonState::Pressed {
         return;
     }
+    let focused = session
+        .keyboard_handle()
+        .current_focus()
+        .and_then(|focus| focus.wl_surface().map(|surface| surface.into_owned()));
     for output in session.wayland.space.outputs() {
         let map = smithay::desktop::layer_map_for_output(output);
         for layer in map.layers() {
+            let owns_keyboard = focused.as_ref().is_some_and(|focused| {
+                focused == layer.wl_surface()
+                    || smithay::desktop::PopupManager::popups_for_surface(layer.wl_surface())
+                        .any(|(popup, _)| popup.wl_surface() == focused)
+            });
             let inside = matches!(route.map(|route| &route.target),
                 Some(crate::input::pointer::PointerTarget::Layer(target)) if target == layer);
-            if !inside && !session.wayland.unmapped_layers.contains(layer.wl_surface()) {
+            if owns_keyboard
+                && !inside
+                && !session.wayland.unmapped_layers.contains(layer.wl_surface())
+            {
                 wayland::surface_dismissal::outside_press(layer.wl_surface());
             }
         }

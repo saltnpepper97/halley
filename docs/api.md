@@ -247,7 +247,9 @@ the resulting object in the application's Wayland dispatch. Destroy the watch
 to cancel it or after its one event. The application decides how to dismiss its
 UI; Halley never closes it on the application's behalf.
 
-Only an outside left-button press on a buffer-mapped surface produces an event.
+Only an outside left-button press while a buffer-mapped surface owns keyboard
+focus (directly or through a popup) produces an event. Passive layers cannot
+observe outside input.
 The watch is one-shot; inside presses, including the layer's popups, right
 buttons, and releases do not trigger it. Unmapping permanently cancels existing
 watches; remapping needs a new watch. Initial configuration before the first

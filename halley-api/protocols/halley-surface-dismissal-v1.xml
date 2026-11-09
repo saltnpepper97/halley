@@ -21,7 +21,8 @@
       <description summary="watch an owned layer surface">
         The surface must already have a layer-shell role. Each watch is one-shot
         and takes effect immediately. Notifications are sent only while the
-        surface is buffer-mapped. Destroying the watch cancels it. Unmapping or
+        surface is buffer-mapped and owns keyboard focus (directly or through
+        one of its popups). Passive surfaces never observe outside input. Destroying the watch cancels it. Unmapping or
         destroying the surface cancels the watch permanently; remapping requires
         a new watch. A client can only reference surfaces on its own connection.
       </description>

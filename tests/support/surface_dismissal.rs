@@ -25,7 +25,14 @@ impl Dispatch<Watch, ()> for NativeState {
 fn layer(
     fixture: &Fixture,
     namespace: &str,
-) -> (EventQueue<NativeState>, NativeState, Manager, Watch) {
+    interactivity: layer_surface::KeyboardInteractivity,
+) -> (
+    EventQueue<NativeState>,
+    NativeState,
+    Manager,
+    Watch,
+    layer_surface::ZwlrLayerSurfaceV1,
+) {
     let (mut queue, mut state) = native_connection(fixture);
     let qh = queue.handle();
     let registry = state.registry.as_ref().unwrap();
@@ -61,7 +68,7 @@ fn layer(
     );
     layer.set_size(180, 120);
     layer.set_anchor(layer_surface::Anchor::Top | layer_surface::Anchor::Left);
-    layer.set_keyboard_interactivity(layer_surface::KeyboardInteractivity::Exclusive);
+    layer.set_keyboard_interactivity(interactivity);
     // Arm before initial configure, exactly as an application does at startup.
     let watch = manager.watch(&surface, &qh, ());
     state.buffer = Some(pixels.create_u32_rgba_buffer(u32::MAX, 0, 0, u32::MAX, &qh, ()));
@@ -69,7 +76,7 @@ fn layer(
     surface.commit();
     queue.roundtrip(&mut state).unwrap();
     queue.roundtrip(&mut state).unwrap();
-    (queue, state, manager, watch)
+    (queue, state, manager, watch, layer)
 }
 
 #[test]
@@ -92,7 +99,11 @@ fn surface_dismissal_is_opt_in_one_shot_and_preserves_the_outside_click() {
         selector: Some(NodeSelector::Id(node)),
         output: None,
     }));
-    let (mut queue, mut client, manager, watch) = layer(&fixture, "example.command-palette");
+    let (mut queue, mut client, manager, watch, layer_handle) = layer(
+        &fixture,
+        "example.command-palette",
+        layer_surface::KeyboardInteractivity::Exclusive,
+    );
     input.motion(40.0, 40.0);
     input.button(272, true);
     input.button(272, false);
@@ -146,6 +157,44 @@ fn surface_dismissal_is_opt_in_one_shot_and_preserves_the_outside_click() {
         )),
         "outside release reaches the underlying client"
     );
+    let retired = manager.watch(client.surface.as_ref().unwrap(), &queue.handle(), ());
+    client.hold_layer_buffer = true;
+    client.surface.as_ref().unwrap().attach(None, 0, 0);
+    client.surface.as_ref().unwrap().commit();
+    queue.roundtrip(&mut client).unwrap();
+    // Layer-shell resets size/anchors/interactivity on unmap. Restore the
+    // application state before attaching a buffer again.
+    layer_handle.set_size(180, 120);
+    layer_handle.set_anchor(layer_surface::Anchor::Top | layer_surface::Anchor::Left);
+    layer_handle.set_keyboard_interactivity(layer_surface::KeyboardInteractivity::Exclusive);
+    client.hold_layer_buffer = false;
+    client
+        .surface
+        .as_ref()
+        .unwrap()
+        .attach(client.buffer.as_ref(), 0, 0);
+    client.surface.as_ref().unwrap().commit();
+    queue.roundtrip(&mut client).unwrap();
+    input.button(272, true);
+    input.button(272, false);
+    queue.roundtrip(&mut client).unwrap();
+    assert_eq!(
+        client.outside_presses, 1,
+        "unmap permanently cancels a watch"
+    );
+    retired.destroy();
+    let fresh = manager.watch(client.surface.as_ref().unwrap(), &queue.handle(), ());
+    manager.destroy();
+    queue.roundtrip(&mut client).unwrap();
+    input.button(272, true);
+    input.button(272, false);
+    queue.roundtrip(&mut client).unwrap();
+    assert_eq!(
+        client.outside_presses, 2,
+        "manager destruction does not cancel a live watch"
+    );
+    fresh.destroy();
+    client.hold_layer_buffer = true;
     // Once the client dismisses its own layer, the outside click must still
     // have reached the underlying window, with no extra click required.
     client.surface.as_ref().unwrap().attach(None, 0, 0);
@@ -175,4 +224,32 @@ fn surface_dismissal_rejects_non_layer_surfaces() {
         queue.roundtrip(&mut client).is_err(),
         "a toplevel cannot register as a layer surface"
     );
+}
+
+#[test]
+#[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER"]
+fn surface_dismissal_does_not_notify_passive_layers_or_special_case_names() {
+    let fixture = Fixture::with_two_outputs("animations:\n enabled false\nend\n");
+    let input = Input::new(&fixture);
+    let (_window_queue, _window) = native_window(&fixture);
+    let (mut queue, mut client, manager, watch, _layer) = layer(
+        &fixture,
+        "halley-lift",
+        layer_surface::KeyboardInteractivity::None,
+    );
+    manager.destroy();
+    queue.roundtrip(&mut client).unwrap();
+    input.motion(350.0, 250.0);
+    input.button(272, true);
+    input.button(272, false);
+    queue.roundtrip(&mut client).unwrap();
+    assert_eq!(
+        client.outside_presses, 0,
+        "a passive layer must not monitor outside input"
+    );
+    assert!(
+        !client.close_requested,
+        "an application name cannot opt into compositor dismissal policy"
+    );
+    watch.destroy();
 }

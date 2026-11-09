@@ -359,6 +359,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
 #[derive(Default)]
 struct NativeState {
     outside_presses: usize,
+    hold_layer_buffer: bool,
     pointer_buttons: Vec<(
         u32,
         wayland_client::WEnum<wayland_client::protocol::wl_pointer::ButtonState>,
@@ -525,11 +526,16 @@ impl Dispatch<layer_surface::ZwlrLayerSurfaceV1, ()> for NativeState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if let layer_surface::Event::Closed = event {
+            state.close_requested = true;
+        }
         if let layer_surface::Event::Configure { serial, .. } = event {
             layer.ack_configure(serial);
-            let surface = state.surface.as_ref().unwrap();
-            surface.attach(state.buffer.as_ref(), 0, 0);
-            surface.commit();
+            if !state.hold_layer_buffer {
+                let surface = state.surface.as_ref().unwrap();
+                surface.attach(state.buffer.as_ref(), 0, 0);
+                surface.commit();
+            }
         }
     }
 }
