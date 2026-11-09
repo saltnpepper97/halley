@@ -38,6 +38,8 @@ use x11rb::wrapper::ConnectionExt as _;
 
 #[path = "support/accessible_capture.rs"]
 mod accessible_capture;
+#[path = "support/alt_tab_clusters.rs"]
+mod alt_tab_clusters;
 #[path = "support/alt_tab_visibility.rs"]
 mod alt_tab_visibility;
 #[path = "support/bearings_restore.rs"]

@@ -6,6 +6,15 @@ window. `Mod+Arrow` moves one step in the Field, Bearings points to work that
 is off screen on a monitor, [zoom to fit](zoom-fit.md) shows everything at
 once, and Halley Lift searches by name.
 
+## What Alt+Tab lists
+
+Alt+Tab lists what each monitor is showing, like a per-desktop window
+switcher. A monitor showing the Field contributes its Field windows and nodes.
+A monitor with a cluster open contributes every window in that cluster, no
+matter when it joined, and not the Field windows behind it. Windows in a
+cluster that is not open stay out until you open it. Alt+Tab works the same in
+tiling and stacking clusters; `Mod+Arrow` is what flips through a stack.
+
 ## Alt+Tab visibility and presentation policy
 
 This section defines the intended Alt+Tab behavior, including fullscreen and

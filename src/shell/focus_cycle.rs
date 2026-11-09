@@ -120,18 +120,17 @@ impl FocusCycleState {
     pub fn start_or_step(
         &mut self,
         nodes: &crate::nodes::NodesState,
+        clusters: &crate::clusters::ClusterSystem,
         direction: FocusCycleDirection,
         now: Duration,
     ) -> bool {
         if self.session.is_none() {
-            let candidates = halley_core::focus::focus_cycle_candidates(
+            let candidates = halley_core::focus::focus_cycle_candidates_where(
                 nodes.field(),
                 nodes.last_focus_ms(),
                 nodes.focused(),
-            )
-            .into_iter()
-            .filter(|id| nodes.record(*id).is_some_and(|record| record.attached))
-            .collect::<Vec<_>>();
+                |id| is_candidate(nodes, clusters, id),
+            );
             if candidates.len() < 2 {
                 return false;
             }
@@ -146,7 +145,7 @@ impl FocusCycleState {
                 origin_focus: nodes.focused(),
             });
         }
-        self.refresh(nodes, now);
+        self.refresh(nodes, clusters, now);
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -206,15 +205,19 @@ impl FocusCycleState {
             || now.saturating_sub(session.step_started_at) < Duration::from_millis(STEP_MS)
     }
 
-    fn refresh(&mut self, nodes: &crate::nodes::NodesState, now: Duration) {
+    fn refresh(
+        &mut self,
+        nodes: &crate::nodes::NodesState,
+        clusters: &crate::clusters::ClusterSystem,
+        now: Duration,
+    ) {
         let Some(session) = self.session.as_mut() else {
             return;
         };
         let preview = session.preview();
-        session.candidates.retain(|id| {
-            halley_core::focus::is_focus_cycle_candidate(nodes.field(), *id)
-                && nodes.record(*id).is_some_and(|record| record.attached)
-        });
+        session
+            .candidates
+            .retain(|id| is_candidate(nodes, clusters, *id));
         if session.candidates.is_empty() {
             self.session = None;
             return;
@@ -233,6 +236,41 @@ impl FocusCycleState {
     }
 }
 
+fn is_candidate(
+    nodes: &crate::nodes::NodesState,
+    clusters: &crate::clusters::ClusterSystem,
+    id: NodeId,
+) -> bool {
+    nodes
+        .record(id)
+        .filter(|record| record.attached)
+        .is_some_and(|record| shows_on_output(nodes.field(), clusters, id, &record.output))
+}
+
+/// Alt+Tab lists what each monitor is showing, like a per-desktop switcher.
+/// A monitor with an open cluster contributes every member of that cluster,
+/// however and whenever it joined; a monitor showing the Field contributes its
+/// Field windows and nodes. Members of clusters that are not open, and Field
+/// windows behind an open cluster, stay out.
+fn shows_on_output(
+    field: &halley_core::field::Field,
+    clusters: &crate::clusters::ClusterSystem,
+    id: NodeId,
+    output: &str,
+) -> bool {
+    match clusters.cluster_for_member(id) {
+        // Members keep the Field's cluster-hidden flag while their cluster is
+        // open, so the Field's own visibility says nothing about them here.
+        Some(cluster) => clusters
+            .metadata(cluster)
+            .is_some_and(|metadata| clusters.active_on(&metadata.output) == Some(cluster)),
+        None => {
+            halley_core::focus::is_focus_cycle_candidate(field, id)
+                && clusters.active_on(output).is_none()
+        }
+    }
+}
+
 fn ease_in_out_cubic(value: f32) -> f32 {
     if value < 0.5 {
         4.0 * value * value * value
@@ -247,6 +285,7 @@ pub fn start_or_step<D: crate::session::SessionDriver>(
 ) -> bool {
     let changed = session.shell.focus_cycle.start_or_step(
         &session.nodes,
+        &session.clusters,
         direction,
         crate::frame_clock::monotonic_now(),
     );
@@ -316,9 +355,59 @@ pub fn commit<D: crate::session::SessionDriver>(
 
 #[cfg(test)]
 mod tests {
-    use super::{FocusCycleState, Session};
-    use halley_core::field::NodeId;
+    use super::{FocusCycleState, Session, shows_on_output};
+    use halley_core::field::{Field, NodeId, Vec2};
     use std::time::Duration;
+
+    fn spawn(field: &mut Field, name: &str, x: f32) -> NodeId {
+        field.spawn_surface(
+            name.to_string(),
+            Vec2 { x, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        )
+    }
+
+    /// Two windows join a cluster on DP-1 (which flags them cluster-hidden),
+    /// a third stays on the Field of DP-1 and a fourth sits on DP-2.
+    fn cluster_fixture() -> (Field, crate::clusters::ClusterSystem, [NodeId; 4]) {
+        let mut field = Field::new();
+        let spotify = spawn(&mut field, "spotify", 0.0);
+        let firefox = spawn(&mut field, "firefox", 120.0);
+        let behind = spawn(&mut field, "behind", 240.0);
+        let other = spawn(&mut field, "other-monitor", 2_000.0);
+        let mut clusters = crate::clusters::ClusterSystem::new(
+            halley_config::Clusters::default(),
+            halley_config::ClusterAnimation::default(),
+        );
+        assert!(clusters.begin_creation("DP-1".into()));
+        assert!(clusters.toggle_creation_member(spotify, "DP-1"));
+        assert!(clusters.toggle_creation_member(firefox, "DP-1"));
+        assert!(clusters.begin_naming());
+        clusters.finish_creation(&mut field).expect("cluster");
+        assert!(!field.is_visible(spotify) && !field.is_visible(firefox));
+        (field, clusters, [spotify, firefox, behind, other])
+    }
+
+    #[test]
+    fn open_cluster_lists_every_member_and_other_monitors() {
+        let (field, mut clusters, [spotify, firefox, behind, other]) = cluster_fixture();
+        assert!(clusters.activate_slot("DP-1", 1, Duration::ZERO));
+
+        assert!(shows_on_output(&field, &clusters, spotify, "DP-1"));
+        assert!(shows_on_output(&field, &clusters, firefox, "DP-1"));
+        assert!(shows_on_output(&field, &clusters, other, "DP-2"));
+        assert!(!shows_on_output(&field, &clusters, behind, "DP-1"));
+    }
+
+    #[test]
+    fn closed_cluster_members_stay_out_of_alt_tab() {
+        let (field, clusters, [spotify, firefox, behind, other]) = cluster_fixture();
+
+        assert!(!shows_on_output(&field, &clusters, spotify, "DP-1"));
+        assert!(!shows_on_output(&field, &clusters, firefox, "DP-1"));
+        assert!(shows_on_output(&field, &clusters, behind, "DP-1"));
+        assert!(shows_on_output(&field, &clusters, other, "DP-2"));
+    }
 
     #[test]
     fn visible_slots_do_not_duplicate_small_candidate_sets() {

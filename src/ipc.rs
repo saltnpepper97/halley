@@ -917,7 +917,10 @@ fn handle_control_request<D: crate::session::SessionDriver>(
                     halley_config::FocusCycleDirection::Backward
                 }
             };
-            (halley_config::Action::FocusCycle(cycle), Some(output))
+            // Alt+Tab no longer doubles as stack cycling, so cycle the stack
+            // directly. A one-member stack has nothing to cycle and is a no-op.
+            crate::session::input::actions::cycle_cluster_stack(session, &output, cycle);
+            return halley_ipc::Response::Ack;
         }
         halley_ipc::ControlRequest::TileFocus {
             direction: value,
