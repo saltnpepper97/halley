@@ -69,6 +69,8 @@ test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 
 # Keep an explicit, finite suite. Manual previews and toolkit tests stay manual.
 cases=(
+    steam_close::steam_shortcut_close_is_immediate_reversible_and_passes_input_to_survivors
+    steam_close::steam_shortcut_close_preserves_main_collapsed_and_native_advisory_close
     collapsed_node_close::close_key_targets_focused_collapsed_window
     collapsed_node_close::close_key_sends_x11_delete_to_focused_collapsed_window
     collapsed_node_close::collapsed_x11_window_that_withdraws_on_close_leaves_the_field
