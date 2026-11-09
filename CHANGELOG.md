@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Docs: describe behaviour rather than older Halley versions. The top-level
+  `zoom:` section and `field.gap-px` are now listed with the other older
+  spellings, which also notes that the current spelling wins when a config
+  has both.
 - Make `Alt+Tab` the same switcher in stacking clusters. It no longer flips
   through the stack (`Mod+Left` and `Mod+Right` still do), so in a stack it
   also reaches windows on your other monitors. With a single window in the
