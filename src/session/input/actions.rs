@@ -288,37 +288,9 @@ pub(crate) fn dispatch<D: SessionDriver>(
             crate::session::zoom_fit::toggle(session);
         }
         super::dispatch::SessionControl::FocusCycle(direction) => {
-            let cluster_cycle = action_output.as_deref().map_or(
-                crate::clusters::StackCycleOutcome::NotActive,
-                |output| {
-                    let Some(work_area) = work_area_for_output(&session.wayland.space, output)
-                    else {
-                        return crate::clusters::StackCycleOutcome::NotActive;
-                    };
-                    session.clusters.cycle_stack(
-                        output,
-                        direction,
-                        work_area,
-                        crate::frame_clock::monotonic_now(),
-                    )
-                },
-            );
-            match cluster_cycle {
-                crate::clusters::StackCycleOutcome::Cycled(member) => {
-                    if let Some(window) = session
-                        .nodes
-                        .record(member)
-                        .map(|record| record.window.clone())
-                    {
-                        super::super::focus_window(session, &window, SERIAL_COUNTER.next_serial());
-                        session.request_redraw();
-                    }
-                }
-                crate::clusters::StackCycleOutcome::Unchanged => {}
-                crate::clusters::StackCycleOutcome::NotActive => {
-                    crate::shell::focus_cycle::start_or_step(session, direction);
-                }
-            }
+            // Alt+Tab is the same switcher everywhere, stacking clusters
+            // included; Mod+Arrow is what flips through a stack.
+            crate::shell::focus_cycle::start_or_step(session, direction);
         }
         super::dispatch::SessionControl::Trail(direction) => {
             if let Err(error) = crate::trail::navigate(session, direction, action_output.as_deref())
@@ -561,6 +533,36 @@ fn empty_slot_message(slot: u8, cluster_mode_key: Option<&str>) -> String {
         Some(key) => format!("Slot {slot} is empty. {key} makes a cluster."),
         None => format!("Slot {slot} is empty."),
     }
+}
+
+/// Bring the next or previous member of the stacking cluster open on
+/// `output` to the front and focus it. Returns false, changing nothing, when
+/// no stacking cluster is open there or it has nothing to cycle to.
+pub(crate) fn cycle_cluster_stack<D: SessionDriver>(
+    session: &mut Session<D>,
+    output: &str,
+    direction: halley_config::FocusCycleDirection,
+) -> bool {
+    let Some(work_area) = work_area_for_output(&session.wayland.space, output) else {
+        return false;
+    };
+    let crate::clusters::StackCycleOutcome::Cycled(member) = session.clusters.cycle_stack(
+        output,
+        direction,
+        work_area,
+        crate::frame_clock::monotonic_now(),
+    ) else {
+        return false;
+    };
+    if let Some(window) = session
+        .nodes
+        .record(member)
+        .map(|record| record.window.clone())
+    {
+        super::super::focus_window(session, &window, SERIAL_COUNTER.next_serial());
+        session.request_redraw();
+    }
+    true
 }
 
 #[cfg(test)]

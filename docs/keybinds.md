@@ -478,8 +478,9 @@ hides them on the initiating key's release, even if Mod was released first.
 
 The default `Mod+Arrow` bindings focus the nearest window in that direction in
 the Field and the nearest tile in a tiling cluster. In a stacking cluster,
-`Mod+Left` cycles forward and `Mod+Right` cycles backward; `Alt+Tab` and
-`Alt+Shift+Tab` use that same stack cycle. The vertical arrows are inert there,
+`Mod+Left` cycles forward and `Mod+Right` cycles backward. `Alt+Tab` is not
+a stack cycle: it opens the same switcher as everywhere else, which lists the
+stack's windows. The vertical arrows are inert there,
 and cycling a stack with fewer than two windows is a handled no-op. The explicit
 `cluster-focus-DIRECTION` aliases remain available for cluster-only bindings.
 `Mod+H` focuses the output's most recently focused Field window and pans the

@@ -86,10 +86,24 @@ pub fn focus_cycle_candidates(
     last_focus_ms: &HashMap<NodeId, u64>,
     origin: Option<NodeId>,
 ) -> Vec<NodeId> {
+    focus_cycle_candidates_where(field, last_focus_ms, origin, |id| {
+        is_focus_cycle_candidate(field, id)
+    })
+}
+
+/// [`focus_cycle_candidates`] with a caller-supplied eligibility rule, for
+/// callers that know about state the `Field` does not (such as which cluster
+/// workspaces are open). Ordering is identical.
+pub fn focus_cycle_candidates_where(
+    field: &Field,
+    last_focus_ms: &HashMap<NodeId, u64>,
+    origin: Option<NodeId>,
+    include: impl Fn(NodeId) -> bool,
+) -> Vec<NodeId> {
     let mut candidates: Vec<NodeId> = field
         .node_ids_all()
         .into_iter()
-        .filter(|&id| is_focus_cycle_candidate(field, id))
+        .filter(|&id| include(id))
         .collect();
 
     candidates.sort_by(|a, b| {
