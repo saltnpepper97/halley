@@ -41,6 +41,12 @@ impl<D: SessionDriver> State<D> {
     ) {
     }
 
+    pub(crate) fn arm_shortcut_close_timeout(&self, _window: Window, _generation: u64) -> bool {
+        false
+    }
+
+    pub(crate) fn cancel_close_request(&mut self, _window: &Window) {}
+
     pub fn display_name(&self) -> Option<OsString> {
         None
     }
@@ -103,6 +109,10 @@ where
 pub fn reconfigure_fullscreen(_windows: Vec<(Window, Rectangle<i32, Logical>)>) {}
 
 pub fn close_window(_window: &Window) {}
+
+pub(crate) fn is_steam_auxiliary_window(_window: &Window) -> bool {
+    false
+}
 
 pub fn configure_window<D: SessionDriver>(
     _session: &mut Session<D>,

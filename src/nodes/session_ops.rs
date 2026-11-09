@@ -68,6 +68,9 @@ pub fn close_focused_on_output<D: crate::session::SessionDriver>(
 ) {
     let belongs_to_output = |id: NodeId| {
         if let Some(record) = session.nodes.record(id) {
+            if crate::window::closing::pending(&record.window) {
+                return false;
+            }
             let requested_output = output.unwrap_or(&record.output);
             return record.output == requested_output
                 && close_candidate_in_workspace(

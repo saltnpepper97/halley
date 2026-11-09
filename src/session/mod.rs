@@ -364,12 +364,16 @@ pub(crate) fn request_window_close<D: SessionDriver>(
     session: &mut Session<D>,
     window: &smithay::desktop::Window,
 ) {
+    if crate::window::closing::pending(window) {
+        return;
+    }
     let frozen = closing::capture_before_close_request(session, window);
     if let Some(toplevel) = window.toplevel() {
         toplevel.send_close();
     } else {
         session.xwayland.note_close_requested(window);
         crate::xwayland::close_window(window);
+        closing::start_shortcut_close(session, window, frozen);
     }
     if frozen {
         session.request_redraw();

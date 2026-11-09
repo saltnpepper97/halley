@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Make compositor close requests such as Mod+Q dismiss secondary Steam windows
+  immediately, matching their close button. Transfer input focus while Steam
+  finishes closing, and reveal the window again if it does not close within
+  two seconds. Steam's main window, games, collapsed nodes, and native Wayland
+  close requests keep their existing behavior.
+
 ### Added
 - Add the optional `halley-surface-dismissal-v1` Wayland interface for clients
   watching their own layer surfaces. Outside left presses are one-shot

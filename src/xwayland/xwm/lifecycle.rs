@@ -73,6 +73,7 @@ pub(super) fn forget_window<D: SessionDriver>(
         remember_normal_size(session, surface, geometry.size);
     }
     let close_active = crate::session::closing::capture_and_activate_before_unmap(session, &window);
+    crate::window::closing::finish(&window);
     crate::session::trace::x11_event(
         session,
         surface,

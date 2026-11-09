@@ -180,6 +180,29 @@ impl<D: SessionDriver> State<D> {
         }
     }
 
+    pub(crate) fn arm_shortcut_close_timeout(
+        &self,
+        window: smithay::desktop::Window,
+        generation: u64,
+    ) -> bool {
+        self.loop_handle
+            .insert_source(
+                Timer::from_duration(std::time::Duration::from_secs(2)),
+                move |_, _, session| {
+                    crate::session::closing::recover_shortcut_close(session, &window, generation);
+                    TimeoutAction::Drop
+                },
+            )
+            .map_err(|err| eventline::warn!("xwayland: failed to schedule close recovery: {err}"))
+            .is_ok()
+    }
+
+    pub(crate) fn cancel_close_request(&mut self, window: &smithay::desktop::Window) {
+        if let Some(surface) = window.x11_surface() {
+            self.forget_close_request(surface.window_id());
+        }
+    }
+
     pub fn display_name(&self) -> Option<OsString> {
         self.display
             .map(|display| OsString::from(format!(":{display}")))
@@ -788,6 +811,26 @@ pub fn is_x11(window: &smithay::desktop::Window) -> bool {
 const STEAM_CLOSE_HIT_WIDTH: f64 = 40.0;
 const STEAM_CLOSE_HIT_HEIGHT: f64 = 40.0;
 
+/// Steam's secondary CEF windows have no transient parent or window role.
+/// The main window uses the stable product title "Steam" (also used by our
+/// main-window recovery policy). Do not extend this to games or other CEF apps.
+pub(crate) fn is_steam_auxiliary_window(window: &smithay::desktop::Window) -> bool {
+    use smithay::xwayland::xwm::WmWindowType;
+    window.x11_surface().is_some_and(|surface| {
+        !surface.is_override_redirect()
+            && surface.is_decorated()
+            && matches!(surface.window_type(), Some(WmWindowType::Normal))
+            && steam_auxiliary_identity(&surface.instance(), &surface.class(), &surface.title())
+    })
+}
+
+fn steam_auxiliary_identity(instance: &str, class: &str, title: &str) -> bool {
+    instance == "steamwebhelper"
+        && class.eq_ignore_ascii_case("steam")
+        && !title.is_empty()
+        && title != "Steam"
+}
+
 /// Steam's X11/CEF windows draw their own titlebar, so clicking their close
 /// glyph has no window-management protocol meaning until CEF begins its
 /// delayed teardown. Recognize only Steam's conventional top-right control
@@ -956,6 +999,42 @@ impl<D: SessionDriver> XWaylandKeyboardGrabHandler for Session<D> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn immediate_steam_close_excludes_the_main_window_and_games() {
+        assert!(super::steam_auxiliary_identity(
+            "steamwebhelper",
+            "steam",
+            "Steam Settings"
+        ));
+        assert!(super::steam_auxiliary_identity(
+            "steamwebhelper",
+            "steam",
+            "Friends List"
+        ));
+        assert!(super::steam_auxiliary_identity(
+            "steamwebhelper",
+            "Steam",
+            "Parametres Steam"
+        ));
+        assert!(!super::steam_auxiliary_identity(
+            "steamwebhelper",
+            "steam",
+            "Steam"
+        ));
+        assert!(!super::steam_auxiliary_identity(
+            "steamwebhelper",
+            "steam",
+            ""
+        ));
+        assert!(!super::steam_auxiliary_identity(
+            "steam_app_440",
+            "steam_app_440",
+            "Game"
+        ));
+        assert!(!super::steam_auxiliary_identity(
+            "chatgpt", "chatgpt", "ChatGPT"
+        ));
+    }
     use super::{desktop_extent, steam_close_hit, work_area_extent};
     use smithay::utils::{Point, Rectangle, Size};
 

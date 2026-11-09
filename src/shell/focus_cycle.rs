@@ -243,7 +243,7 @@ fn is_candidate(
 ) -> bool {
     nodes
         .record(id)
-        .filter(|record| record.attached)
+        .filter(|record| record.attached && !crate::window::closing::pending(&record.window))
         .is_some_and(|record| shows_on_output(nodes.field(), clusters, id, &record.output))
 }
 

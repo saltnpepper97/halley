@@ -186,6 +186,16 @@ fn repeat_tick<D: SessionDriver>(session: &mut Session<D>, generation: u64) -> T
 }
 
 fn repeat_allowed<D: SessionDriver>(session: &Session<D>, action: &halley_config::Action) -> bool {
+    // An immediate visual handoff must not let the original held shortcut
+    // repeat onto the successor while the first client is still closing.
+    if *action == halley_config::Action::CloseFocusedWindow
+        && session
+            .nodes
+            .records()
+            .any(|record| crate::window::closing::pending(&record.window))
+    {
+        return false;
+    }
     // Once the final window is gone, holding its close shortcut must never
     // turn the repeat timer into a cluster deletion confirmation.
     if *action == halley_config::Action::CloseFocusedWindow
