@@ -1,2 +1,4 @@
 /target
 /0.8-RELEASE-PLAN.md
+__pycache__/
+*.py[cod]
