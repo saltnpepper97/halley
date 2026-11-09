@@ -184,6 +184,44 @@ pub struct NodesState {
 }
 
 impl NodesState {
+    pub(crate) fn translate_output(
+        &mut self,
+        output: &str,
+        delta: Point<i32, Logical>,
+        extra_nodes: &[NodeId],
+    ) {
+        let ids = self
+            .records
+            .values()
+            .filter(|record| record.output == output)
+            .map(|record| record.id)
+            .chain(extra_nodes.iter().copied())
+            .collect::<HashSet<_>>();
+        let shift = Vec2 {
+            x: delta.x as f32,
+            y: delta.y as f32,
+        };
+        for id in ids {
+            if let Some(record) = self.records.get_mut(&id) {
+                record.geometry.loc += delta;
+            }
+            if let Some(node) = self.field.node_mut(id) {
+                node.pos.x += shift.x;
+                node.pos.y += shift.y;
+            }
+            if let Some(home) = self.zoom_homes.get_mut(&id) {
+                home.x += shift.x;
+                home.y += shift.y;
+            }
+            if let Some(slide) = self.landmark_slides.borrow_mut().get_mut(&id) {
+                slide.from.x += shift.x;
+                slide.from.y += shift.y;
+                slide.to.x += shift.x;
+                slide.to.y += shift.y;
+            }
+        }
+    }
+
     pub fn new(config: &halley_config::RuntimeConfig) -> Self {
         Self::new_with_color_scheme(config, halley_config::SystemColorScheme::NoPreference)
     }

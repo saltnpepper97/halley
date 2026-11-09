@@ -83,6 +83,22 @@ pub struct State<D: SessionDriver> {
 }
 
 impl<D: SessionDriver> State<D> {
+    pub(crate) fn translate_window(&mut self, window: &Window, delta: Point<i32, Logical>) {
+        let Some(surface) = window.x11_surface() else {
+            return;
+        };
+        let xid = surface.window_id();
+        if let Some(placement) = self.opening_placements.get_mut(&xid) {
+            placement.translate(delta);
+        }
+        if let Some(guard) = self.client_geometry_guards.get_mut(&xid) {
+            guard.translate(delta);
+        }
+        if let Some(placement) = self.override_redirect_placements.get_mut(&xid) {
+            placement.geometry.loc += delta;
+        }
+    }
+
     pub(crate) fn sync_cursor(&mut self, cursor: &crate::cursor::CursorManager) {
         let Some(xwm) = self.xwm.as_mut() else {
             return;
@@ -620,7 +636,43 @@ pub fn sync_position<D: SessionDriver>(
 }
 
 pub fn sync_positions<D: SessionDriver>(session: &Session<D>) -> bool {
+    sync_primary_output(session);
     xwm::sync_positions(session)
+}
+
+fn sync_primary_output<D: SessionDriver>(session: &Session<D>) {
+    use std::hash::{Hash, Hasher};
+    let Some(control) = session.xwayland.control.as_ref() else {
+        return;
+    };
+    let primary = session
+        .wayland
+        .space
+        .outputs()
+        .find(|output| *output == session.driver.primary_output())
+        .or_else(|| session.wayland.space.outputs().next());
+    let Some(primary) = primary else {
+        return;
+    };
+    let mut layout = std::collections::hash_map::DefaultHasher::new();
+    primary.name().hash(&mut layout);
+    for output in session.wayland.space.outputs() {
+        output.name().hash(&mut layout);
+        let location = output.current_location();
+        (location.x, location.y).hash(&mut layout);
+        output
+            .current_mode()
+            .map(|mode| (mode.size.w, mode.size.h, mode.refresh))
+            .hash(&mut layout);
+        output
+            .current_scale()
+            .fractional_scale()
+            .to_bits()
+            .hash(&mut layout);
+    }
+    if let Err(error) = control.publish_primary_output(&primary.name(), layout.finish()) {
+        eventline::warn!("xwayland: failed to publish primary output: {error}");
+    }
 }
 
 /// Sweeps the compositor/X stacking split once per dispatch, next to

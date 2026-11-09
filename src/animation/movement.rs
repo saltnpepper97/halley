@@ -24,6 +24,18 @@ impl MoveTimeline {
 }
 
 impl WindowAnimations {
+    pub(crate) fn translate_source(
+        &mut self,
+        surface: &WlSurface,
+        delta: smithay::utils::Point<i32, Logical>,
+    ) {
+        if let Some(timeline) = self.moving.get_mut(surface) {
+            timeline.geometry.x.translate(f64::from(delta.x));
+            timeline.geometry.y.translate(f64::from(delta.y));
+            timeline.target.loc += delta;
+        }
+    }
+
     pub fn move_window(
         &mut self,
         surface: WlSurface,

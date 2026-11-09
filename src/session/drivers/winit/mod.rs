@@ -150,6 +150,23 @@ impl super::OutputDriver for WinitDriver {
     ) -> Result<(), String> {
         let current = self.output_states();
         super::output::validate_complete_configuration(&current, configuration)?;
+        #[cfg(test)]
+        if !self.extra_outputs.is_empty() {
+            for requested in configuration {
+                let state = current
+                    .iter()
+                    .find(|state| state.output == requested.output)
+                    .unwrap();
+                if !requested.enabled
+                    || requested.mode != state.mode
+                    || requested.transform != state.transform
+                    || requested.adaptive_sync
+                {
+                    return Err("test outputs support location and scale changes only".into());
+                }
+            }
+            return Ok(());
+        }
         let requested = &configuration[0];
         let state = &current[0];
         if !requested.enabled
@@ -168,6 +185,25 @@ impl super::OutputDriver for WinitDriver {
         configuration: &[super::output::OutputConfiguration],
     ) -> Result<Vec<super::output::OutputChange>, String> {
         self.test_output_configuration(configuration)?;
+        #[cfg(test)]
+        if !self.extra_outputs.is_empty() {
+            let before = self.output_states();
+            for requested in configuration {
+                requested.output.change_current_state(
+                    None,
+                    None,
+                    Some(smithay::output::Scale::Fractional(requested.scale)),
+                    Some(requested.location),
+                );
+            }
+            let after = self.output_states();
+            return Ok(before
+                .into_iter()
+                .zip(after)
+                .filter(|(a, b)| a.location != b.location || a.scale != b.scale)
+                .map(|(before, after)| super::output::OutputChange { before, after })
+                .collect());
+        }
         let before = self.output_states().remove(0);
         let scale = halley_config::output::normalize_scale(configuration[0].scale)
             .expect("validated scale");

@@ -35,6 +35,51 @@ pub struct InteractionState {
 }
 
 impl InteractionState {
+    pub(crate) fn translate_output_grab(
+        &mut self,
+        output: &str,
+        delta: smithay::utils::Point<i32, smithay::utils::Logical>,
+        nodes: &crate::nodes::NodesState,
+    ) {
+        let owns_window = |window: &smithay::desktop::Window| {
+            crate::wayland::window_output_name(window).as_deref() == Some(output)
+        };
+        let owns_node = |id| {
+            nodes
+                .record(id)
+                .is_some_and(|record| record.output == output)
+        };
+        let shift = |point: &mut halley_core::field::Vec2| {
+            point.x += delta.x as f32;
+            point.y += delta.y as f32;
+        };
+        match &mut self.grab {
+            Grab::PendingWindowMove(pending) if pending.output == output => {
+                pending.press_screen += delta.to_f64();
+                pending.visual_geometry.loc += delta;
+            }
+            Grab::MoveWindow {
+                window, last_world, ..
+            } if owns_window(window) => shift(last_world),
+            Grab::PendingNode {
+                id, press_screen, ..
+            } if owns_node(*id) => *press_screen += delta.to_f64(),
+            Grab::MoveNode { id, last_world, .. } if owns_node(*id) => shift(last_world),
+            Grab::PendingClusterCore {
+                output: owner,
+                press_screen,
+                ..
+            } if owner == output => *press_screen += delta.to_f64(),
+            Grab::ResizeWindow(resize) if owns_window(&resize.window) => {
+                resize.start_rect.loc += delta;
+                shift(&mut resize.start_cursor);
+                resize.start_screen.0 += f64::from(delta.x);
+                resize.start_screen.1 += f64::from(delta.y);
+            }
+            _ => {}
+        }
+    }
+
     /// The compositor pointer grab in progress, or [`Grab::None`].
     pub(crate) fn grab(&self) -> &Grab {
         &self.grab

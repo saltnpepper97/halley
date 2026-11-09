@@ -631,6 +631,30 @@ impl TtyBackend {
         {
             return Err("primary GPU device disappeared during setup".into());
         }
+        // No globals or clients exist yet. Publish one consistent nonnegative
+        // layout, so XWayland's root includes heads configured left/above zero.
+        let origin = super::output_layout::LayoutOrigin::for_locations(
+            drm_outputs
+                .iter()
+                .filter(|entry| entry.enabled)
+                .map(|entry| entry.output.current_location()),
+        );
+        let effective = drm_outputs
+            .iter()
+            .map(|entry| origin.effective(entry.output.current_location()))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (entry, location) in drm_outputs.iter().zip(effective) {
+            entry
+                .output
+                .change_current_state(None, None, None, Some(location));
+            if let Some(info) = ipc_output_info
+                .iter_mut()
+                .find(|info| info.name == entry.output.name())
+            {
+                info.offset_x = location.x;
+                info.offset_y = location.y;
+            }
+        }
         let backend = TtyBackend {
             session,
             gpu_manager,
@@ -1177,21 +1201,43 @@ impl TtyBackend {
     }
 
     /// Applies only effective per-output differences. In particular, a
-    /// changed DP-1 block never calls `use_mode` or `change_current_state`
-    /// for DP-2.
+    /// changed DP-1 block never modesets DP-2. A shared origin change can
+    /// still move both outputs' logical positions together.
     pub fn apply_output_config(
         &mut self,
         outputs_config: &[halley_config::OutputConfig],
     ) -> Vec<AppliedOutputChange> {
         let mut changes = Vec::new();
 
-        for index in 0..self.drm_outputs.len() {
-            let (target, diff, enable_changed) = {
-                let entry = &self.drm_outputs[index];
+        // Resolve the entire requested layout before comparing any output.
+        // Always use raw config offsets here, never previously shifted ones.
+        let mut targets = self
+            .drm_outputs
+            .iter()
+            .map(|entry| {
                 let configured = outputs_config
                     .iter()
                     .find(|cfg| cfg.name == entry.output.name());
-                let target = output_target(&entry.connector, configured);
+                output_target(&entry.connector, configured)
+            })
+            .collect::<Vec<_>>();
+        let origin = super::output_layout::LayoutOrigin::for_locations(
+            targets.iter().map(|target| target.offset.into()),
+        );
+        for target in &mut targets {
+            match origin.effective(target.offset.into()) {
+                Ok(location) => target.offset = (location.x, location.y),
+                Err(error) => {
+                    eventline::error!("output layout unchanged: {error}");
+                    return changes;
+                }
+            }
+        }
+
+        for index in 0..self.drm_outputs.len() {
+            let (target, diff, enable_changed) = {
+                let entry = &self.drm_outputs[index];
+                let target = targets[index];
                 let location = entry.output.current_location();
                 let current = HardwareOutputState {
                     mode: drm_output_mode(&entry.current_mode),

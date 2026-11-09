@@ -180,6 +180,47 @@ pub struct ClusterSystem {
 }
 
 impl ClusterSystem {
+    pub(crate) fn translate_output(
+        &mut self,
+        output: &str,
+        delta: Point<i32, Logical>,
+    ) -> Vec<NodeId> {
+        let mut cores = Vec::new();
+        let mut members = Vec::new();
+        for (&id, metadata) in self
+            .metadata
+            .iter_mut()
+            .filter(|(_, metadata)| metadata.output == output)
+        {
+            metadata.core_position.x += delta.x as f32;
+            metadata.core_position.y += delta.y as f32;
+            cores.extend(metadata.core);
+            if let Some(cluster) = self.registry.cluster(id) {
+                members.extend(cluster.members());
+            }
+        }
+        self.surfaces.translate(&members, delta);
+        if let Some((_, rect)) = self
+            .dragged_window
+            .as_mut()
+            .and_then(|drag| drag.presentation.as_mut())
+            .filter(|(owner, _)| owner == output)
+        {
+            rect.loc += delta;
+        }
+        if let Some(prepared) = self
+            .creation
+            .as_mut()
+            .and_then(|creation| creation.prepared.as_mut())
+            .filter(|prepared| prepared.output == output)
+        {
+            prepared.core_position.x += delta.x as f32;
+            prepared.core_position.y += delta.y as f32;
+        }
+        self.bloom.translate_output(output, delta);
+        cores
+    }
+
     pub fn new(
         config: halley_config::Clusters,
         animations: halley_config::ClusterAnimation,

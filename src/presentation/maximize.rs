@@ -77,6 +77,24 @@ pub struct FieldMaximizeManager {
 }
 
 impl FieldMaximizeManager {
+    pub(crate) fn translate_output(
+        &mut self,
+        output: &str,
+        delta: smithay::utils::Point<i32, Logical>,
+    ) {
+        for (scope, entry) in &mut self.entries {
+            if entry.restore_output == output {
+                entry.restore_geometry.loc += delta;
+                if let Some(rect) = entry.presentation_windowed.as_mut() {
+                    rect.loc += delta;
+                }
+            }
+            if scope.output == output {
+                entry.target_rect.loc += delta;
+            }
+        }
+    }
+
     pub fn new(field: Field, animations: Animations) -> Self {
         Self {
             field,

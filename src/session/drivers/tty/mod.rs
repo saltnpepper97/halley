@@ -561,6 +561,16 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         app.cameras
             .insert(output.name(), geometry.size.to_physical(1));
     }
+    if let Some(geometry) = app
+        .wayland
+        .space
+        .output_geometry(app.driver.backend.primary_output())
+    {
+        app.pointer.set_position((
+            f64::from(geometry.loc.x) + f64::from(geometry.size.w) * 0.5,
+            f64::from(geometry.loc.y) + f64::from(geometry.size.h) * 0.5,
+        ));
+    }
     app.initialize_startup_clusters(
         &startup_cluster_declarations,
         startup_cluster_default_layout,
@@ -1180,11 +1190,31 @@ fn apply_runtime_config(app: &mut TtyApp, reload: crate::config::ConfigReload) {
 }
 
 fn apply_tty_output_config(app: &mut TtyApp, outputs_config: &[halley_config::OutputConfig]) {
+    let before = app.driver.backend.output_states();
+    let pointer_output = app
+        .wayland
+        .space
+        .output_under(app.pointer.position())
+        .next()
+        .map(|output| output.name());
     let changes = app.driver.backend.apply_output_config(outputs_config);
     let mut layout_changed = false;
     let mut output_changed = false;
 
     for change in changes {
+        let moved = before
+            .iter()
+            .find(|state| state.output == change.output && state.enabled)
+            .map(|state| change.output.current_location() - state.location)
+            .filter(|delta| *delta != (0, 0).into());
+        if let Some(delta) = moved {
+            app.translate_output_geometry(&change.output.name(), delta);
+            if pointer_output.as_deref() == Some(change.output.name().as_str()) {
+                let (x, y) = app.pointer.position();
+                app.pointer
+                    .set_position((x + f64::from(delta.x), y + f64::from(delta.y)));
+            }
+        }
         output_changed = true;
         if change.enabled_changed {
             app.driver
@@ -1213,13 +1243,13 @@ fn apply_tty_output_config(app: &mut TtyApp, outputs_config: &[halley_config::Ou
             layout_changed = true;
         }
 
-        if change.size_changed
+        if (change.size_changed || moved.is_some())
             && let Some(geometry) = app.wayland.space.output_geometry(&change.output)
         {
             if change.scale_changed {
                 app.cameras
                     .resize_for_display_scale(&change.output.name(), geometry.size.to_physical(1));
-            } else {
+            } else if change.size_changed {
                 app.cameras
                     .reset(change.output.name(), geometry.size.to_physical(1));
             }

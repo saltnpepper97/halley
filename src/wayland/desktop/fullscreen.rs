@@ -698,6 +698,27 @@ impl FullscreenManager {
         external
     }
 
+    pub(crate) fn translate_output(&mut self, output: &str, delta: Point<i32, Logical>) {
+        for entry in self.windows.values_mut() {
+            if let Some(restore) = entry
+                .restore
+                .as_mut()
+                .filter(|restore| restore.output.as_deref() == Some(output))
+            {
+                restore.location += delta;
+                restore.geometry.loc += delta;
+                if let Some(rect) = entry.presentation_windowed.as_mut() {
+                    rect.loc += delta;
+                }
+            }
+            if entry.target_output == output
+                && let Some(pending) = entry.external_pending.as_mut()
+            {
+                pending.geometry.loc += delta;
+            }
+        }
+    }
+
     /// Retry an already acknowledged, valid endpoint without requiring the
     /// client to produce another commit just to release the size heuristic.
     pub(crate) fn native_size_retries_due(&self, now: Duration) -> Vec<WlSurface> {

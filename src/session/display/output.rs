@@ -34,6 +34,22 @@ pub struct OutputConfiguration {
     pub adaptive_sync: bool,
 }
 
+pub(crate) fn normalized_configuration(
+    requested: &[OutputConfiguration],
+) -> Result<Vec<OutputConfiguration>, String> {
+    let origin = crate::backend::output_layout::LayoutOrigin::for_locations(
+        requested
+            .iter()
+            .filter(|head| head.enabled)
+            .map(|head| head.location),
+    );
+    let mut effective = requested.to_vec();
+    for head in effective.iter_mut().filter(|head| head.enabled) {
+        head.location = origin.effective(head.location)?;
+    }
+    Ok(effective)
+}
+
 #[derive(Clone, Debug)]
 pub struct OutputChange {
     pub before: OutputState,
@@ -77,6 +93,14 @@ pub fn validate_complete_configuration(
 }
 
 impl<D: SessionDriver> Session<D> {
+    pub(crate) fn test_wayland_output_configuration(
+        &mut self,
+        configuration: &[OutputConfiguration],
+    ) -> Result<(), String> {
+        let effective = normalized_configuration(configuration)?;
+        self.driver.test_output_configuration(&effective)
+    }
+
     pub(crate) fn notify_output_management(&mut self) {
         self.sync_output_power();
         let states = self.driver.output_states();
@@ -90,7 +114,14 @@ impl<D: SessionDriver> Session<D> {
         &mut self,
         configuration: &[OutputConfiguration],
     ) -> Result<(), String> {
-        let result = self.driver.apply_output_configuration(configuration);
+        let effective = normalized_configuration(configuration)?;
+        let pointer_output = self
+            .wayland
+            .space
+            .output_under(self.pointer.position())
+            .next()
+            .map(|output| output.name());
+        let result = self.driver.apply_output_configuration(&effective);
         self.sync_output_power();
         let changes = result?;
         if changes.is_empty() {
@@ -114,6 +145,17 @@ impl<D: SessionDriver> Session<D> {
             let output = &change.after.output;
             if change.after.enabled {
                 self.wayland.space.map_output(output, change.after.location);
+                let moved =
+                    change.before.enabled && change.before.location != change.after.location;
+                if moved {
+                    let delta = change.after.location - change.before.location;
+                    self.translate_output_geometry(&output.name(), delta);
+                    if pointer_output.as_deref() == Some(output.name().as_str()) {
+                        let (x, y) = self.pointer.position();
+                        self.pointer
+                            .set_position((x + f64::from(delta.x), y + f64::from(delta.y)));
+                    }
+                }
                 smithay::desktop::layer_map_for_output(output).arrange();
                 self.wayland.ensure_output_global::<Self>(output);
 
@@ -134,6 +176,9 @@ impl<D: SessionDriver> Session<D> {
                         self.cameras
                             .reset(output.name(), geometry.size.to_physical(1));
                     }
+                    let external = self.fullscreen.reconfigure_output(&self.wayland, output);
+                    crate::xwayland::reconfigure_fullscreen(external);
+                } else if moved {
                     let external = self.fullscreen.reconfigure_output(&self.wayland, output);
                     crate::xwayland::reconfigure_fullscreen(external);
                 }

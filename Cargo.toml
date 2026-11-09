@@ -65,7 +65,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 wayland-protocols-wlr = { version = "0.3.12", features = ["server"] }
 xcursor = "0.3"
-x11rb = { version = "0.14.0", optional = true, features = ["xkb"] }
+x11rb = { version = "0.14.0", optional = true, features = ["xkb", "randr"] }
 zbus = { version = "5.16", optional = true }
 sd-notify = { version = "0.5", optional = true }
 

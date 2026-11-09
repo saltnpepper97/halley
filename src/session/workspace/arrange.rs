@@ -28,6 +28,18 @@ pub(crate) struct ArrangeTransactions {
 }
 
 impl ArrangeTransactions {
+    pub(crate) fn translate_output(&mut self, output: &str, delta: Point<i32, Logical>) {
+        for transaction in self.by_output.values_mut() {
+            for restore in transaction
+                .restores
+                .iter_mut()
+                .filter(|restore| restore.output == output)
+            {
+                restore.geometry.loc += delta;
+            }
+        }
+    }
+
     fn take(&mut self, output: &str) -> Option<ArrangeTransaction> {
         self.by_output.remove(output)
     }

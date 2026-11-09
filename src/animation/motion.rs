@@ -25,6 +25,11 @@ pub struct MotionSample {
 }
 
 impl MotionTimeline {
+    pub(super) fn translate(&mut self, delta: f64) {
+        self.start += delta;
+        self.target += delta;
+    }
+
     pub fn new(motion: AnimationMotion, started_at: Duration) -> Self {
         Self::between(motion, started_at, 0.0, 1.0, 0.0)
     }
