@@ -74,10 +74,7 @@ appears on collapsed landmarks and cluster cores and pinned Bearings chips.
 
 Camera zoom is always smooth and never magnifies beyond native scale 1.0.
 `min` is clamped from 0.05 through 1.0, `step` from 1.001 through 8.0, and
-`smooth-rate` from 0.1 through 120.0. The old top-level `zoom:` section and
-`field.gap-px` remain compatibility inputs through the 0.1 series. A canonical
-`field.zoom` or `field.gap` value wins independently when both spellings are
-present. `field.zoom.max`, `smooth`, `filter`, and `sharpen` are deliberately
+`smooth-rate` from 0.1 through 120.0. `field.zoom.max`, `smooth`, `filter`, and `sharpen` are deliberately
 unsupported and produce a configuration verification error.
 The transient live-scale display is configured separately under
 [`overlays.zoom-indicator`](overlays.md#zoom-indicator).

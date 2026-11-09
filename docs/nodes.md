@@ -315,7 +315,7 @@ Pointer reports only update the latest drag target and sampled authority
 velocity. Physics advances once per rendered frame using real elapsed time, so
 high-polling mice do not multiply damping. Releasing an active window flushes
 its final target and holds that window fixed for 350 ms while displaced nodes
-settle, matching old Halley's drop behavior.
+settle.
 
 ## `halleyctl node`
 

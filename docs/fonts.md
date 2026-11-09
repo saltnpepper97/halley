@@ -25,5 +25,5 @@ so a larger display scale also enlarges text without relying on a small bitmap.
 
 The section live-reloads with the rest of `halley.rune`. A successful font
 change clears the text cache and redraws immediately; it does not require a
-restart. Old Halley did not expose font mutation through `halleyctl`, so the
-configuration file remains the control surface.
+restart. There is no `halleyctl` command for fonts; the configuration file is
+the only place to change them.
