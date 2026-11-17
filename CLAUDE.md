@@ -74,6 +74,12 @@ it; Halley currently needs a revision newer than Smithay 0.7 for blur support.
 - When a setting is renamed or retired, existing configs keep loading: an old
   spelling keeps working, or a retired setting is accepted and ignored, and
   `docs/older-spellings.md` says which. Halley never rewrites a user's config.
+- Compatibility to remove eventually, once the user agrees configs have moved
+  on: `decay.outside-delay-seconds` as an older spelling of
+  `decay.delay-seconds`, and accepting and ignoring the retired
+  `decay.inside-delay-seconds`, `view.output` → `decay-zone:`/`focus-ring:`,
+  and `debug.show-decay-zone`/`show-focus-ring`. Keep them until then so
+  existing configs don't break.
 
 ### Testing
 Run the local CI checks before merging: the Smithay source guard,
