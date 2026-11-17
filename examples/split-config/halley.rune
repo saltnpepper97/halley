@@ -128,5 +128,4 @@ debug:
   # Graphics compatibility workaround; requires restarting Halley.
   disable-explicit-sync false
   overlay-fps false
-  show-decay-zone false
 end

@@ -71,15 +71,15 @@ All notable changes to this project will be documented in this file.
   so it no longer overlaps its neighbours. No window is dropped. Moving or
   closing one arranged window now keeps the others' way back, so the next
   `Mod+A` still returns them.
-- Measure decay against the screen. A window now takes the shorter decay delay
-  only once 90% of it is off screen, instead of outside an invisible 820×420
-  ring that stayed the same size in the Field. Zoomed out, windows you can
-  plainly see no longer collapse after 10 minutes.
-- Rename the focus ring to `decay-zone`. It is now optional and advanced:
-  without one, the screen edge decides. A configured zone is measured in screen
-  pixels, so it covers the same part of the screen at every zoom level.
-  `focus-ring:` and `debug.show-focus-ring` keep working as older spellings of
-  `decay-zone:` and `debug.show-decay-zone`.
+- Make automatic decay opt-in and limit it to windows entirely off screen.
+  Decay is now off by default; turn it on with `decay.enabled true`. A window
+  with any part on screen, at any zoom level, never decays, and one left
+  entirely off screen collapses after `decay.delay-seconds` (10 minutes by
+  default). The focus ring is removed: the screen edge is the only boundary.
+  `decay.outside-delay-seconds` keeps working as an older spelling of
+  `delay-seconds`. `decay.inside-delay-seconds`, `focus-ring:` and
+  `debug.show-focus-ring` are no longer read; configs that still have them load
+  normally. Existing configs that state `enabled true` keep decay on.
 - Write a short starter config on first run instead of the full 1,000-line
   file. It covers autostart, input, cursor, decorations, font, decay,
   screenshots, animations and keybinds, and links each section to its page on
@@ -89,12 +89,10 @@ All notable changes to this project will be documented in this file.
   transfer (`Mod+Alt+Shift+Arrow`); add them from the reference if you use
   them. Existing configs are not changed.
 - Make configs that leave a section out behave like the file Halley writes on
-  first run. Without a `decay:` section, windows now wait 10 minutes (90 while on
-  screen) before collapsing, instead of 3 and 30. Physics is off by
-  default; set `physics.enabled true` to keep it, and its damping default is
-  now 0.45. Pins default to Halley orange (`#d65d26`). Settings your config
-  states are unchanged, and a test now fails if the generated config and the
-  built-in defaults drift apart.
+  first run. Physics is off by default; set `physics.enabled true` to keep it,
+  and its damping default is now 0.45. Pins default to Halley orange
+  (`#d65d26`). Settings your config states are unchanged, and a test now fails
+  if the generated config and the built-in defaults drift apart.
 - List every older config key and keybind action spelling Halley still reads
   in one table each, and document them in `docs/older-spellings.md` and the
   keybinds reference, which now names every built-in action. Existing configs

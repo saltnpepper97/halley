@@ -54,13 +54,13 @@ font:
   size 11
 end
 
-# Windows you stop using collapse into nodes after a while: the first delay
-# applies to windows mostly off screen, the second to windows you can see. Mod+N collapses or restores a window yourself.
+# Optionally, windows left entirely off screen collapse into nodes after a
+# delay. Windows you can see never do. Mod+N collapses or restores a window
+# yourself.
 # More: https://saltnpepper97.github.io/halley-site/wiki/config/decay
 decay:
-  enabled true
-  outside-delay-seconds 600
-  inside-delay-seconds 5400
+  enabled false
+  delay-seconds 600
 end
 
 # More: https://saltnpepper97.github.io/halley-site/wiki/config/screenshot

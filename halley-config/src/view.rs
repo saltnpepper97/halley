@@ -4,15 +4,12 @@ use std::fmt;
 use rune_cfg::RuneConfig;
 use rune_cfg::ast::{ObjectItem, Value};
 
-use crate::nodes::{DecayZones, parse_decay_zone_fields};
 use crate::output::{OutputConfig, is_hardware_field, parse_hardware_output};
 
-/// The config-facing aggregate for output-specific view policy. Runtime
-/// consumers continue to receive hardware outputs and decay zones separately.
+/// The config-facing aggregate for output-specific view policy.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewConfig {
     pub outputs: Vec<OutputConfig>,
-    pub decay_zones: DecayZones,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,11 +51,6 @@ pub fn parse_view_checked(config: &RuneConfig) -> Result<ViewConfig, ViewParseEr
                     "top-level output blocks were removed; nest them under view:".to_string(),
                 ));
             }
-            "decay-zone" | "focus-ring" => {
-                return Err(ViewParseError(format!(
-                    "top-level {key} blocks were removed; nest decay-zone inside view.output"
-                )));
-            }
             "view" if view.is_some() => {
                 return Err(ViewParseError(
                     "only one top-level view block is allowed".to_string(),
@@ -98,19 +90,18 @@ pub fn parse_view_checked(config: &RuneConfig) -> Result<ViewConfig, ViewParseEr
         }
 
         validate_output_keys(fields, &name)?;
-        let decay_zone = parse_decay_zone_block(fields, &name)?;
         let hardware = parse_hardware_output(&name, fields)
             .map_err(|error| ViewParseError(error.to_string()))?;
-        if hardware.is_none() && decay_zone.is_none() {
-            return Err(ViewParseError(format!(
-                "view.output {name:?} must configure hardware or a decay-zone"
-            )));
-        }
-        if let Some(output) = hardware {
-            parsed.outputs.push(output);
-        }
-        if let Some(zone) = decay_zone {
-            parsed.decay_zones.by_output.insert(name, zone);
+        match hardware {
+            Some(output) => parsed.outputs.push(output),
+            // An entry that held only a retired decay zone configures
+            // nothing now, but configs written for it keep loading.
+            None if has_retired_decay_zone(fields) => {}
+            None => {
+                return Err(ViewParseError(format!(
+                    "view.output {name:?} must configure hardware"
+                )));
+            }
         }
     }
     Ok(parsed)
@@ -148,7 +139,7 @@ fn validate_output_keys(fields: &[ObjectItem], output: &str) -> Result<(), ViewP
         let ObjectItem::Assign(key, _) = item else {
             continue;
         };
-        if key != "name" && !is_decay_zone_key(key) && !is_hardware_field(key) {
+        if key != "name" && !is_retired_decay_zone_key(key) && !is_hardware_field(key) {
             return Err(ViewParseError(format!(
                 "view.output {output:?}: unknown setting {key:?}"
             )));
@@ -157,38 +148,16 @@ fn validate_output_keys(fields: &[ObjectItem], output: &str) -> Result<(), ViewP
     Ok(())
 }
 
-/// `focus-ring` is the older spelling of `decay-zone`.
-fn is_decay_zone_key(key: &str) -> bool {
+/// The decay zone (once spelled `focus-ring`) was removed when decay became
+/// off-screen only. Existing blocks are accepted and ignored.
+fn is_retired_decay_zone_key(key: &str) -> bool {
     matches!(key, "decay-zone" | "focus-ring")
 }
 
-fn parse_decay_zone_block(
-    fields: &[ObjectItem],
-    output: &str,
-) -> Result<Option<crate::DecayZone>, ViewParseError> {
-    let blocks = fields
+fn has_retired_decay_zone(fields: &[ObjectItem]) -> bool {
+    fields
         .iter()
-        .filter_map(|item| match item {
-            ObjectItem::Assign(key, value) if is_decay_zone_key(key) => Some(value),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if blocks.len() > 1 {
-        return Err(ViewParseError(format!(
-            "view.output {output:?} may contain only one decay-zone"
-        )));
-    }
-    let Some(block) = blocks.first() else {
-        return Ok(None);
-    };
-    let Value::Object(zone_fields) = block else {
-        return Err(ViewParseError(format!(
-            "decay-zone for output {output:?} must be an object"
-        )));
-    };
-    parse_decay_zone_fields(zone_fields, output)
-        .map(Some)
-        .map_err(|error| ViewParseError(error.to_string()))
+        .any(|item| matches!(item, ObjectItem::Assign(key, _) if is_retired_decay_zone_key(key)))
 }
 
 #[cfg(test)]
@@ -201,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_hardware_and_focus_policy_from_one_output() {
+    fn parses_hardware_and_ignores_a_retired_decay_zone() {
         let view = parse(
             r#"
 view:
@@ -230,31 +199,26 @@ end
         assert_eq!(view.outputs[0].rate, Some(179.998));
         assert_eq!(view.outputs[0].transform, 90);
         assert_eq!(view.outputs[0].vrr, Vrr::Auto);
-        assert_eq!(view.decay_zones.for_output("DP-1").unwrap().radius_x, 900.0);
-        assert_eq!(view.decay_zones.for_output("DP-2"), None);
     }
 
     #[test]
-    fn decay_zone_is_optional_and_accepts_the_focus_ring_spelling() {
-        let none = parse(
-            "view:\n  output:\n    name \"DP-1\"\n    width 1920\n    height 1080\n  end\nend\n",
-        )
-        .unwrap();
-        assert_eq!(none.decay_zones.for_output("DP-1"), None);
+    fn retired_decay_zone_blocks_still_load() {
+        for key in ["decay-zone", "focus-ring"] {
+            let only_zone = parse(&format!(
+                "view:\n  output:\n    name \"DP-1\"\n    {key}:\n      radius-x 700\n    end\n  end\nend\n"
+            ))
+            .unwrap();
+            assert!(only_zone.outputs.is_empty(), "{key}");
+        }
+        let top_level = parse("decay-zone:\n  radius-x 700\nend\n").unwrap();
+        assert!(top_level.outputs.is_empty());
 
-        let old = parse(
-            "view:\n  output:\n    name \"DP-1\"\n    focus-ring:\n      radius-x 700\n    end\n  end\nend\n",
-        )
-        .unwrap();
-        assert_eq!(old.decay_zones.for_output("DP-1").unwrap().radius_x, 700.0);
-
-        let both = parse(
-            "view:\n  output:\n    name \"DP-1\"\n    focus-ring:\n      radius-x 700\n    end\n    decay-zone:\n      radius-x 700\n    end\n  end\nend\n",
-        );
+        let empty = parse("view:\n  output:\n    name \"DP-1\"\n  end\nend\n");
         assert!(
-            both.unwrap_err()
+            empty
+                .unwrap_err()
                 .to_string()
-                .contains("only one decay-zone")
+                .contains("must configure hardware")
         );
     }
 

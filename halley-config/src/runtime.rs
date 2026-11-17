@@ -6,12 +6,12 @@ use rune_cfg::RuneConfig;
 
 use crate::{
     Animations, Autostart, Background, BackgroundParseError, Bearings, Clusters, Cursor, Debug,
-    Decay, DecayZones, Decorations, Effects, EffectsParseError, Field, FieldParseError, Font,
-    Input, InputParseError, Keybinds, LaunchConfigError, LayerRule, NodeParseError, Nodes,
-    OutputConfig, OverlayParseError, Overlays, Physics, Screenshot, Trail, WindowRule,
-    WindowRuleParseError, parse_animations, parse_autostart, parse_background, parse_bearings,
-    parse_clusters, parse_cursor, parse_debug, parse_decay, parse_decorations, parse_effects,
-    parse_env, parse_field_checked, parse_font, parse_input, parse_keybinds, parse_nodes_checked,
+    Decay, Decorations, Effects, EffectsParseError, Field, FieldParseError, Font, Input,
+    InputParseError, Keybinds, LaunchConfigError, LayerRule, NodeParseError, Nodes, OutputConfig,
+    OverlayParseError, Overlays, Physics, Screenshot, Trail, WindowRule, WindowRuleParseError,
+    parse_animations, parse_autostart, parse_background, parse_bearings, parse_clusters,
+    parse_cursor, parse_debug, parse_decay, parse_decorations, parse_effects, parse_env,
+    parse_field_checked, parse_font, parse_input, parse_keybinds, parse_nodes_checked,
     parse_overlays_checked, parse_physics, parse_rules, parse_screenshot, parse_trail,
     parse_view_checked,
 };
@@ -37,7 +37,6 @@ pub struct RuntimeConfig {
     pub bearings: Bearings,
     pub trail: Trail,
     pub clusters: Clusters,
-    pub decay_zones: DecayZones,
     pub font: Font,
     pub physics: Physics,
     pub decay: Decay,
@@ -150,10 +149,7 @@ impl From<WindowRuleParseError> for RuntimeConfigError {
 }
 
 pub fn parse_runtime_config(config: &RuneConfig) -> Result<RuntimeConfig, RuntimeConfigError> {
-    let ViewConfig {
-        outputs,
-        decay_zones,
-    } = parse_view_checked(config)?;
+    let ViewConfig { outputs } = parse_view_checked(config)?;
     let rules = parse_rules(config)?;
     Ok(RuntimeConfig {
         env: parse_env(config)?,
@@ -171,7 +167,6 @@ pub fn parse_runtime_config(config: &RuneConfig) -> Result<RuntimeConfig, Runtim
         bearings: parse_bearings(config),
         trail: parse_trail(config),
         clusters: parse_clusters(config),
-        decay_zones,
         font: parse_font(config),
         physics: parse_physics(config),
         decay: parse_decay(config),

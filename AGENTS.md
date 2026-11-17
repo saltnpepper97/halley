@@ -22,6 +22,10 @@ same branch so it always describes Halley as it is.
   regular window made fullscreen with Mod+F, such as a browser playing
   fullscreen YouTube, should instead leave fullscreen when switching away to
   another window on the same monitor.
+- **Decay:** Automatic decay is off by default. When enabled, it applies only
+  to windows entirely off screen; a window with any part visible, at any zoom
+  level, never decays. There is no decay zone: the screen edge is the only
+  boundary.
 - **Pinned nodes:** Pinning exempts a window from automatic decay. It must
   still be possible to manually convert it to a node and restore it from a
   node.

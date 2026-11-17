@@ -26,7 +26,6 @@ halleyctl config verify --config examples/split-config/halley.rune
 
 Halley never backs up, migrates, or replaces an existing single-file or split
 configuration. There is no automatic backfill: omitted settings use built-in
-defaults. Fresh examples explicitly use the conservative 10/90 minute decay
-delays; older configs that omit decay keep their 3/30 minute defaults.
+defaults.
 Edit settings in the file that owns the affected section, then
 verify the root with `halleyctl config verify --config PATH`.

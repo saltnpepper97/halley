@@ -1,69 +1,22 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
 use rune_cfg::RuneConfig;
 use rune_cfg::ast::{ObjectItem, Value};
 
-/// An optional per-output decay zone, in logical screen pixels measured from
-/// the centre of the output. Without one, the screen edge decides which
-/// windows take the shorter decay delay.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DecayZone {
-    pub radius_x: f32,
-    pub radius_y: f32,
-    pub offset_x: f32,
-    pub offset_y: f32,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct DecayZones {
-    pub by_output: BTreeMap<String, DecayZone>,
-}
-
-impl DecayZones {
-    pub fn for_output(&self, output: &str) -> Option<DecayZone> {
-        self.by_output.get(output).copied()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DecayZoneParseError(String);
-
-impl fmt::Display for DecayZoneParseError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for DecayZoneParseError {}
-
-impl Default for DecayZone {
-    fn default() -> Self {
-        Self {
-            radius_x: 820.0,
-            radius_y: 420.0,
-            offset_x: 0.0,
-            offset_y: 0.0,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decay {
     pub enabled: bool,
-    pub outside_delay_seconds: u64,
-    pub inside_delay_seconds: u64,
+    /// How long a window must stay entirely off screen before it collapses.
+    pub delay_seconds: u64,
 }
 
 impl Default for Decay {
-    /// The built-in delays used when a configuration omits the `decay:`
-    /// section: 10 minutes outside a cluster and 90 inside, the same values
-    /// the generated config writes (see `halley.default.rune`).
+    /// Automatic decay is opt-in. Once enabled, a window collapses after
+    /// 10 minutes entirely off screen; windows you can see never decay.
     fn default() -> Self {
         Self {
-            enabled: true,
-            outside_delay_seconds: 600,
-            inside_delay_seconds: 5_400,
+            enabled: false,
+            delay_seconds: 600,
         }
     }
 }
@@ -166,7 +119,6 @@ impl Default for LandmarkPlacement {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Debug {
-    pub show_decay_zone: bool,
     pub overlay_fps: bool,
     /// Suppress linux-drm-syncobj-v1 advertisement for the entire session.
     /// This startup-only workaround does not change on configuration reload.
@@ -189,14 +141,10 @@ pub fn parse_decay(config: &RuneConfig) -> Decay {
     let defaults = Decay::default();
     Decay {
         enabled: config.get_or("decay.enabled", defaults.enabled),
-        outside_delay_seconds: config
-            .get_or(
-                "decay.outside-delay-seconds",
-                defaults.outside_delay_seconds,
-            )
-            .max(1),
-        inside_delay_seconds: config
-            .get_or("decay.inside-delay-seconds", defaults.inside_delay_seconds)
+        delay_seconds: crate::aliases::lookup::<u64>(config, "decay.delay-seconds")
+            .ok()
+            .flatten()
+            .unwrap_or(defaults.delay_seconds)
             .max(1),
     }
 }
@@ -294,10 +242,6 @@ pub fn parse_nodes_checked(config: &RuneConfig) -> Result<Nodes, NodeParseError>
 
 pub fn parse_debug(config: &RuneConfig) -> Debug {
     Debug {
-        show_decay_zone: crate::aliases::lookup::<bool>(config, "debug.show-decay-zone")
-            .ok()
-            .flatten()
-            .unwrap_or(false),
         overlay_fps: config.get_or("debug.overlay-fps", false),
         disable_explicit_sync: config.get_or("debug.disable-explicit-sync", false),
     }
@@ -354,79 +298,6 @@ fn parse_node_color(
         .unwrap_or(default)
 }
 
-pub(crate) fn parse_decay_zone_fields(
-    fields: &[ObjectItem],
-    output: &str,
-) -> Result<DecayZone, DecayZoneParseError> {
-    for item in fields {
-        let ObjectItem::Assign(key, _) = item else {
-            continue;
-        };
-        if !matches!(
-            key.as_str(),
-            "radius-x"
-                | "radius_x"
-                | "radius-y"
-                | "radius_y"
-                | "offset-x"
-                | "offset_x"
-                | "offset-y"
-                | "offset_y"
-        ) {
-            return Err(DecayZoneParseError(format!(
-                "decay-zone for output {output:?}: unknown setting {key:?}"
-            )));
-        }
-    }
-    for aliases in [
-        &["radius-x", "radius_x"][..],
-        &["radius-y", "radius_y"][..],
-        &["offset-x", "offset_x"][..],
-        &["offset-y", "offset_y"][..],
-    ] {
-        let count = fields
-            .iter()
-            .filter(|item| {
-                matches!(item, ObjectItem::Assign(key, _) if aliases.contains(&key.as_str()))
-            })
-            .count();
-        if count > 1 {
-            return Err(DecayZoneParseError(format!(
-                "decay-zone for output {output:?}: {} may only be specified once",
-                aliases[0]
-            )));
-        }
-    }
-
-    let defaults = DecayZone::default();
-    let read = |names: &[&str], default: f32, positive: bool| {
-        let Some(value) = object_field(fields, names) else {
-            return Ok(default);
-        };
-        let Value::Number(value) = value else {
-            return Err(DecayZoneParseError(format!(
-                "decay-zone for output {output:?}: {} must be numeric",
-                names[0]
-            )));
-        };
-        let value = *value as f32;
-        if !value.is_finite() || (positive && value <= 0.0) {
-            return Err(DecayZoneParseError(format!(
-                "decay-zone for output {output:?}: {} must be {}finite",
-                names[0],
-                if positive { "positive and " } else { "" }
-            )));
-        }
-        Ok(value)
-    };
-    Ok(DecayZone {
-        radius_x: read(&["radius-x", "radius_x"], defaults.radius_x, true)?,
-        radius_y: read(&["radius-y", "radius_y"], defaults.radius_y, true)?,
-        offset_x: read(&["offset-x", "offset_x"], defaults.offset_x, false)?,
-        offset_y: read(&["offset-y", "offset_y"], defaults.offset_y, false)?,
-    })
-}
-
 fn object_field<'a>(fields: &'a [ObjectItem], names: &[&str]) -> Option<&'a Value> {
     fields.iter().find_map(|item| match item {
         ObjectItem::Assign(key, value) if names.contains(&key.as_str()) => Some(value),
@@ -465,11 +336,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn show_decay_zone_accepts_the_show_focus_ring_spelling() {
-        for key in ["show-decay-zone", "show-focus-ring"] {
-            let config = RuneConfig::from_str(&format!("debug:\n  {key} true\nend\n")).unwrap();
-            assert!(parse_debug(&config).show_decay_zone, "{key}");
-        }
+    fn decay_is_off_by_default_with_one_off_screen_delay() {
+        let decay = parse_decay(&RuneConfig::from_str("").unwrap());
+        assert!(!decay.enabled);
+        assert_eq!(decay.delay_seconds, 600);
+
+        let config =
+            RuneConfig::from_str("decay:\n  enabled true\n  delay-seconds 120\nend\n").unwrap();
+        assert_eq!(
+            parse_decay(&config),
+            Decay {
+                enabled: true,
+                delay_seconds: 120,
+            }
+        );
+    }
+
+    #[test]
+    fn decay_reads_the_old_outside_delay_and_ignores_the_inside_delay() {
+        let config = RuneConfig::from_str(
+            "decay:\n  outside-delay-seconds 45\n  inside-delay-seconds 90\nend\n",
+        )
+        .unwrap();
+        assert_eq!(parse_decay(&config).delay_seconds, 45);
+
+        let both =
+            RuneConfig::from_str("decay:\n  outside-delay-seconds 45\n  delay-seconds 30\nend\n")
+                .unwrap();
+        assert_eq!(parse_decay(&both).delay_seconds, 30);
     }
 
     #[test]

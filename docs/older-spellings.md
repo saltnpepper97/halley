@@ -34,8 +34,7 @@ An older section name works for every key in the section it became.
 | `field.pins.badge-corner` | `field.pins.corner` |
 | `field.pins.pin-colour` | `field.pins.colour` |
 | `field.pins.bg-colour` | `field.pins.background-colour` |
-| `debug.show-focus-ring` | `debug.show-decay-zone` |
-| `view.output` → `focus-ring:` | `view.output` → `decay-zone:` |
+| `decay.outside-delay-seconds` | `decay.delay-seconds` |
 
 ## Renamed gesture names
 
@@ -49,3 +48,14 @@ An older section name works for every key in the section it became.
 
 `apogee:` is no longer read, because [zoom to fit](zoom-fit.md) replaced
 Apogee. A config that still has it loads normally; the section can be deleted.
+
+## Removed settings
+
+These are no longer read, because [automatic decay](nodes.md#automatic-decay)
+now applies only to windows entirely off screen. A config that still has them
+loads normally; they can be deleted.
+
+- `decay.inside-delay-seconds`: windows you can see never decay.
+- `decay-zone:` (or `focus-ring:`) inside a `view.output` entry, and
+  `debug.show-decay-zone` (or `debug.show-focus-ring`): the screen edge is the
+  only boundary.

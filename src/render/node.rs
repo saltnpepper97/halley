@@ -17,7 +17,6 @@ const SQUARE: &str = include_str!("shaders/node_square.frag");
 const SQUIRCLE: &str = include_str!("shaders/node_squircle.frag");
 const LABEL_SQUARE: &str = include_str!("shaders/ui_rect_square.frag");
 const LABEL_ROUNDED: &str = include_str!("shaders/ui_rect_rounded.frag");
-const DECAY_ZONE: &str = include_str!("shaders/decay_zone.frag");
 const DASHED_OUTLINE: &str = include_str!("shaders/dashed_outline.frag");
 
 /// Logical slots owned by [`NodeRenderer`] that need a stable render-element
@@ -38,25 +37,12 @@ pub enum NodeSlot {
     ClusterCreationBackdrop,
     ClusterNameSelection,
     ClusterNameCaret,
-    DecayZone,
     /// One of the four dimmed regions around the capture selection.
     PickerDim(u8),
     PickerOutline,
     /// One of the four corner grips, indexed clockwise from the top left.
     PickerHandle(u8),
     PickerBackdrop,
-}
-
-/// Dash count and dot size, preserved from the original quad-per-dot ring so
-/// the rendered rhythm stays recognisable.
-const DECAY_ZONE_SEGMENTS: f32 = 160.0;
-const DECAY_ZONE_THICKNESS: f32 = 3.0;
-
-/// Ramanujan's approximation, well under a pixel of error for screen-sized
-/// ellipses. Used to space dashes evenly by arc length.
-fn ellipse_perimeter(rx: f32, ry: f32) -> f32 {
-    let h = ((rx - ry) * (rx - ry)) / ((rx + ry) * (rx + ry)).max(f32::EPSILON);
-    std::f32::consts::PI * (rx + ry) * (1.0 + (3.0 * h) / (10.0 + (4.0 - 3.0 * h).sqrt()))
 }
 
 fn overlay_card_metrics(
@@ -145,30 +131,6 @@ fn label_commit(
     finish_commit(hasher)
 }
 
-fn decay_zone_commit(
-    destination: Rectangle<i32, Physical>,
-    color: (f32, f32, f32, f32),
-    radii: (f32, f32),
-    dash_period: f32,
-) -> CommitCounter {
-    let mut hasher = DefaultHasher::new();
-    destination.size.w.hash(&mut hasher);
-    destination.size.h.hash(&mut hasher);
-    hash_floats(
-        [
-            color.0,
-            color.1,
-            color.2,
-            color.3,
-            radii.0,
-            radii.1,
-            dash_period,
-        ],
-        &mut hasher,
-    );
-    finish_commit(hasher)
-}
-
 fn dashed_outline_commit(
     destination: Rectangle<i32, Physical>,
     color: (f32, f32, f32, f32),
@@ -200,7 +162,6 @@ struct Resources {
     squircle: GlesTexProgram,
     label_square: GlesTexProgram,
     label_rounded: GlesTexProgram,
-    decay_zone: GlesTexProgram,
     dashed_outline: GlesTexProgram,
 }
 
@@ -271,45 +232,6 @@ pub struct NodeTextureElement {
 }
 
 #[derive(Debug)]
-pub struct DecayZoneElement {
-    base: TextureRenderElement<GlesTexture>,
-    texture: GlesTexture,
-    program: GlesTexProgram,
-    color: (f32, f32, f32, f32),
-    size: (f32, f32),
-    radii: (f32, f32),
-    dash_period: f32,
-    commit: CommitCounter,
-}
-
-impl Element for DecayZoneElement {
-    fn id(&self) -> &Id {
-        self.base.id()
-    }
-    fn current_commit(&self) -> CommitCounter {
-        self.commit
-    }
-    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.base.geometry(scale)
-    }
-    fn transform(&self) -> Transform {
-        self.base.transform()
-    }
-    fn src(&self) -> Rectangle<f64, Buffer> {
-        self.base.src()
-    }
-    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        OpaqueRegions::default()
-    }
-    fn alpha(&self) -> f32 {
-        self.base.alpha()
-    }
-    fn kind(&self) -> Kind {
-        Kind::Unspecified
-    }
-}
-
-#[derive(Debug)]
 pub struct DashedOutlineElement {
     base: TextureRenderElement<GlesTexture>,
     texture: GlesTexture,
@@ -374,41 +296,6 @@ impl RenderElement<GlesRenderer> for DashedOutlineElement {
                 Uniform::new("thickness", self.thickness),
                 Uniform::new("dash_period", self.dash_period),
                 Uniform::new("dash_length", self.dash_length),
-            ],
-        )
-    }
-
-    fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        None
-    }
-}
-
-impl RenderElement<GlesRenderer> for DecayZoneElement {
-    fn draw(
-        &self,
-        frame: &mut GlesFrame<'_, '_>,
-        src: Rectangle<f64, Buffer>,
-        dst: Rectangle<i32, Physical>,
-        damage: &[Rectangle<i32, Physical>],
-        opaque_regions: &[Rectangle<i32, Physical>],
-        _cache: Option<&UserDataMap>,
-    ) -> Result<(), GlesError> {
-        frame.render_texture_from_to(
-            &self.texture,
-            src,
-            dst,
-            damage,
-            opaque_regions,
-            Transform::Normal,
-            self.base.alpha(),
-            Some(&self.program),
-            &[
-                Uniform::new("ring_color", self.color),
-                Uniform::new("rect_size", self.size),
-                Uniform::new("radii", self.radii),
-                Uniform::new("thickness", DECAY_ZONE_THICKNESS),
-                Uniform::new("dash_period", self.dash_period),
-                Uniform::new("dash_length", DECAY_ZONE_THICKNESS),
             ],
         )
     }
@@ -623,78 +510,6 @@ impl NodeRenderer {
         })
     }
 
-    /// One dashed decay zone outline, drawn by a single shader element.
-    ///
-    /// This used to be [`DECAY_ZONE_SEGMENTS`] individual 3x3 solid quads with
-    /// a fresh `Id` each. That cost 160 draw calls and, worse, told the damage
-    /// tracker that 160 elements appeared and vanished every frame — which
-    /// damaged the whole output and forced a full-screen backdrop-blur
-    /// re-capture on every frame the ring was visible.
-    pub fn decay_zone_element(
-        &mut self,
-        renderer: &mut GlesRenderer,
-        output: &str,
-        center: (f32, f32),
-        radii: (f32, f32),
-        rgb: (f32, f32, f32),
-        alpha: f32,
-    ) -> Result<DecayZoneElement, Box<dyn Error>> {
-        self.ensure_resources(renderer)?;
-        let id = self.ids.for_output(output).id(NodeSlot::DecayZone);
-        let resources = self.resources.as_ref().expect("ensured above");
-
-        let (rx, ry) = (radii.0.max(1.0), radii.1.max(1.0));
-        // Pad by the dash thickness so antialiasing at the outer edge is not
-        // clipped by the element's own bounds.
-        let pad = DECAY_ZONE_THICKNESS + 1.0;
-        let half_w = rx + pad;
-        let half_h = ry + pad;
-        let destination = Rectangle::<i32, Physical>::new(
-            (
-                (center.0 - half_w).round() as i32,
-                (center.1 - half_h).round() as i32,
-            )
-                .into(),
-            ((half_w * 2.0).round() as i32, (half_h * 2.0).round() as i32).into(),
-        );
-        let source = Rectangle::<f64, Logical>::new(
-            (0.0, 0.0).into(),
-            (
-                resources.texture.size().w as f64,
-                resources.texture.size().h as f64,
-            )
-                .into(),
-        );
-        let base = TextureRenderElement::from_static_texture(
-            id,
-            resources.context.clone(),
-            destination.loc.to_f64(),
-            resources.texture.clone(),
-            1,
-            Transform::Normal,
-            Some(alpha.clamp(0.0, 1.0)),
-            Some(source),
-            Some(destination.size.to_logical(1)),
-            None,
-            Kind::Unspecified,
-        );
-        Ok(DecayZoneElement {
-            base,
-            texture: resources.texture.clone(),
-            program: resources.decay_zone.clone(),
-            color: (rgb.0, rgb.1, rgb.2, 1.0),
-            size: (destination.size.w as f32, destination.size.h as f32),
-            radii: (rx, ry),
-            dash_period: ellipse_perimeter(rx, ry) / DECAY_ZONE_SEGMENTS,
-            commit: decay_zone_commit(
-                destination,
-                (rgb.0, rgb.1, rgb.2, 1.0),
-                (rx, ry),
-                ellipse_perimeter(rx, ry) / DECAY_ZONE_SEGMENTS,
-            ),
-        })
-    }
-
     pub fn app_icon_element(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -842,17 +657,6 @@ impl NodeRenderer {
         let label_square = renderer.compile_custom_texture_shader(LABEL_SQUARE, &label_uniforms)?;
         let label_rounded =
             renderer.compile_custom_texture_shader(LABEL_ROUNDED, &label_uniforms)?;
-        let decay_zone = renderer.compile_custom_texture_shader(
-            DECAY_ZONE,
-            &[
-                UniformName::new("ring_color", UniformType::_4f),
-                UniformName::new("rect_size", UniformType::_2f),
-                UniformName::new("radii", UniformType::_2f),
-                UniformName::new("thickness", UniformType::_1f),
-                UniformName::new("dash_period", UniformType::_1f),
-                UniformName::new("dash_length", UniformType::_1f),
-            ],
-        )?;
         let dashed_outline = renderer.compile_custom_texture_shader(
             DASHED_OUTLINE,
             &[
@@ -870,7 +674,6 @@ impl NodeRenderer {
             squircle,
             label_square,
             label_rounded,
-            decay_zone,
             dashed_outline,
         });
         Ok(())
