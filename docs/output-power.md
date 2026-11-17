@@ -24,6 +24,12 @@ scale, transform, position, logical membership, and window placement. It does
 not disable or remove the output through output management. No idle timeout,
 new persistent display setting, or separate power policy is introduced.
 
+`halleyctl dpms off` and `toggle` wait until no key is held, for one second at
+most, before turning displays off. Run from a terminal, the Enter that ran the
+command is otherwise still held while the displays power down; its release
+then counts as input and wakes them straight back up. Protocol requests and
+`halleyctl dpms on` apply immediately.
+
 Each control immediately receives its current `on` or `off` mode. Existing
 controls receive subsequent effective changes, whether initiated through this
 protocol, Halley's IPC, or input wake. Multiple controls may observe and change

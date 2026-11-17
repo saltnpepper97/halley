@@ -124,6 +124,7 @@ pub struct Session<D: SessionDriver> {
     #[allow(dead_code)]
     pub(super) presentation_state: PresentationState,
     pub(super) commit_timing: super::commit_timing::Policy<D>,
+    pub(super) dpms_requests: super::output_power::Requests<D>,
     pub(super) drm_syncobj_state: Option<DrmSyncobjState>,
     pub session_lock: crate::wayland::session_lock::State,
     pub start_time: std::time::Instant,

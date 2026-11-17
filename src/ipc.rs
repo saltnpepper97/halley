@@ -761,15 +761,17 @@ pub fn handle_request<D: crate::session::SessionDriver>(
                 .map(|path| path.to_string_lossy().into_owned()),
         ),
         halley_ipc::Request::Dpms { command, output } => {
-            let result = app.driver.apply_dpms(command, output.as_deref());
-            app.sync_output_power();
-            match result {
-                Ok(()) => {
-                    crate::wayland::session_lock::confirm_unlit_outputs(app);
-                    halley_ipc::Response::Ack
-                }
-                Err(message) => typed_api_response(halley_ipc::Response::Error(message)),
-            }
+            app.request_dpms(command, output, move |app, result| {
+                let response = match result {
+                    Ok(()) => {
+                        crate::wayland::session_lock::confirm_unlit_outputs(app);
+                        halley_ipc::Response::Ack
+                    }
+                    Err(message) => typed_api_response(halley_ipc::Response::Error(message)),
+                };
+                let _ = reply.send(response, Vec::new());
+            });
+            return;
         }
         halley_ipc::Request::Cluster(request) => {
             typed_api_response(crate::clusters::handle_request(app, request))
