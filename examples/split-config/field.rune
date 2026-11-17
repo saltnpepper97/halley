@@ -36,10 +36,9 @@ placement:
 end
 
 decay:
-  enabled true
-  # Match the conservative delays in the freshly generated config.
-  outside-delay-seconds 600
-  inside-delay-seconds 5400
+  # Off by default. When enabled, only windows entirely off screen collapse.
+  enabled false
+  delay-seconds 600
 end
 
 trail:

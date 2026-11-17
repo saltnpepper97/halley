@@ -143,7 +143,7 @@ Finding a window again comes down to four questions:
 |---|---|
 | **Field** | An infinite, zoomable 2D canvas with an independent camera on each monitor. |
 | **Node** | A window collapsed into a small marker that keeps its place on the Field. It is still running. |
-| **Decay** | Timers that collapse windows you have stopped using into nodes. |
+| **Decay** | An optional timer that collapses windows left off screen into nodes. |
 | **Pin** | Exempts a window from decay. You can still collapse and restore it yourself. |
 | **Arrange** | Lays out the visible windows without overlap, and puts them back when pressed again. |
 | **Cluster** | An optional named group of windows that opens into its own tiling or stacking workspace. |
@@ -163,8 +163,8 @@ maximize state, and decay policy.
   others.
 - **Free overlap** — normal active windows overlap by default instead of being
   forced through a global no-overlap solver.
-- **Decay and pins** — windows you stop using collapse into nodes after a
-  timer; pinned windows never decay.
+- **Decay and pins** — optionally, windows left off screen collapse into
+  nodes after a timer; pinned windows never decay.
 - **Move or carry** — Mod+drag crosses monitor boundaries, while
   Mod+Shift+drag dwells at an edge to carry the window through its current
   output's Field.
@@ -280,7 +280,7 @@ halleyctl portal status
 - [Older configuration and action spellings](docs/older-spellings.md)
 - [Compositor API](docs/api.md)
 - [Field behavior, maximize, zoom, and close succession](docs/field.md)
-- [Nodes, decay, decay zones, landmarks, and physics](docs/nodes.md)
+- [Nodes, decay, landmarks, and physics](docs/nodes.md)
 - [Bearings](docs/bearings.md)
 - [Zoom to fit](docs/zoom-fit.md)
 - [Alt+Tab](docs/alt-tab.md)

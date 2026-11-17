@@ -1011,7 +1011,6 @@ pub fn tick_decay<D: crate::session::SessionDriver>(
                     x: output_geometry.size.w as f32 / scale,
                     y: output_geometry.size.h as f32 / scale,
                 },
-                scale,
             },
         );
     }

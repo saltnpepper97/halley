@@ -10,7 +10,6 @@ pub(super) struct NodeElementContext<'a> {
     pub(super) pins: &'a halley_config::Pins,
     pub(super) overlays: &'a halley_config::Overlays,
     pub(super) pin_renderer: &'a mut crate::render::pin::PinRenderer,
-    pub(super) debug: halley_config::Debug,
     pub(super) shadow_config: halley_config::ShadowLayer,
     pub(super) shadow_renderer: &'a mut crate::render::effects::shadow::ShadowRenderer,
     pub(super) now: std::time::Duration,
@@ -23,7 +22,7 @@ pub(super) fn node_elements(
     node_renderer: &mut crate::render::node::NodeRenderer,
     ui_text: &mut crate::render::text::UiTextRenderer,
     context: NodeElementContext<'_>,
-) -> Result<NodeScene, Box<dyn Error>> {
+) -> Result<Vec<StackGroup>, Box<dyn Error>> {
     let NodeElementContext {
         output,
         output_geometry,
@@ -34,17 +33,14 @@ pub(super) fn node_elements(
         pins,
         overlays,
         pin_renderer,
-        debug,
         shadow_config,
         shadow_renderer,
         now,
         hidden,
     } = context;
     let Some(camera) = cameras.get(&output.name()) else {
-        return Ok(NodeScene::default());
+        return Ok(Vec::new());
     };
-    let focused = nodes.config().border_color_highlighted;
-    let mut overlay = Vec::new();
 
     // Resolve node icons while their windows are still live. Otherwise the
     // first decay starts the asynchronous load only after the node appears;
@@ -58,26 +54,6 @@ pub(super) fn node_elements(
         }) {
             node_renderer.request_app_icon(renderer, app_id);
         }
-    }
-
-    // The zone is measured in screen pixels, so it is drawn at the same size
-    // at every zoom level. Without a configured zone the screen edge is the
-    // boundary, which needs no outline.
-    if (debug.show_decay_zone || nodes.decay_zone_is_previewed(&output.name(), now))
-        && let Some(zone) = nodes.decay_zone_for_output(&output.name())
-    {
-        let center = (
-            output_geometry.size.w as f32 / 2.0 + zone.offset_x,
-            output_geometry.size.h as f32 / 2.0 + zone.offset_y,
-        );
-        overlay.push(SceneElement::DecayZone(node_renderer.decay_zone_element(
-            renderer,
-            &output.name(),
-            center,
-            (zone.radius_x, zone.radius_y),
-            (focused.r, focused.g, focused.b),
-            0.82,
-        )?));
     }
 
     let mut records = nodes
@@ -235,13 +211,7 @@ pub(super) fn node_elements(
             elements,
         });
     }
-    Ok(NodeScene { overlay, groups })
-}
-
-#[derive(Default)]
-pub(super) struct NodeScene {
-    pub(super) overlay: Vec<SceneElement>,
-    pub(super) groups: Vec<StackGroup>,
+    Ok(groups)
 }
 
 pub(crate) struct LandmarkLabel<'a> {

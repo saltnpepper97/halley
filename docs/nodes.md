@@ -1,4 +1,4 @@
-# Nodes, decay, and the decay zone
+# Nodes and decay
 
 Every managed XDG toplevel and normal Xwayland window has one stable node ID
 for its lifetime. An active node is a normal window in the compositor space. A
@@ -14,8 +14,8 @@ depth instead of jumping to a global node overlay.
 
 Collapse and restore are the deliberate half of the Field loop: `Mod+N`
 collapses the focused window on purpose, and one click on the collapsed marker
-brings it back. [Automatic decay](#automatic-decay) is the separate conservative
-half, and it only reaches work you genuinely left behind.
+brings it back. [Automatic decay](#automatic-decay) is the separate, opt-in
+half, and it only reaches windows you have left off screen.
 
 Click a collapsed marker once to restore and focus its window. This is one
 atomic action: Halley does not first center the camera, leave the marker
@@ -68,24 +68,21 @@ IPC restores follow the setting exactly. Moving or restoring a node does not cha
 
 ## Automatic decay
 
-An unfocused active window becomes a node after its eligibility timer expires:
+Automatic decay is off by default. Turn it on and an unfocused window you have
+left entirely off screen becomes a node after a delay:
 
 ```rune
 decay:
   enabled true
-  outside-delay-seconds 600
-  inside-delay-seconds 5400
+  delay-seconds 600
 end
 ```
 
-`outside-delay-seconds` counts from the moment a window becomes ineligible
-while it is off screen; `inside-delay-seconds` counts the same way for a window
-you can still see. A window is off screen when at least 90% of it lies outside
-what its monitor currently shows, so zooming out keeps every visible window on
-the longer delay. The defaults are 10 minutes and
-90 minutes, so genuinely abandoned work survives an ordinary interruption. They
-apply both to a newly generated configuration and to one that omits the
-`decay:` section; an existing configuration keeps the values it states.
+`delay-seconds` counts from the moment a window is entirely outside what its
+monitor currently shows; the default is 10 minutes. A window with any part on
+screen, at any zoom level, never decays, and bringing it back into view starts its
+timer again. A window on a monitor that has been
+disconnected counts as off screen.
 
 The first automatic collapse explains itself once, in a non-modal notice:
 `<Application> was collapsed into a node. It's still running. Click here to
@@ -103,53 +100,13 @@ triggers the notice.
 There is no active-window count cap. Pinned windows, focused windows, fullscreen or
 fullscreen-pending windows, field-maximized windows, windows waiting to be put
 back by Arrange, and windows in an interactive move/resize grab are hard-protected
-from decay. Putting arranged windows back starts a fresh timer for each still-eligible
-window. Unpinning also starts a fresh timer; manually collapsing a pinned window
-remains available. Changing between protected, on-screen, and off-screen status starts
-a fresh timer; stale time from an earlier status is never reused.
+from decay. Putting arranged windows back starts a fresh timer for each window
+still off screen. Unpinning also starts a fresh timer; manually collapsing a
+pinned window remains available. Changing between protected, on-screen, and
+off-screen status starts a fresh timer; stale time from an earlier status is
+never reused.
 
 Moving a window to another output starts a fresh eligibility timer.
-
-### Decay zone (advanced)
-
-Most setups never need this. To make only part of a monitor count as on
-screen, give that connector's `view.output` entry a `decay-zone:` ellipse. A
-window then takes the shorter delay once 90% of it is outside the ellipse,
-instead of outside the screen. The zone is measured in screen pixels from the
-centre of the monitor, so it covers the same part of the screen at every zoom
-level. An entry may contain both hardware settings and a decay zone, or only a
-decay zone:
-
-```rune
-view:
-  output:
-    name "DP-1"
-    decay-zone:
-      radius-x 820.0
-      radius-y 420.0
-      offset-x 0.0
-      offset-y 0.0
-    end
-  end
-end
-```
-
-Omitted fields use the values shown. Monitors without a `decay-zone:` use the
-screen edge. Changing one output's zone starts fresh timers only for windows on
-that output. Top-level `decay-zone:` and `output:` blocks are rejected; both
-belong under `view:`. Configs written before this setting was renamed may still
-say `focus-ring:`, which works the same way.
-
-A configured zone is normally hidden. Saving a change previews it briefly;
-`debug.show-decay-zone true` keeps it visible:
-
-```rune
-debug:
-  show-decay-zone false
-  # Keeps unlocked outputs repainting continuously while enabled.
-  overlay-fps false
-end
-```
 
 ## Appearance
 

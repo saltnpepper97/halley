@@ -66,7 +66,7 @@ pub(super) fn append(
         elements.extend(hover_preview);
     }
 
-    let node_scene = node_elements(
+    let node_groups = node_elements(
         renderer,
         request.resources.node_renderer,
         request.resources.ui_text,
@@ -80,14 +80,12 @@ pub(super) fn append(
             pins: request.visuals.pins,
             overlays: request.overlays.overlay_config,
             pin_renderer: request.resources.pin_renderer,
-            debug: request.visuals.debug,
             shadow_config: request.visuals.shadows.node,
             shadow_renderer: request.resources.shadow_renderer,
             now: request.frame.target_presentation_time,
             hidden: &hidden,
         },
     )?;
-    elements.extend(node_scene.overlay);
 
     let mut stack = close_stack::stack_groups(
         renderer,
@@ -104,7 +102,7 @@ pub(super) fn append(
             redact: privacy.redact_cached_windows(),
         },
     )?;
-    stack.extend(node_scene.groups);
+    stack.extend(node_groups);
     let cluster_scene = cluster_elements(
         renderer,
         request.resources.cluster_renderer,

@@ -73,9 +73,9 @@ pub use keybinds::{
 };
 pub use launch::{Autostart, LaunchConfigError, StartupCluster, parse_autostart, parse_env};
 pub use nodes::{
-    Debug, Decay, DecayZone, DecayZones, LandmarkPlacement, NodeBackgroundColor, NodeDisplayPolicy,
-    NodeParseError, NodeShape, Nodes, RestoreCentering, parse_debug, parse_decay,
-    parse_landmark_placement, parse_nodes, parse_nodes_checked,
+    Debug, Decay, LandmarkPlacement, NodeBackgroundColor, NodeDisplayPolicy, NodeParseError,
+    NodeShape, Nodes, RestoreCentering, parse_debug, parse_decay, parse_landmark_placement,
+    parse_nodes, parse_nodes_checked,
 };
 pub use output::{OutputConfig, Vrr};
 pub use overlays::{

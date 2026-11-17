@@ -71,8 +71,8 @@ pub(crate) fn is_hardware_field(key: &str) -> bool {
 }
 
 /// Parses only the hardware portion of a `view.output` entry. `None` means
-/// the entry intentionally contains policy (such as a decay zone) without a
-/// hardware override, so applying it must not trigger a modeset.
+/// the entry sets no hardware override, so applying it must not trigger a
+/// modeset.
 pub(crate) fn parse_hardware_output(
     name: &str,
     fields: &[ObjectItem],

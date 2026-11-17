@@ -83,7 +83,6 @@ render_elements! {
     Node=super::node::NodeRenderElement,
     NodeLabel=super::node::LabelRenderElement,
     NodeTexture=super::node::NodeTextureElement,
-    DecayZone=super::node::DecayZoneElement,
     DashedOutline=super::node::DashedOutlineElement,
     UiText=super::text::UiTextElement,
     BackdropBlur=super::effects::backdrop_blur::BackdropBlurElement,

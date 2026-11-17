@@ -160,7 +160,6 @@ pub struct NodesState {
     configured_nodes: halley_config::Nodes,
     system_color_scheme: halley_config::SystemColorScheme,
     decay_config: halley_config::Decay,
-    decay_zones: halley_config::DecayZones,
     landmarks: halley_config::LandmarkPlacement,
     physics: halley_config::Physics,
     animation: halley_config::NodeAnimation,
@@ -175,7 +174,6 @@ pub struct NodesState {
     physics_velocity: HashMap<NodeId, Vec2>,
     physics_last_tick: Duration,
     release_locks: HashMap<NodeId, Duration>,
-    zone_preview_until: HashMap<String, Duration>,
     /// Positions a landmark held before camera zoom displaced it. Zooming back
     /// in may return the landmark home; any physical or explicit move rebases
     /// the position permanently. Runtime-only: never configured, sent over IPC,
@@ -239,7 +237,6 @@ impl NodesState {
             configured_nodes: config.nodes,
             system_color_scheme,
             decay_config: config.decay,
-            decay_zones: config.decay_zones.clone(),
             landmarks: halley_config::LandmarkPlacement {
                 gap_px: config.field.gap,
             },
@@ -256,38 +253,16 @@ impl NodesState {
             physics_velocity: HashMap::new(),
             physics_last_tick: crate::frame_clock::monotonic_now(),
             release_locks: HashMap::new(),
-            zone_preview_until: HashMap::new(),
             zoom_homes: HashMap::new(),
         }
     }
 
     pub fn reload(&mut self, config: &halley_config::RuntimeConfig, now: Duration) -> bool {
-        let zone_changed = self.decay_zones != config.decay_zones;
-        let configured_outputs = self
-            .records
-            .values()
-            .map(|record| record.output.clone())
-            .chain(self.decay_zones.by_output.keys().cloned())
-            .chain(config.decay_zones.by_output.keys().cloned())
-            .collect::<HashSet<_>>();
-        let changed_zone_outputs = configured_outputs
-            .into_iter()
-            .filter(|output| {
-                self.decay_zones.for_output(output) != config.decay_zones.for_output(output)
-            })
-            .collect::<HashSet<_>>();
         let resolved_nodes = config.nodes.resolved_for_system(self.system_color_scheme);
-        let redraw = zone_changed
-            || self.config != resolved_nodes
+        let redraw = self.config != resolved_nodes
             || self.configured_nodes != config.nodes
             || self.animation != config.animations.node
             || self.animations_enabled != config.animations.enabled;
-        if zone_changed {
-            let until = now.saturating_add(Duration::from_millis(1_500));
-            for output in &changed_zone_outputs {
-                self.zone_preview_until.insert(output.clone(), until);
-            }
-        }
         let next_landmarks = halley_config::LandmarkPlacement {
             gap_px: config.field.gap,
         };
@@ -300,21 +275,10 @@ impl NodesState {
         }
         if self.decay_config != config.decay {
             self.decay.reset();
-        } else if zone_changed {
-            let changed_ids = self
-                .records
-                .values()
-                .filter(|record| changed_zone_outputs.contains(&record.output))
-                .map(|record| record.id)
-                .collect::<Vec<_>>();
-            for id in changed_ids {
-                self.decay.remove(id);
-            }
         }
         self.config = resolved_nodes;
         self.configured_nodes = config.nodes;
         self.decay_config = config.decay;
-        self.decay_zones = config.decay_zones.clone();
         self.landmarks = next_landmarks;
         self.physics = config.physics;
         self.animation = config.animations.node;
@@ -373,16 +337,6 @@ impl NodesState {
 
     pub fn hovered(&self) -> Option<NodeId> {
         self.hovered
-    }
-
-    pub fn decay_zone_for_output(&self, output: &str) -> Option<halley_config::DecayZone> {
-        self.decay_zones.for_output(output)
-    }
-
-    pub fn decay_zone_is_previewed(&self, output: &str, now: Duration) -> bool {
-        self.zone_preview_until
-            .get(output)
-            .is_some_and(|until| now < *until)
     }
 
     pub fn register_mapped(&mut self, space: &Space<Window>, surface: &WlSurface, now_ms: u64) {
@@ -895,11 +849,7 @@ impl NodesState {
             return Vec::new();
         }
         let policy = TimedDecayPolicy {
-            inside_ms: self.decay_config.inside_delay_seconds.saturating_mul(1_000),
-            outside_ms: self
-                .decay_config
-                .outside_delay_seconds
-                .saturating_mul(1_000),
+            delay_ms: self.decay_config.delay_seconds.saturating_mul(1_000),
         };
         let records = self.records.values().cloned().collect::<Vec<_>>();
         let mut ready = Vec::new();
@@ -920,7 +870,6 @@ impl NodesState {
                 let node = self.field.node(record.id).expect("record has field node");
                 visibility::classify(
                     views.get(&record.output).copied(),
-                    self.decay_zones.for_output(&record.output),
                     node.pos,
                     node.intrinsic_size,
                 )

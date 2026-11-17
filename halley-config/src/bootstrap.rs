@@ -180,8 +180,8 @@ mod tests {
         );
 
         let runtime = crate::load_runtime_config_at(&config_file).expect("existing config loads");
-        assert_eq!(runtime.decay.outside_delay_seconds, 45);
-        assert_eq!(runtime.decay.inside_delay_seconds, 90);
+        assert!(runtime.decay.enabled);
+        assert_eq!(runtime.decay.delay_seconds, 45);
     }
 
     /// The generated config and the built-in defaults describe the same
@@ -235,8 +235,6 @@ mod tests {
             effects,
             debug,
         );
-        // Decay zones are per monitor and opt-in, so the defaults set none.
-        same!(decay_zones);
         assert!(
             drift.is_empty(),
             "generated config and built-in defaults differ:\n{}",

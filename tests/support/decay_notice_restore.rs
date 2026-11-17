@@ -18,7 +18,7 @@ fn notice_rect(state: &Value, target: u64) -> Option<[i64; 4]> {
 #[ignore = "requires Wayland, XWayland and HALLEY_TEST_WINIT_SERVER"]
 fn clicking_the_decay_notice_restores_and_focuses_the_collapsed_window() {
     let mut fixture = Fixture::with_two_outputs(
-        "animations:\n enabled false\nend\ndecay:\n outside-delay-seconds 2\n inside-delay-seconds 2\nend\n",
+        "animations:\n enabled false\nend\ndecay:\n enabled true\n delay-seconds 2\nend\n",
     );
     let input = Input::new(&fixture);
     let (mut queue_b, mut client_b) = native_window_named(
@@ -33,6 +33,12 @@ fn clicking_the_decay_notice_restores_and_focuses_the_collapsed_window() {
         "halley.test.decay-notice-a",
         [u32::MAX, 0, 0, u32::MAX],
     );
+    let (mut queue_c, mut client_c) = native_window_named(
+        &fixture,
+        "Decay notice C",
+        "halley.test.decay-notice-c",
+        [0, 0, u32::MAX, u32::MAX],
+    );
     let a = fixture.node("Decay notice A").id;
     let b = fixture.node("Decay notice B").id;
     fixture.ack(Request::Node(NodeRequest::Focus {
@@ -40,16 +46,39 @@ fn clicking_the_decay_notice_restores_and_focuses_the_collapsed_window() {
         output: None,
     }));
 
-    // B is unfocused, so automatic decay collapses it and explains itself.
+    // Only windows entirely off screen decay, so send B far past the edge.
+    let snapshot = input.state();
+    let viewport = snapshot["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|window| window["id"] == b)
+        .map(|window| window["viewport"].clone())
+        .unwrap();
+    fixture.ack(Request::Node(NodeRequest::MoveTo {
+        x: viewport[0].as_i64().unwrap() as i32 + 20_000,
+        y: viewport[1].as_i64().unwrap() as i32,
+        selector: Some(NodeSelector::Id(b)),
+        output: None,
+    }));
+
+    // B is unfocused and off screen, so automatic decay collapses it and
+    // explains itself.
     let rect = wait_for("decay notice for B", || {
         queue_a.roundtrip(&mut client_a).unwrap();
         queue_b.roundtrip(&mut client_b).unwrap();
+        queue_c.roundtrip(&mut client_c).unwrap();
         (fixture.node("Decay notice B").state == halley_ipc::NodeState::Node)
             .then(|| notice_rect(&input.state(), b))
             .flatten()
     });
     let a_before = fixture.node("Decay notice A");
     assert!(a_before.focused, "A keeps focus while B decays");
+    assert_ne!(
+        fixture.node("Decay notice C").state,
+        halley_ipc::NodeState::Node,
+        "C is unfocused but on screen, so it never decays"
+    );
 
     input.motion(
         (rect[0] + rect[2] / 2) as f64,
