@@ -7,6 +7,7 @@ mod dmabuf;
 mod gamma;
 mod output;
 mod presentation;
+mod wake;
 
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -277,6 +278,8 @@ struct DrmOutputEntry {
     dpms_enabled: bool,
     enabled: bool,
     gamma: gamma::GammaState,
+    /// Temporary amdgpu workaround: see [`wake`].
+    wake: wake::WakeProgress,
     // Retained composition belongs to this output's lifetime, not its name.
     composed_frame: Option<ComposedFrame<smithay::backend::renderer::gles::GlesTexture>>,
 }
@@ -538,6 +541,7 @@ impl TtyBackend {
                                 vrr_active,
                                 vrr_failure_warned_for: None,
                                 direct_scanout_active: None,
+                                wake: wake::WakeProgress::default(),
                                 output,
                                 drm_output,
                                 dmabuf_feedback: None,
@@ -918,6 +922,7 @@ impl TtyBackend {
                 configured_vrr_target(entry.configured_vrr, false, entry.vrr_support);
             set_entry_vrr(entry, requested_vrr);
             entry.pending = false;
+            entry.wake.reset();
         }
 
         if let Some(error) = failure {
@@ -952,6 +957,7 @@ impl TtyBackend {
                 entry.enabled = enabled;
                 set_entry_vrr(entry, configured_vrr_target(vrr, false, entry.vrr_support));
                 entry.pending = false;
+                entry.wake.reset();
             }
             if rollback_errors.is_empty() {
                 return Err(error);
@@ -1084,6 +1090,11 @@ impl TtyBackend {
             }
             entry.dpms_enabled = target_enabled;
             entry.pending = false;
+            if target_enabled {
+                entry.wake.woken(std::time::Instant::now());
+            } else {
+                entry.wake.reset();
+            }
             changes.push(AppliedDpmsChange {
                 output: entry.output.clone(),
             });
@@ -1394,6 +1405,7 @@ impl TtyBackend {
             entry.discard_deferred_frame();
             entry.composed_frame = None;
             entry.pending = false;
+            entry.wake.reset();
             entry.direct_scanout_active = None;
             entry.vrr_failure_warned_for = None;
             // The manager activation above refreshes each compositor's KMS
@@ -1484,6 +1496,7 @@ impl TtyBackend {
             // first so an acknowledgement error cannot wedge this output
             // permanently in `pending`.
             entry.pending = false;
+            entry.wake.vblank();
             return entry.drm_output.frame_submitted().map_err(Into::into);
         }
         Ok(None)
@@ -1568,6 +1581,24 @@ impl Renderable for TtyBackend {
         // render, so skipping here does not lose scene changes.
         if self.drm_outputs[entry_index].pending {
             return Ok(RenderOutcome::new(RenderStatus::Skipped, None));
+        }
+        // Temporary amdgpu workaround (see `wake`): bring woken outputs up
+        // one at a time.
+        let wakes: Vec<_> = self.drm_outputs.iter().map(|entry| entry.wake).collect();
+        if let Some(earlier) = wake::held_by(&wakes, entry_index, std::time::Instant::now()) {
+            eventline::debug!(
+                "tty dpms: {:?} waits for {:?} to finish waking (drm/amd#3504 workaround)",
+                output.name(),
+                self.drm_outputs[earlier].output.name()
+            );
+            return Ok(RenderOutcome::new(RenderStatus::Skipped, None).requiring_redraw());
+        }
+        if self.drm_outputs[entry_index].wake.owes_flip() {
+            // The ordinary flip the next output waits for must not be
+            // skipped as an empty frame.
+            self.drm_outputs[entry_index]
+                .drm_output
+                .with_compositor(|compositor| compositor.reset_buffer_ages());
         }
         let entry = &mut self.drm_outputs[entry_index];
         if let Some(frame) = entry.deferred_frame.as_ref() {
@@ -1790,10 +1821,13 @@ impl Renderable for TtyBackend {
             return Ok(RenderOutcome::new(RenderStatus::Skipped, None).requiring_redraw());
         }
         entry.submit_frame(submission, direct_scanout)?;
-        Ok(RenderOutcome::new(
-            RenderStatus::Submitted,
-            Some(element_states),
-        ))
+        let outcome = RenderOutcome::new(RenderStatus::Submitted, Some(element_states));
+        // A wake modeset owes one ordinary flip right after it.
+        Ok(if entry.wake.owes_flip() {
+            outcome.requiring_redraw()
+        } else {
+            outcome
+        })
     }
 }
 
@@ -1817,6 +1851,7 @@ impl DrmOutputEntry {
             return Err(err.into());
         }
         self.pending = true;
+        self.wake.submitted();
         set_entry_direct_scanout(self, direct_scanout);
         Ok(())
     }

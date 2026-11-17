@@ -30,6 +30,17 @@ command is otherwise still held while the displays power down; its release
 then counts as input and wakes them straight back up. Protocol requests and
 `halleyctl dpms on` apply immediately.
 
+### Temporary AMD wake workaround
+
+When a wake turns on more than one display, Halley brings them up one at a
+time: each display waits until the one before it has come on and shown one
+ordinary frame, which takes a few milliseconds. This works around an amdgpu
+bug ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
+where, on RDNA3 cards, the second display's power-on otherwise hangs in the
+kernel for about 25 seconds and freezes the desktop. It is not a fix: it
+will be removed once AMD fixes the driver. A display never waits more than
+one second for the one before it.
+
 Each control immediately receives its current `on` or `off` mode. Existing
 controls receive subsequent effective changes, whether initiated through this
 protocol, Halley's IPC, or input wake. Multiple controls may observe and change
