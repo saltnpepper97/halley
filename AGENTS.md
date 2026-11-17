@@ -89,7 +89,12 @@ on them as if they were design.
   in [drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504):
   a second display's wake modeset hangs ~25 s unless the first display has
   completed an ordinary commit in between. Captures from 2026-11-16 show it
-  on an RX 7900 XTX.
+  on an RX 7900 XTX. Cause, per that issue: a DC bandwidth optimisation left
+  pending by the first display's update stalls the SMU clock requests of the
+  next stream commit; the ordinary flip lets DC finish it first. Remove the
+  workaround once amdgpu finishes pending optimisation before stream commits
+  (the proposed `dc_post_update_surfaces_to_stream()` call at the start of
+  `dc_commit_streams()`, or an equivalent).
 
 ### Testing
 Run the local CI checks before merging: the Smithay source guard,

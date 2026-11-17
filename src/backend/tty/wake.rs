@@ -10,8 +10,20 @@
 //! wake modeset waits until every earlier woken output has made its wake
 //! modeset and one ordinary page flip that reached VBlank.
 //!
-//! The real fix belongs in amdgpu. Remove this module, and the calls that
-//! drive it, once that bug is fixed upstream.
+//! Why it works, per the analysis in that issue: an update can leave a DC
+//! bandwidth optimisation pending (on DCN32, restoring stutter policy and
+//! SDP-port control), which DC normally finishes on that CRTC's next update.
+//! A stream commit that arrives first requests clocks with it still pending,
+//! and the SMU messages in `dcn32_update_clocks` stall for seconds each. The
+//! ordinary flip is that next update. It must have reached VBlank because
+//! DC skips the optimisation while a flip is pending. A property set the
+//! kernel treats as a no-op does not count.
+//!
+//! The real fix belongs in amdgpu. A kernel patch proposed in that issue
+//! calls `dc_post_update_surfaces_to_stream()` at the start of
+//! `dc_commit_streams()`, finishing the pending optimisation before the clock
+//! requests. Remove this module, and the calls that drive it, once amdgpu
+//! carries that or an equivalent fix.
 
 use std::time::{Duration, Instant};
 

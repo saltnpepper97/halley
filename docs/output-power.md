@@ -37,8 +37,12 @@ time: each display waits until the one before it has come on and shown one
 ordinary frame, which takes a few milliseconds. This works around an amdgpu
 bug ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
 where, on RDNA3 cards, the second display's power-on otherwise hangs in the
-kernel for about 25 seconds and freezes the desktop. It is not a fix: it
-will be removed once AMD fixes the driver. A display never waits more than
+kernel for about 25 seconds and freezes the desktop. The driver leaves a
+bandwidth clean-up pending after the first display's update, and the second
+display's power-on then waits on the GPU's clock firmware; the ordinary frame
+lets the driver finish the clean-up first. It is not a fix: it will be
+removed once AMD fixes the driver, for which a kernel patch is proposed in
+that issue. A display never waits more than
 one second for the one before it.
 
 Each control immediately receives its current `on` or `off` mode. Existing
