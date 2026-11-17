@@ -496,6 +496,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
         idle_service: None,
         presentation_state,
         commit_timing: super::commit_timing::Policy::new(event_loop.handle()),
+        dpms_requests: super::output_power::Requests::new(event_loop.handle()),
         drm_syncobj_state,
         session_lock,
         start_time: Instant::now(),

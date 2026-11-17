@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Make `halleyctl dpms off` (and `toggle`) keep the displays off when run
+  from a terminal. It now waits, for one second at most, until no key is
+  held: the release of the Enter that ran it used to arrive after the
+  displays powered down and wake them straight back up, and the stall while
+  they powered down made the terminal repeat Enter.
 - Make compositor close requests such as Mod+Q dismiss secondary Steam windows
   immediately, matching their close button. Transfer input focus while Steam
   finishes closing, and reveal the window again if it does not close within
