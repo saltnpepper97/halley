@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Work around an amdgpu bug
+  ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
+  that left the second display dark and froze the desktop for about 25
+  seconds when waking two displays from DPMS. Woken displays now come on
+  one at a time, each after the previous one has shown an ordinary frame.
+  This is a temporary workaround, to be removed once the driver is fixed.
 - Make `halleyctl dpms off` (and `toggle`) keep the displays off when run
   from a terminal. It now waits, for one second at most, until no key is
   held: the release of the Enter that ran it used to arrive after the

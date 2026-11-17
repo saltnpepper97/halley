@@ -81,6 +81,16 @@ it; Halley currently needs a revision newer than Smithay 0.7 for blur support.
   and `debug.show-decay-zone`/`show-focus-ring`. Keep them until then so
   existing configs don't break.
 
+### Temporary workarounds
+These work around bugs elsewhere. They are not fixes: the real fix belongs
+upstream. Remove each one once its upstream bug is fixed, and do not build
+on them as if they were design.
+- One-at-a-time DPMS wake (`src/backend/tty/wake.rs`), for the amdgpu hang
+  in [drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504):
+  a second display's wake modeset hangs ~25 s unless the first display has
+  completed an ordinary commit in between. Captures from 2026-11-16 show it
+  on an RX 7900 XTX.
+
 ### Testing
 Run the local CI checks before merging: the Smithay source guard,
 `cargo fmt --check`, clippy with `-D warnings` for all three feature sets,
