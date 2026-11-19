@@ -47,6 +47,10 @@ struct TtyDriver {
     output_frames: HashMap<Output, OutputFrameState>,
     pause_reasons: PauseReasons,
     pending_output_config: Option<Vec<halley_config::OutputConfig>>,
+    /// A wake-on-input that arrived while the session was paused, applied
+    /// once it resumes: `Some(None)` wakes every output, `Some(Some(name))`
+    /// one output.
+    deferred_wake: Option<Option<String>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -336,9 +340,36 @@ impl TtyDriver {
             }
             Some(target.name())
         };
+        if self.pause_reasons.any() {
+            // The key that wakes the machine from system sleep can arrive
+            // before logind reports the resume. Keep the wake for then
+            // rather than leaving the displays dark until the next input.
+            self.deferred_wake = Some(merged_wake(self.deferred_wake.take(), output));
+            return;
+        }
         if let Err(err) = self.apply_dpms_command(halley_ipc::DpmsCommand::On, output.as_deref()) {
             eventline::warn!("tty dpms: failed to wake on input: {err}");
         }
+    }
+
+    fn apply_deferred_wake(&mut self) {
+        let Some(output) = self.deferred_wake.take() else {
+            return;
+        };
+        eventline::debug!("tty dpms: waking on input received while paused");
+        if let Err(err) = self.apply_dpms_command(halley_ipc::DpmsCommand::On, output.as_deref()) {
+            eventline::warn!("tty dpms: failed to wake on input: {err}");
+        }
+    }
+}
+
+/// Combines wake-on-input requests made while paused: waking every output
+/// covers any single one, and two different outputs both need waking.
+fn merged_wake(pending: Option<Option<String>>, output: Option<String>) -> Option<String> {
+    match (pending, output) {
+        (Some(None), _) | (_, None) => None,
+        (Some(Some(pending)), Some(output)) if pending != output => None,
+        (_, output) => output,
     }
 }
 
@@ -420,6 +451,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
             system_sleep: false,
         },
         pending_output_config: None,
+        deferred_wake: None,
     };
     let mut wayland = TtyApp::create_wayland_state(dh.clone(), &mut driver);
     for output in &outputs {
@@ -787,10 +819,7 @@ pub fn run(explicit_config_path: Option<std::path::PathBuf>) {
                             sync_keyboard_leds(app);
                             super::pointer::recover_after_session_resume(app);
                             if !app.driver.pause_reasons.any() {
-                                if let Some(outputs) = app.driver.pending_output_config.take() {
-                                    apply_tty_output_config(app, &outputs);
-                                }
-                                resume_redraw_state(app);
+                                finish_resume(app);
                             }
                         }
                         Err(err) => eventline::error!("resume failed: {err}"),
@@ -1762,6 +1791,9 @@ fn handle_system_sleep(app: &mut TtyApp, preparing: bool) {
             return;
         }
         eventline::info!("system sleep: preparing");
+        // Input from before the machine went to sleep must not light the
+        // displays when it wakes.
+        app.driver.deferred_wake = None;
         let was_paused = app.driver.pause_reasons.any();
         app.driver.pause_reasons.system_sleep = true;
         if !was_paused {
@@ -1782,11 +1814,20 @@ fn handle_system_sleep(app: &mut TtyApp, preparing: bool) {
     app.driver.backend.recover_after_system_sleep();
     sync_keyboard_leds(app);
     super::pointer::recover_after_session_resume(app);
+    // A delayed subscription can miss PrepareForSleep(true). In that case
+    // request_redraw alone still waits for a pre-sleep flip that may be lost,
+    // so finish_resume recovers every output's redraw state.
+    finish_resume(app);
+}
+
+/// Catches up on what waited for the session to be neither paused by a VT
+/// switch nor asleep.
+fn finish_resume(app: &mut TtyApp) {
     if let Some(outputs) = app.driver.pending_output_config.take() {
         apply_tty_output_config(app, &outputs);
     }
-    // A delayed subscription can miss PrepareForSleep(true). In that case
-    // request_redraw alone still waits for a pre-sleep flip that may be lost.
+    app.driver.apply_deferred_wake();
+    app.sync_output_power();
     resume_redraw_state(app);
 }
 
@@ -1810,6 +1851,7 @@ fn resume_redraw_state(app: &mut TtyApp) {
 mod pause_tests {
     use super::PauseReasons;
     use super::frame::OutputFrameState;
+    use super::merged_wake;
     use std::time::Duration;
 
     #[test]
@@ -1856,5 +1898,16 @@ mod pause_tests {
                 assert!(!off.is_redraw_queued());
             }
         }
+    }
+
+    #[test]
+    fn wakes_deferred_while_paused_cover_every_requested_output() {
+        let one = || Some("DP-1".to_string());
+        assert_eq!(merged_wake(None, one()), one());
+        assert_eq!(merged_wake(Some(one()), one()), one());
+        assert_eq!(merged_wake(None, None), None);
+        assert_eq!(merged_wake(Some(None), one()), None);
+        assert_eq!(merged_wake(Some(one()), None), None);
+        assert_eq!(merged_wake(Some(one()), Some("DP-2".into())), None);
     }
 }

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Wake the displays with the key or click that wakes the machine from
+  sleep. That input could reach Halley just before the system reported the
+  resume; it was dropped, and the displays stayed dark until the next input.
+  Halley now keeps it and wakes the displays as soon as the resume arrives.
 - Work around an amdgpu bug
   ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
   that left the second display dark and froze the desktop for about 25
