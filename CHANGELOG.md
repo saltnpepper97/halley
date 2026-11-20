@@ -4,28 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-- Wake the displays with the key or click that wakes the machine from
-  sleep. That input could reach Halley just before the system reported the
-  resume; it was dropped, and the displays stayed dark until the next input.
-  Halley now keeps it and wakes the displays as soon as the resume arrives.
-- Work around an amdgpu bug
-  ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
-  that left the second display dark and froze the desktop for about 25
-  seconds when waking two displays from DPMS. Woken displays now come on
-  one at a time, each after the previous one has shown an ordinary frame.
-  This is a temporary workaround, to be removed once the driver is fixed.
-- Make `halleyctl dpms off` (and `toggle`) keep the displays off when run
-  from a terminal. It now waits, for one second at most, until no key is
-  held: the release of the Enter that ran it used to arrive after the
-  displays powered down and wake them straight back up, and the stall while
-  they powered down made the terminal repeat Enter.
-- Make compositor close requests such as Mod+Q dismiss secondary Steam windows
-  immediately, matching their close button. Transfer input focus while Steam
-  finishes closing, and reveal the window again if it does not close within
-  two seconds. Steam's main window, games, collapsed nodes, and native Wayland
-  close requests keep their existing behavior.
-
 ### Added
 - Add the optional `halley-surface-dismissal-v1` Wayland interface for clients
   watching their own layer surfaces. Outside left presses are one-shot
@@ -44,6 +22,9 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Start without the "Configuration successfully loaded" notice. Halley now
+  shows a configuration notice at startup only when the configuration fails
+  to load.
 - Remove Lift-specific outside-click handling from compositor input. Lift opts
   into the generic surface interface; update Lift alongside this compositor.
   Retire the old launcher source label without changing private wire slots.
@@ -150,6 +131,26 @@ All notable changes to this project will be documented in this file.
   No behavior change.
 
 ### Fixed
+- Wake the displays with the key or click that wakes the machine from
+  sleep. That input could reach Halley just before the system reported the
+  resume; it was dropped, and the displays stayed dark until the next input.
+  Halley now keeps it and wakes the displays as soon as the resume arrives.
+- Work around an amdgpu bug
+  ([drm/amd#3504](https://gitlab.freedesktop.org/drm/amd/-/issues/3504))
+  that left the second display dark and froze the desktop for about 25
+  seconds when waking two displays from DPMS. Woken displays now come on
+  one at a time, each after the previous one has shown an ordinary frame.
+  This is a temporary workaround, to be removed once the driver is fixed.
+- Make `halleyctl dpms off` (and `toggle`) keep the displays off when run
+  from a terminal. It now waits, for one second at most, until no key is
+  held: the release of the Enter that ran it used to arrive after the
+  displays powered down and wake them straight back up, and the stall while
+  they powered down made the terminal repeat Enter.
+- Make compositor close requests such as Mod+Q dismiss secondary Steam windows
+  immediately, matching their close button. Transfer input focus while Steam
+  finishes closing, and reveal the window again if it does not close within
+  two seconds. Steam's main window, games, collapsed nodes, and native Wayland
+  close requests keep their existing behavior.
 - Show every window of an open cluster in `Alt+Tab`. Windows that were in the
   cluster before you opened it were left out, so only windows opened inside
   it appeared. `Alt+Tab` now lists the open cluster's windows plus what your
