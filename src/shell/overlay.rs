@@ -345,22 +345,6 @@ impl OverlayManager {
         true
     }
 
-    pub fn show_config_success(
-        &mut self,
-        output: String,
-        path: &Path,
-        duration_ms: u64,
-        now: Duration,
-    ) {
-        self.show_notification(
-            output,
-            format!("Configuration successfully loaded from {}", path.display()),
-            NotificationKind::Success,
-            duration_ms,
-            now,
-        );
-    }
-
     pub fn show_config_error(&mut self, output: String, duration_ms: u64, now: Duration) {
         self.show_notification(
             output,
@@ -888,9 +872,9 @@ mod tests {
     #[test]
     fn valid_reload_only_dismisses_an_error() {
         let mut overlays = OverlayManager::default();
-        overlays.show_config_success(
+        overlays.show_screenshot_saved(
             "DP-1".into(),
-            Path::new("/tmp/halley.rune"),
+            Path::new("/tmp/Screenshots"),
             4_000,
             Duration::ZERO,
         );

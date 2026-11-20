@@ -232,23 +232,18 @@ impl<D: SessionDriver> Session<D> {
             .name()
     }
 
+    /// Show the startup configuration notice. A successful load is silent;
+    /// only a configuration that failed to load is reported.
     pub fn initialize_config_notification(&mut self) {
-        let now = crate::frame_clock::monotonic_now();
-        let output = self.notification_output_name();
-        if self.config_source.take_startup_error() {
-            self.shell.overlays.show_config_error(
-                output,
-                self.settings.overlays.notifications.error_duration_ms,
-                now,
-            );
-        } else if let Some(path) = self.config_source.path() {
-            self.shell.overlays.show_config_success(
-                output,
-                path,
-                self.settings.overlays.notifications.success_duration_ms,
-                now,
-            );
+        if !self.config_source.take_startup_error() {
+            return;
         }
+        let output = self.notification_output_name();
+        self.shell.overlays.show_config_error(
+            output,
+            self.settings.overlays.notifications.error_duration_ms,
+            crate::frame_clock::monotonic_now(),
+        );
         self.request_redraw();
     }
 

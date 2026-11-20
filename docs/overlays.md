@@ -197,14 +197,10 @@ the explanation.
 
 ## Configuration lifecycle
 
-On the first successful compositor load, including an explicit
-`halley -c PATH` or `halley --config PATH`, Halley briefly shows:
-
-```text
-Configuration successfully loaded from /absolute/path/to/halley.rune
-```
-
-If any live reload is invalid, every rejected reload shows:
+A configuration that loads successfully at startup, including an explicit
+`halley -c PATH` or `halley --config PATH`, shows no notice. If the
+configuration fails to load at startup, or any live reload is invalid, Halley
+shows:
 
 ```text
 Current configuration was unable to load properly. Run `halleyctl config verify` to see why.

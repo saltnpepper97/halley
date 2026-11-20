@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
   naming the key bound to `cluster-mode`, instead of silently doing nothing.
 
 ### Changed
+- Start without the "Configuration successfully loaded" notice. Halley now
+  shows a configuration notice at startup only when the configuration fails
+  to load.
 - Remove Lift-specific outside-click handling from compositor input. Lift opts
   into the generic surface interface; update Lift alongside this compositor.
   Retire the old launcher source label without changing private wire slots.
